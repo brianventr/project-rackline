@@ -78,6 +78,9 @@ export const warehouses = sqliteTable("warehouses", {
     .references(() => organizations.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   createdAt: integer("created_at").notNull(),
+  mapWidth: integer("map_width").notNull().default(42),
+  mapDepth: integer("map_depth").notNull().default(28),
+  mapHeight: integer("map_height").notNull().default(8),
 });
 
 export const locations = sqliteTable(
@@ -93,8 +96,23 @@ export const locations = sqliteTable(
     code: text("code").notNull(),
     name: text("name").notNull(),
     type: text("type").notNull(),
+    barcode: text("barcode").notNull(),
+    area: text("area").notNull().default("floor"),
+    aisle: text("aisle"),
+    rack: text("rack"),
+    bay: text("bay"),
+    level: integer("level").notNull().default(1),
+    posX: integer("pos_x").notNull().default(0),
+    posY: integer("pos_y").notNull().default(0),
+    posZ: integer("pos_z").notNull().default(0),
+    sizeX: integer("size_x").notNull().default(4),
+    sizeY: integer("size_y").notNull().default(3),
+    sizeZ: integer("size_z").notNull().default(2),
   },
-  (t) => [uniqueIndex("locations_org_wh_code").on(t.organizationId, t.warehouseId, t.code)],
+  (t) => [
+    uniqueIndex("locations_org_wh_code").on(t.organizationId, t.warehouseId, t.code),
+    uniqueIndex("locations_org_barcode").on(t.organizationId, t.barcode),
+  ],
 );
 
 export const items = sqliteTable(

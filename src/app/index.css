@@ -31,3 +31,9 @@ body {
 .tabular {
   font-variant-numeric: tabular-nums;
 }
+
+@media print {
+  body {
+    background: white;
+  }
+}

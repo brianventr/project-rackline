@@ -58,8 +58,70 @@ export type Location = {
   code: string;
   name: string;
   type: string;
+  barcode: string;
+  area: string;
+  aisle: string | null;
+  rack: string | null;
+  bay: string | null;
+  level: number;
+  posX: number;
+  posY: number;
+  posZ: number;
+  sizeX: number;
+  sizeY: number;
+  sizeZ: number;
   warehouseId: string;
-  warehouseName: string;
+  warehouseName?: string;
+};
+
+export type MapContent = {
+  itemId: string;
+  sku: string;
+  itemName: string;
+  itemType: string;
+  qty: number;
+};
+
+export type MapLocation = Location & {
+  unitsOnHand: number;
+  skuCount: number;
+  contents: MapContent[];
+};
+
+export type WarehouseMapInfo = {
+  id: string;
+  name: string;
+  mapWidth: number;
+  mapDepth: number;
+  mapHeight: number;
+};
+
+export type WarehouseMapData = {
+  warehouse: WarehouseMapInfo;
+  warehouses: WarehouseMapInfo[];
+  locations: MapLocation[];
+};
+
+export type ScanLocationHit = {
+  kind: "location";
+  location: Location;
+  contents: MapContent[];
+};
+
+export type ScanItemHit = {
+  kind: "item";
+  item: Item;
+  onHand: { locationId: string; locationCode: string; locationName: string; barcode: string; qty: number }[];
+};
+
+export type ScanHit = ScanLocationHit | ScanItemHit;
+
+export type MoveResult = {
+  ok: true;
+  refId: string;
+  from: { id: string; code: string; name: string; barcode: string };
+  to: { id: string; code: string; name: string; barcode: string };
+  moved: { itemId: string; sku: string; itemName: string; qty: number }[];
 };
 
 export type InventoryRow = {
@@ -72,6 +134,7 @@ export type InventoryRow = {
   locationId: string;
   locationCode: string;
   locationName: string;
+  locationBarcode?: string;
 };
 
 export type Receipt = {

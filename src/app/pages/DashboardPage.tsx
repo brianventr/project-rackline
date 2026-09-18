@@ -29,7 +29,7 @@ export function DashboardPage() {
       <PageHeader
         eyebrow="Bay 00"
         title="Floor board"
-        description="A snapshot of stock, inbound, outbound, and the assembly bench."
+        description="A snapshot of stock, inbound, outbound, and the assembly bench. Use the map to see where every bay sits."
       />
       <ErrorBanner error={error} />
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -62,7 +62,13 @@ export function DashboardPage() {
         <Card>
           <h2 className="mb-3 font-semibold">Floor shortcuts</h2>
           <div className="grid gap-2">
-            <Link className="rounded-lg bg-ink px-4 py-3 text-sm font-semibold text-paper" to="/receipts">
+            <Link className="rounded-lg bg-ink px-4 py-3 text-sm font-semibold text-paper" to="/map">
+              Open rack map
+            </Link>
+            <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/move">
+              Scan-to-move a slot
+            </Link>
+            <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/receipts">
               Post a receipt
             </Link>
             <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/work-orders">

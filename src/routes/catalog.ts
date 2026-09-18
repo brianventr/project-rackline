@@ -3,8 +3,9 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { requireOwner, isItemType, isLocationType, getOrgLocation } from "../lib/org";
-import { badRequest, requireString } from "../lib/http";
+import { badRequest, requireString, optionalInt, optionalString } from "../lib/http";
 import { newId } from "../lib/ids";
+import { suggestPlacement } from "../domain/map-layout";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -44,6 +45,18 @@ catalogRoute.get("/locations", async (c) => {
       code: schema.locations.code,
       name: schema.locations.name,
       type: schema.locations.type,
+      barcode: schema.locations.barcode,
+      area: schema.locations.area,
+      aisle: schema.locations.aisle,
+      rack: schema.locations.rack,
+      bay: schema.locations.bay,
+      level: schema.locations.level,
+      posX: schema.locations.posX,
+      posY: schema.locations.posY,
+      posZ: schema.locations.posZ,
+      sizeX: schema.locations.sizeX,
+      sizeY: schema.locations.sizeY,
+      sizeZ: schema.locations.sizeZ,
       warehouseId: schema.locations.warehouseId,
       warehouseName: schema.warehouses.name,
     })
@@ -60,12 +73,25 @@ catalogRoute.post("/locations", async (c) => {
     code?: string;
     name?: string;
     type?: string;
+    barcode?: string;
+    area?: string;
+    aisle?: string;
+    rack?: string;
+    bay?: string;
+    level?: number;
+    posX?: number;
+    posY?: number;
+    posZ?: number;
+    sizeX?: number;
+    sizeY?: number;
+    sizeZ?: number;
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
   const code = requireString(body.code, "code").toUpperCase();
   const name = requireString(body.name, "name");
   const type = requireString(body.type, "type");
   if (!isLocationType(type)) badRequest("Invalid location type");
+  const barcode = (optionalString(body.barcode) ?? code).toUpperCase();
 
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -75,6 +101,29 @@ catalogRoute.post("/locations", async (c) => {
     .where(and(eq(schema.warehouses.id, warehouseId), eq(schema.warehouses.organizationId, organizationId)))
     .limit(1);
   if (!warehouse) badRequest("Warehouse not found");
+
+  const existing = await db
+    .select()
+    .from(schema.locations)
+    .where(and(eq(schema.locations.organizationId, organizationId), eq(schema.locations.warehouseId, warehouseId)));
+  const placement = suggestPlacement(
+    existing,
+    {
+      type,
+      area: optionalString(body.area),
+      aisle: optionalString(body.aisle),
+      rack: optionalString(body.rack),
+      bay: optionalString(body.bay),
+      level: optionalInt(body.level, "level"),
+      posX: optionalInt(body.posX, "posX"),
+      posY: optionalInt(body.posY, "posY"),
+      posZ: optionalInt(body.posZ, "posZ"),
+      sizeX: optionalInt(body.sizeX, "sizeX"),
+      sizeY: optionalInt(body.sizeY, "sizeY"),
+      sizeZ: optionalInt(body.sizeZ, "sizeZ"),
+    },
+    warehouse,
+  );
 
   try {
     const [row] = await db
@@ -86,11 +135,83 @@ catalogRoute.post("/locations", async (c) => {
         code,
         name,
         type,
+        barcode,
+        area: placement.area,
+        aisle: placement.aisle,
+        rack: placement.rack,
+        bay: placement.bay,
+        level: placement.level,
+        posX: placement.posX,
+        posY: placement.posY,
+        posZ: placement.posZ,
+        sizeX: placement.sizeX,
+        sizeY: placement.sizeY,
+        sizeZ: placement.sizeZ,
       })
       .returning();
     return c.json(row, 201);
   } catch {
-    return c.json({ error: "Location code already exists in this warehouse" }, 409);
+    return c.json({ error: "Location code or barcode already exists in this warehouse" }, 409);
+  }
+});
+
+catalogRoute.patch("/locations/:id", async (c) => {
+  requireOwner(c.get("role"));
+  const body = await c.req.json<{
+    name?: string;
+    barcode?: string;
+    area?: string;
+    aisle?: string | null;
+    rack?: string | null;
+    bay?: string | null;
+    level?: number;
+    posX?: number;
+    posY?: number;
+    posZ?: number;
+    sizeX?: number;
+    sizeY?: number;
+    sizeZ?: number;
+  }>();
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  await getOrgLocation(db, organizationId, c.req.param("id"));
+
+  const patch: Record<string, string | number | null> = {};
+  const name = optionalString(body.name);
+  if (name) patch.name = name;
+  const barcode = optionalString(body.barcode);
+  if (barcode) patch.barcode = barcode.toUpperCase();
+  const area = optionalString(body.area);
+  if (area) patch.area = area;
+  if (body.aisle !== undefined) patch.aisle = body.aisle ? String(body.aisle).trim().toUpperCase() : null;
+  if (body.rack !== undefined) patch.rack = body.rack ? String(body.rack).trim() : null;
+  if (body.bay !== undefined) patch.bay = body.bay ? String(body.bay).trim() : null;
+  const level = optionalInt(body.level, "level");
+  if (level !== undefined) patch.level = level;
+  const posX = optionalInt(body.posX, "posX");
+  if (posX !== undefined) patch.posX = posX;
+  const posY = optionalInt(body.posY, "posY");
+  if (posY !== undefined) patch.posY = posY;
+  const posZ = optionalInt(body.posZ, "posZ");
+  if (posZ !== undefined) patch.posZ = posZ;
+  const sizeX = optionalInt(body.sizeX, "sizeX");
+  if (sizeX !== undefined) patch.sizeX = sizeX;
+  const sizeY = optionalInt(body.sizeY, "sizeY");
+  if (sizeY !== undefined) patch.sizeY = sizeY;
+  const sizeZ = optionalInt(body.sizeZ, "sizeZ");
+  if (sizeZ !== undefined) patch.sizeZ = sizeZ;
+
+  if (Object.keys(patch).length === 0) badRequest("No location fields to update");
+
+  try {
+    const [row] = await db
+      .update(schema.locations)
+      .set(patch as Partial<typeof schema.locations.$inferInsert>)
+      .where(and(eq(schema.locations.id, c.req.param("id")), eq(schema.locations.organizationId, organizationId)))
+      .returning();
+    return c.json(row);
+  } catch {
+    return c.json({ error: "Barcode already exists" }, 409);
   }
 });
 
@@ -167,6 +288,7 @@ catalogRoute.get("/inventory", async (c) => {
       locationCode: schema.locations.code,
       locationName: schema.locations.name,
       locationType: schema.locations.type,
+      locationBarcode: schema.locations.barcode,
     })
     .from(schema.inventoryBalances)
     .innerJoin(schema.items, eq(schema.items.id, schema.inventoryBalances.itemId))

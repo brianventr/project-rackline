@@ -38,3 +38,14 @@ export function requireInt(value: unknown, field: string): number {
   }
   return n;
 }
+
+export function optionalInt(value: unknown, field: string): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  return requireInt(value, field);
+}
+
+export function optionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
