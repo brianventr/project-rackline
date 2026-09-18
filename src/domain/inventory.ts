@@ -172,6 +172,66 @@ export function planAdjust(input: {
   };
 }
 
+export function planMove(input: {
+  itemId: string;
+  sku: string;
+  fromLocationId: string;
+  toLocationId: string;
+  qty: number;
+  refId: string;
+  balances: Map<string, number>;
+}): StockPlan {
+  requirePositiveQty(input.qty);
+  if (input.fromLocationId === input.toLocationId) {
+    throw new Error("From and to locations must differ");
+  }
+  const balances = new Map(input.balances);
+  applyDelta(balances, input.fromLocationId, input.itemId, -input.qty, input.sku);
+  applyDelta(balances, input.toLocationId, input.itemId, input.qty, input.sku);
+  return {
+    balances,
+    movements: [
+      {
+        type: "move",
+        itemId: input.itemId,
+        qty: input.qty,
+        fromLocationId: input.fromLocationId,
+        toLocationId: input.toLocationId,
+        refType: "transfer",
+        refId: input.refId,
+      },
+    ],
+  };
+}
+
+export function planCycleCount(input: {
+  refId: string;
+  locationId: string;
+  lines: { itemId: string; sku: string; systemQty: number; countedQty: number }[];
+  balances: Map<string, number>;
+}): StockPlan {
+  const steps: Array<(balances: Map<string, number>) => StockPlan> = [];
+  for (const line of input.lines) {
+    if (!Number.isInteger(line.countedQty) || line.countedQty < 0) {
+      throw new Error(`Counted quantity for ${line.sku} must be a non-negative integer`);
+    }
+    const delta = line.countedQty - line.systemQty;
+    if (delta === 0) continue;
+    steps.push((balances) =>
+      planAdjust({
+        itemId: line.itemId,
+        sku: line.sku,
+        locationId: input.locationId,
+        qtyDelta: delta,
+        reason: `Cycle count variance (${line.systemQty} → ${line.countedQty})`,
+        refId: input.refId,
+        balances,
+      }),
+    );
+  }
+  return chainPlans(input.balances, steps);
+}
+
 export function mergePlans(plans: StockPlan[]): StockPlan {
   const balances = new Map<string, number>();
   const movements: MovementDraft[] = [];

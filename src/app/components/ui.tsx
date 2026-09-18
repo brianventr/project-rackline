@@ -1,6 +1,10 @@
 import {
+  cloneElement,
+  isValidElement,
+  useId,
   type FormEvent,
   type InputHTMLAttributes,
+  type ReactElement,
   type ReactNode,
   type SelectHTMLAttributes,
 } from "react";
@@ -76,11 +80,16 @@ export function Field({
   label: string;
   children: ReactNode;
 }) {
+  const id = useId();
   return (
-    <label className="block text-sm">
-      <span className="mb-1.5 block font-medium text-ink/80">{label}</span>
-      {children}
-    </label>
+    <div className="block text-sm">
+      <label htmlFor={id} className="mb-1.5 block font-medium text-ink/80">
+        {label}
+      </label>
+      {isValidElement(children)
+        ? cloneElement(children as ReactElement<{ id?: string }>, { id })
+        : children}
+    </div>
   );
 }
 
@@ -100,6 +109,7 @@ export function StatusBadge({ status }: { status: string }) {
     status === "received" ||
     status === "shipped" ||
     status === "completed" ||
+    status === "posted" ||
     status === "synced" ||
     status === "ok" ||
     status === "demo"
@@ -164,4 +174,9 @@ export function onSubmit(handler: () => Promise<void>) {
     event.preventDefault();
     await handler();
   };
+}
+
+export function summarizeLines(lines?: { sku: string; qty: number }[]): string {
+  if (!lines?.length) return "—";
+  return lines.map((line) => `${line.sku} × ${line.qty}`).join(", ");
 }

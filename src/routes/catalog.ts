@@ -1,9 +1,10 @@
 import { Hono } from "hono";
 import { and, desc, eq, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { requireOwner, isItemType, isLocationType, getOrgLocation } from "../lib/org";
-import { badRequest, requireString } from "../lib/http";
+import { badRequest, requireInt, requireString } from "../lib/http";
 import { newId } from "../lib/ids";
 
 export const catalogRoute = new Hono<AppEnv>();
@@ -117,11 +118,13 @@ catalogRoute.get("/items", async (c) => {
 });
 
 catalogRoute.post("/items", async (c) => {
-  const body = await c.req.json<{ sku?: string; name?: string; type?: string }>();
+  const body = await c.req.json<{ sku?: string; name?: string; type?: string; reorderPoint?: number }>();
   const sku = requireString(body.sku, "sku").toUpperCase();
   const name = requireString(body.name, "name");
   const type = requireString(body.type, "type");
   if (!isItemType(type)) badRequest("Invalid item type");
+  const reorderPoint = body.reorderPoint === undefined ? 0 : requireInt(body.reorderPoint, "reorderPoint");
+  if (reorderPoint < 0) badRequest("Reorder point cannot be negative");
   try {
     const [row] = await c
       .get("db")
@@ -133,12 +136,34 @@ catalogRoute.post("/items", async (c) => {
         name,
         type,
         createdAt: Date.now(),
+        reorderPoint,
       })
       .returning();
     return c.json(row, 201);
   } catch {
     return c.json({ error: "SKU already exists" }, 409);
   }
+});
+
+catalogRoute.patch("/items/:id", async (c) => {
+  const body = await c.req.json<{ reorderPoint?: number; name?: string }>();
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const patch: { reorderPoint?: number; name?: string } = {};
+  if (body.reorderPoint !== undefined) {
+    const reorderPoint = requireInt(body.reorderPoint, "reorderPoint");
+    if (reorderPoint < 0) badRequest("Reorder point cannot be negative");
+    patch.reorderPoint = reorderPoint;
+  }
+  if (body.name !== undefined) patch.name = requireString(body.name, "name");
+  if (Object.keys(patch).length === 0) badRequest("Nothing to update");
+  const [row] = await db
+    .update(schema.items)
+    .set(patch)
+    .where(and(eq(schema.items.id, c.req.param("id")), eq(schema.items.organizationId, organizationId)))
+    .returning();
+  if (!row) return c.json({ error: "Item not found" }, 404);
+  return c.json(row);
 });
 
 catalogRoute.delete("/items/:id", async (c) => {
@@ -179,6 +204,8 @@ catalogRoute.get("/inventory", async (c) => {
 catalogRoute.get("/movements", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  const fromLoc = alias(schema.locations, "from_loc");
+  const toLoc = alias(schema.locations, "to_loc");
   const rows = await db
     .select({
       id: schema.inventoryMovements.id,
@@ -192,12 +219,16 @@ catalogRoute.get("/movements", async (c) => {
       itemName: schema.items.name,
       fromLocationId: schema.inventoryMovements.fromLocationId,
       toLocationId: schema.inventoryMovements.toLocationId,
+      fromLocationCode: fromLoc.code,
+      toLocationCode: toLoc.code,
     })
     .from(schema.inventoryMovements)
     .innerJoin(schema.items, eq(schema.items.id, schema.inventoryMovements.itemId))
+    .leftJoin(fromLoc, eq(fromLoc.id, schema.inventoryMovements.fromLocationId))
+    .leftJoin(toLoc, eq(toLoc.id, schema.inventoryMovements.toLocationId))
     .where(eq(schema.inventoryMovements.organizationId, organizationId))
     .orderBy(desc(schema.inventoryMovements.createdAt))
-    .limit(50);
+    .limit(100);
   return c.json(rows);
 });
 
@@ -249,6 +280,46 @@ catalogRoute.get("/dashboard", async (c) => {
       ),
     );
 
+  const [openTransfers] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(schema.transfers)
+    .where(and(eq(schema.transfers.organizationId, organizationId), eq(schema.transfers.status, "draft")));
+
+  const [openCycleCounts] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(schema.cycleCounts)
+    .where(and(eq(schema.cycleCounts.organizationId, organizationId), eq(schema.cycleCounts.status, "draft")));
+
+  const onHandByItem = await db
+    .select({
+      itemId: schema.inventoryBalances.itemId,
+      qty: sql<number>`coalesce(sum(${schema.inventoryBalances.qty}), 0)`,
+    })
+    .from(schema.inventoryBalances)
+    .where(eq(schema.inventoryBalances.organizationId, organizationId))
+    .groupBy(schema.inventoryBalances.itemId);
+
+  const catalog = await db
+    .select({
+      id: schema.items.id,
+      sku: schema.items.sku,
+      name: schema.items.name,
+      reorderPoint: schema.items.reorderPoint,
+    })
+    .from(schema.items)
+    .where(eq(schema.items.organizationId, organizationId));
+
+  const qtyByItem = new Map(onHandByItem.map((row) => [row.itemId, Number(row.qty)]));
+  const lowStock = catalog
+    .filter((item) => item.reorderPoint > 0 && (qtyByItem.get(item.id) ?? 0) <= item.reorderPoint)
+    .map((item) => ({
+      itemId: item.id,
+      sku: item.sku,
+      name: item.name,
+      onHand: qtyByItem.get(item.id) ?? 0,
+      reorderPoint: item.reorderPoint,
+    }));
+
   const recent = await db
     .select({
       id: schema.inventoryMovements.id,
@@ -271,6 +342,9 @@ catalogRoute.get("/dashboard", async (c) => {
     openOrders: Number(openOrders?.n ?? 0),
     openWorkOrders: Number(openWorkOrders?.n ?? 0),
     shopifyOpenOrders: Number(shopifyOpen?.n ?? 0),
+    openTransfers: Number(openTransfers?.n ?? 0),
+    openCycleCounts: Number(openCycleCounts?.n ?? 0),
+    lowStock,
     recent,
   });
 });

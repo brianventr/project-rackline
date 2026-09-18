@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
@@ -39,7 +39,31 @@ receiptsRoute.get("/receipts", async (c) => {
     .from(schema.receipts)
     .where(eq(schema.receipts.organizationId, organizationId))
     .orderBy(desc(schema.receipts.createdAt));
-  return c.json(rows);
+  if (rows.length === 0) return c.json([]);
+  const lines = await db
+    .select({
+      id: schema.receiptLines.id,
+      receiptId: schema.receiptLines.receiptId,
+      itemId: schema.receiptLines.itemId,
+      qty: schema.receiptLines.qty,
+      sku: schema.items.sku,
+      itemName: schema.items.name,
+    })
+    .from(schema.receiptLines)
+    .innerJoin(schema.items, eq(schema.items.id, schema.receiptLines.itemId))
+    .where(
+      inArray(
+        schema.receiptLines.receiptId,
+        rows.map((row) => row.id),
+      ),
+    );
+  const byReceipt = new Map<string, typeof lines>();
+  for (const line of lines) {
+    const list = byReceipt.get(line.receiptId) ?? [];
+    list.push(line);
+    byReceipt.set(line.receiptId, list);
+  }
+  return c.json(rows.map((row) => ({ ...row, lines: byReceipt.get(row.id) ?? [] })));
 });
 
 receiptsRoute.get("/receipts/:id", async (c) => {

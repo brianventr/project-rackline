@@ -126,7 +126,7 @@ export function AuthPage() {
             </Button>
           </div>
           <p className="mt-4 text-xs text-muted">
-            Iteration 1: bins, receipts, picks, shipments, BOMs, work orders, and Shopify fulfill-back.
+            Transfers, cycle counts, the ledger, reorder points, and Shopify fulfill-back are on the floor.
             <Link className="ml-1 underline" to="/">
               Skip if already signed in
             </Link>

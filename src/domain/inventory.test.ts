@@ -5,6 +5,8 @@ import {
   balanceKey,
   chainPlans,
   planAdjust,
+  planCycleCount,
+  planMove,
   planPick,
   planReceive,
 } from "./inventory";
@@ -63,6 +65,69 @@ describe("inventory engine", () => {
     ]);
     expect(plan.balances.get(balanceKey("RECV", "bulb"))).toBe(12);
     expect(plan.movements).toHaveLength(2);
+  });
+
+  it("moves stock between bins and rejects a short move", () => {
+    const start = planReceive({
+      itemId: "bulb",
+      locationId: "RECV",
+      qty: 8,
+      refId: "rcp-1",
+      balances: new Map(),
+    });
+    const moved = planMove({
+      itemId: "bulb",
+      sku: "LED-BULB",
+      fromLocationId: "RECV",
+      toLocationId: "A-01-01",
+      qty: 5,
+      refId: "xfr-1",
+      balances: start.balances,
+    });
+    expect(moved.balances.get(balanceKey("RECV", "bulb"))).toBe(3);
+    expect(moved.balances.get(balanceKey("A-01-01", "bulb"))).toBe(5);
+    expect(moved.movements[0]?.type).toBe("move");
+
+    expect(() =>
+      planMove({
+        itemId: "bulb",
+        sku: "LED-BULB",
+        fromLocationId: "RECV",
+        toLocationId: "A-01-01",
+        qty: 4,
+        refId: "xfr-2",
+        balances: moved.balances,
+      }),
+    ).toThrow(InsufficientStockError);
+
+    expect(() =>
+      planMove({
+        itemId: "bulb",
+        sku: "LED-BULB",
+        fromLocationId: "RECV",
+        toLocationId: "RECV",
+        qty: 1,
+        refId: "xfr-3",
+        balances: moved.balances,
+      }),
+    ).toThrow(/must differ/);
+  });
+
+  it("posts cycle-count variances and ignores matched lines", () => {
+    const start = new Map([[balanceKey("A-01-01", "cord"), 4]]);
+    const plan = planCycleCount({
+      refId: "cc-1",
+      locationId: "A-01-01",
+      balances: start,
+      lines: [
+        { itemId: "cord", sku: "CORD", systemQty: 4, countedQty: 4 },
+        { itemId: "bulb", sku: "LED-BULB", systemQty: 0, countedQty: 2 },
+      ],
+    });
+    expect(plan.balances.get(balanceKey("A-01-01", "cord"))).toBe(4);
+    expect(plan.balances.get(balanceKey("A-01-01", "bulb"))).toBe(2);
+    expect(plan.movements).toHaveLength(1);
+    expect(plan.movements[0]?.reason).toMatch(/0 → 2/);
   });
 
   it("applies signed adjustments and blocks negative on-hand", () => {
