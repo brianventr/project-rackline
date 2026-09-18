@@ -8,6 +8,7 @@ const links = [
   { to: "/locations", label: "Locations" },
   { to: "/receipts", label: "Receive" },
   { to: "/orders", label: "Orders" },
+  { to: "/shopify", label: "Shopify" },
   { to: "/boms", label: "BOMs" },
   { to: "/work-orders", label: "Work orders" },
   { to: "/adjustments", label: "Adjust" },

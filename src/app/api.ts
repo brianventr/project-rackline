@@ -91,7 +91,47 @@ export type Order = {
   status: string;
   createdAt: number;
   pickLocationId: string | null;
-  lines?: { id: string; itemId: string; qty: number; sku: string; itemName: string }[];
+  source?: string;
+  shopifyOrderId?: string | null;
+  shopifyOrderName?: string | null;
+  shopifySyncStatus?: string | null;
+  shopifySyncError?: string | null;
+  shopifyFulfillmentId?: string | null;
+  trackingNumber?: string | null;
+  trackingCompany?: string | null;
+  trackingUrl?: string | null;
+  shopify?: { status?: string; fulfillmentId?: string | null; error?: string | null };
+  lines?: {
+    id: string;
+    itemId: string;
+    qty: number;
+    sku: string;
+    itemName: string;
+    shopifyLineItemId?: string | null;
+  }[];
+};
+
+export type ShopifyConnection = {
+  connected: boolean;
+  shopDomain: string | null;
+  mode: string;
+  apiVersion: string;
+  hasAccessToken: boolean;
+  hasWebhookSecret: boolean;
+  tokenHint: string | null;
+  webhookUrl: string;
+  fulfillmentNotificationUrl: string;
+  scopes: string[];
+};
+
+export type ShopifyOutbound = {
+  id: string;
+  orderId: string | null;
+  kind: string;
+  status: string;
+  createdAt: number;
+  request: unknown;
+  response: unknown;
 };
 
 export type Bom = {
@@ -122,5 +162,6 @@ export type Dashboard = {
   openReceipts: number;
   openOrders: number;
   openWorkOrders: number;
+  shopifyOpenOrders: number;
   recent: { id: string; type: string; qty: number; createdAt: number; sku: string }[];
 };

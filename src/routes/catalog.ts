@@ -227,13 +227,27 @@ catalogRoute.get("/dashboard", async (c) => {
     .select({ n: sql<number>`count(*)` })
     .from(schema.orders)
     .where(
-      and(eq(schema.orders.organizationId, organizationId), sql`${schema.orders.status} != 'shipped'`),
+      and(
+        eq(schema.orders.organizationId, organizationId),
+        sql`${schema.orders.status} not in ('shipped', 'cancelled')`,
+      ),
     );
 
   const [openWorkOrders] = await db
     .select({ n: sql<number>`count(*)` })
     .from(schema.workOrders)
     .where(and(eq(schema.workOrders.organizationId, organizationId), eq(schema.workOrders.status, "draft")));
+
+  const [shopifyOpen] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(schema.orders)
+    .where(
+      and(
+        eq(schema.orders.organizationId, organizationId),
+        eq(schema.orders.source, "shopify"),
+        sql`${schema.orders.status} not in ('shipped', 'cancelled')`,
+      ),
+    );
 
   const recent = await db
     .select({
@@ -256,6 +270,7 @@ catalogRoute.get("/dashboard", async (c) => {
     openReceipts: Number(openReceipts?.n ?? 0),
     openOrders: Number(openOrders?.n ?? 0),
     openWorkOrders: Number(openWorkOrders?.n ?? 0),
+    shopifyOpenOrders: Number(shopifyOpen?.n ?? 0),
     recent,
   });
 });

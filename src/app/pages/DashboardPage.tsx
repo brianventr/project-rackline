@@ -21,6 +21,7 @@ export function DashboardPage() {
         { label: "Open receipts", value: data.openReceipts },
         { label: "Open orders", value: data.openOrders },
         { label: "Open work orders", value: data.openWorkOrders },
+        { label: "Shopify to pick", value: data.shopifyOpenOrders },
       ]
     : [];
 
@@ -70,6 +71,9 @@ export function DashboardPage() {
             </Link>
             <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/orders">
               Pick and ship
+            </Link>
+            <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/shopify">
+              Shopify channel
             </Link>
           </div>
         </Card>

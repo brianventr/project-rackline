@@ -67,7 +67,7 @@ export function AuthPage() {
             Warehouse software that starts with one aisle and stays with you.
           </h1>
           <p className="mt-4 max-w-md text-sm leading-6 text-paper/70">
-            Receive parts, pick orders, and complete work orders against a real inventory ledger.
+            Receive parts, pick Shopify orders, and complete work orders against a real inventory ledger.
             Built for makers who become manufacturers.
           </p>
         </div>
@@ -126,7 +126,7 @@ export function AuthPage() {
             </Button>
           </div>
           <p className="mt-4 text-xs text-muted">
-            Iteration 1: bins, receipts, picks, shipments, BOMs, and work orders.
+            Iteration 1: bins, receipts, picks, shipments, BOMs, work orders, and Shopify fulfill-back.
             <Link className="ml-1 underline" to="/">
               Skip if already signed in
             </Link>
