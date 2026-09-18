@@ -167,11 +167,3 @@ body,
 html {
   scroll-behavior: smooth;
 }
-
-@media print {
-  header,
-  [data-slot="sidebar"],
-  .print\\:hidden {
-    display: none !important;
-  }
-}
