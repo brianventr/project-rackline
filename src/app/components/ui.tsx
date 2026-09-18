@@ -1,6 +1,10 @@
 import {
+  cloneElement,
+  isValidElement,
+  useId,
   type FormEvent,
   type InputHTMLAttributes,
+  type ReactElement,
   type ReactNode,
   type SelectHTMLAttributes,
 } from "react";
@@ -76,11 +80,16 @@ export function Field({
   label: string;
   children: ReactNode;
 }) {
+  const id = useId();
   return (
-    <label className="block text-sm">
-      <span className="mb-1.5 block font-medium text-ink/80">{label}</span>
-      {children}
-    </label>
+    <div className="block text-sm">
+      <label htmlFor={id} className="mb-1.5 block font-medium text-ink/80">
+        {label}
+      </label>
+      {isValidElement(children)
+        ? cloneElement(children as ReactElement<{ id?: string }>, { id })
+        : children}
+    </div>
   );
 }
 
