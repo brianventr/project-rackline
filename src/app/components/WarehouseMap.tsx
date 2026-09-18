@@ -27,6 +27,34 @@ function poly(points: Array<{ x: number; y: number }>) {
   return points.map((p) => `${p.x},${p.y}`).join(" ");
 }
 
+function floorCells(locations: MapLocation[]) {
+  const grouped = new Map<string, MapLocation[]>();
+  for (const location of locations) {
+    const key = `${location.posX}:${location.posY}`;
+    const list = grouped.get(key) ?? [];
+    list.push(location);
+    grouped.set(key, list);
+  }
+  return [...grouped.entries()].map(([key, rows]) => {
+    const sorted = rows.slice().sort((a, b) => a.level - b.level);
+    const base = sorted[0]!;
+    const levels = [...new Set(sorted.map((row) => row.level))];
+    const label =
+      base.aisle && base.rack && base.bay ? `${base.aisle}-${base.rack}-${base.bay}` : base.code;
+    return {
+      key,
+      posX: base.posX,
+      posY: base.posY,
+      sizeX: base.sizeX,
+      sizeY: base.sizeY,
+      locations: sorted,
+      label,
+      units: sorted.reduce((sum, row) => sum + row.unitsOnHand, 0),
+      levels,
+    };
+  });
+}
+
 function typePalette(type: string, occupied: boolean) {
   if (type === "receiving") {
     return { top: "#e8d3ae", left: "#d3bb91", right: "#c4a97d", stroke: "#8a7048" };
@@ -43,7 +71,7 @@ function typePalette(type: string, occupied: boolean) {
   return { top: "#f7edd8", left: "#e6d7b8", right: "#d5c4a0", stroke: "#a38b63" };
 }
 
-function locationFill(location: MapLocation, selected: boolean, from: boolean, to: boolean) {
+function locationFill(location: Pick<MapLocation, "type" | "unitsOnHand">, selected: boolean, from: boolean, to: boolean) {
   if (from) return "#2f6f4e";
   if (to) return "#b45309";
   if (selected) return "#e3a008";
@@ -167,52 +195,50 @@ export function WarehouseMap({
           </text>
         </g>
       ))}
-      {visible
-        .slice()
-        .sort((a, b) => a.level - b.level)
-        .map((location) => {
-          const selected = location.id === selectedId;
-          const from = location.id === fromId;
-          const to = location.id === toId;
-          const inset = (location.level - 1) * 0.12;
-          const x = (ghost?.id === location.id ? ghost.x : location.posX) + inset;
-          const y = (ghost?.id === location.id ? ghost.y : location.posY) + inset;
-          const w = location.sizeX - inset * 2;
-          const h = location.sizeY - inset * 2;
+      {floorCells(visible).map((cell) => {
+          const selected = cell.locations.some((location) => location.id === selectedId);
+          const from = cell.locations.some((location) => location.id === fromId);
+          const to = cell.locations.some((location) => location.id === toId);
+          const x = ghost?.id && cell.locations.some((l) => l.id === ghost.id) ? ghost.x : cell.posX;
+          const y = ghost?.id && cell.locations.some((l) => l.id === ghost.id) ? ghost.y : cell.posY;
+          const primary =
+            cell.locations.find((location) => location.id === selectedId) ??
+            cell.locations.find((location) => location.unitsOnHand > 0) ??
+            cell.locations[0]!;
           return (
-            <g key={location.id} className="cursor-pointer" onClick={() => onSelect(location)}>
+            <g key={cell.key} className="cursor-pointer" onClick={() => onSelect(primary)}>
               <rect
                 x={x}
                 y={y}
-                width={w}
-                height={h}
+                width={cell.sizeX}
+                height={cell.sizeY}
                 rx="0.18"
-                fill={locationFill(location, selected, from, to)}
+                fill={locationFill({ ...primary, unitsOnHand: cell.units }, selected, from, to)}
                 stroke={selected || from || to ? "#1b1712" : "#6b542e"}
                 strokeWidth={selected || from || to ? 0.18 : 0.08}
-                opacity={location.level > 1 && levelFilter === "all" ? 0.92 : 1}
-                onPointerDown={(event) => onPointerDown(event, location)}
+                onPointerDown={(event) => onPointerDown(event, primary)}
               />
               <text
-                x={x + w / 2}
-                y={y + h / 2 - 0.15}
+                x={x + cell.sizeX / 2}
+                y={y + cell.sizeY / 2 - (cell.levels.length > 1 ? 0.35 : 0.15)}
                 textAnchor="middle"
-                fontSize={Math.min(0.85, w / 5)}
+                fontSize={Math.min(0.85, cell.sizeX / 5)}
                 fontFamily="ui-monospace, monospace"
                 fill="#1b1712"
                 pointerEvents="none"
               >
-                {location.code}
+                {cell.label}
               </text>
               <text
-                x={x + w / 2}
-                y={y + h / 2 + 0.7}
+                x={x + cell.sizeX / 2}
+                y={y + cell.sizeY / 2 + 0.55}
                 textAnchor="middle"
-                fontSize="0.55"
+                fontSize="0.5"
                 fill="#3f3426"
                 pointerEvents="none"
               >
-                {location.unitsOnHand > 0 ? `${location.unitsOnHand} u` : "empty"}
+                {cell.levels.length > 1 ? `L${cell.levels[0]}–${cell.levels[cell.levels.length - 1]} · ` : ""}
+                {cell.units > 0 ? `${cell.units} u` : "empty"}
               </text>
             </g>
           );
