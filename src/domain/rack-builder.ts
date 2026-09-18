@@ -513,6 +513,12 @@ export function findOpenPosition(
     if (hit) return hit;
   }
 
+  for (let posY = 1; posY <= warehouse.mapDepth; posY += 1) {
+    for (let posX = 1; posX <= warehouse.mapWidth; posX += 1) {
+      const hit = consider(posX, posY);
+      if (hit) return hit;
+    }
+  }
   for (let posY = 0; posY <= warehouse.mapDepth; posY += 1) {
     for (let posX = 0; posX <= warehouse.mapWidth; posX += 1) {
       const hit = consider(posX, posY);

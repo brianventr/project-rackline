@@ -321,7 +321,7 @@ export function FloorBuilder({
     try {
       if (kind === "rack") {
         const rackSpec = spec as RackSpec;
-        await api("/api/layout/racks", {
+        const created = await api<{ locations: { id: string }[] }>("/api/layout/racks", {
           method: "POST",
           body: JSON.stringify({ warehouseId, ...rackSpec }),
         });
@@ -341,6 +341,11 @@ export function FloorBuilder({
           rackSpec.aisle,
         );
         setRackDraft((current) => defaultRackSpec({ ...current, ...next }));
+        setTool("select");
+        setCursor(null);
+        await onReload();
+        if (created.locations[0]?.id) onSelectLocation({ id: created.locations[0].id } as MapLocation);
+        return;
       } else {
         await api("/api/layout/areas", {
           method: "POST",

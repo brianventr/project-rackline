@@ -499,7 +499,7 @@ function SceneContents(
                 onPointerDown={(event, location) => {
                   props.onSelectObject(object.id);
                   props.onSelectLocation(location);
-                  if (props.mode === "build" && props.onTranslateBegin) {
+                  if (props.mode === "build" && props.cameraMode === "top" && props.onTranslateBegin) {
                     props.onTranslateBegin(object.id, snap(event.point.x), snap(event.point.z));
                   }
                 }}
@@ -565,9 +565,11 @@ function SceneContents(
           <FootprintLine box={props.ghost.spec} color={props.ghost.valid ? props.theme.ghost : props.theme.invalid} />
         </group>
       ) : null}
-      <Html position={[1.1, 0.2, 1.1]} center>
-        <div className="rounded bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ring-1 ring-border">N</div>
-      </Html>
+      {props.cameraMode === "top" ? (
+        <Html position={[1.1, 0.2, 1.1]} center>
+          <div className="rounded bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ring-1 ring-border">N</div>
+        </Html>
+      ) : null}
     </>
   );
 }
