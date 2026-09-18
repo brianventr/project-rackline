@@ -333,6 +333,53 @@ function AreaBox({
   );
 }
 
+function nearestLocation(locations: MapLocation[], point: THREE.Vector3) {
+  let best: MapLocation | null = null;
+  let bestDist = Infinity;
+  for (const loc of locations) {
+    const center = worldCenter(loc);
+    const dx = center.x - point.x;
+    const dy = center.y - point.y;
+    const dz = center.z - point.z;
+    const dist = dx * dx + dy * dy + dz * dz;
+    if (dist < bestDist) {
+      best = loc;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+function RackHitVolume({
+  spec,
+  explode,
+  pickable,
+  onPointerDown,
+}: {
+  spec: RackSpec;
+  explode: boolean;
+  pickable: boolean;
+  onPointerDown: (event: ThreeEvent<PointerEvent>) => void;
+}) {
+  const extra = explode ? spec.levelHeight * 0.55 * Math.max(0, spec.levels - 1) : 0;
+  const fp = footprint(expandRack(spec));
+  if (!fp) return null;
+  const center = worldCenter({ ...fp, sizeZ: fp.sizeZ + extra });
+  return (
+    <mesh
+      position={[center.x, center.y, center.z]}
+      visible={false}
+      raycast={pickable ? undefined : () => undefined}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        onPointerDown(event);
+      }}
+    >
+      <boxGeometry args={[Math.max(0.4, fp.sizeX), Math.max(0.4, fp.sizeZ + extra), Math.max(0.4, fp.sizeY)]} />
+    </mesh>
+  );
+}
+
 function FootprintLine({ box, color }: { box: { posX: number; posY: number; sizeX: number; sizeY: number }; color: string }) {
   const y = 0.06;
   const x0 = box.posX;
@@ -417,6 +464,7 @@ function Ground({
         fadeDistance={120}
         fadeStrength={0.35}
         infiniteGrid={false}
+        raycast={() => undefined}
       />
       <WarehouseCurb warehouse={warehouse} theme={theme} />
     </group>
@@ -504,6 +552,20 @@ function SceneContents(
                   }
                 }}
               />
+              <RackHitVolume
+                spec={object.spec}
+                explode={explode}
+                pickable={pickable}
+                onPointerDown={(event) => {
+                  const location = nearestLocation(locs, event.point);
+                  if (!location) return;
+                  props.onSelectObject(object.id);
+                  props.onSelectLocation(location);
+                  if (props.mode === "build" && props.cameraMode === "top" && props.onTranslateBegin) {
+                    props.onTranslateBegin(object.id, snap(event.point.x), snap(event.point.z));
+                  }
+                }}
+              />
               {selected ? (
                 <Html
                   position={[
@@ -512,6 +574,7 @@ function SceneContents(
                     worldCenter(footprint(object.locations)!).z,
                   ]}
                   center
+                  style={{ pointerEvents: "none" }}
                 >
                   <div className="rounded-md bg-background/90 px-2 py-1 text-[11px] font-medium whitespace-nowrap text-foreground shadow-sm ring-1 ring-border">
                     Aisle {object.aisle} · rack {object.rack} · {object.spec.bays} bays · {object.spec.levels} levels
@@ -657,7 +720,7 @@ export function WarehouseScene(props: Props) {
             failIfMajorPerformanceCaveat: false,
             toneMapping: THREE.ACESFilmicToneMapping,
           }}
-          frameloop="demand"
+          frameloop="always"
           onPointerMissed={() => {
             if (props.placing || props.translating) return;
             props.onSelectLocation(null);
