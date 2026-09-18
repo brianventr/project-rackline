@@ -51,6 +51,7 @@ export type AreaSpec = {
 };
 
 export type LocationDraft = Box3 & {
+  id?: string;
   code: string;
   name: string;
   barcode: string;
@@ -119,6 +120,44 @@ export function clampInt(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
+export const RACK_PRESETS = [
+  {
+    id: "pallet-3x2",
+    label: "Pallet 3 × 2",
+    hint: "Selective rack, 3 bays and 2 levels",
+    bays: 3,
+    levels: 2,
+    bayWidth: 3,
+    bayDepth: 4,
+    bayPitch: 4,
+    levelHeight: 2,
+  },
+  {
+    id: "pallet-4x3",
+    label: "Pallet 4 × 3",
+    hint: "Standard pick faces, three shelves",
+    bays: 4,
+    levels: 3,
+    bayWidth: 3,
+    bayDepth: 4,
+    bayPitch: 4,
+    levelHeight: 2,
+  },
+  {
+    id: "high-6x4",
+    label: "High bay 6 × 4",
+    hint: "Longer run, four levels",
+    bays: 6,
+    levels: 4,
+    bayWidth: 3,
+    bayDepth: 4,
+    bayPitch: 4,
+    levelHeight: 2,
+  },
+] as const;
+
+export type RackPreset = (typeof RACK_PRESETS)[number];
+
 export function defaultRackSpec(partial?: Partial<RackSpec>): RackSpec {
   const bayWidth = clampInt(partial?.bayWidth ?? 3, 1, 24);
   return {
@@ -134,6 +173,18 @@ export function defaultRackSpec(partial?: Partial<RackSpec>): RackSpec {
     bayPitch: clampInt(partial?.bayPitch ?? bayWidth, 1, 40),
     levelHeight: clampInt(partial?.levelHeight ?? 2, 1, 12),
   };
+}
+
+export function applyRackPreset(spec: RackSpec, preset: RackPreset): RackSpec {
+  return defaultRackSpec({
+    ...spec,
+    bays: preset.bays,
+    levels: preset.levels,
+    bayWidth: preset.bayWidth,
+    bayDepth: preset.bayDepth,
+    bayPitch: preset.bayPitch,
+    levelHeight: preset.levelHeight,
+  });
 }
 
 export function bayBox(spec: RackSpec, bayIndex: number, level: number): Box3 {
@@ -437,4 +488,36 @@ export function worldCenter(box: Box3): { x: number; y: number; z: number } {
 
 export function snap(value: number, step = 1): number {
   return Math.round(value / step) * step;
+}
+
+export function findOpenPosition(
+  draftsAt: (posX: number, posY: number) => LocationDraft[],
+  existing: LocationLike[],
+  warehouse: WarehouseMapSize,
+  ignoreIds: Set<string> = new Set(),
+  seed?: { posX: number; posY: number },
+): { posX: number; posY: number } | null {
+  const tried = new Set<string>();
+  const consider = (posX: number, posY: number) => {
+    const x = clampInt(posX, 0, warehouse.mapWidth);
+    const y = clampInt(posY, 0, warehouse.mapDepth);
+    const key = `${x}:${y}`;
+    if (tried.has(key)) return null;
+    tried.add(key);
+    if (!validateDrafts(draftsAt(x, y), existing, warehouse, ignoreIds)) return { posX: x, posY: y };
+    return null;
+  };
+
+  if (seed) {
+    const hit = consider(seed.posX, seed.posY);
+    if (hit) return hit;
+  }
+
+  for (let posY = 0; posY <= warehouse.mapDepth; posY += 1) {
+    for (let posX = 0; posX <= warehouse.mapWidth; posX += 1) {
+      const hit = consider(posX, posY);
+      if (hit) return hit;
+    }
+  }
+  return null;
 }

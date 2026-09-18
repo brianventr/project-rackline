@@ -99,14 +99,14 @@ export function MapPage({ me }: { me: Me }) {
         description="Every bin is a physical bay. Click a rack to see on-hand, or scan a location barcode to jump there."
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button variant={view === "floor" ? "primary" : "ghost"} onClick={() => setView("floor")}>
+            <Button variant={view === "floor" ? "primary" : "ghost"} onClick={() => { setView("floor"); setError(null); }}>
               Floor plan
             </Button>
-            <Button variant={view === "iso" ? "primary" : "ghost"} onClick={() => setView("iso")}>
+            <Button variant={view === "iso" ? "primary" : "ghost"} onClick={() => { setView("iso"); setError(null); }}>
               3D racks
             </Button>
             {me.role === "owner" ? (
-              <Button variant={view === "build" ? "primary" : "ghost"} onClick={() => setView("build")}>
+              <Button variant={view === "build" ? "primary" : "ghost"} onClick={() => { setView("build"); setError(null); }}>
                 Build floor
               </Button>
             ) : null}
@@ -161,6 +161,8 @@ export function MapPage({ me }: { me: Me }) {
               data.locations.filter((location) => levelFilter === "all" || location.level === levelFilter),
             )}
             selectedLocationId={selectedId}
+            selectedObjectId={selected ? objectForLocation(groupFloorObjects(data.locations), selected.id)?.id ?? null : null}
+            highlightBay={selected?.bay ?? null}
             mode="view"
             cameraMode="orbit"
             onSelectLocation={(location) => setSelectedId(location?.id ?? null)}

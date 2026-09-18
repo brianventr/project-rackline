@@ -14,6 +14,8 @@ export type SceneTheme = {
   to: string;
   ghost: string;
   invalid: string;
+  bayHighlight: string;
+  outline: string;
   areaRecv: string;
   areaProd: string;
   areaShip: string;
@@ -36,6 +38,8 @@ const light: SceneTheme = {
   to: "#e2b146",
   ghost: "#7399bf",
   invalid: "#ef4444",
+  bayHighlight: "#f3c4ae",
+  outline: "#e05d38",
   areaRecv: "#d6e4f0",
   areaProd: "#cfe0d2",
   areaShip: "#e8d3ae",
@@ -58,6 +62,8 @@ const dark: SceneTheme = {
   to: "#e2b146",
   ghost: "#85a6c7",
   invalid: "#ef4444",
+  bayHighlight: "#8a4630",
+  outline: "#e05d38",
   areaRecv: "#2a3656",
   areaProd: "#1f3a2c",
   areaShip: "#3a3228",

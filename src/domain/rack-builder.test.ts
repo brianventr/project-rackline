@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import { gridPosition } from "./map-layout";
 import {
   aabbOverlap,
+  applyRackPreset,
   bayBox,
   defaultRackSpec,
+  expandArea,
   expandRack,
+  findOpenPosition,
   groupFloorObjects,
   nextAreaCode,
   nextRackAddress,
+  RACK_PRESETS,
   validateDrafts,
 } from "./rack-builder";
 
@@ -114,5 +118,47 @@ describe("rack builder", () => {
     expect(aabbOverlap(a, above)).toBe(false);
     expect(aabbOverlap(a, beside)).toBe(false);
     expect(aabbOverlap(a, { ...a, posX: 1 })).toBe(true);
+  });
+
+  it("finds an empty origin that clears existing Northwind-style racks", () => {
+    const occupied = expandRack(
+      defaultRackSpec({
+        aisle: "A",
+        rack: "01",
+        posX: 2,
+        posY: 7,
+        bays: 3,
+        levels: 2,
+        bayPitch: 4,
+        bayWidth: 3,
+        bayDepth: 4,
+      }),
+    );
+    const preset = RACK_PRESETS[0];
+    const spec = applyRackPreset(defaultRackSpec({ aisle: "A", rack: "02" }), preset);
+    const open = findOpenPosition(
+      (posX, posY) => expandRack({ ...spec, posX, posY }),
+      occupied,
+      warehouse,
+      new Set(),
+      { posX: 2, posY: 7 },
+    );
+    expect(open).not.toBeNull();
+    expect(open).not.toEqual({ posX: 2, posY: 7 });
+    const drafts = expandRack({ ...spec, ...open! });
+    expect(validateDrafts(drafts, occupied, warehouse)).toBeNull();
+  });
+
+  it("places a receiving dock in the first open cell", () => {
+    const existing = [expandArea({ type: "receiving", code: "RECV", name: "Dock", posX: 2, posY: 1, posZ: 0, sizeX: 16, sizeY: 4, sizeZ: 3 })];
+    const spec = { type: "receiving" as const, code: "RECV-2", name: "Dock", posX: 0, posY: 0, posZ: 0, sizeX: 16, sizeY: 4, sizeZ: 3 };
+    const open = findOpenPosition(
+      (posX, posY) => [expandArea({ ...spec, posX, posY })],
+      existing,
+      warehouse,
+    );
+    expect(open).not.toBeNull();
+    expect(open).not.toEqual({ posX: 2, posY: 1 });
+    expect(validateDrafts([expandArea({ ...spec, ...open! })], existing, warehouse)).toBeNull();
   });
 });
