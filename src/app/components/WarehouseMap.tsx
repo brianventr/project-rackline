@@ -1,7 +1,12 @@
-import { useMemo, useRef, useState, type PointerEvent } from "react";
+import { lazy, Suspense, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { MapLocation, WarehouseMapInfo } from "../api";
+import { groupFloorObjects } from "@/domain/rack-builder";
 
-export type MapView = "floor" | "iso";
+const WarehouseScene = lazy(() =>
+  import("./warehouse-scene/WarehouseScene").then((mod) => ({ default: mod.WarehouseScene })),
+);
+
+export type MapView = "floor" | "iso" | "build";
 
 type Props = {
   warehouse: WarehouseMapInfo;
@@ -15,17 +20,6 @@ type Props = {
   onSelect: (location: MapLocation) => void;
   onReposition?: (locationId: string, posX: number, posY: number) => void;
 };
-
-function iso(x: number, y: number, z: number) {
-  return {
-    x: (x - y) * 16,
-    y: (x + y) * 8 - z * 14,
-  };
-}
-
-function poly(points: Array<{ x: number; y: number }>) {
-  return points.map((p) => `${p.x},${p.y}`).join(" ");
-}
 
 function floorCells(locations: MapLocation[]) {
   const grouped = new Map<string, MapLocation[]>();
@@ -55,31 +49,15 @@ function floorCells(locations: MapLocation[]) {
   });
 }
 
-function typePalette(type: string, occupied: boolean) {
-  if (type === "receiving") {
-    return { top: "#e8d3ae", left: "#d3bb91", right: "#c4a97d", stroke: "#8a7048" };
-  }
-  if (type === "production") {
-    return { top: "#cfe0d2", left: "#b4c9b8", right: "#9bb5a0", stroke: "#4d6a55" };
-  }
-  if (type === "shipping") {
-    return { top: "#ddd4cc", left: "#c6bbb2", right: "#b1a59b", stroke: "#6d635b" };
-  }
-  if (occupied) {
-    return { top: "#f0c14b", left: "#d7a62e", right: "#c49216", stroke: "#8a6408" };
-  }
-  return { top: "#f7edd8", left: "#e6d7b8", right: "#d5c4a0", stroke: "#a38b63" };
-}
-
 function locationFill(location: Pick<MapLocation, "type" | "unitsOnHand">, selected: boolean, from: boolean, to: boolean) {
-  if (from) return "#2f6f4e";
-  if (to) return "#b45309";
-  if (selected) return "#e3a008";
-  if (location.unitsOnHand > 0) return "#e3a008";
-  if (location.type === "receiving") return "#d7c4a3";
-  if (location.type === "production") return "#c9d7c4";
-  if (location.type === "shipping") return "#d3c7bc";
-  return "#efe4cf";
+  if (from) return "#2d6a4f";
+  if (to) return "#e2b146";
+  if (selected) return "#df6035";
+  if (location.unitsOnHand > 0) return "#e16f41";
+  if (location.type === "receiving") return "#d6e4f0";
+  if (location.type === "production") return "#cfe0d2";
+  if (location.type === "shipping") return "#e8d3ae";
+  return "#f4f0ea";
 }
 
 export function WarehouseMap({
@@ -155,7 +133,25 @@ export function WarehouseMap({
   }
 
   if (view === "iso") {
-    return <IsoMap warehouse={warehouse} locations={visible} selectedId={selectedId} fromId={fromId} toId={toId} onSelect={onSelect} />;
+    const objects = groupFloorObjects(visible);
+    return (
+      <Suspense fallback={<div className="grid h-[min(72vh,760px)] place-items-center rounded-xl border bg-muted text-sm text-muted-foreground">Loading 3D floor…</div>}>
+        <WarehouseScene
+          warehouse={warehouse}
+          locations={visible}
+          objects={objects}
+          selectedLocationId={selectedId}
+          fromId={fromId}
+          toId={toId}
+          mode="view"
+          cameraMode="orbit"
+          onSelectLocation={(location) => {
+            if (location) onSelect(location);
+          }}
+          onSelectObject={() => undefined}
+        />
+      </Suspense>
+    );
   }
 
   const pad = 1.5;
@@ -163,7 +159,7 @@ export function WarehouseMap({
     <svg
       ref={svgRef}
       viewBox={`${-pad} ${-pad} ${warehouse.mapWidth + pad * 2} ${warehouse.mapDepth + pad * 2}`}
-      className="h-[min(72vh,760px)] w-full touch-none rounded-xl bg-[#cbb892]"
+      className="h-[min(72vh,760px)] w-full touch-none rounded-xl bg-muted"
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={onPointerUp}
@@ -247,81 +243,3 @@ export function WarehouseMap({
   );
 }
 
-function IsoMap({
-  warehouse,
-  locations,
-  selectedId,
-  fromId,
-  toId,
-  onSelect,
-}: {
-  warehouse: WarehouseMapInfo;
-  locations: MapLocation[];
-  selectedId?: string | null;
-  fromId?: string | null;
-  toId?: string | null;
-  onSelect: (location: MapLocation) => void;
-}) {
-  const floor = [
-    iso(0, 0, 0),
-    iso(warehouse.mapWidth, 0, 0),
-    iso(warehouse.mapWidth, warehouse.mapDepth, 0),
-    iso(0, warehouse.mapDepth, 0),
-  ];
-  const xs = [
-    ...floor.map((p) => p.x),
-    ...locations.flatMap((loc) => [iso(loc.posX, loc.posY, loc.posZ + loc.sizeZ).x, iso(loc.posX + loc.sizeX, loc.posY + loc.sizeY, 0).x]),
-  ];
-  const ys = [
-    ...floor.map((p) => p.y),
-    ...locations.flatMap((loc) => [iso(loc.posX, loc.posY, loc.posZ + loc.sizeZ).y, iso(loc.posX + loc.sizeX, loc.posY + loc.sizeY, 0).y]),
-  ];
-  const minX = Math.min(...xs) - 40;
-  const minY = Math.min(...ys) - 40;
-  const maxX = Math.max(...xs) + 40;
-  const maxY = Math.max(...ys) + 40;
-  const ordered = locations.slice().sort((a, b) => a.posX + a.posY + a.posZ - (b.posX + b.posY + b.posZ));
-
-  return (
-    <svg
-      viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
-      className="h-[min(72vh,760px)] w-full rounded-xl bg-[#1b1712]"
-      role="img"
-      aria-label="3D warehouse rack map"
-    >
-      <polygon points={poly(floor)} fill="#8d7349" stroke="#5c4a32" strokeWidth="2" />
-      <polygon
-        points={poly([iso(0, 0, 0), iso(warehouse.mapWidth, 0, 0), iso(warehouse.mapWidth, 0, 1.2), iso(0, 0, 1.2)])}
-        fill="#7a6340"
-      />
-      {ordered.map((location) => {
-        const occupied = location.unitsOnHand > 0;
-        const selected = location.id === selectedId;
-        const from = location.id === fromId;
-        const to = location.id === toId;
-        const palette = typePalette(location.type, occupied);
-        const x1 = location.posX;
-        const y1 = location.posY;
-        const z1 = location.posZ;
-        const x2 = location.posX + location.sizeX;
-        const y2 = location.posY + location.sizeY;
-        const z2 = location.posZ + location.sizeZ;
-        const top = [iso(x1, y1, z2), iso(x2, y1, z2), iso(x2, y2, z2), iso(x1, y2, z2)];
-        const left = [iso(x1, y2, z1), iso(x2, y2, z1), iso(x2, y2, z2), iso(x1, y2, z2)];
-        const right = [iso(x2, y1, z1), iso(x2, y2, z1), iso(x2, y2, z2), iso(x2, y1, z2)];
-        const label = iso(x1 + location.sizeX / 2, y1 + location.sizeY / 2, z2);
-        const stroke = from ? "#7dffa6" : to ? "#ffb25c" : selected ? "#ffe08a" : palette.stroke;
-        return (
-          <g key={location.id} className="cursor-pointer" onClick={() => onSelect(location)}>
-            <polygon points={poly(left)} fill={palette.left} stroke={stroke} strokeWidth={selected || from || to ? 2.2 : 1} />
-            <polygon points={poly(right)} fill={palette.right} stroke={stroke} strokeWidth={selected || from || to ? 2.2 : 1} />
-            <polygon points={poly(top)} fill={palette.top} stroke={stroke} strokeWidth={selected || from || to ? 2.2 : 1} />
-            <text x={label.x} y={label.y + 3} textAnchor="middle" fontSize="11" fill="#1b1712" fontFamily="ui-monospace, monospace">
-              {location.code}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
-}

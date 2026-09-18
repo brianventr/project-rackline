@@ -1,18 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, lazy, Suspense } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type MapLocation, type Me, type ScanHit, type WarehouseMapData } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { WarehouseMap, type MapView } from "../components/WarehouseMap";
 import { Button, Card, ErrorBanner, PageHeader } from "../components/ui";
 import { useScanner } from "../scanner/ScannerProvider";
+import { groupFloorObjects, objectForLocation } from "@/domain/rack-builder";
+
+const FloorBuilder = lazy(() =>
+  import("../components/warehouse-scene/FloorBuilder").then((mod) => ({ default: mod.FloorBuilder })),
+);
+const WarehouseScene = lazy(() =>
+  import("../components/warehouse-scene/WarehouseScene").then((mod) => ({ default: mod.WarehouseScene })),
+);
 
 export function MapPage({ me }: { me: Me }) {
+  const [params] = useSearchParams();
   const [data, setData] = useState<WarehouseMapData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<MapView>("floor");
+  const [view, setView] = useState<MapView>(params.get("edit") ? "build" : "floor");
   const [levelFilter, setLevelFilter] = useState<"all" | number>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [params] = useSearchParams();
   const scanner = useScanner();
   const handledAt = useMemo(() => ({ current: 0 }), []);
 
@@ -57,10 +65,26 @@ export function MapPage({ me }: { me: Me }) {
   async function reposition(locationId: string, posX: number, posY: number) {
     setError(null);
     try {
-      await api(`/api/locations/${locationId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ posX, posY }),
-      });
+      const object = data ? objectForLocation(groupFloorObjects(data.locations), locationId) : null;
+      const location = data?.locations.find((row) => row.id === locationId);
+      if (data && object?.kind === "rack" && location) {
+        await api("/api/layout/racks", {
+          method: "PATCH",
+          body: JSON.stringify({
+            warehouseId: data.warehouse.id,
+            fromAisle: object.aisle,
+            fromRack: object.rack,
+            ...object.spec,
+            posX: object.spec.posX + (posX - location.posX),
+            posY: object.spec.posY + (posY - location.posY),
+          }),
+        });
+      } else {
+        await api(`/api/locations/${locationId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ posX, posY }),
+        });
+      }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not move that bay on the map");
@@ -81,6 +105,11 @@ export function MapPage({ me }: { me: Me }) {
             <Button variant={view === "iso" ? "primary" : "ghost"} onClick={() => setView("iso")}>
               3D racks
             </Button>
+            {me.role === "owner" ? (
+              <Button variant={view === "build" ? "primary" : "ghost"} onClick={() => setView("build")}>
+                Build floor
+              </Button>
+            ) : null}
             <Button variant="secondary" onClick={scanner.openCamera}>
               Scan bay
             </Button>
@@ -88,28 +117,59 @@ export function MapPage({ me }: { me: Me }) {
         }
       />
       <ErrorBanner error={error} />
-      <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-        <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Level</span>
-        <button
-          className={`rounded-full px-3 py-1 ${levelFilter === "all" ? "bg-ink text-paper" : "bg-card border border-line"}`}
-          onClick={() => setLevelFilter("all")}
-        >
-          All
-        </button>
-        {levels.map((level) => (
+      {view !== "build" ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Level</span>
           <button
-            key={level}
-            className={`rounded-full px-3 py-1 ${levelFilter === level ? "bg-ink text-paper" : "bg-card border border-line"}`}
-            onClick={() => setLevelFilter(level)}
+            className={`rounded-full px-3 py-1 ${levelFilter === "all" ? "bg-ink text-paper" : "bg-card border border-line"}`}
+            onClick={() => setLevelFilter("all")}
           >
-            L{level}
+            All
           </button>
-        ))}
-        {view === "floor" && me.role === "owner" ? (
-          <span className="text-xs text-muted-foreground">Drag a bay to correlate it to the real floor.</span>
-        ) : null}
-      </div>
-      {data ? (
+          {levels.map((level) => (
+            <button
+              key={level}
+              className={`rounded-full px-3 py-1 ${levelFilter === level ? "bg-ink text-paper" : "bg-card border border-line"}`}
+              onClick={() => setLevelFilter(level)}
+            >
+              L{level}
+            </button>
+          ))}
+          {view === "floor" && me.role === "owner" ? (
+            <span className="text-xs text-muted-foreground">Drag a bay to slide the whole rack on the grid.</span>
+          ) : null}
+        </div>
+      ) : null}
+      {data && view === "build" ? (
+        <Suspense fallback={<p className="text-sm text-muted-foreground">Opening the floor builder…</p>}>
+          <FloorBuilder
+            me={me}
+            data={data}
+            selectedId={selectedId}
+            onSelectLocation={(location) => setSelectedId(location?.id ?? null)}
+            onReload={load}
+            onError={setError}
+          />
+        </Suspense>
+      ) : data && view === "iso" ? (
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+          <Suspense fallback={<div className="grid h-[min(74vh,820px)] place-items-center rounded-xl border text-sm text-muted-foreground">Loading 3D floor…</div>}>
+            <WarehouseScene
+            warehouse={data.warehouse}
+            locations={data.locations.filter((location) => levelFilter === "all" || location.level === levelFilter)}
+            objects={groupFloorObjects(
+              data.locations.filter((location) => levelFilter === "all" || location.level === levelFilter),
+            )}
+            selectedLocationId={selectedId}
+            mode="view"
+            cameraMode="orbit"
+            onSelectLocation={(location) => setSelectedId(location?.id ?? null)}
+            onSelectObject={() => undefined}
+          />
+          </Suspense>
+          <BayDetail location={selected} />
+        </div>
+      ) : data ? (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
           <WarehouseMap
             warehouse={data.warehouse}
@@ -136,7 +196,7 @@ function BayDetail({ location }: { location: MapLocation | null }) {
       <Card>
         <p className="font-semibold">Select a bay</p>
         <p className="mt-2 text-sm text-muted-foreground">
-          Click the map, scan a location barcode, or open a bin from On-hand. Occupied storage bays are amber.
+          Occupied storage bays are orange. Use Build floor to drop a whole rack of bays and levels.
         </p>
       </Card>
     );

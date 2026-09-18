@@ -17,6 +17,7 @@ import {
   Calculator,
   SlidersHorizontal,
   ScrollText,
+  BoxSelect,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Logo } from "@/components/logo";
@@ -39,6 +40,7 @@ const navGroups = [
     items: [
       { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
       { title: "Map", url: "/map", icon: Map },
+      { title: "Build floor", url: "/map?edit=1", icon: BoxSelect },
       { title: "Move", url: "/move", icon: ArrowLeftRight },
       { title: "On-hand", url: "/inventory", icon: Boxes },
     ],
