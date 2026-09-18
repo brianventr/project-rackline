@@ -106,11 +106,19 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
 
 export function StatusBadge({ status }: { status: string }) {
   const tone =
-    status === "received" || status === "shipped" || status === "completed" || status === "posted"
+    status === "received" ||
+    status === "shipped" ||
+    status === "completed" ||
+    status === "posted" ||
+    status === "synced" ||
+    status === "ok" ||
+    status === "demo"
       ? "bg-ok/15 text-ok"
-      : status === "picked"
+      : status === "picked" || status === "inbound" || status === "pending_fulfill" || status === "live"
         ? "bg-amber/20 text-warn"
-        : "bg-line text-ink";
+        : status === "cancelled" || status === "failed"
+          ? "bg-bad/15 text-bad"
+          : "bg-line text-ink";
   return (
     <span className={`rounded-full px-2.5 py-0.5 font-mono text-xs uppercase tracking-wide ${tone}`}>
       {status}

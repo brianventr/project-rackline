@@ -14,6 +14,8 @@ import { receiptsRoute } from "./routes/receipts";
 import { ordersRoute } from "./routes/orders";
 import { adjustmentsRoute } from "./routes/adjustments";
 import { manufacturingRoute } from "./routes/manufacturing";
+import { shopifyPublicRoute, shopifyRoute } from "./routes/shopify";
+import { ShopifyIngestError } from "./domain/shopify-ingest";
 import { floorRoute } from "./routes/floor";
 
 const app = new Hono<AppEnv>();
@@ -30,6 +32,9 @@ app.onError((err, c) => {
       },
       409,
     );
+  }
+  if (err instanceof ShopifyIngestError) {
+    return c.json({ error: err.message }, err.status as 400 | 409);
   }
   if (err instanceof HttpError) {
     return c.json({ error: err.message }, err.status as 400 | 401 | 403 | 404 | 409);
@@ -51,10 +56,17 @@ app.on(["GET", "POST"], "/api/auth/*", (c) => {
 
 app.route("/api", registerRoute);
 app.route("/api", demoRoute);
+app.route("/api", shopifyPublicRoute);
 
 app.use("/api/*", async (c, next) => {
   const path = new URL(c.req.url).pathname;
-  if (path.startsWith("/api/auth") || path === "/api/register" || path === "/api/demo/seed") {
+  if (
+    path.startsWith("/api/auth") ||
+    path === "/api/register" ||
+    path === "/api/demo/seed" ||
+    path === "/api/shopify/webhooks" ||
+    path === "/api/shopify/fulfillment_order_notification"
+  ) {
     return next();
   }
   const auth = createAuth(c.get("db"), c.env, c.get("origin"));
@@ -82,6 +94,7 @@ app.route("/api", receiptsRoute);
 app.route("/api", ordersRoute);
 app.route("/api", adjustmentsRoute);
 app.route("/api", manufacturingRoute);
+app.route("/api", shopifyRoute);
 app.route("/api", floorRoute);
 
 export default app;

@@ -16,6 +16,10 @@ export function notFound(message = "Not found"): never {
   throw new HttpError(404, message);
 }
 
+export function unauthorized(message = "Unauthorized"): never {
+  throw new HttpError(401, message);
+}
+
 export function forbidden(message = "Forbidden"): never {
   throw new HttpError(403, message);
 }

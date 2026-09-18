@@ -9,6 +9,7 @@ const links = [
   { to: "/receipts", label: "Receive" },
   { to: "/transfers", label: "Transfers" },
   { to: "/orders", label: "Orders" },
+  { to: "/shopify", label: "Shopify" },
   { to: "/boms", label: "BOMs" },
   { to: "/work-orders", label: "Work orders" },
   { to: "/counts", label: "Cycle counts" },

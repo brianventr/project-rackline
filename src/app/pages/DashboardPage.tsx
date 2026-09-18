@@ -23,6 +23,7 @@ export function DashboardPage() {
         { label: "Open work orders", value: data.openWorkOrders },
         { label: "Open transfers", value: data.openTransfers },
         { label: "Open counts", value: data.openCycleCounts },
+        { label: "Shopify to pick", value: data.shopifyOpenOrders },
       ]
     : [];
 
@@ -97,6 +98,9 @@ export function DashboardPage() {
             </Link>
             <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/counts">
               Start a cycle count
+            </Link>
+            <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/shopify">
+              Shopify channel
             </Link>
           </div>
         </Card>

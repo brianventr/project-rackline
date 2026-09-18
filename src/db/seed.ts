@@ -5,6 +5,7 @@ import { newId } from "../lib/ids";
 import { chainPlans, planReceive } from "../domain/inventory";
 import { persistStockPlan } from "./stock";
 import { provisionOrganization } from "../lib/org";
+import { demoFulfillmentOrderId } from "../domain/shopify";
 
 export const DEMO_EMAIL = "demo@northwind.makers";
 export const DEMO_PASSWORD = "rackline-demo";
@@ -158,6 +159,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
   const receiptId = newId();
   const orderId = newId();
   const woId = newId();
+  const shopifyOrderRowId = newId();
+  const shopifyLineId = "8801";
   await db.batch([
     db.insert(schema.receipts).values({
       id: receiptId,
@@ -178,6 +181,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       customerName: "Harbor Workshop",
       status: "draft",
       createdAt: now,
+      source: "manual",
     }),
     db.insert(schema.orderLines).values({ id: newId(), orderId, itemId: item.lamp, qty: 2 }),
     db.insert(schema.workOrders).values({
@@ -191,6 +195,41 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       sourceLocationId: loc.storage,
       outputLocationId: loc.prod,
       createdAt: now,
+    }),
+    db.insert(schema.shopifyConnections).values({
+      id: newId(),
+      organizationId,
+      shopDomain: "northwind-makers.myshopify.com",
+      accessToken: null,
+      webhookSecret: "rackline-demo-shopify-secret",
+      apiVersion: "2026-07",
+      mode: "demo",
+      createdAt: now,
+      updatedAt: now,
+    }),
+    db.insert(schema.orders).values({
+      id: shopifyOrderRowId,
+      organizationId,
+      warehouseId,
+      number: "#1004",
+      customerName: "Maya Chen",
+      status: "draft",
+      createdAt: now,
+      source: "shopify",
+      shopifyOrderId: "1004",
+      shopifyOrderGid: "gid://shopify/Order/1004",
+      shopifyOrderName: "#1004",
+      shopifyFulfillmentOrderId: demoFulfillmentOrderId("1004"),
+      shopifySyncStatus: "inbound",
+      shopifyShopDomain: "northwind-makers.myshopify.com",
+    }),
+    db.insert(schema.orderLines).values({
+      id: newId(),
+      orderId: shopifyOrderRowId,
+      itemId: item.lamp,
+      qty: 1,
+      shopifyLineItemId: shopifyLineId,
+      shopifyFulfillmentLineItemId: "gid://shopify/FulfillmentOrderLineItem/demo-8801",
     }),
   ]);
 
