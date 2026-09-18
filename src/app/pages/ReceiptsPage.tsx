@@ -136,12 +136,12 @@ export function ReceiptsPage({ me }: { me: Me }) {
               <StatusBadge status={receipt.status} />
             </td>
             <td className="px-4 py-3 text-sm">{summarizeLines(receipt.lines)}</td>
-            <td className="px-4 py-3 text-muted">{receipt.notes || "—"}</td>
+            <td className="px-4 py-3 text-muted-foreground">{receipt.notes || "—"}</td>
             <td className="px-4 py-3 text-right">
               {receipt.status === "draft" ? (
                 <Button onClick={() => receive(receipt.id)}>Receive</Button>
               ) : (
-                <span className="text-xs text-muted">Posted</span>
+                <span className="text-xs text-muted-foreground">Posted</span>
               )}
             </td>
           </tr>

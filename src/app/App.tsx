@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { api, type Me } from "./api";
 import { AppShell } from "./pages/AppShell";
 import { AuthPage } from "./pages/AuthPage";
+import { LandingPage } from "./pages/LandingPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ItemsPage } from "./pages/ItemsPage";
 import { LocationsPage } from "./pages/LocationsPage";
@@ -42,17 +43,22 @@ export function App() {
 
   if (!ready) {
     return (
-      <div className="grid min-h-screen place-items-center bg-paper text-muted">
-        Opening the warehouse…
+      <div className="grid min-h-screen place-items-center bg-background text-muted-foreground">
+        <div className="flex flex-col items-center gap-3 text-sm">
+          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
+          Opening the warehouse…
+        </div>
       </div>
     );
   }
 
   return (
     <Routes>
-      <Route path="/login" element={me ? <Navigate to="/" replace /> : <AuthPage />} />
+      <Route path="/" element={me ? <Navigate to="/dashboard" replace /> : <LandingPage />} />
+      <Route path="/login" element={me ? <Navigate to="/dashboard" replace /> : <AuthPage />} />
+      <Route path="/signup" element={me ? <Navigate to="/dashboard" replace /> : <AuthPage mode="signup" />} />
       <Route element={<Guard me={me} />}>
-        <Route path="/" element={<DashboardPage />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/map" element={me ? <MapPage me={me} /> : null} />
         <Route path="/move" element={<MovePage />} />
         <Route path="/items" element={me ? <ItemsPage me={me} /> : null} />
@@ -68,7 +74,7 @@ export function App() {
         <Route path="/adjustments" element={<AdjustmentsPage />} />
         <Route path="/ledger" element={<LedgerPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to={me ? "/dashboard" : "/"} replace />} />
     </Routes>
   );
 }

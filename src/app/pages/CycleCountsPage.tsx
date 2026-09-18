@@ -93,7 +93,7 @@ export function CycleCountsPage({ me }: { me: Me }) {
         <Card className="mb-6">
           <div className="mb-4 flex items-center justify-between gap-4">
             <div>
-              <p className="font-mono text-xs uppercase text-muted">{active.number}</p>
+              <p className="font-mono text-xs uppercase text-muted-foreground">{active.number}</p>
               <h2 className="font-semibold">Count worksheet</h2>
             </div>
             <StatusBadge status={active.status} />

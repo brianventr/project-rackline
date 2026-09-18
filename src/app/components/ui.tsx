@@ -8,6 +8,19 @@ import {
   type ReactNode,
   type SelectHTMLAttributes,
 } from "react";
+import { Button as UiButton } from "@/components/ui/button";
+import { Card as UiCard, CardContent } from "@/components/ui/card";
+import { Input as UiInput } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table as UiTable,
+  TableBody,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 export function PageHeader({
   eyebrow,
@@ -21,13 +34,13 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <div className="mb-2 flex flex-wrap items-end justify-between gap-4">
       <div>
         {eyebrow ? (
-          <p className="mb-1 font-mono text-xs uppercase tracking-[0.18em] text-muted">{eyebrow}</p>
+          <p className="mb-1 font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">{eyebrow}</p>
         ) : null}
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        {description ? <p className="mt-1 max-w-2xl text-sm text-muted">{description}</p> : null}
+        {description ? <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{description}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
     </div>
@@ -36,9 +49,9 @@ export function PageHeader({
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`rounded-xl border border-line bg-card p-5 shadow-[0_1px_0_rgba(27,23,18,0.04)] ${className}`}>
-      {children}
-    </div>
+    <UiCard className={cn("py-0", className)}>
+      <CardContent className="p-5">{children}</CardContent>
+    </UiCard>
   );
 }
 
@@ -48,28 +61,27 @@ export function Button({
   variant = "primary",
   disabled,
   onClick,
+  className,
 }: {
   children: ReactNode;
   type?: "button" | "submit";
   variant?: "primary" | "secondary" | "danger" | "ghost";
   disabled?: boolean;
   onClick?: () => void;
+  className?: string;
 }) {
-  const styles = {
-    primary: "bg-amber text-ink hover:brightness-105",
-    secondary: "bg-ink text-paper hover:bg-bay",
-    danger: "bg-bad text-white hover:brightness-110",
-    ghost: "bg-transparent text-ink border border-line hover:bg-paper",
-  }[variant];
+  const mapped =
+    variant === "primary"
+      ? "default"
+      : variant === "danger"
+        ? "destructive"
+        : variant === "ghost"
+          ? "outline"
+          : "secondary";
   return (
-    <button
-      type={type}
-      disabled={disabled}
-      onClick={onClick}
-      className={`rounded-lg px-4 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${styles}`}
-    >
+    <UiButton type={type} variant={mapped} disabled={disabled} onClick={onClick} className={className}>
       {children}
-    </button>
+    </UiButton>
   );
 }
 
@@ -83,9 +95,9 @@ export function Field({
   const id = useId();
   return (
     <div className="block text-sm">
-      <label htmlFor={id} className="mb-1.5 block font-medium text-ink/80">
+      <Label htmlFor={id} className="mb-1.5">
         {label}
-      </label>
+      </Label>
       {isValidElement(children)
         ? cloneElement(children as ReactElement<{ id?: string }>, { id })
         : children}
@@ -93,19 +105,24 @@ export function Field({
   );
 }
 
-const controlClass =
-  "w-full rounded-lg border border-line bg-paper px-3 py-2.5 text-sm outline-none ring-amber/40 focus:ring-2";
-
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={`${controlClass} ${props.className ?? ""}`} />;
+  return <UiInput {...props} />;
 }
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={`${controlClass} ${props.className ?? ""}`} />;
+  return (
+    <select
+      {...props}
+      className={cn(
+        "border-input h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+        props.className,
+      )}
+    />
+  );
 }
 
 export function StatusBadge({ status }: { status: string }) {
-  const tone =
+  const variant =
     status === "received" ||
     status === "shipped" ||
     status === "completed" ||
@@ -113,16 +130,14 @@ export function StatusBadge({ status }: { status: string }) {
     status === "synced" ||
     status === "ok" ||
     status === "demo"
-      ? "bg-ok/15 text-ok"
-      : status === "picked" || status === "inbound" || status === "pending_fulfill" || status === "live"
-        ? "bg-amber/20 text-warn"
-        : status === "cancelled" || status === "failed"
-          ? "bg-bad/15 text-bad"
-          : "bg-line text-ink";
+      ? "default"
+      : status === "cancelled" || status === "failed"
+        ? "destructive"
+        : "secondary";
   return (
-    <span className={`rounded-full px-2.5 py-0.5 font-mono text-xs uppercase tracking-wide ${tone}`}>
+    <Badge variant={variant} className="uppercase">
       {status}
-    </span>
+    </Badge>
   );
 }
 
@@ -134,19 +149,17 @@ export function Table({
   children: ReactNode;
 }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-line bg-card">
-      <table className="w-full text-left text-sm">
-        <thead className="border-b border-line bg-paper/80 font-medium text-muted">
-          <tr>
+    <div className="overflow-hidden rounded-xl border bg-card">
+      <UiTable>
+        <TableHeader>
+          <TableRow>
             {columns.map((col) => (
-              <th key={col} className="px-4 py-3 font-medium">
-                {col}
-              </th>
+              <TableHead key={col}>{col}</TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-line">{children}</tbody>
-      </table>
+          </TableRow>
+        </TableHeader>
+        <TableBody>{children}</TableBody>
+      </UiTable>
     </div>
   );
 }
@@ -154,7 +167,7 @@ export function Table({
 export function ErrorBanner({ error }: { error: string | null }) {
   if (!error) return null;
   return (
-    <div className="mb-4 rounded-lg border border-bad/30 bg-bad/10 px-4 py-3 text-sm text-bad">
+    <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
       {error}
     </div>
   );
@@ -162,9 +175,9 @@ export function ErrorBanner({ error }: { error: string | null }) {
 
 export function EmptyState({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-line px-6 py-12 text-center">
+    <div className="rounded-xl border border-dashed px-6 py-12 text-center">
       <p className="font-medium">{title}</p>
-      <p className="mt-1 text-sm text-muted">{body}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{body}</p>
     </div>
   );
 }

@@ -211,10 +211,10 @@ function CameraOverlay({ onClose, onScan }: { onClose: () => void; onScan: (raw:
       <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-card text-ink shadow-2xl">
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <div>
-            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Scanner</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Scanner</p>
             <p className="font-semibold">Point at a location or SKU barcode</p>
           </div>
-          <button className="text-sm text-muted hover:text-ink" onClick={onClose}>
+          <button className="text-sm text-muted-foreground hover:text-ink" onClick={onClose}>
             Close
           </button>
         </div>
@@ -222,7 +222,7 @@ function CameraOverlay({ onClose, onScan }: { onClose: () => void; onScan: (raw:
           <video ref={videoRef} className="aspect-[4/3] w-full object-cover" playsInline muted />
           <div className="pointer-events-none absolute inset-8 rounded-xl border-2 border-amber/80" />
         </div>
-        {error ? <p className="px-4 py-3 text-sm text-bad">{error}</p> : <p className="px-4 py-3 text-sm text-muted">USB and Bluetooth gun scanners also work from any screen — just scan.</p>}
+        {error ? <p className="px-4 py-3 text-sm text-bad">{error}</p> : <p className="px-4 py-3 text-sm text-muted-foreground">USB and Bluetooth gun scanners also work from any screen — just scan.</p>}
       </div>
     </div>
   );

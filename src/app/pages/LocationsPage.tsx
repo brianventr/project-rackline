@@ -83,9 +83,9 @@ export function LocationsPage({ me }: { me: Me }) {
           {locations.map((location) => (
             <div key={location.id} className="break-inside-avoid rounded-xl border border-line bg-card p-3">
               <p className="font-mono text-sm font-semibold">{location.code}</p>
-              <p className="text-xs text-muted">{location.name}</p>
+              <p className="text-xs text-muted-foreground">{location.name}</p>
               <BarcodeLabel value={location.barcode} className="mt-2 w-full" />
-              <p className="mt-1 text-[11px] text-muted">
+              <p className="mt-1 text-[11px] text-muted-foreground">
                 {location.area} · {location.posX},{location.posY},{location.posZ}
               </p>
             </div>
@@ -160,7 +160,7 @@ export function LocationsPage({ me }: { me: Me }) {
               </Link>
             </td>
             <td className="px-4 py-3">{location.name}</td>
-            <td className="px-4 py-3 text-sm text-muted">
+            <td className="px-4 py-3 text-sm text-muted-foreground">
               {location.area}
               {location.aisle ? ` · ${location.aisle}-${location.rack}-${location.bay}` : ""} L{location.level}
             </td>

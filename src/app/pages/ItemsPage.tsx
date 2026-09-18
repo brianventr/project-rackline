@@ -85,7 +85,7 @@ export function ItemsPage({ me }: { me: Me }) {
         </form>
       </Card>
       {items.length === 0 ? (
-        <p className="text-sm text-muted">No SKUs yet. Add a part or load the Northwind demo.</p>
+        <p className="text-sm text-muted-foreground">No SKUs yet. Add a part or load the Northwind demo.</p>
       ) : (
         <Table columns={["SKU", "Name", "Type", "Reorder", ""]}>
           {items.map((item) => (

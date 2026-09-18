@@ -2,17 +2,19 @@
 
 Cloudflare-native warehouse management for makers who grow into manufacturers.
 
+The public site is a marketing landing page. After sign-in, the floor board, rack map, scan-to-move, Shopify channel, and classic WMS loops run in a shadcn/ui shell (from `shadcn-dashboard-landing-v1/vite-version`).
+
 Iteration 1 covers organization tenancy, inventory in locations, inbound receipts, outbound pick/ship, adjustments, BOMs, and work orders.
 
 Iteration 2 adds bin-to-bin transfers (putaway), cycle counts, the inventory ledger, reorder points / low stock, and document line visibility.
 
-Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify.
+Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 ## Stack
 
 - Cloudflare Workers + [Hono](https://hono.dev) API
 - D1 (SQLite) + Drizzle
-- Vite + React + Tailwind UI, served as Workers static assets
+- Vite + React + Tailwind v4 + shadcn/ui, served as Workers static assets
 - Better Auth email/password
 - Shopify Admin GraphQL + HMAC-signed webhooks
 
@@ -25,12 +27,12 @@ npm test
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Open [http://localhost:5173](http://localhost:5173). Guests see the landing page. Sign in at `/login`.
 
 On the sign-in screen, either:
 
 - Create an organization, or
-- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, bins `RECV` / `A-01-01` / `PROD` / `SHIP`, reorder points, an open receipt, a floor order, Shopify order `#1004` (Maya Chen), and a work order.
+- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt, a floor order, Shopify order `#1004` (Maya Chen), and a work order. Then open **Map** and **Move**.
 
 `wrangler.jsonc` uses a placeholder `database_id`. Local D1 does not need a Cloudflare account. When you are ready to deploy:
 

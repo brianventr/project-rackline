@@ -89,7 +89,7 @@ export function MapPage({ me }: { me: Me }) {
       />
       <ErrorBanner error={error} />
       <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-        <span className="font-mono text-xs uppercase tracking-widest text-muted">Level</span>
+        <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Level</span>
         <button
           className={`rounded-full px-3 py-1 ${levelFilter === "all" ? "bg-ink text-paper" : "bg-card border border-line"}`}
           onClick={() => setLevelFilter("all")}
@@ -106,7 +106,7 @@ export function MapPage({ me }: { me: Me }) {
           </button>
         ))}
         {view === "floor" && me.role === "owner" ? (
-          <span className="text-xs text-muted">Drag a bay to correlate it to the real floor.</span>
+          <span className="text-xs text-muted-foreground">Drag a bay to correlate it to the real floor.</span>
         ) : null}
       </div>
       {data ? (
@@ -124,7 +124,7 @@ export function MapPage({ me }: { me: Me }) {
           <BayDetail location={selected} />
         </div>
       ) : (
-        <p className="text-sm text-muted">Loading floor…</p>
+        <p className="text-sm text-muted-foreground">Loading floor…</p>
       )}
     </div>
   );
@@ -135,7 +135,7 @@ function BayDetail({ location }: { location: MapLocation | null }) {
     return (
       <Card>
         <p className="font-semibold">Select a bay</p>
-        <p className="mt-2 text-sm text-muted">
+        <p className="mt-2 text-sm text-muted-foreground">
           Click the map, scan a location barcode, or open a bin from On-hand. Occupied storage bays are amber.
         </p>
       </Card>
@@ -144,26 +144,26 @@ function BayDetail({ location }: { location: MapLocation | null }) {
 
   return (
     <Card>
-      <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">{location.area}</p>
+      <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{location.area}</p>
       <h2 className="mt-1 text-xl font-semibold">{location.code}</h2>
-      <p className="text-sm text-muted">{location.name}</p>
+      <p className="text-sm text-muted-foreground">{location.name}</p>
       <dl className="mt-4 grid grid-cols-2 gap-2 text-sm">
         <div>
-          <dt className="text-xs text-muted">Type</dt>
+          <dt className="text-xs text-muted-foreground">Type</dt>
           <dd className="capitalize">{location.type}</dd>
         </div>
         <div>
-          <dt className="text-xs text-muted">Level</dt>
+          <dt className="text-xs text-muted-foreground">Level</dt>
           <dd>{location.level}</dd>
         </div>
         <div>
-          <dt className="text-xs text-muted">Aisle / rack / bay</dt>
+          <dt className="text-xs text-muted-foreground">Aisle / rack / bay</dt>
           <dd className="font-mono">
             {[location.aisle, location.rack, location.bay].filter(Boolean).join("-") || "—"}
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-muted">Map position</dt>
+          <dt className="text-xs text-muted-foreground">Map position</dt>
           <dd className="font-mono">
             {location.posX},{location.posY},{location.posZ}
           </dd>
@@ -185,7 +185,7 @@ function BayDetail({ location }: { location: MapLocation | null }) {
           ))}
         </ul>
       ) : (
-        <p className="mt-2 text-sm text-muted">Empty bay.</p>
+        <p className="mt-2 text-sm text-muted-foreground">Empty bay.</p>
       )}
       <Link
         className="mt-4 inline-flex rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-paper"

@@ -44,7 +44,7 @@ export function InventoryPage() {
           </tr>
         ))}
       </Table>
-      {filtered.length === 0 ? <p className="mt-4 text-sm text-muted">No on-hand rows match.</p> : null}
+      {filtered.length === 0 ? <p className="mt-4 text-sm text-muted-foreground">No on-hand rows match.</p> : null}
     </div>
   );
 }

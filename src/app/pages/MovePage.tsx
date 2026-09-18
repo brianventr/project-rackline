@@ -126,11 +126,11 @@ export function MovePage() {
       <div className="grid gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <div className="space-y-4">
           <Card className={step === "from" ? "ring-2 ring-amber" : ""}>
-            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">1. From</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">1. From</p>
             <SlotCard slot={from} />
           </Card>
           <Card className={step === "to" ? "ring-2 ring-amber" : ""}>
-            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">2. To</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">2. To</p>
             <SlotCard slot={to} />
           </Card>
           <Card data-scan-capture="true">
@@ -159,12 +159,12 @@ export function MovePage() {
                 {busy ? "Moving…" : "Use"}
               </Button>
             </div>
-            <p className="mt-2 text-xs text-muted">
+            <p className="mt-2 text-xs text-muted-foreground">
               Gun scanners type the barcode and Enter. Camera works on Chromium. You can also tap a bay on the map.
             </p>
           </Card>
           <button
-            className="text-sm text-muted hover:text-ink"
+            className="text-sm text-muted-foreground hover:text-ink"
             onClick={() => {
               setFrom({ barcode: "", hit: null });
               setTo({ barcode: "", hit: null });
@@ -197,7 +197,7 @@ export function MovePage() {
 
 function SlotCard({ slot }: { slot: Slot }) {
   if (!slot.hit) {
-    return <p className="mt-2 text-sm text-muted">Waiting for a location barcode.</p>;
+    return <p className="mt-2 text-sm text-muted-foreground">Waiting for a location barcode.</p>;
   }
   const { location, contents } = slot.hit;
   return (
@@ -205,8 +205,8 @@ function SlotCard({ slot }: { slot: Slot }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="font-mono text-lg font-semibold">{location.code}</p>
-          <p className="text-sm text-muted">{location.name}</p>
-          <p className="mt-1 text-xs text-muted">
+          <p className="text-sm text-muted-foreground">{location.name}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
             {location.area}
             {location.aisle ? ` · aisle ${location.aisle}` : ""}
             {location.bay ? ` · bay ${location.bay}` : ""}
@@ -224,7 +224,7 @@ function SlotCard({ slot }: { slot: Slot }) {
             </li>
           ))
         ) : (
-          <li className="text-muted">Empty</li>
+          <li className="text-muted-foreground">Empty</li>
         )}
       </ul>
       <Link className="mt-2 inline-block text-xs underline" to={`/map?location=${location.id}`}>

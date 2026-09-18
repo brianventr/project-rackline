@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { ArrowRight } from "lucide-react";
 import { api, type Dashboard } from "../api";
-import { Card, ErrorBanner, PageHeader } from "../components/ui";
+import { ErrorBanner, PageHeader } from "../components/ui";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
@@ -15,94 +19,115 @@ export function DashboardPage() {
 
   const stats = data
     ? [
-        { label: "Units on hand", value: data.onHandUnits },
-        { label: "Bin rows", value: data.binRows },
-        { label: "SKUs", value: data.skuCount },
-        { label: "Open receipts", value: data.openReceipts },
-        { label: "Open orders", value: data.openOrders },
-        { label: "Open work orders", value: data.openWorkOrders },
-        { label: "Open transfers", value: data.openTransfers },
-        { label: "Open counts", value: data.openCycleCounts },
-        { label: "Shopify to pick", value: data.shopifyOpenOrders },
+        { label: "Units on hand", value: data.onHandUnits, hint: "Across every bin" },
+        { label: "Bin rows", value: data.binRows, hint: "On-hand location lines" },
+        { label: "SKUs", value: data.skuCount, hint: "In the catalog" },
+        { label: "Open receipts", value: data.openReceipts, hint: "Waiting to post" },
+        { label: "Open orders", value: data.openOrders, hint: "Pick or ship" },
+        { label: "Open work orders", value: data.openWorkOrders, hint: "On the bench" },
+        { label: "Open transfers", value: data.openTransfers, hint: "Putaway drafts" },
+        { label: "Open counts", value: data.openCycleCounts, hint: "Unposted worksheets" },
+        { label: "Shopify to pick", value: data.shopifyOpenOrders, hint: "Channel orders" },
       ]
     : [];
 
+  const shortcuts = [
+    { to: "/receipts", label: "Post a receipt" },
+    { to: "/map", label: "Open the map" },
+    { to: "/move", label: "Scan to move" },
+    { to: "/transfers", label: "Put away / transfer" },
+    { to: "/work-orders", label: "Complete a work order" },
+    { to: "/orders", label: "Pick and ship" },
+    { to: "/counts", label: "Start a cycle count" },
+    { to: "/shopify", label: "Shopify channel" },
+  ];
+
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Bay 00"
         title="Floor board"
         description="A snapshot of stock, putaway, outbound, counts, and the assembly bench."
       />
       <ErrorBanner error={error} />
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {stats.map((stat) => (
-          <Card key={stat.label}>
-            <p className="font-mono text-xs uppercase tracking-widest text-muted">{stat.label}</p>
-            <p className="mt-2 font-mono text-3xl tabular">{stat.value}</p>
+          <Card key={stat.label} className="@container/card">
+            <CardHeader>
+              <CardDescription>{stat.label}</CardDescription>
+              <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+                {stat.value}
+              </CardTitle>
+              <CardAction>
+                <Badge variant="outline">{stat.hint}</Badge>
+              </CardAction>
+            </CardHeader>
           </Card>
         ))}
       </div>
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <h2 className="mb-3 font-semibold">Recent movements</h2>
-          {data?.recent.length ? (
-            <ul className="space-y-2 text-sm">
-              {data.recent.map((row) => (
-                <li key={row.id} className="flex justify-between gap-4 border-b border-line/70 py-2 last:border-0">
-                  <span>
-                    <span className="font-mono text-xs uppercase text-muted">{row.type}</span>{" "}
-                    <span className="font-medium">{row.sku}</span>
-                  </span>
-                  <span className="font-mono tabular">{row.qty}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted">No ledger activity yet.</p>
-          )}
+          <CardHeader>
+            <CardTitle>Recent movements</CardTitle>
+            <CardDescription>Last ledger lines across the warehouse.</CardDescription>
+          </CardHeader>
+          <CardFooter className="flex-col items-stretch gap-2">
+            {data?.recent.length ? (
+              <ul className="w-full space-y-2 text-sm">
+                {data.recent.map((row) => (
+                  <li key={row.id} className="flex justify-between gap-4 border-b py-2 last:border-0">
+                    <span>
+                      <span className="font-mono text-xs uppercase text-muted-foreground">{row.type}</span>{" "}
+                      <span className="font-medium">{row.sku}</span>
+                    </span>
+                    <span className="font-mono tabular-nums">{row.qty}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No ledger activity yet.</p>
+            )}
+          </CardFooter>
         </Card>
         <Card>
-          <h2 className="mb-3 font-semibold">Below reorder point</h2>
-          {data?.lowStock.length ? (
-            <ul className="space-y-2 text-sm">
-              {data.lowStock.map((row) => (
-                <li key={row.itemId} className="flex justify-between gap-4 border-b border-line/70 py-2 last:border-0">
-                  <span>
-                    <span className="font-mono">{row.sku}</span> {row.name}
-                  </span>
-                  <span className="font-mono tabular text-warn">
-                    {row.onHand}/{row.reorderPoint}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted">No SKUs are at or below their reorder point.</p>
-          )}
+          <CardHeader>
+            <CardTitle>Below reorder point</CardTitle>
+            <CardDescription>SKUs at or under their threshold.</CardDescription>
+          </CardHeader>
+          <CardFooter className="flex-col items-stretch gap-2">
+            {data?.lowStock.length ? (
+              <ul className="w-full space-y-2 text-sm">
+                {data.lowStock.map((row) => (
+                  <li key={row.itemId} className="flex justify-between gap-4 border-b py-2 last:border-0">
+                    <span>
+                      <span className="font-mono">{row.sku}</span> {row.name}
+                    </span>
+                    <span className="font-mono tabular-nums text-warn">
+                      {row.onHand}/{row.reorderPoint}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No SKUs are at or below their reorder point.</p>
+            )}
+          </CardFooter>
         </Card>
-        <Card>
-          <h2 className="mb-3 font-semibold">Floor shortcuts</h2>
-          <div className="grid gap-2">
-            <Link className="rounded-lg bg-ink px-4 py-3 text-sm font-semibold text-paper" to="/receipts">
-              Post a receipt
-            </Link>
-            <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/transfers">
-              Put away / transfer
-            </Link>
-            <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/work-orders">
-              Complete a work order
-            </Link>
-            <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/orders">
-              Pick and ship
-            </Link>
-            <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/counts">
-              Start a cycle count
-            </Link>
-            <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/shopify">
-              Shopify channel
-            </Link>
-          </div>
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Floor shortcuts</CardTitle>
+            <CardDescription>Jump into the loop you are running right now.</CardDescription>
+          </CardHeader>
+          <CardFooter className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {shortcuts.map((item) => (
+              <Button key={item.to} variant="outline" className="justify-between" asChild>
+                <Link to={item.to}>
+                  {item.label}
+                  <ArrowRight />
+                </Link>
+              </Button>
+            ))}
+          </CardFooter>
         </Card>
       </div>
     </div>

@@ -181,7 +181,7 @@ export function OrdersPage({ me }: { me: Me }) {
                   Shopify
                 </Link>
               ) : (
-                <span className="text-muted">Floor</span>
+                <span className="text-muted-foreground">Floor</span>
               )}
             </td>
             <td className="px-4 py-3">{order.customerName}</td>
@@ -198,7 +198,7 @@ export function OrdersPage({ me }: { me: Me }) {
                   ) : null}
                 </div>
               ) : (
-                <span className="text-muted">—</span>
+                <span className="text-muted-foreground">—</span>
               )}
             </td>
             <td className="px-4 py-3 text-right">

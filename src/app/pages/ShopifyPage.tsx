@@ -118,7 +118,7 @@ export function ShopifyPage({ me }: { me: Me }) {
       <div className="mb-6 grid gap-6 lg:grid-cols-2">
         <Card>
           <h2 className="mb-1 font-semibold">Store connection</h2>
-          <p className="mb-4 text-sm text-muted">
+          <p className="mb-4 text-sm text-muted-foreground">
             Create a custom app in Shopify Admin, then paste the shop, Admin API token, and webhook signing secret.
             Demo mode records fulfill-back payloads without calling Shopify.
           </p>
@@ -127,13 +127,13 @@ export function ShopifyPage({ me }: { me: Me }) {
               <StatusBadge status={connection.mode} />{" "}
               <span className="font-mono text-xs">{connection.shopDomain}</span>
               {connection.tokenHint ? (
-                <span className="ml-2 text-xs text-muted">token {connection.tokenHint}</span>
+                <span className="ml-2 text-xs text-muted-foreground">token {connection.tokenHint}</span>
               ) : (
-                <span className="ml-2 text-xs text-muted">no Admin token (demo)</span>
+                <span className="ml-2 text-xs text-muted-foreground">no Admin token (demo)</span>
               )}
             </p>
           ) : (
-            <p className="mb-4 text-sm text-muted">No shop connected yet.</p>
+            <p className="mb-4 text-sm text-muted-foreground">No shop connected yet.</p>
           )}
           {owner ? (
             <form className="space-y-3" onSubmit={onSubmit(save)}>
@@ -177,13 +177,13 @@ export function ShopifyPage({ me }: { me: Me }) {
               </div>
             </form>
           ) : (
-            <p className="text-sm text-muted">Owners connect the shop. Operators can still simulate inbound orders.</p>
+            <p className="text-sm text-muted-foreground">Owners connect the shop. Operators can still simulate inbound orders.</p>
           )}
         </Card>
 
         <Card>
           <h2 className="mb-1 font-semibold">Webhook endpoints</h2>
-          <p className="mb-4 text-sm text-muted">
+          <p className="mb-4 text-sm text-muted-foreground">
             Subscribe <span className="font-mono">orders/create</span>,{" "}
             <span className="font-mono">orders/updated</span>, and{" "}
             <span className="font-mono">orders/cancelled</span>. For a fulfillment service, set the callback URL
@@ -191,15 +191,15 @@ export function ShopifyPage({ me }: { me: Me }) {
           </p>
           <dl className="space-y-3 text-sm">
             <div>
-              <dt className="text-xs uppercase tracking-wide text-muted">Orders webhook</dt>
+              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Orders webhook</dt>
               <dd className="mt-1 break-all font-mono text-xs">{connection?.webhookUrl}</dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-muted">Fulfillment service callback</dt>
+              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Fulfillment service callback</dt>
               <dd className="mt-1 break-all font-mono text-xs">{connection?.fulfillmentNotificationUrl}</dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-muted">Admin API scopes</dt>
+              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Admin API scopes</dt>
               <dd className="mt-1 font-mono text-xs leading-5">{connection?.scopes.join(", ")}</dd>
             </div>
           </dl>
@@ -208,7 +208,7 @@ export function ShopifyPage({ me }: { me: Me }) {
 
       <Card className="mb-6">
         <h2 className="mb-1 font-semibold">Simulate a customer order</h2>
-        <p className="mb-4 text-sm text-muted">
+        <p className="mb-4 text-sm text-muted-foreground">
           Builds a signed Shopify <span className="font-mono">orders/create</span> payload and runs the same ingest
           path as a live webhook. Then pick and ship it on{" "}
           <Link className="underline" to="/orders">
@@ -240,7 +240,7 @@ export function ShopifyPage({ me }: { me: Me }) {
       <Card>
         <h2 className="mb-3 font-semibold">Fulfillment posts back to Shopify</h2>
         {outbound.length === 0 ? (
-          <p className="text-sm text-muted">Ship a Shopify order to see the fulfillmentCreate payload here.</p>
+          <p className="text-sm text-muted-foreground">Ship a Shopify order to see the fulfillmentCreate payload here.</p>
         ) : (
           <ul className="space-y-3 text-sm">
             {outbound.map((event) => (
@@ -248,9 +248,9 @@ export function ShopifyPage({ me }: { me: Me }) {
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <StatusBadge status={event.status} />
                   <span className="font-mono text-xs">{event.kind}</span>
-                  <span className="text-xs text-muted">{new Date(event.createdAt).toLocaleString()}</span>
+                  <span className="text-xs text-muted-foreground">{new Date(event.createdAt).toLocaleString()}</span>
                 </div>
-                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] text-muted">
+                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
                   {JSON.stringify({ request: event.request, response: event.response }, null, 2)}
                 </pre>
               </li>

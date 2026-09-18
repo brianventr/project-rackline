@@ -151,7 +151,7 @@ export function TransfersPage({ me }: { me: Me }) {
               {transfer.status === "draft" ? (
                 <Button onClick={() => post(transfer.id)}>Post</Button>
               ) : (
-                <span className="text-xs text-muted">Moved</span>
+                <span className="text-xs text-muted-foreground">Moved</span>
               )}
             </td>
           </tr>
