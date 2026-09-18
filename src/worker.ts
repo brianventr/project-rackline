@@ -14,6 +14,7 @@ import { receiptsRoute } from "./routes/receipts";
 import { ordersRoute } from "./routes/orders";
 import { adjustmentsRoute } from "./routes/adjustments";
 import { manufacturingRoute } from "./routes/manufacturing";
+import { floorRoute } from "./routes/floor";
 
 const app = new Hono<AppEnv>();
 
@@ -81,5 +82,6 @@ app.route("/api", receiptsRoute);
 app.route("/api", ordersRoute);
 app.route("/api", adjustmentsRoute);
 app.route("/api", manufacturingRoute);
+app.route("/api", floorRoute);
 
 export default app;

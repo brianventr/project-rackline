@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
@@ -32,13 +32,38 @@ async function orderWithLines(db: AppEnv["Variables"]["db"], organizationId: str
 }
 
 ordersRoute.get("/orders", async (c) => {
-  const rows = await c
-    .get("db")
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const rows = await db
     .select()
     .from(schema.orders)
-    .where(eq(schema.orders.organizationId, c.get("organizationId")!))
+    .where(eq(schema.orders.organizationId, organizationId))
     .orderBy(desc(schema.orders.createdAt));
-  return c.json(rows);
+  if (rows.length === 0) return c.json([]);
+  const lines = await db
+    .select({
+      id: schema.orderLines.id,
+      orderId: schema.orderLines.orderId,
+      itemId: schema.orderLines.itemId,
+      qty: schema.orderLines.qty,
+      sku: schema.items.sku,
+      itemName: schema.items.name,
+    })
+    .from(schema.orderLines)
+    .innerJoin(schema.items, eq(schema.items.id, schema.orderLines.itemId))
+    .where(
+      inArray(
+        schema.orderLines.orderId,
+        rows.map((row) => row.id),
+      ),
+    );
+  const byOrder = new Map<string, typeof lines>();
+  for (const line of lines) {
+    const list = byOrder.get(line.orderId) ?? [];
+    list.push(line);
+    byOrder.set(line.orderId, list);
+  }
+  return c.json(rows.map((row) => ({ ...row, lines: byOrder.get(row.id) ?? [] })));
 });
 
 ordersRoute.get("/orders/:id", async (c) => {

@@ -21,6 +21,8 @@ export function DashboardPage() {
         { label: "Open receipts", value: data.openReceipts },
         { label: "Open orders", value: data.openOrders },
         { label: "Open work orders", value: data.openWorkOrders },
+        { label: "Open transfers", value: data.openTransfers },
+        { label: "Open counts", value: data.openCycleCounts },
       ]
     : [];
 
@@ -29,7 +31,7 @@ export function DashboardPage() {
       <PageHeader
         eyebrow="Bay 00"
         title="Floor board"
-        description="A snapshot of stock, inbound, outbound, and the assembly bench."
+        description="A snapshot of stock, putaway, outbound, counts, and the assembly bench."
       />
       <ErrorBanner error={error} />
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -60,16 +62,41 @@ export function DashboardPage() {
           )}
         </Card>
         <Card>
+          <h2 className="mb-3 font-semibold">Below reorder point</h2>
+          {data?.lowStock.length ? (
+            <ul className="space-y-2 text-sm">
+              {data.lowStock.map((row) => (
+                <li key={row.itemId} className="flex justify-between gap-4 border-b border-line/70 py-2 last:border-0">
+                  <span>
+                    <span className="font-mono">{row.sku}</span> {row.name}
+                  </span>
+                  <span className="font-mono tabular text-warn">
+                    {row.onHand}/{row.reorderPoint}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted">No SKUs are at or below their reorder point.</p>
+          )}
+        </Card>
+        <Card>
           <h2 className="mb-3 font-semibold">Floor shortcuts</h2>
           <div className="grid gap-2">
             <Link className="rounded-lg bg-ink px-4 py-3 text-sm font-semibold text-paper" to="/receipts">
               Post a receipt
+            </Link>
+            <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/transfers">
+              Put away / transfer
             </Link>
             <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/work-orders">
               Complete a work order
             </Link>
             <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/orders">
               Pick and ship
+            </Link>
+            <Link className="rounded-lg border border-line px-4 py-3 text-sm font-semibold" to="/counts">
+              Start a cycle count
             </Link>
           </div>
         </Card>

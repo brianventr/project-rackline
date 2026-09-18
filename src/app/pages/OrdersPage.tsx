@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Item, type Location, type Me, type Order } from "../api";
-import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit } from "../components/ui";
+import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
 
 type Line = { itemId: string; qty: string };
 
@@ -138,11 +138,12 @@ export function OrdersPage({ me }: { me: Me }) {
           </Select>
         </Field>
       </div>
-      <Table columns={["Number", "Customer", "Status", ""]}>
+      <Table columns={["Number", "Customer", "Lines", "Status", ""]}>
         {orders.map((order) => (
           <tr key={order.id}>
             <td className="px-4 py-3 font-mono">{order.number}</td>
             <td className="px-4 py-3">{order.customerName}</td>
+            <td className="px-4 py-3 text-sm">{summarizeLines(order.lines)}</td>
             <td className="px-4 py-3">
               <StatusBadge status={order.status} />
             </td>

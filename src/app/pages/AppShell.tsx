@@ -7,10 +7,13 @@ const links = [
   { to: "/items", label: "Items" },
   { to: "/locations", label: "Locations" },
   { to: "/receipts", label: "Receive" },
+  { to: "/transfers", label: "Transfers" },
   { to: "/orders", label: "Orders" },
   { to: "/boms", label: "BOMs" },
   { to: "/work-orders", label: "Work orders" },
+  { to: "/counts", label: "Cycle counts" },
   { to: "/adjustments", label: "Adjust" },
+  { to: "/ledger", label: "Ledger" },
 ];
 
 export function AppShell({ me }: { me: Me }) {

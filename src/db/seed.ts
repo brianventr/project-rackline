@@ -69,6 +69,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       name: "LED bulb",
       type: "raw",
       createdAt: now,
+      reorderPoint: 24,
     }),
     db.insert(schema.items).values({
       id: item.shade,
@@ -77,6 +78,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       name: "Lamp shade",
       type: "raw",
       createdAt: now,
+      reorderPoint: 10,
     }),
     db.insert(schema.items).values({
       id: item.base,
@@ -85,6 +87,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       name: "Cast iron base",
       type: "raw",
       createdAt: now,
+      reorderPoint: 8,
     }),
     db.insert(schema.items).values({
       id: item.cord,
@@ -93,6 +96,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       name: "Power cord",
       type: "raw",
       createdAt: now,
+      reorderPoint: 10,
     }),
     db.insert(schema.items).values({
       id: item.lamp,
@@ -101,6 +105,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       name: "Desk lamp",
       type: "finished",
       createdAt: now,
+      reorderPoint: 4,
     }),
   ]);
 

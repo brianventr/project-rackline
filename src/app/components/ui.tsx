@@ -97,7 +97,7 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
 
 export function StatusBadge({ status }: { status: string }) {
   const tone =
-    status === "received" || status === "shipped" || status === "completed"
+    status === "received" || status === "shipped" || status === "completed" || status === "posted"
       ? "bg-ok/15 text-ok"
       : status === "picked"
         ? "bg-amber/20 text-warn"
@@ -157,4 +157,9 @@ export function onSubmit(handler: () => Promise<void>) {
     event.preventDefault();
     await handler();
   };
+}
+
+export function summarizeLines(lines?: { sku: string; qty: number }[]): string {
+  if (!lines?.length) return "—";
+  return lines.map((line) => `${line.sku} × ${line.qty}`).join(", ");
 }

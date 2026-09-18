@@ -51,6 +51,7 @@ export type Item = {
   sku: string;
   name: string;
   type: string;
+  reorderPoint: number;
 };
 
 export type Location = {
@@ -122,5 +123,49 @@ export type Dashboard = {
   openReceipts: number;
   openOrders: number;
   openWorkOrders: number;
+  openTransfers: number;
+  openCycleCounts: number;
+  lowStock: { itemId: string; sku: string; name: string; onHand: number; reorderPoint: number }[];
   recent: { id: string; type: string; qty: number; createdAt: number; sku: string }[];
+};
+
+export type Transfer = {
+  id: string;
+  number: string;
+  status: string;
+  fromLocationId: string;
+  toLocationId: string;
+  fromCode?: string;
+  toCode?: string;
+  notes: string | null;
+  lines?: { id: string; itemId: string; qty: number; sku: string; itemName: string }[];
+};
+
+export type CycleCount = {
+  id: string;
+  number: string;
+  status: string;
+  locationId: string;
+  locationCode?: string;
+  notes: string | null;
+  lines?: {
+    id: string;
+    itemId: string;
+    systemQty: number;
+    countedQty: number;
+    sku: string;
+    itemName: string;
+  }[];
+};
+
+export type Movement = {
+  id: string;
+  type: string;
+  qty: number;
+  sku: string;
+  itemName: string;
+  reason: string | null;
+  createdAt: number;
+  fromLocationCode: string | null;
+  toLocationCode: string | null;
 };

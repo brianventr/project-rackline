@@ -108,6 +108,7 @@ export const items = sqliteTable(
     name: text("name").notNull(),
     type: text("type").notNull(),
     createdAt: integer("created_at").notNull(),
+    reorderPoint: integer("reorder_point").notNull().default(0),
   },
   (t) => [uniqueIndex("items_org_sku").on(t.organizationId, t.sku)],
 );
@@ -257,6 +258,68 @@ export const workOrders = sqliteTable("work_orders", {
     .references(() => locations.id),
   createdAt: integer("created_at").notNull(),
   completedAt: integer("completed_at"),
+});
+
+export const transfers = sqliteTable("transfers", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  warehouseId: text("warehouse_id")
+    .notNull()
+    .references(() => warehouses.id),
+  number: text("number").notNull(),
+  status: text("status").notNull(),
+  fromLocationId: text("from_location_id")
+    .notNull()
+    .references(() => locations.id),
+  toLocationId: text("to_location_id")
+    .notNull()
+    .references(() => locations.id),
+  notes: text("notes"),
+  createdAt: integer("created_at").notNull(),
+  postedAt: integer("posted_at"),
+});
+
+export const transferLines = sqliteTable("transfer_lines", {
+  id: text("id").primaryKey(),
+  transferId: text("transfer_id")
+    .notNull()
+    .references(() => transfers.id, { onDelete: "cascade" }),
+  itemId: text("item_id")
+    .notNull()
+    .references(() => items.id),
+  qty: integer("qty").notNull(),
+});
+
+export const cycleCounts = sqliteTable("cycle_counts", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  warehouseId: text("warehouse_id")
+    .notNull()
+    .references(() => warehouses.id),
+  number: text("number").notNull(),
+  status: text("status").notNull(),
+  locationId: text("location_id")
+    .notNull()
+    .references(() => locations.id),
+  notes: text("notes"),
+  createdAt: integer("created_at").notNull(),
+  postedAt: integer("posted_at"),
+});
+
+export const cycleCountLines = sqliteTable("cycle_count_lines", {
+  id: text("id").primaryKey(),
+  cycleCountId: text("cycle_count_id")
+    .notNull()
+    .references(() => cycleCounts.id, { onDelete: "cascade" }),
+  itemId: text("item_id")
+    .notNull()
+    .references(() => items.id),
+  systemQty: integer("system_qty").notNull(),
+  countedQty: integer("counted_qty").notNull(),
 });
 
 export type ItemType = "raw" | "wip" | "finished" | "packaging";
