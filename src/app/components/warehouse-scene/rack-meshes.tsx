@@ -42,7 +42,7 @@ function InstancedParts({
   }, [poses, dummy]);
   if (poses.length === 0) return null;
   return (
-    <instancedMesh ref={mesh} args={[geometry, undefined, poses.length]} raycast={() => undefined}>
+    <instancedMesh ref={mesh} args={[geometry, undefined, poses.length]} frustumCulled={false} raycast={() => undefined}>
       <meshStandardMaterial
         color={color}
         metalness={metalness}

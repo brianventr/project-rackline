@@ -177,6 +177,7 @@ function InstancedBins({
     <instancedMesh
       ref={mesh}
       args={[cartonGeometry, undefined, rows.length]}
+      frustumCulled={false}
       raycast={pickable ? undefined : () => undefined}
       onPointerMove={
         pickable && locations
