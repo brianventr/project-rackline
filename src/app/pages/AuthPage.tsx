@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, authClient } from "../api";
-import { Button, Card, ErrorBanner, Field, Input, onSubmit } from "../components/ui";
+import { Button, ErrorBanner, Field, Input, onSubmit } from "../components/ui";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Logo } from "@/components/logo";
+import { ModeToggle } from "@/components/mode-toggle";
 
-export function AuthPage() {
-  const [mode, setMode] = useState<"login" | "signup">("login");
+export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "signup" }) {
+  const [mode, setMode] = useState<"login" | "signup">(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -58,80 +61,79 @@ export function AuthPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-ink text-paper">
-      <div className="pointer-events-none absolute inset-y-0 left-0 w-[42%] bg-[repeating-linear-gradient(90deg,rgba(227,160,8,0.08)_0,rgba(227,160,8,0.08)_12px,transparent_12px,transparent_44px)]" />
-      <div className="relative mx-auto grid min-h-screen max-w-6xl items-center gap-12 px-6 py-16 lg:grid-cols-2">
-        <div>
-          <p className="font-mono text-xs uppercase tracking-[0.28em] text-amber">Project Rackline</p>
-          <h1 className="mt-4 max-w-lg text-4xl font-semibold leading-tight">
-            Warehouse software that starts with one aisle and stays with you.
-          </h1>
-          <p className="mt-4 max-w-md text-sm leading-6 text-paper/70">
-            Receive parts, pick Shopify orders, and complete work orders against a real inventory ledger.
-            Built for makers who become manufacturers.
-          </p>
-        </div>
-        <Card className="text-ink">
-          <div className="mb-5 flex gap-2">
-            <button
-              className={`rounded-full px-3 py-1 text-sm ${mode === "login" ? "bg-ink text-paper" : "text-muted"}`}
-              onClick={() => setMode("login")}
-            >
-              Sign in
-            </button>
-            <button
-              className={`rounded-full px-3 py-1 text-sm ${mode === "signup" ? "bg-ink text-paper" : "text-muted"}`}
-              onClick={() => setMode("signup")}
-            >
-              Create org
-            </button>
+    <div className="bg-muted flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
+      <div className="absolute right-4 top-4">
+        <ModeToggle />
+      </div>
+      <div className="flex w-full max-w-sm flex-col gap-6">
+        <Link to="/" className="flex items-center gap-2 self-center font-medium">
+          <div className="bg-primary text-primary-foreground flex size-9 items-center justify-center rounded-md">
+            <Logo size={20} />
           </div>
-          <ErrorBanner error={error} />
-          <form className="space-y-3" onSubmit={onSubmit(submit)}>
-            {mode === "signup" ? (
-              <>
-                <Field label="Your name">
-                  <Input value={name} onChange={(e) => setName(e.target.value)} required />
-                </Field>
-                <Field label="Organization">
-                  <Input
-                    value={organizationName}
-                    onChange={(e) => setOrganizationName(e.target.value)}
-                    placeholder="Northwind Makers"
-                    required
-                  />
-                </Field>
-              </>
-            ) : null}
-            <Field label="Email">
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </Field>
-            <Field label="Password">
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                minLength={8}
-                required
-              />
-            </Field>
-            <Button type="submit" disabled={busy}>
-              {busy ? "Working…" : mode === "login" ? "Enter warehouse" : "Open the floor"}
-            </Button>
-          </form>
-          <div className="mt-6 border-t border-line pt-4">
-            <p className="mb-3 text-xs text-muted">Want a stocked shop instead of an empty one?</p>
-            <Button variant="secondary" onClick={loadDemo} disabled={busy}>
-              Load Northwind Makers demo
-            </Button>
-          </div>
-          <p className="mt-4 text-xs text-muted">
-            Transfers, cycle counts, the ledger, reorder points, and Shopify fulfill-back are on the floor.
-            <Link className="ml-1 underline" to="/">
-              Skip if already signed in
-            </Link>
-          </p>
+          Rackline
+        </Link>
+        <Card>
+          <CardHeader className="text-center">
+            <CardTitle className="text-xl">{mode === "login" ? "Welcome back" : "Open a warehouse"}</CardTitle>
+            <CardDescription>
+              {mode === "login"
+                ? "Sign in to the floor board, map, and Shopify channel."
+                : "Create an organization and a main warehouse."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4 grid grid-cols-2 gap-2">
+              <Button variant={mode === "login" ? "primary" : "ghost"} onClick={() => setMode("login")}>
+                Sign in
+              </Button>
+              <Button variant={mode === "signup" ? "primary" : "ghost"} onClick={() => setMode("signup")}>
+                Create org
+              </Button>
+            </div>
+            <ErrorBanner error={error} />
+            <form className="grid gap-3" onSubmit={onSubmit(submit)}>
+              {mode === "signup" ? (
+                <>
+                  <Field label="Your name">
+                    <Input value={name} onChange={(e) => setName(e.target.value)} required />
+                  </Field>
+                  <Field label="Organization">
+                    <Input
+                      value={organizationName}
+                      onChange={(e) => setOrganizationName(e.target.value)}
+                      placeholder="Northwind Makers"
+                      required
+                    />
+                  </Field>
+                </>
+              ) : null}
+              <Field label="Email">
+                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              </Field>
+              <Field label="Password">
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  minLength={8}
+                  required
+                />
+              </Field>
+              <Button type="submit" disabled={busy}>
+                {busy ? "Working…" : mode === "login" ? "Enter warehouse" : "Open the floor"}
+              </Button>
+            </form>
+            <div className="mt-6 border-t pt-4">
+              <p className="mb-3 text-xs text-muted-foreground">Want a stocked shop instead of an empty one?</p>
+              <Button variant="secondary" onClick={() => void loadDemo()} disabled={busy}>
+                Load Northwind Makers demo
+              </Button>
+            </div>
+          </CardContent>
         </Card>
+        <p className="text-center text-xs text-muted-foreground">
+          Demo login is demo@northwind.makers / rackline-demo after you seed.
+        </p>
       </div>
     </div>
   );

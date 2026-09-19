@@ -6,8 +6,8 @@ import { newId } from "../lib/ids";
 import { chainPlans, planReceive } from "../domain/inventory";
 import { persistStockPlan } from "./stock";
 import { provisionOrganization } from "../lib/org";
-import { areaForType, gridPosition } from "../domain/map-layout";
 import { demoFulfillmentOrderId } from "../domain/shopify";
+import { areaForType, gridPosition } from "../domain/map-layout";
 
 export const DEMO_EMAIL = "demo@northwind.makers";
 export const DEMO_PASSWORD = "rackline-demo";
@@ -126,6 +126,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       sku: "LED-BULB",
       name: "LED bulb",
       type: "raw",
+      barcode: "LED-BULB",
       createdAt: now,
       reorderPoint: 24,
     }),
@@ -135,6 +136,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       sku: "SHADE",
       name: "Lamp shade",
       type: "raw",
+      barcode: "SHADE",
       createdAt: now,
       reorderPoint: 10,
     }),
@@ -144,6 +146,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       sku: "BASE",
       name: "Cast iron base",
       type: "raw",
+      barcode: "BASE",
       createdAt: now,
       reorderPoint: 8,
     }),
@@ -153,6 +156,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       sku: "CORD",
       name: "Power cord",
       type: "raw",
+      barcode: "CORD",
       createdAt: now,
       reorderPoint: 10,
     }),
@@ -162,6 +166,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       sku: "LAMP",
       name: "Desk lamp",
       type: "finished",
+      barcode: "LAMP",
       createdAt: now,
       reorderPoint: 4,
     }),
@@ -179,15 +184,14 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
   const seedRef = "seed";
   const plan = chainPlans(
     new Map(),
-    starting.map(
-      (line) => (balances) =>
-        planReceive({
-          itemId: line.itemId,
-          locationId: line.locationId,
-          qty: line.qty,
-          refId: seedRef,
-          balances,
-        }),
+    starting.map((line) => (balances) =>
+      planReceive({
+        itemId: line.itemId,
+        locationId: line.locationId,
+        qty: line.qty,
+        refId: seedRef,
+        balances,
+      }),
     ),
   );
   for (const movement of plan.movements) {
@@ -238,7 +242,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       warehouseId,
       number: "ORD-DEMO1",
       customerName: "Harbor Workshop",
-      status: "draft",
+      status: "open",
       createdAt: now,
       source: "manual",
     }),
@@ -272,7 +276,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       warehouseId,
       number: "#1004",
       customerName: "Maya Chen",
-      status: "draft",
+      status: "open",
       createdAt: now,
       source: "shopify",
       shopifyOrderId: "1004",

@@ -19,7 +19,7 @@ export function LedgerPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Audit"
+        eyebrow="Stock"
         title="Ledger"
         description="Every receive, move, pick, ship, adjustment, and work-order movement."
       />
@@ -27,13 +27,13 @@ export function LedgerPage() {
       <Table columns={["When", "Type", "SKU", "Qty", "From", "To", "Reason"]}>
         {rows.map((row) => (
           <tr key={row.id}>
-            <td className="px-4 py-3 text-xs text-muted">{formatWhen(row.createdAt)}</td>
+            <td className="px-4 py-3 text-xs text-muted-foreground">{formatWhen(row.createdAt)}</td>
             <td className="px-4 py-3 font-mono text-xs uppercase">{row.type}</td>
             <td className="px-4 py-3 font-mono">{row.sku}</td>
             <td className="px-4 py-3 font-mono tabular">{row.qty}</td>
             <td className="px-4 py-3 font-mono">{row.fromLocationCode || "—"}</td>
             <td className="px-4 py-3 font-mono">{row.toLocationCode || "—"}</td>
-            <td className="px-4 py-3 text-muted">{row.reason || "—"}</td>
+            <td className="px-4 py-3 text-muted-foreground">{row.reason || "—"}</td>
           </tr>
         ))}
       </Table>

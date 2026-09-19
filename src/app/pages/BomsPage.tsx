@@ -57,8 +57,8 @@ export function BomsPage({ me }: { me: Me }) {
   return (
     <div>
       <PageHeader
-        eyebrow="Manufacturing"
-        title="Bills of materials"
+        eyebrow="Make"
+        title="Recipes"
         description="One recipe per finished or WIP SKU. Work orders explode this by quantity."
       />
       <ErrorBanner error={error} />

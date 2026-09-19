@@ -12,6 +12,10 @@
     "resolveJsonModule": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "types": ["@cloudflare/workers-types", "vite/client"]
   },
   "include": ["src", "worker-configuration.d.ts"]

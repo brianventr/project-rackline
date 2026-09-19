@@ -1,0 +1,254 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { ScanLine, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import { ModeToggle } from "@/components/mode-toggle";
+import { useScanner } from "@/app/scanner/ScannerProvider";
+import { useSession } from "@/app/session";
+import { homePath, useWarehouse } from "@/app/warehouse";
+import { api, type ScanHit, type SearchResults } from "@/app/api";
+import { documentPath } from "@/domain/barcodes";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+
+export function SiteHeader({ floor }: { floor?: boolean }) {
+  const scanner = useScanner();
+  const me = useSession();
+  const warehouse = useWarehouse();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const onFloor = floor || location.pathname.startsWith("/floor");
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    setSearchOpen(false);
+  }, [location.pathname]);
+
+  return (
+    <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height)">
+      <div className="flex w-full items-center gap-1 px-4 py-3 lg:gap-2 lg:px-6">
+        {onFloor ? (
+          <Link to="/floor" className="text-sm font-semibold">
+            Floor
+          </Link>
+        ) : (
+          <SidebarTrigger className="-ml-1" />
+        )}
+        <Separator orientation="vertical" className="mx-2 data-[orientation=vertical]:h-4" />
+        <select
+          className="h-8 max-w-44 rounded-md border bg-transparent px-2 text-sm"
+          value={warehouse.warehouseId}
+          onChange={(e) => warehouse.setWarehouseId(e.target.value)}
+          aria-label="Warehouse"
+        >
+          {warehouse.warehouses.map((row) => (
+            <option key={row.id} value={row.id}>
+              {row.name}
+            </option>
+          ))}
+        </select>
+        <div className="ml-auto flex items-center gap-2">
+          <ToggleGroup
+            type="single"
+            value={onFloor ? "floor" : "office"}
+            onValueChange={(value) => {
+              if (value === "floor") navigate("/floor");
+              if (value === "office") navigate(homePath(me.role) === "/floor" ? "/today" : homePath(me.role));
+            }}
+            variant="outline"
+            size="sm"
+          >
+            <ToggleGroupItem value="office" className="px-3 text-xs">
+              Office
+            </ToggleGroupItem>
+            <ToggleGroupItem value="floor" className="px-3 text-xs">
+              Floor
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <Button variant="outline" size="sm" onClick={() => setSearchOpen(true)}>
+            <Search className="size-4" />
+            <span className="hidden sm:inline">Search</span>
+          </Button>
+          {scanner.cameraSupported ? (
+            <Button variant="outline" size="sm" onClick={() => scanner.openCamera()}>
+              <ScanLine className="size-4" />
+              Scan
+            </Button>
+          ) : (
+            <span className="hidden text-xs text-muted-foreground md:inline">Gun scanners work from any screen</span>
+          )}
+          <ModeToggle />
+        </div>
+      </div>
+      <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
+      <ScanNavigate enabled={!onFloor} />
+    </header>
+  );
+}
+
+function ScanNavigate({ enabled }: { enabled: boolean }) {
+  const scanner = useScanner();
+  const navigate = useNavigate();
+  const handledAt = useMemo(() => ({ current: 0 }), []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const scan = scanner.lastScan;
+    if (!scan || scan.at === handledAt.current) return;
+    handledAt.current = scan.at;
+    api<ScanHit>(`/api/scan?code=${encodeURIComponent(scan.raw)}`)
+      .then((hit) => {
+        const path = pathForScan(hit);
+        if (path) navigate(path);
+      })
+      .catch(() => {
+        /* Search can still open the record. */
+      });
+  }, [enabled, scanner.lastScan, handledAt, navigate]);
+
+  return null;
+}
+
+function pathForScan(hit: ScanHit): string | null {
+  switch (hit.kind) {
+    case "location":
+      return `/stock/locations/${hit.location.id}`;
+    case "item":
+      return `/stock/items/${hit.item.id}`;
+    case "order":
+      return documentPath("order", hit.order.id);
+    case "receipt":
+      return documentPath("receipt", hit.receipt.id);
+    case "transfer":
+      return documentPath("transfer", hit.transfer.id);
+    case "workOrder":
+      return documentPath("workOrder", hit.workOrder.id);
+    case "cycleCount":
+      return documentPath("cycleCount", hit.cycleCount.id);
+  }
+}
+
+function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const navigate = useNavigate();
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<SearchResults | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handle = window.setTimeout(() => {
+      if (!q.trim()) {
+        setResults(null);
+        return;
+      }
+      api<SearchResults>(`/api/search?q=${encodeURIComponent(q.trim())}`)
+        .then(setResults)
+        .catch(() => setResults(null));
+    }, 180);
+    return () => window.clearTimeout(handle);
+  }, [q, open]);
+
+  function go(path: string) {
+    onOpenChange(false);
+    setQ("");
+    navigate(path);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Search the warehouse</DialogTitle>
+          <DialogDescription>Find a SKU, bay, receipt, order, or work order.</DialogDescription>
+        </DialogHeader>
+        <Input
+          autoFocus
+          placeholder="SKU, bay, ORD-…, Shopify #1004"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <div className="max-h-80 space-y-3 overflow-auto text-sm">
+          {results?.items.map((item) => (
+            <button key={item.id} className="block w-full text-left" onClick={() => go(`/stock/items/${item.id}`)}>
+              <span className="font-mono">{item.sku}</span> {item.name}
+            </button>
+          ))}
+          {results?.locations.map((location) => (
+            <button
+              key={location.id}
+              className="block w-full text-left"
+              onClick={() => go(`/stock/locations/${location.id}`)}
+            >
+              <span className="font-mono">{location.code}</span> {location.name}
+            </button>
+          ))}
+          {results?.orders.map((order) => (
+            <button
+              key={order.id}
+              className="block w-full text-left"
+              onClick={() => go(`/outbound/orders/${order.id}`)}
+            >
+              Order {order.number} · {order.customerName}
+            </button>
+          ))}
+          {results?.receipts.map((receipt) => (
+            <button
+              key={receipt.id}
+              className="block w-full text-left"
+              onClick={() => go(`/inbound/receipts/${receipt.id}`)}
+            >
+              Receipt {receipt.number}
+            </button>
+          ))}
+          {results?.transfers.map((transfer) => (
+            <button
+              key={transfer.id}
+              className="block w-full text-left"
+              onClick={() => go(`/inbound/putaway/${transfer.id}`)}
+            >
+              Putaway {transfer.number}
+            </button>
+          ))}
+          {results?.workOrders.map((order) => (
+            <button
+              key={order.id}
+              className="block w-full text-left"
+              onClick={() => go(`/make/work-orders/${order.id}`)}
+            >
+              Work order {order.number}
+            </button>
+          ))}
+          {results?.counts.map((count) => (
+            <button
+              key={count.id}
+              className="block w-full text-left"
+              onClick={() => go(`/stock/counts/${count.id}`)}
+            >
+              Count {count.number}
+            </button>
+          ))}
+          {results &&
+          !results.items.length &&
+          !results.locations.length &&
+          !results.orders.length &&
+          !results.receipts.length &&
+          !results.transfers.length &&
+          !results.workOrders.length &&
+          !results.counts.length ? (
+            <p className="text-muted-foreground">Nothing matches that search.</p>
+          ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

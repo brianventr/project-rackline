@@ -1,35 +1,34 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { api, type Item, type Location, type Me, type Order } from "../api";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { api, type Item, type Location, type Order } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
+import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
+import { ORDER_STEPS, canPackOrder, canPickOrder, canShipOrder } from "@/domain/status";
+import { useWarehouse, inWarehouse } from "../warehouse";
+import { LineFields } from "./ReceiptsPage";
 
 type Line = { itemId: string; qty: string };
 
-export function OrdersPage({ me }: { me: Me }) {
+export function OrdersPage() {
+  const { id } = useParams();
+  if (id) return <OrderDetail id={id} />;
+  return <OrderList />;
+}
+
+function OrderList() {
+  const navigate = useNavigate();
+  const { warehouseId } = useWarehouse();
   const [orders, setOrders] = useState<Order[]>([]);
   const [items, setItems] = useState<Item[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
   const [customerName, setCustomerName] = useState("");
   const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
-  const [pickLocation, setPickLocation] = useState("");
-  const [trackingNumber, setTrackingNumber] = useState("");
-  const [trackingCompany, setTrackingCompany] = useState("");
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const warehouseId = me.warehouses[0]?.id;
 
   async function load() {
-    const [nextOrders, nextItems, nextLocations] = await Promise.all([
-      api<Order[]>("/api/orders"),
-      api<Item[]>("/api/items"),
-      api<Location[]>("/api/locations"),
-    ]);
+    const [nextOrders, nextItems] = await Promise.all([api<Order[]>("/api/orders"), api<Item[]>("/api/items")]);
     setOrders(nextOrders);
     setItems(nextItems);
-    setLocations(nextLocations);
-    if (!pickLocation) {
-      const storage = nextLocations.find((location) => location.type === "storage") ?? nextLocations[0];
-      if (storage) setPickLocation(storage.id);
-    }
   }
 
   useEffect(() => {
@@ -39,60 +38,17 @@ export function OrdersPage({ me }: { me: Me }) {
   async function create() {
     setError(null);
     try {
-      await api("/api/orders", {
+      const created = await api<Order>("/api/orders", {
         method: "POST",
         body: JSON.stringify({
           warehouseId,
           customerName,
-          lines: lines
-            .filter((line) => line.itemId)
-            .map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
+          lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
         }),
       });
-      setCustomerName("");
-      setLines([{ itemId: "", qty: "1" }]);
-      await load();
+      navigate(`/outbound/orders/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create order");
-    }
-  }
-
-  async function pick(id: string) {
-    setError(null);
-    try {
-      await api(`/api/orders/${id}/pick`, {
-        method: "POST",
-        body: JSON.stringify({ locationId: pickLocation }),
-      });
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Pick failed");
-    }
-  }
-
-  async function ship(id: string) {
-    setError(null);
-    try {
-      await api(`/api/orders/${id}/ship`, {
-        method: "POST",
-        body: JSON.stringify({
-          trackingNumber: trackingNumber || undefined,
-          trackingCompany: trackingCompany || undefined,
-        }),
-      });
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Ship failed");
-    }
-  }
-
-  async function retryShopify(id: string) {
-    setError(null);
-    try {
-      await api(`/api/orders/${id}/shopify/fulfill`, { method: "POST" });
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Shopify fulfill failed");
     }
   }
 
@@ -101,124 +57,198 @@ export function OrdersPage({ me }: { me: Me }) {
       <PageHeader
         eyebrow="Outbound"
         title="Orders"
-        description="Shopify checkouts arrive as drafts. Pick decrements the bin. Ship records the outbound movement and posts fulfillment back to Shopify."
+        description="Shopify checkouts and floor orders. Pick, pack, then ship."
+        actions={<Button onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New order"}</Button>}
       />
       <ErrorBanner error={error} />
-      <Card className="mb-6">
-        <form className="space-y-4" onSubmit={onSubmit(create)}>
-          <Field label="Customer">
-            <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
-          </Field>
-          <div className="space-y-2">
-            {lines.map((line, index) => (
-              <div key={index} className="grid gap-2 md:grid-cols-[1fr_120px]">
-                <Select
-                  value={line.itemId}
-                  onChange={(e) =>
-                    setLines((current) =>
-                      current.map((row, i) => (i === index ? { ...row, itemId: e.target.value } : row)),
-                    )
-                  }
-                >
-                  <option value="">Select SKU</option>
-                  {items.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.sku} — {item.name}
-                    </option>
-                  ))}
-                </Select>
-                <Input
-                  type="number"
-                  min={1}
-                  value={line.qty}
-                  onChange={(e) =>
-                    setLines((current) =>
-                      current.map((row, i) => (i === index ? { ...row, qty: e.target.value } : row)),
-                    )
-                  }
-                />
-              </div>
-            ))}
-            <Button variant="ghost" onClick={() => setLines((current) => [...current, { itemId: "", qty: "1" }])}>
-              Add line
-            </Button>
-          </div>
-          <Button type="submit">Create floor order</Button>
-        </form>
-      </Card>
-      <div className="mb-4 grid gap-3 md:grid-cols-3">
-        <Field label="Pick from location">
-          <Select value={pickLocation} onChange={(e) => setPickLocation(e.target.value)}>
-            {locations.map((location) => (
-              <option key={location.id} value={location.id}>
-                {location.code} — {location.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Tracking number">
-          <Input
-            value={trackingNumber}
-            onChange={(e) => setTrackingNumber(e.target.value)}
-            placeholder="Optional for Shopify"
-          />
-        </Field>
-        <Field label="Carrier">
-          <Input
-            value={trackingCompany}
-            onChange={(e) => setTrackingCompany(e.target.value)}
-            placeholder="UPS, USPS…"
-          />
-        </Field>
-      </div>
-      <Table columns={["Number", "Channel", "Customer", "Lines", "Status", "Shopify", ""]}>
-        {orders.map((order) => (
+      {creating ? (
+        <Card className="mb-6">
+          <form className="space-y-4" onSubmit={onSubmit(create)}>
+            <Field label="Customer">
+              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
+            </Field>
+            <LineFields items={items} lines={lines} setLines={setLines} />
+            <Button type="submit">Create floor order</Button>
+          </form>
+        </Card>
+      ) : null}
+      <Table columns={["Number", "Channel", "Customer", "Lines", "Status"]}>
+        {inWarehouse(orders, warehouseId).map((order) => (
           <tr key={order.id}>
-            <td className="px-4 py-3 font-mono">{order.number}</td>
-            <td className="px-4 py-3">
-              {order.source === "shopify" ? (
-                <Link className="font-medium text-warn underline-offset-2 hover:underline" to="/shopify">
-                  Shopify
-                </Link>
-              ) : (
-                <span className="text-muted">Floor</span>
-              )}
+            <td className="px-4 py-3 font-mono">
+              <Link className="hover:underline" to={`/outbound/orders/${order.id}`}>
+                {order.number}
+              </Link>
             </td>
+            <td className="px-4 py-3">{order.source === "shopify" ? "Shopify" : "Floor"}</td>
             <td className="px-4 py-3">{order.customerName}</td>
             <td className="px-4 py-3 text-sm">{summarizeLines(order.lines)}</td>
             <td className="px-4 py-3">
               <StatusBadge status={order.status} />
-            </td>
-            <td className="px-4 py-3">
-              {order.source === "shopify" ? (
-                <div>
-                  <StatusBadge status={order.shopifySyncStatus || "inbound"} />
-                  {order.shopifySyncError ? (
-                    <p className="mt-1 max-w-xs text-xs text-bad">{order.shopifySyncError}</p>
-                  ) : null}
-                </div>
-              ) : (
-                <span className="text-muted">—</span>
-              )}
-            </td>
-            <td className="px-4 py-3 text-right">
-              <div className="flex justify-end gap-2">
-                {order.status === "draft" ? <Button onClick={() => pick(order.id)}>Pick</Button> : null}
-                {order.status === "picked" ? (
-                  <Button onClick={() => ship(order.id)}>
-                    {order.source === "shopify" ? "Ship & fulfill" : "Ship"}
-                  </Button>
-                ) : null}
-                {order.status === "shipped" && order.source === "shopify" && order.shopifySyncStatus === "failed" ? (
-                  <Button variant="secondary" onClick={() => retryShopify(order.id)}>
-                    Retry Shopify
-                  </Button>
-                ) : null}
-              </div>
             </td>
           </tr>
         ))}
       </Table>
     </div>
   );
+}
+
+function OrderDetail({ id }: { id: string }) {
+  const navigate = useNavigate();
+  const [order, setOrder] = useState<Order | null>(null);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [pickLocation, setPickLocation] = useState("");
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [trackingCompany, setTrackingCompany] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    const [next, nextLocations] = await Promise.all([api<Order>(`/api/orders/${id}`), api<Location[]>("/api/locations")]);
+    setOrder(next);
+    setLocations(nextLocations);
+    const storage = nextLocations.find((row) => row.type === "storage") ?? nextLocations[0];
+    const stocked = await locationWithStock(next, nextLocations);
+    setPickLocation(next.pickLocationId || stocked || storage?.id || "");
+    setTrackingNumber(next.trackingNumber || "");
+    setTrackingCompany(next.trackingCompany || "");
+  }
+
+  useEffect(() => {
+    load().catch((err: Error) => setError(err.message));
+  }, [id]);
+
+  async function pick() {
+    setError(null);
+    try {
+      setOrder(await api<Order>(`/api/orders/${id}/pick`, { method: "POST", body: JSON.stringify({ locationId: pickLocation }) }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Pick failed");
+    }
+  }
+
+  async function pack() {
+    setError(null);
+    try {
+      setOrder(await api<Order>(`/api/orders/${id}/pack`, { method: "POST" }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Pack failed");
+    }
+  }
+
+  async function ship() {
+    setError(null);
+    try {
+      setOrder(
+        await api<Order>(`/api/orders/${id}/ship`, {
+          method: "POST",
+          body: JSON.stringify({ trackingNumber: trackingNumber || undefined, trackingCompany: trackingCompany || undefined }),
+        }),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ship failed");
+    }
+  }
+
+  async function retryShopify() {
+    setError(null);
+    try {
+      setOrder(await api<Order>(`/api/orders/${id}/shopify/fulfill`, { method: "POST" }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Shopify fulfill failed");
+    }
+  }
+
+  if (!order) return <ErrorBanner error={error} />;
+
+  return (
+    <div className="space-y-6">
+      <DocumentHeader
+        eyebrow="Outbound"
+        title={order.number}
+        description={order.customerName}
+        status={order.status}
+        steps={ORDER_STEPS}
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => navigate("/outbound/orders")}>
+              All orders
+            </Button>
+            {canPickOrder(order.status) ? <Button onClick={() => void pick()}>Pick</Button> : null}
+            {canPackOrder(order.status) ? <Button onClick={() => void pack()}>Pack</Button> : null}
+            {canShipOrder(order.status) ? (
+              <Button onClick={() => void ship()}>{order.source === "shopify" ? "Ship & fulfill" : "Ship"}</Button>
+            ) : null}
+            <Button variant="secondary">
+              <Link to={floorActionForOrder(order.status, order.id)}>Floor</Link>
+            </Button>
+            {order.status === "shipped" && order.source === "shopify" && order.shopifySyncStatus === "failed" ? (
+              <Button variant="secondary" onClick={() => void retryShopify()}>
+                Retry Shopify
+              </Button>
+            ) : null}
+          </>
+        }
+      />
+      <ErrorBanner error={error} />
+      <DocumentFrame
+        rail={
+          <DocumentRail>
+            <Card className="space-y-3">
+              <p className="text-sm">
+                Channel: {order.source === "shopify" ? <Link className="underline" to="/setup/shopify">Shopify</Link> : "Floor"}
+              </p>
+              {order.source === "shopify" ? <StatusBadge status={order.shopifySyncStatus || "inbound"} /> : null}
+              {order.shopifySyncError ? <p className="text-sm text-destructive">{order.shopifySyncError}</p> : null}
+              <Field label="Pick from">
+                <Select value={pickLocation} onChange={(e) => setPickLocation(e.target.value)}>
+                  {locations.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.code}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Tracking">
+                <Input value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} />
+              </Field>
+              <Field label="Carrier">
+                <Input value={trackingCompany} onChange={(e) => setTrackingCompany(e.target.value)} />
+              </Field>
+            </Card>
+            <DocumentActivity refId={order.id} />
+          </DocumentRail>
+        }
+      >
+        <Table columns={["SKU", "Item", "Qty"]}>
+          {(order.lines ?? []).map((line) => (
+            <tr key={line.id}>
+              <td className="px-4 py-3 font-mono">{line.sku}</td>
+              <td className="px-4 py-3">{line.itemName}</td>
+              <td className="px-4 py-3 font-mono">{line.qty}</td>
+            </tr>
+          ))}
+        </Table>
+      </DocumentFrame>
+    </div>
+  );
+}
+
+function floorActionForOrder(status: string, id: string): string {
+  if (status === "picked" || status === "packing") return `/floor/pack?id=${id}`;
+  if (status === "packed") return `/floor/ship?id=${id}`;
+  return `/floor/pick?id=${id}`;
+}
+
+async function locationWithStock(order: Order, locations: Location[]): Promise<string | null> {
+  for (const line of order.lines ?? []) {
+    try {
+      const item = await api<Item>(`/api/items/${line.itemId}`);
+      const bay =
+        (item.onHand ?? []).find((row) => row.qty >= line.qty) ?? (item.onHand ?? []).find((row) => row.qty > 0);
+      if (bay) return bay.locationId;
+    } catch {
+      /* try the next line */
+    }
+  }
+  return locations.find((row) => row.type === "storage")?.id ?? locations[0]?.id ?? null;
 }

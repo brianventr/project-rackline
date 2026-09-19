@@ -7,6 +7,7 @@ import { getOrgItem, getOrgLocation, requireOwner } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
 import { planCompleteWorkOrder } from "../domain/manufacturing";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
+import { canCompleteWorkOrder } from "../domain/status";
 
 export const manufacturingRoute = new Hono<AppEnv>();
 
@@ -149,6 +150,7 @@ manufacturingRoute.get("/work-orders", async (c) => {
       itemId: schema.workOrders.itemId,
       qty: schema.workOrders.qty,
       status: schema.workOrders.status,
+      warehouseId: schema.workOrders.warehouseId,
       sourceLocationId: schema.workOrders.sourceLocationId,
       outputLocationId: schema.workOrders.outputLocationId,
       createdAt: schema.workOrders.createdAt,
@@ -161,6 +163,10 @@ manufacturingRoute.get("/work-orders", async (c) => {
     .where(eq(schema.workOrders.organizationId, organizationId))
     .orderBy(desc(schema.workOrders.createdAt));
   return c.json(rows);
+});
+
+manufacturingRoute.get("/work-orders/:id", async (c) => {
+  return c.json(await workOrderWithItem(c.get("db"), c.get("organizationId")!, c.req.param("id")));
 });
 
 manufacturingRoute.post("/work-orders", async (c) => {
@@ -210,12 +216,21 @@ manufacturingRoute.post("/work-orders", async (c) => {
   return c.json(row, 201);
 });
 
+manufacturingRoute.post("/work-orders/:id/start", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const wo = await workOrderWithItem(db, organizationId, c.req.param("id"));
+  if (wo.status !== "draft") conflict("Work order is not a draft");
+  await db.update(schema.workOrders).set({ status: "in_progress" }).where(eq(schema.workOrders.id, wo.id));
+  return c.json(await workOrderWithItem(db, organizationId, wo.id));
+});
+
 manufacturingRoute.post("/work-orders/:id/complete", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
   const wo = await workOrderWithItem(db, organizationId, c.req.param("id"));
-  if (wo.status !== "draft") conflict("Work order already completed");
+  if (!canCompleteWorkOrder(wo.status)) conflict("Work order already completed");
 
   const [bom] = await db
     .select()

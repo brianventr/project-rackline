@@ -8,6 +8,7 @@ import { docNumber, newId } from "../lib/ids";
 import { chainPlans, planPick, type MovementDraft, type StockPlan } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { fulfillShopifyOrder } from "../domain/shopify-fulfill";
+import { canPackOrder, canPickOrder, canShipOrder, canStartPack, canStartPick } from "../domain/status";
 
 export const ordersRoute = new Hono<AppEnv>();
 
@@ -104,13 +105,22 @@ ordersRoute.post("/orders", async (c) => {
       warehouseId,
       number: docNumber("ORD"),
       customerName,
-      status: "draft",
+      status: "open",
       createdAt: Date.now(),
     }),
     ...lines.map((line) => db.insert(schema.orderLines).values(line)),
   ]);
 
   return c.json(await orderWithLines(db, organizationId, id), 201);
+});
+
+ordersRoute.post("/orders/:id/start", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const order = await orderWithLines(db, organizationId, c.req.param("id"));
+  if (!canStartPick(order.status)) conflict("Order is not open to start picking");
+  await db.update(schema.orders).set({ status: "picking" }).where(eq(schema.orders.id, order.id));
+  return c.json(await orderWithLines(db, organizationId, order.id));
 });
 
 ordersRoute.post("/orders/:id/pick", async (c) => {
@@ -120,7 +130,7 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
   const order = await orderWithLines(db, organizationId, c.req.param("id"));
-  if (order.status !== "draft") conflict("Order is not open for picking");
+  if (!canPickOrder(order.status)) conflict("Order is not open for picking");
   await getOrgLocation(db, organizationId, locationId);
 
   const loaded = await loadBalanceMap(
@@ -160,6 +170,28 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
   return c.json(await orderWithLines(db, organizationId, order.id));
 });
 
+ordersRoute.post("/orders/:id/pack", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const order = await orderWithLines(db, organizationId, c.req.param("id"));
+  if (!canPackOrder(order.status)) conflict("Order must be picked before packing");
+  const now = Date.now();
+  await db
+    .update(schema.orders)
+    .set({ status: "packed", packedAt: now })
+    .where(eq(schema.orders.id, order.id));
+  return c.json(await orderWithLines(db, organizationId, order.id));
+});
+
+ordersRoute.post("/orders/:id/start-pack", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const order = await orderWithLines(db, organizationId, c.req.param("id"));
+  if (!canStartPack(order.status)) conflict("Order must be picked before packing");
+  await db.update(schema.orders).set({ status: "packing" }).where(eq(schema.orders.id, order.id));
+  return c.json(await orderWithLines(db, organizationId, order.id));
+});
+
 ordersRoute.post("/orders/:id/ship", async (c) => {
   const body = await c.req.json<{
     trackingNumber?: string;
@@ -170,7 +202,7 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
   const order = await orderWithLines(db, organizationId, c.req.param("id"));
-  if (order.status !== "picked") conflict("Order must be picked before shipping");
+  if (!canShipOrder(order.status)) conflict("Order must be packed before shipping");
   const locationId = order.pickLocationId;
   if (!locationId) conflict("Pick location missing");
 

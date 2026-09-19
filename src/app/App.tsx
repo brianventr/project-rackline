@@ -3,7 +3,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { api, type Me } from "./api";
 import { AppShell } from "./pages/AppShell";
 import { AuthPage } from "./pages/AuthPage";
-import { DashboardPage } from "./pages/DashboardPage";
+import { LandingPage } from "./pages/LandingPage";
+import { TodayPage } from "./pages/TodayPage";
 import { ItemsPage } from "./pages/ItemsPage";
 import { LocationsPage } from "./pages/LocationsPage";
 import { InventoryPage } from "./pages/InventoryPage";
@@ -12,13 +13,26 @@ import { OrdersPage } from "./pages/OrdersPage";
 import { BomsPage } from "./pages/BomsPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
 import { AdjustmentsPage } from "./pages/AdjustmentsPage";
-import { MapPage } from "./pages/MapPage";
-import { MovePage } from "./pages/MovePage";
-import { ScannerProvider } from "./scanner/ScannerProvider";
 import { ShopifyPage } from "./pages/ShopifyPage";
 import { TransfersPage } from "./pages/TransfersPage";
 import { CycleCountsPage } from "./pages/CycleCountsPage";
 import { LedgerPage } from "./pages/LedgerPage";
+import { MapPage } from "./pages/MapPage";
+import { MovePage } from "./pages/MovePage";
+import { FloorLauncherPage } from "./pages/floor/FloorLauncherPage";
+import { FloorLookupPage } from "./pages/floor/FloorLookupPage";
+import { FloorReceivePage } from "./pages/floor/FloorReceivePage";
+import { FloorPickPage } from "./pages/floor/FloorPickPage";
+import { FloorPackPage } from "./pages/floor/FloorPackPage";
+import { FloorShipPage } from "./pages/floor/FloorShipPage";
+import { FloorCountPage } from "./pages/floor/FloorCountPage";
+import { FloorAssemblePage } from "./pages/floor/FloorAssemblePage";
+import { WarehouseSetupPage } from "./pages/setup/WarehouseSetupPage";
+import { TeamPage } from "./pages/setup/TeamPage";
+import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
+import { ComingSoonPage } from "./components/document";
+import { ScannerProvider } from "./scanner/ScannerProvider";
+import { homePath, OwnerOnly } from "./warehouse";
 
 function Guard({ me }: { me: Me | null }) {
   if (!me) return <Navigate to="/login" replace />;
@@ -42,33 +56,133 @@ export function App() {
 
   if (!ready) {
     return (
-      <div className="grid min-h-screen place-items-center bg-paper text-muted">
-        Opening the warehouse…
+      <div className="grid min-h-screen place-items-center bg-background text-muted-foreground">
+        <div className="flex flex-col items-center gap-3 text-sm">
+          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
+          Opening the warehouse…
+        </div>
       </div>
     );
   }
 
+  const signedInHome = me ? homePath(me.role) : "/";
+
   return (
     <Routes>
-      <Route path="/login" element={me ? <Navigate to="/" replace /> : <AuthPage />} />
+      <Route path="/" element={me ? <Navigate to={signedInHome} replace /> : <LandingPage />} />
+      <Route path="/login" element={me ? <Navigate to={signedInHome} replace /> : <AuthPage />} />
+      <Route path="/signup" element={me ? <Navigate to={signedInHome} replace /> : <AuthPage mode="signup" />} />
       <Route element={<Guard me={me} />}>
-        <Route path="/" element={<DashboardPage />} />
+        <Route path="/today" element={<TodayPage />} />
+        <Route path="/dashboard" element={<Navigate to="/today" replace />} />
+        <Route path="/floor" element={<FloorLauncherPage />} />
+        <Route path="/floor/lookup" element={<FloorLookupPage />} />
+        <Route path="/floor/receive" element={<FloorReceivePage />} />
+        <Route path="/floor/putaway" element={<MovePage />} />
+        <Route path="/floor/pick" element={<FloorPickPage />} />
+        <Route path="/floor/pack" element={<FloorPackPage />} />
+        <Route path="/floor/ship" element={<FloorShipPage />} />
+        <Route path="/floor/count" element={<FloorCountPage />} />
+        <Route path="/floor/assemble" element={<FloorAssemblePage />} />
+        <Route
+          path="/floor/adjust"
+          element={
+            <OwnerOnly>
+              <AdjustmentsPage />
+            </OwnerOnly>
+          }
+        />
         <Route path="/map" element={me ? <MapPage me={me} /> : null} />
-        <Route path="/move" element={<MovePage />} />
-        <Route path="/items" element={me ? <ItemsPage me={me} /> : null} />
-        <Route path="/locations" element={me ? <LocationsPage me={me} /> : null} />
-        <Route path="/inventory" element={<InventoryPage />} />
-        <Route path="/receipts" element={me ? <ReceiptsPage me={me} /> : null} />
-        <Route path="/transfers" element={me ? <TransfersPage me={me} /> : null} />
-        <Route path="/orders" element={me ? <OrdersPage me={me} /> : null} />
-        <Route path="/shopify" element={me ? <ShopifyPage me={me} /> : null} />
-        <Route path="/boms" element={me ? <BomsPage me={me} /> : null} />
-        <Route path="/work-orders" element={me ? <WorkOrdersPage me={me} /> : null} />
-        <Route path="/counts" element={me ? <CycleCountsPage me={me} /> : null} />
-        <Route path="/adjustments" element={<AdjustmentsPage />} />
-        <Route path="/ledger" element={<LedgerPage />} />
+        <Route path="/move" element={<Navigate to="/floor/putaway" replace />} />
+        <Route path="/inbound/receipts" element={<ReceiptsPage />} />
+        <Route path="/inbound/receipts/:id" element={<ReceiptsPage />} />
+        <Route path="/inbound/putaway" element={<TransfersPage />} />
+        <Route path="/inbound/putaway/:id" element={<TransfersPage />} />
+        <Route
+          path="/inbound/purchases"
+          element={
+            <ComingSoonPage
+              eyebrow="Inbound"
+              title="Purchases"
+              body="Receive against a purchase order when the shop outgrows blank receipts."
+              backTo="/inbound/receipts"
+              backLabel="Start with a receipt"
+            />
+          }
+        />
+        <Route path="/stock" element={<InventoryPage />} />
+        <Route path="/stock/items" element={me ? <ItemsPage me={me} /> : null} />
+        <Route path="/stock/items/:id" element={me ? <ItemsPage me={me} /> : null} />
+        <Route path="/stock/locations" element={me ? <LocationsPage me={me} /> : null} />
+        <Route path="/stock/locations/:id" element={me ? <LocationsPage me={me} /> : null} />
+        <Route path="/stock/counts" element={<CycleCountsPage />} />
+        <Route path="/stock/counts/:id" element={<CycleCountsPage />} />
+        <Route path="/stock/ledger" element={<LedgerPage />} />
+        <Route path="/make/recipes" element={me ? <BomsPage me={me} /> : null} />
+        <Route path="/make/work-orders" element={<WorkOrdersPage />} />
+        <Route path="/make/work-orders/:id" element={<WorkOrdersPage />} />
+        <Route path="/outbound/orders" element={<OrdersPage />} />
+        <Route path="/outbound/orders/:id" element={<OrdersPage />} />
+        <Route
+          path="/outbound/returns"
+          element={
+            <ComingSoonPage
+              eyebrow="Outbound"
+              title="Returns"
+              body="Customer returns will land here as RMAs that receive back into a bay."
+              backTo="/outbound/orders"
+              backLabel="Back to orders"
+            />
+          }
+        />
+        <Route
+          path="/setup/shopify"
+          element={
+            me ? (
+              <OwnerOnly>
+                <ShopifyPage me={me} />
+              </OwnerOnly>
+            ) : null
+          }
+        />
+        <Route
+          path="/setup/warehouse"
+          element={
+            <OwnerOnly>
+              <WarehouseSetupPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
+          path="/setup/team"
+          element={
+            <OwnerOnly>
+              <TeamPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
+          path="/setup/labels"
+          element={
+            <OwnerOnly>
+              <LabelsSetupPage />
+            </OwnerOnly>
+          }
+        />
+        <Route path="/items" element={<Navigate to="/stock/items" replace />} />
+        <Route path="/locations" element={<Navigate to="/stock/locations" replace />} />
+        <Route path="/inventory" element={<Navigate to="/stock" replace />} />
+        <Route path="/receipts" element={<Navigate to="/inbound/receipts" replace />} />
+        <Route path="/transfers" element={<Navigate to="/inbound/putaway" replace />} />
+        <Route path="/orders" element={<Navigate to="/outbound/orders" replace />} />
+        <Route path="/shopify" element={<Navigate to="/setup/shopify" replace />} />
+        <Route path="/boms" element={<Navigate to="/make/recipes" replace />} />
+        <Route path="/work-orders" element={<Navigate to="/make/work-orders" replace />} />
+        <Route path="/counts" element={<Navigate to="/stock/counts" replace />} />
+        <Route path="/adjustments" element={<Navigate to="/floor/adjust" replace />} />
+        <Route path="/ledger" element={<Navigate to="/stock/ledger" replace />} />
       </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to={me ? signedInHome : "/"} replace />} />
     </Routes>
   );
 }

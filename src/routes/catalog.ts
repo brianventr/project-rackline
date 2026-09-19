@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
@@ -35,6 +35,52 @@ catalogRoute.post("/warehouses", async (c) => {
     })
     .returning();
   return c.json(row, 201);
+});
+
+catalogRoute.patch("/warehouses/:id", async (c) => {
+  requireOwner(c.get("role"));
+  const body = await c.req.json<{
+    name?: string;
+    mapWidth?: number;
+    mapDepth?: number;
+    mapHeight?: number;
+  }>();
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const id = c.req.param("id");
+  const [warehouse] = await db
+    .select()
+    .from(schema.warehouses)
+    .where(and(eq(schema.warehouses.id, id), eq(schema.warehouses.organizationId, organizationId)))
+    .limit(1);
+  if (!warehouse) badRequest("Warehouse not found");
+
+  const patch: { name?: string; mapWidth?: number; mapDepth?: number; mapHeight?: number } = {};
+  const name = optionalString(body.name);
+  if (name) patch.name = name;
+  const mapWidth = optionalInt(body.mapWidth, "mapWidth");
+  if (mapWidth !== undefined) {
+    if (mapWidth <= 0) badRequest("mapWidth must be positive");
+    patch.mapWidth = mapWidth;
+  }
+  const mapDepth = optionalInt(body.mapDepth, "mapDepth");
+  if (mapDepth !== undefined) {
+    if (mapDepth <= 0) badRequest("mapDepth must be positive");
+    patch.mapDepth = mapDepth;
+  }
+  const mapHeight = optionalInt(body.mapHeight, "mapHeight");
+  if (mapHeight !== undefined) {
+    if (mapHeight <= 0) badRequest("mapHeight must be positive");
+    patch.mapHeight = mapHeight;
+  }
+  if (Object.keys(patch).length === 0) badRequest("No warehouse fields to update");
+
+  const [row] = await db
+    .update(schema.warehouses)
+    .set(patch)
+    .where(eq(schema.warehouses.id, id))
+    .returning();
+  return c.json(row);
 });
 
 catalogRoute.get("/locations", async (c) => {
@@ -238,12 +284,67 @@ catalogRoute.get("/items", async (c) => {
   return c.json(rows);
 });
 
+catalogRoute.get("/items/:id", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const [item] = await db
+    .select()
+    .from(schema.items)
+    .where(and(eq(schema.items.id, c.req.param("id")), eq(schema.items.organizationId, organizationId)))
+    .limit(1);
+  if (!item) return c.json({ error: "Item not found" }, 404);
+  const onHand = await db
+    .select({
+      locationId: schema.locations.id,
+      locationCode: schema.locations.code,
+      locationName: schema.locations.name,
+      barcode: schema.locations.barcode,
+      qty: schema.inventoryBalances.qty,
+    })
+    .from(schema.inventoryBalances)
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
+    .where(
+      and(eq(schema.inventoryBalances.organizationId, organizationId), eq(schema.inventoryBalances.itemId, item.id)),
+    );
+  return c.json({ ...item, onHand });
+});
+
+catalogRoute.get("/locations/:id", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const location = await getOrgLocation(db, organizationId, c.req.param("id"));
+  const contents = await db
+    .select({
+      itemId: schema.items.id,
+      sku: schema.items.sku,
+      itemName: schema.items.name,
+      itemType: schema.items.type,
+      qty: schema.inventoryBalances.qty,
+    })
+    .from(schema.inventoryBalances)
+    .innerJoin(schema.items, eq(schema.items.id, schema.inventoryBalances.itemId))
+    .where(
+      and(
+        eq(schema.inventoryBalances.organizationId, organizationId),
+        eq(schema.inventoryBalances.locationId, location.id),
+      ),
+    );
+  return c.json({ ...location, contents });
+});
+
 catalogRoute.post("/items", async (c) => {
-  const body = await c.req.json<{ sku?: string; name?: string; type?: string; reorderPoint?: number }>();
+  const body = await c.req.json<{
+    sku?: string;
+    name?: string;
+    type?: string;
+    reorderPoint?: number;
+    barcode?: string;
+  }>();
   const sku = requireString(body.sku, "sku").toUpperCase();
   const name = requireString(body.name, "name");
   const type = requireString(body.type, "type");
   if (!isItemType(type)) badRequest("Invalid item type");
+  const barcode = (optionalString(body.barcode) ?? sku).toUpperCase();
   const reorderPoint = body.reorderPoint === undefined ? 0 : requireInt(body.reorderPoint, "reorderPoint");
   if (reorderPoint < 0) badRequest("Reorder point cannot be negative");
   try {
@@ -256,35 +357,42 @@ catalogRoute.post("/items", async (c) => {
         sku,
         name,
         type,
+        barcode,
         createdAt: Date.now(),
         reorderPoint,
       })
       .returning();
     return c.json(row, 201);
   } catch {
-    return c.json({ error: "SKU already exists" }, 409);
+    return c.json({ error: "SKU or barcode already exists" }, 409);
   }
 });
 
 catalogRoute.patch("/items/:id", async (c) => {
-  const body = await c.req.json<{ reorderPoint?: number; name?: string }>();
+  const body = await c.req.json<{ reorderPoint?: number; name?: string; barcode?: string }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const patch: { reorderPoint?: number; name?: string } = {};
+  const patch: { reorderPoint?: number; name?: string; barcode?: string } = {};
   if (body.reorderPoint !== undefined) {
     const reorderPoint = requireInt(body.reorderPoint, "reorderPoint");
     if (reorderPoint < 0) badRequest("Reorder point cannot be negative");
     patch.reorderPoint = reorderPoint;
   }
   if (body.name !== undefined) patch.name = requireString(body.name, "name");
+  const barcode = optionalString(body.barcode);
+  if (barcode) patch.barcode = barcode.toUpperCase();
   if (Object.keys(patch).length === 0) badRequest("Nothing to update");
-  const [row] = await db
-    .update(schema.items)
-    .set(patch)
-    .where(and(eq(schema.items.id, c.req.param("id")), eq(schema.items.organizationId, organizationId)))
-    .returning();
-  if (!row) return c.json({ error: "Item not found" }, 404);
-  return c.json(row);
+  try {
+    const [row] = await db
+      .update(schema.items)
+      .set(patch)
+      .where(and(eq(schema.items.id, c.req.param("id")), eq(schema.items.organizationId, organizationId)))
+      .returning();
+    if (!row) return c.json({ error: "Item not found" }, 404);
+    return c.json(row);
+  } catch {
+    return c.json({ error: "Barcode already exists" }, 409);
+  }
 });
 
 catalogRoute.delete("/items/:id", async (c) => {
@@ -313,7 +421,7 @@ catalogRoute.get("/inventory", async (c) => {
       locationCode: schema.locations.code,
       locationName: schema.locations.name,
       locationType: schema.locations.type,
-      locationBarcode: schema.locations.barcode,
+      warehouseId: schema.locations.warehouseId,
     })
     .from(schema.inventoryBalances)
     .innerJoin(schema.items, eq(schema.items.id, schema.inventoryBalances.itemId))
@@ -326,6 +434,7 @@ catalogRoute.get("/inventory", async (c) => {
 catalogRoute.get("/movements", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  const refId = c.req.query("refId");
   const fromLoc = alias(schema.locations, "from_loc");
   const toLoc = alias(schema.locations, "to_loc");
   const rows = await db
@@ -348,7 +457,12 @@ catalogRoute.get("/movements", async (c) => {
     .innerJoin(schema.items, eq(schema.items.id, schema.inventoryMovements.itemId))
     .leftJoin(fromLoc, eq(fromLoc.id, schema.inventoryMovements.fromLocationId))
     .leftJoin(toLoc, eq(toLoc.id, schema.inventoryMovements.toLocationId))
-    .where(eq(schema.inventoryMovements.organizationId, organizationId))
+    .where(
+      and(
+        eq(schema.inventoryMovements.organizationId, organizationId),
+        refId ? eq(schema.inventoryMovements.refId, refId) : undefined,
+      ),
+    )
     .orderBy(desc(schema.inventoryMovements.createdAt))
     .limit(100);
   return c.json(rows);
@@ -357,6 +471,7 @@ catalogRoute.get("/movements", async (c) => {
 catalogRoute.get("/dashboard", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  const warehouseId = c.req.query("warehouseId") || undefined;
 
   const [onHand] = await db
     .select({
@@ -364,32 +479,112 @@ catalogRoute.get("/dashboard", async (c) => {
       bins: sql<number>`count(*)`,
     })
     .from(schema.inventoryBalances)
-    .where(eq(schema.inventoryBalances.organizationId, organizationId));
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
+    .where(
+      and(
+        eq(schema.inventoryBalances.organizationId, organizationId),
+        warehouseId ? eq(schema.locations.warehouseId, warehouseId) : undefined,
+      ),
+    );
 
   const [skuCount] = await db
     .select({ n: sql<number>`count(*)` })
     .from(schema.items)
     .where(eq(schema.items.organizationId, organizationId));
 
-  const [openReceipts] = await db
-    .select({ n: sql<number>`count(*)` })
-    .from(schema.receipts)
-    .where(and(eq(schema.receipts.organizationId, organizationId), eq(schema.receipts.status, "draft")));
+  const receiptWhere = and(
+    eq(schema.receipts.organizationId, organizationId),
+    inArray(schema.receipts.status, ["draft", "receiving"]),
+    warehouseId ? eq(schema.receipts.warehouseId, warehouseId) : undefined,
+  );
+  const orderWhere = and(
+    eq(schema.orders.organizationId, organizationId),
+    sql`${schema.orders.status} not in ('shipped', 'cancelled')`,
+    warehouseId ? eq(schema.orders.warehouseId, warehouseId) : undefined,
+  );
+  const woWhere = and(
+    eq(schema.workOrders.organizationId, organizationId),
+    inArray(schema.workOrders.status, ["draft", "in_progress"]),
+    warehouseId ? eq(schema.workOrders.warehouseId, warehouseId) : undefined,
+  );
+  const transferWhere = and(
+    eq(schema.transfers.organizationId, organizationId),
+    inArray(schema.transfers.status, ["draft", "in_progress"]),
+    warehouseId ? eq(schema.transfers.warehouseId, warehouseId) : undefined,
+  );
+  const countWhere = and(
+    eq(schema.cycleCounts.organizationId, organizationId),
+    inArray(schema.cycleCounts.status, ["draft", "counting"]),
+    warehouseId ? eq(schema.cycleCounts.warehouseId, warehouseId) : undefined,
+  );
 
-  const [openOrders] = await db
-    .select({ n: sql<number>`count(*)` })
+  const openReceiptRows = await db.select().from(schema.receipts).where(receiptWhere).orderBy(desc(schema.receipts.createdAt));
+  const openOrderRows = await db.select().from(schema.orders).where(orderWhere).orderBy(desc(schema.orders.createdAt));
+  const openWorkOrderRows = await db
+    .select({
+      id: schema.workOrders.id,
+      number: schema.workOrders.number,
+      itemId: schema.workOrders.itemId,
+      qty: schema.workOrders.qty,
+      status: schema.workOrders.status,
+      sku: schema.items.sku,
+      itemName: schema.items.name,
+      sourceLocationId: schema.workOrders.sourceLocationId,
+      outputLocationId: schema.workOrders.outputLocationId,
+      createdAt: schema.workOrders.createdAt,
+    })
+    .from(schema.workOrders)
+    .innerJoin(schema.items, eq(schema.items.id, schema.workOrders.itemId))
+    .where(woWhere)
+    .orderBy(desc(schema.workOrders.createdAt));
+
+  const fromLoc = alias(schema.locations, "from_loc");
+  const toLoc = alias(schema.locations, "to_loc");
+  const openTransferRows = await db
+    .select({
+      id: schema.transfers.id,
+      number: schema.transfers.number,
+      status: schema.transfers.status,
+      fromLocationId: schema.transfers.fromLocationId,
+      toLocationId: schema.transfers.toLocationId,
+      fromCode: fromLoc.code,
+      toCode: toLoc.code,
+      notes: schema.transfers.notes,
+      createdAt: schema.transfers.createdAt,
+    })
+    .from(schema.transfers)
+    .innerJoin(fromLoc, eq(fromLoc.id, schema.transfers.fromLocationId))
+    .innerJoin(toLoc, eq(toLoc.id, schema.transfers.toLocationId))
+    .where(transferWhere)
+    .orderBy(desc(schema.transfers.createdAt));
+
+  const openCountRows = await db
+    .select({
+      id: schema.cycleCounts.id,
+      number: schema.cycleCounts.number,
+      status: schema.cycleCounts.status,
+      locationId: schema.cycleCounts.locationId,
+      locationCode: schema.locations.code,
+      notes: schema.cycleCounts.notes,
+      createdAt: schema.cycleCounts.createdAt,
+    })
+    .from(schema.cycleCounts)
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.cycleCounts.locationId))
+    .where(countWhere)
+    .orderBy(desc(schema.cycleCounts.createdAt));
+
+  const shopifyExceptions = await db
+    .select()
     .from(schema.orders)
     .where(
       and(
         eq(schema.orders.organizationId, organizationId),
-        sql`${schema.orders.status} not in ('shipped', 'cancelled')`,
+        eq(schema.orders.source, "shopify"),
+        or(eq(schema.orders.shopifySyncStatus, "failed"), eq(schema.orders.shopifySyncStatus, "pending_fulfill")),
+        warehouseId ? eq(schema.orders.warehouseId, warehouseId) : undefined,
       ),
-    );
-
-  const [openWorkOrders] = await db
-    .select({ n: sql<number>`count(*)` })
-    .from(schema.workOrders)
-    .where(and(eq(schema.workOrders.organizationId, organizationId), eq(schema.workOrders.status, "draft")));
+    )
+    .orderBy(desc(schema.orders.createdAt));
 
   const [shopifyOpen] = await db
     .select({ n: sql<number>`count(*)` })
@@ -399,18 +594,9 @@ catalogRoute.get("/dashboard", async (c) => {
         eq(schema.orders.organizationId, organizationId),
         eq(schema.orders.source, "shopify"),
         sql`${schema.orders.status} not in ('shipped', 'cancelled')`,
+        warehouseId ? eq(schema.orders.warehouseId, warehouseId) : undefined,
       ),
     );
-
-  const [openTransfers] = await db
-    .select({ n: sql<number>`count(*)` })
-    .from(schema.transfers)
-    .where(and(eq(schema.transfers.organizationId, organizationId), eq(schema.transfers.status, "draft")));
-
-  const [openCycleCounts] = await db
-    .select({ n: sql<number>`count(*)` })
-    .from(schema.cycleCounts)
-    .where(and(eq(schema.cycleCounts.organizationId, organizationId), eq(schema.cycleCounts.status, "draft")));
 
   const onHandByItem = await db
     .select({
@@ -418,7 +604,13 @@ catalogRoute.get("/dashboard", async (c) => {
       qty: sql<number>`coalesce(sum(${schema.inventoryBalances.qty}), 0)`,
     })
     .from(schema.inventoryBalances)
-    .where(eq(schema.inventoryBalances.organizationId, organizationId))
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
+    .where(
+      and(
+        eq(schema.inventoryBalances.organizationId, organizationId),
+        warehouseId ? eq(schema.locations.warehouseId, warehouseId) : undefined,
+      ),
+    )
     .groupBy(schema.inventoryBalances.itemId);
 
   const catalog = await db
@@ -456,17 +648,46 @@ catalogRoute.get("/dashboard", async (c) => {
     .orderBy(desc(schema.inventoryMovements.createdAt))
     .limit(8);
 
+  const hotBays = await db
+    .select({
+      locationId: schema.locations.id,
+      locationCode: schema.locations.code,
+      locationName: schema.locations.name,
+      units: sql<number>`coalesce(sum(${schema.inventoryBalances.qty}), 0)`,
+    })
+    .from(schema.inventoryBalances)
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
+    .where(
+      and(
+        eq(schema.inventoryBalances.organizationId, organizationId),
+        warehouseId ? eq(schema.locations.warehouseId, warehouseId) : undefined,
+        gt(schema.inventoryBalances.qty, 0),
+      ),
+    )
+    .groupBy(schema.locations.id, schema.locations.code, schema.locations.name)
+    .orderBy(desc(sql`coalesce(sum(${schema.inventoryBalances.qty}), 0)`))
+    .limit(6);
+
   return c.json({
     onHandUnits: Number(onHand?.units ?? 0),
     binRows: Number(onHand?.bins ?? 0),
     skuCount: Number(skuCount?.n ?? 0),
-    openReceipts: Number(openReceipts?.n ?? 0),
-    openOrders: Number(openOrders?.n ?? 0),
-    openWorkOrders: Number(openWorkOrders?.n ?? 0),
+    openReceipts: openReceiptRows.length,
+    openOrders: openOrderRows.length,
+    openWorkOrders: openWorkOrderRows.length,
     shopifyOpenOrders: Number(shopifyOpen?.n ?? 0),
-    openTransfers: Number(openTransfers?.n ?? 0),
-    openCycleCounts: Number(openCycleCounts?.n ?? 0),
+    openTransfers: openTransferRows.length,
+    openCycleCounts: openCountRows.length,
     lowStock,
     recent,
+    hotBays: hotBays.map((row) => ({ ...row, units: Number(row.units) })),
+    queues: {
+      receipts: openReceiptRows,
+      orders: openOrderRows,
+      workOrders: openWorkOrderRows,
+      putaways: openTransferRows,
+      counts: openCountRows,
+      shopifyExceptions,
+    },
   });
 });

@@ -2,17 +2,19 @@
 
 Cloudflare-native warehouse management for makers who grow into manufacturers.
 
-Iteration 1 covers organization tenancy, inventory in locations, inbound receipts, outbound pick/ship, cycle-count adjustments, BOMs, and work orders. Locations sit on a rack-and-area map (floor plan and 3D), and slots can be moved by scanning the old bay barcode then the new one.
+The public site is a marketing landing page. After sign-in, the floor board, rack map, scan-to-move, Shopify channel, and classic WMS loops run in a shadcn/ui shell (from `shadcn-dashboard-landing-v1/vite-version`).
+
+Iteration 1 covers organization tenancy, inventory in locations, inbound receipts, outbound pick/ship, adjustments, BOMs, and work orders.
 
 Iteration 2 adds bin-to-bin transfers (putaway), cycle counts, the inventory ledger, reorder points / low stock, and document line visibility.
 
-Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify.
+Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 ## Stack
 
 - Cloudflare Workers + [Hono](https://hono.dev) API
 - D1 (SQLite) + Drizzle
-- Vite + React + Tailwind UI, served as Workers static assets
+- Vite + React + Tailwind v4 + shadcn/ui, served as Workers static assets
 - Better Auth email/password
 - Shopify Admin GraphQL + HMAC-signed webhooks
 
@@ -25,14 +27,12 @@ npm test
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
-
-If you already seeded the original four-bin demo, delete `.wrangler` and seed again so the mapped racks are created.
+Open [http://localhost:5173](http://localhost:5173). Guests see the landing page. Sign in at `/login`.
 
 On the sign-in screen, either:
 
 - Create an organization, or
-- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, a mapped floor with dock / aisle A / aisle B / shop / outbound, reorder points, an open receipt, a floor order, Shopify order `#1004` (Maya Chen), and a work order.
+- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt, a floor order, Shopify order `#1004` (Maya Chen), and a work order. Then open **Map** and **Move**.
 
 `wrangler.jsonc` uses a placeholder `database_id`. Local D1 does not need a Cloudflare account. When you are ready to deploy:
 
@@ -70,8 +70,7 @@ Demo mode never calls Shopify; it stores the GraphQL payload that would have bee
 All quantity changes go through one engine (`src/domain/inventory.ts`) and an append-only movement ledger.
 
 - **Receive** adds qty to a location
-- **Move** transfers a whole slot (or selected SKUs) from one bay to another via barcode scan
-- **Transfer** is a draft putaway document; posting decrements the from bin and increments the to bin in one ledger movement
+- **Move / transfer** decrements the from bin and increments the to bin in one ledger movement
 - **Pick** decrements the pick bin
 - **Ship** writes an outbound movement (qty already left at pick) and, for Shopify orders, creates a fulfillment
 - **Adjust** applies a signed delta with a reason
@@ -85,11 +84,3 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 - `operator` — floor actions (receive, transfer, pick, ship, complete WO, cycle count, adjust) and Shopify order simulation. Cannot delete items, locations, or BOMs
 
 Signup creates an organization plus a default **Main warehouse**.
-
-## Map and scanners
-
-Each location has a barcode (defaults to the location code), an aisle / rack / bay / level address, and XYZ coordinates on the warehouse map.
-
-- **Map** shows a floor plan and a 3D rack view. Occupied storage bays are amber. Click a bay to see on-hand and its printable barcode. Owners can drag a bay on the floor plan to match the real building.
-- **Move** is built for gun scanners: scan the previous location barcode, then the new one. All on-hand in that slot transfers with no quantity typing. You can also tap bays on the 3D map or use the camera (Chromium `BarcodeDetector`).
-- USB / Bluetooth HID scanners work on every screen. Camera scanning is on the sidebar **Scan** control and on Move / Map.

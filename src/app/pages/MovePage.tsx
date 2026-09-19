@@ -23,6 +23,8 @@ export function MovePage() {
   const [result, setResult] = useState<string | null>(null);
   const fromRef = useRef(from);
   fromRef.current = from;
+  const toRef = useRef(to);
+  toRef.current = to;
   const inputRef = useRef<HTMLInputElement>(null);
   const handledAt = useMemo(() => ({ current: 0 }), []);
 
@@ -34,6 +36,7 @@ export function MovePage() {
 
   useEffect(() => {
     if (params.get("from")) void resolveSlot("from", params.get("from")!);
+    else if (params.get("to")) void resolveSlot("to", params.get("to")!);
   }, [params]);
 
   useEffect(() => {
@@ -58,14 +61,22 @@ export function MovePage() {
       }
       if (which === "from") {
         setFrom({ barcode: hit.location.barcode, hit });
-        setStep("to");
+        if (toRef.current.hit) {
+          await commit(hit, toRef.current.hit);
+        } else {
+          setStep("to");
+        }
       } else {
         if (fromRef.current.hit && hit.location.id === fromRef.current.hit.location.id) {
           setError("Scan a different bay for the destination.");
           return;
         }
         setTo({ barcode: hit.location.barcode, hit });
-        await commit(fromRef.current.hit, hit);
+        if (fromRef.current.hit) {
+          await commit(fromRef.current.hit, hit);
+        } else {
+          setStep("from");
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Barcode not recognized");
@@ -112,8 +123,8 @@ export function MovePage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Floor move"
-        title="Move a slot"
+        eyebrow="Floor"
+        title="Put away"
         description="Scan the bay you are leaving, then scan the bay you are putting it in. The whole slot moves — no quantity typing."
         actions={
           <Button variant="secondary" onClick={scanner.openCamera}>
@@ -126,11 +137,11 @@ export function MovePage() {
       <div className="grid gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <div className="space-y-4">
           <Card className={step === "from" ? "ring-2 ring-amber" : ""}>
-            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">1. From</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">1. From</p>
             <SlotCard slot={from} />
           </Card>
           <Card className={step === "to" ? "ring-2 ring-amber" : ""}>
-            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">2. To</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">2. To</p>
             <SlotCard slot={to} />
           </Card>
           <Card data-scan-capture="true">
@@ -159,12 +170,12 @@ export function MovePage() {
                 {busy ? "Moving…" : "Use"}
               </Button>
             </div>
-            <p className="mt-2 text-xs text-muted">
+            <p className="mt-2 text-xs text-muted-foreground">
               Gun scanners type the barcode and Enter. Camera works on Chromium. You can also tap a bay on the map.
             </p>
           </Card>
           <button
-            className="text-sm text-muted hover:text-ink"
+            className="text-sm text-muted-foreground hover:text-ink"
             onClick={() => {
               setFrom({ barcode: "", hit: null });
               setTo({ barcode: "", hit: null });
@@ -197,7 +208,7 @@ export function MovePage() {
 
 function SlotCard({ slot }: { slot: Slot }) {
   if (!slot.hit) {
-    return <p className="mt-2 text-sm text-muted">Waiting for a location barcode.</p>;
+    return <p className="mt-2 text-sm text-muted-foreground">Waiting for a location barcode.</p>;
   }
   const { location, contents } = slot.hit;
   return (
@@ -205,8 +216,8 @@ function SlotCard({ slot }: { slot: Slot }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="font-mono text-lg font-semibold">{location.code}</p>
-          <p className="text-sm text-muted">{location.name}</p>
-          <p className="mt-1 text-xs text-muted">
+          <p className="text-sm text-muted-foreground">{location.name}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
             {location.area}
             {location.aisle ? ` · aisle ${location.aisle}` : ""}
             {location.bay ? ` · bay ${location.bay}` : ""}
@@ -224,7 +235,7 @@ function SlotCard({ slot }: { slot: Slot }) {
             </li>
           ))
         ) : (
-          <li className="text-muted">Empty</li>
+          <li className="text-muted-foreground">Empty</li>
         )}
       </ul>
       <Link className="mt-2 inline-block text-xs underline" to={`/map?location=${location.id}`}>
