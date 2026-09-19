@@ -78,6 +78,7 @@ export function RackFrames({
       <InstancedParts poses={parts.braces} geometry={GEOS.brace} color={theme.steel} metalness={0.8} roughness={0.3} ghost={ghost} />
       <InstancedParts poses={parts.beams} geometry={GEOS.beam} color={theme.beam} metalness={0.74} roughness={0.3} ghost={ghost} />
       <InstancedParts poses={parts.connectors} geometry={GEOS.box} color={theme.steel} metalness={0.7} roughness={0.36} ghost={ghost} />
+      <InstancedParts poses={parts.decks} geometry={GEOS.box} color={theme.galvanized} metalness={0.58} roughness={0.4} ghost={ghost} />
       <InstancedParts poses={parts.waterfalls} geometry={GEOS.waterfall} color={theme.galvanized} metalness={0.62} roughness={0.38} ghost={ghost} />
       {ghost ? null : (
         <>

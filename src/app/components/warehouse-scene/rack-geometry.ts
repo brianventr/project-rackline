@@ -421,6 +421,7 @@ export type RackParts = {
   beams: Pose[];
   connectors: Pose[];
   holes: Pose[];
+  decks: Pose[];
   wires: Pose[];
   waterfalls: Pose[];
 };
@@ -429,7 +430,8 @@ export function buildRackParts(spec: RackSpec, explode: boolean): RackParts {
   const height = rackHeight(spec);
   const post = COL_ACROSS / 2;
   const beamLen = Math.max(0.35, spec.bayPitch - COL_ALONG);
-  const holeCount = Math.max(1, Math.floor((height - 0.1) / HOLE_PITCH));
+  const punchPitch = HOLE_PITCH * 2;
+  const holeCount = Math.max(1, Math.floor((height - 0.1) / punchPitch));
   const dirs = axisDirs(spec);
   const parts: RackParts = {
     columns: [],
@@ -440,6 +442,7 @@ export function buildRackParts(spec: RackSpec, explode: boolean): RackParts {
     beams: [],
     connectors: [],
     holes: [],
+    decks: [],
     wires: [],
     waterfalls: [],
   };
@@ -477,7 +480,7 @@ export function buildRackParts(spec: RackSpec, explode: boolean): RackParts {
           parts.holes.push(
             poseYaw(
               p.x + nx * (COL_ALONG / 2 + 0.002),
-              HOLE_PITCH * (m + 0.5),
+              punchPitch * (m + 0.5),
               p.z + nz * (COL_ALONG / 2 + 0.002),
               1,
               1,
@@ -528,18 +531,21 @@ export function buildRackParts(spec: RackSpec, explode: boolean): RackParts {
 
       const wireAcross0 = post + BEAM_WIDTH * 0.65;
       const wireAcross1 = spec.bayDepth - post - BEAM_WIDTH * 0.65;
-      const wireCount = Math.max(8, Math.round(beamLen / 0.16));
+      const deckCenter = alongAcrossToWorld(spec, (along0 + along1) / 2, (wireAcross0 + wireAcross1) / 2);
+      const deckSize = worldSize(spec, along1 - along0, wireAcross1 - wireAcross0);
+      parts.decks.push(poseAt(deckCenter.x, deckY - 0.004, deckCenter.z, deckSize.sx, 0.007, deckSize.sz));
+      const wireCount = Math.max(6, Math.round(beamLen / 0.22));
       for (let w = 0; w <= wireCount; w += 1) {
         const along = along0 + ((along1 - along0) * w) / wireCount;
         const a = alongAcrossToWorld(spec, along, wireAcross0);
         const b = alongAcrossToWorld(spec, along, wireAcross1);
-        parts.wires.push(poseBetween(a.x, deckY, a.z, b.x, deckY, b.z, 0.01));
+        parts.wires.push(poseBetween(a.x, deckY, a.z, b.x, deckY, b.z, 0.009));
       }
-      for (const t of [0.14, 0.32, 0.5, 0.68, 0.86]) {
+      for (const t of [0.2, 0.5, 0.8]) {
         const across = wireAcross0 + (wireAcross1 - wireAcross0) * t;
         const a = alongAcrossToWorld(spec, along0, across);
         const b = alongAcrossToWorld(spec, along1, across);
-        parts.wires.push(poseBetween(a.x, deckY - 0.005, a.z, b.x, deckY - 0.005, b.z, 0.012));
+        parts.wires.push(poseBetween(a.x, deckY - 0.004, a.z, b.x, deckY - 0.004, b.z, 0.011));
       }
     }
   }

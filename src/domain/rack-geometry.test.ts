@@ -77,6 +77,7 @@ describe("rack geometry", () => {
     expect(exploded.columns[0]!.sy).toBe(solid.columns[0]!.sy);
     expect(exploded.beams).toHaveLength(solid.beams.length);
     expect(exploded.holes).toHaveLength(solid.holes.length);
+    expect(exploded.decks).toHaveLength(solid.decks.length);
     expect(exploded.waterfalls).toHaveLength(solid.waterfalls.length);
     expect(Math.max(...exploded.beams.map((b) => b.y))).toBeGreaterThan(Math.max(...solid.beams.map((b) => b.y)));
     expect(exploded.beams[0]!.y).toBeCloseTo(solid.beams[0]!.y, 4);
@@ -86,9 +87,10 @@ describe("rack geometry", () => {
   it("punches teardrops on both along-faces of each upright", () => {
     const spec = northSouth();
     const parts = buildRackParts(spec, false);
-    const holeCount = Math.max(1, Math.floor((rackHeight(spec) - 0.1) / HOLE_PITCH));
+    const holeCount = Math.max(1, Math.floor((rackHeight(spec) - 0.1) / (HOLE_PITCH * 2)));
     expect(parts.holes).toHaveLength(parts.columns.length * 2 * holeCount);
     expect(parts.wires.length).toBeGreaterThan(0);
+    expect(parts.decks).toHaveLength(spec.bays * spec.levels);
     expect(parts.waterfalls).toHaveLength(parts.beams.length);
   });
 
