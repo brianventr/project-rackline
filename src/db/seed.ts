@@ -236,8 +236,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       notes: "Vendor shipment — bulbs and shades",
       createdAt: now,
     }),
-    db.insert(schema.receiptLines).values({ id: newId(), receiptId, itemId: item.bulb, qty: 12 }),
-    db.insert(schema.receiptLines).values({ id: newId(), receiptId, itemId: item.shade, qty: 6 }),
+    db.insert(schema.receiptLines).values({ id: newId(), receiptId, itemId: item.bulb, qty: 12, qtyReceived: 0 }),
+    db.insert(schema.receiptLines).values({ id: newId(), receiptId, itemId: item.shade, qty: 6, qtyReceived: 0 }),
     db.insert(schema.purchases).values({
       id: purchaseId,
       organizationId,

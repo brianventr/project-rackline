@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canPackOrder,
   canPickOrder,
+  canReceive,
   canReceivePurchase,
   canReceiveReturn,
   canShipOrder,
@@ -42,5 +43,11 @@ describe("order status", () => {
     expect(canReceiveReturn("open")).toBe(true);
     expect(canReceiveReturn("receiving")).toBe(true);
     expect(canReceiveReturn("received")).toBe(false);
+  });
+
+  it("lets a blank receipt receive from draft through receiving", () => {
+    expect(canReceive("draft")).toBe(true);
+    expect(canReceive("receiving")).toBe(true);
+    expect(canReceive("received")).toBe(false);
   });
 });

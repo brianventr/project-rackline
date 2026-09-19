@@ -567,7 +567,30 @@ floorRoute.get("/scan", async (c) => {
   if (parsed.kind === "receipt" || parsed.kind === "unknown") {
     const rows = await db.select().from(schema.receipts).where(eq(schema.receipts.organizationId, organizationId));
     const receipt = await findByNumber(rows, parsed.value);
-    if (receipt) return c.json({ kind: "receipt" as const, receipt });
+    if (receipt) {
+      const lines = await db
+        .select({
+          id: schema.receiptLines.id,
+          itemId: schema.receiptLines.itemId,
+          qty: schema.receiptLines.qty,
+          qtyReceived: schema.receiptLines.qtyReceived,
+          sku: schema.items.sku,
+          itemName: schema.items.name,
+        })
+        .from(schema.receiptLines)
+        .innerJoin(schema.items, eq(schema.items.id, schema.receiptLines.itemId))
+        .where(eq(schema.receiptLines.receiptId, receipt.id));
+      return c.json({
+        kind: "receipt" as const,
+        receipt: {
+          ...receipt,
+          lines: lines.map((line) => ({
+            ...line,
+            remaining: line.qty - line.qtyReceived,
+          })),
+        },
+      });
+    }
     if (parsed.kind === "receipt") notFound("No receipt matches that barcode");
   }
 

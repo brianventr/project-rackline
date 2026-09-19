@@ -24,7 +24,19 @@ export function FloorReceivePage() {
       api<Purchase[]>("/api/purchases"),
       api<Location[]>("/api/locations"),
     ]);
-    setReceipts(nextReceipts.filter((row) => canReceive(row.status)));
+    setReceipts(
+      nextReceipts.filter(
+        (row) =>
+          canReceive(row.status) &&
+          hasRemaining(
+            (row.lines ?? []).map((line) => ({
+              itemId: line.itemId,
+              qtyExpected: line.qty,
+              qtyReceived: line.qtyReceived,
+            })),
+          ),
+      ),
+    );
     setPurchases(
       nextPurchases.filter(
         (row) =>
@@ -53,6 +65,7 @@ export function FloorReceivePage() {
       const match = nextReceipts.find((row) => row.id === receiptId) ?? (await api<Receipt>(`/api/receipts/${receiptId}`));
       setActiveReceipt(match);
       setActivePurchase(null);
+      setQtys(Object.fromEntries((match.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
     }
   }
 
@@ -69,6 +82,7 @@ export function FloorReceivePage() {
           void api<Receipt>(`/api/receipts/${hit.receipt.id}`).then((receipt) => {
             setActiveReceipt(receipt);
             setActivePurchase(null);
+            setQtys(Object.fromEntries((receipt.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
           });
           return;
         }
@@ -93,15 +107,16 @@ export function FloorReceivePage() {
     if (!activeReceipt) return;
     setError(null);
     try {
-      if (activeReceipt.status === "draft") {
-        await api(`/api/receipts/${activeReceipt.id}/start`, { method: "POST" });
-      }
+      const lines = (activeReceipt.lines ?? [])
+        .map((line) => ({ itemId: line.itemId, qty: Number(qtys[line.itemId] || 0) }))
+        .filter((line) => line.qty > 0);
       const posted = await api<Receipt>(`/api/receipts/${activeReceipt.id}/receive`, {
         method: "POST",
-        body: JSON.stringify({ locationId }),
+        body: JSON.stringify({ locationId, lines }),
       });
       setActiveReceipt(posted);
-      setDone(`${posted.number} received.`);
+      setQtys(Object.fromEntries((posted.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+      setDone(`${posted.number} posted to the dock.`);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Receive failed");
@@ -139,7 +154,15 @@ export function FloorReceivePage() {
             <ul className="space-y-2 text-sm">
               {receipts.map((row) => (
                 <li key={row.id}>
-                  <button className="w-full text-left" onClick={() => void api<Receipt>(`/api/receipts/${row.id}`).then(setActiveReceipt)}>
+                  <button
+                    className="w-full text-left"
+                    onClick={() =>
+                      void api<Receipt>(`/api/receipts/${row.id}`).then((receipt) => {
+                        setActiveReceipt(receipt);
+                        setQtys(Object.fromEntries((receipt.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+                      })
+                    }
+                  >
                     <span className="font-mono">{row.number}</span> <StatusBadge status={row.status} />
                   </button>
                 </li>
@@ -232,10 +255,23 @@ export function FloorReceivePage() {
             <h2 className="text-xl font-semibold">{activeReceipt!.number}</h2>
             <StatusBadge status={activeReceipt!.status} />
           </div>
-          <ul className="text-sm">
+          <ul className="space-y-3 text-sm">
             {(activeReceipt!.lines ?? []).map((line) => (
-              <li key={line.id}>
-                {line.sku} × {line.qty}
+              <li key={line.id} className="grid grid-cols-[1fr_6rem] items-center gap-2">
+                <span>
+                  {line.sku} · {line.qtyReceived}/{line.qty}
+                </span>
+                {line.remaining > 0 ? (
+                  <Input
+                    type="number"
+                    min={0}
+                    max={line.remaining}
+                    value={qtys[line.itemId] ?? "0"}
+                    onChange={(e) => setQtys((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                  />
+                ) : (
+                  <span className="text-muted-foreground">Done</span>
+                )}
               </li>
             ))}
           </ul>
@@ -248,10 +284,17 @@ export function FloorReceivePage() {
               ))}
             </Select>
           </Field>
-          {canReceive(activeReceipt!.status) ? (
+          {canReceive(activeReceipt!.status) &&
+          hasRemaining(
+            (activeReceipt!.lines ?? []).map((line) => ({
+              itemId: line.itemId,
+              qtyExpected: line.qty,
+              qtyReceived: line.qtyReceived,
+            })),
+          ) ? (
             <Button onClick={() => void receiveReceipt()}>Post receive</Button>
           ) : (
-            <p>Already received.</p>
+            <p>Fully received.</p>
           )}
           <button className="text-sm underline" onClick={() => setActiveReceipt(null)}>
             Back to list

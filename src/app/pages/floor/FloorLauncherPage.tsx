@@ -4,7 +4,7 @@ import { useSession } from "../../session";
 
 const verbs = [
   { to: "/floor/lookup", title: "Lookup", body: "Scan a SKU, bay, or document." },
-  { to: "/floor/receive", title: "Receive", body: "Post a receipt or purchase onto the dock." },
+  { to: "/floor/receive", title: "Receive", body: "Post a receipt or purchase onto the dock, including partials." },
   { to: "/floor/putaway", title: "Put away", body: "Scan from bay, then to bay." },
   { to: "/floor/pick", title: "Pick", body: "Take an order out of storage." },
   { to: "/floor/pack", title: "Pack", body: "Confirm lines into the box." },

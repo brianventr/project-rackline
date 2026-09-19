@@ -157,6 +157,16 @@ export type InventoryRow = {
   warehouseId?: string;
 };
 
+export type ReceiptLine = {
+  id: string;
+  itemId: string;
+  qty: number;
+  qtyReceived: number;
+  remaining: number;
+  sku: string;
+  itemName: string;
+};
+
 export type Receipt = {
   id: string;
   number: string;
@@ -165,7 +175,7 @@ export type Receipt = {
   createdAt: number;
   locationId: string | null;
   warehouseId?: string;
-  lines?: { id: string; itemId: string; qty: number; sku: string; itemName: string }[];
+  lines?: ReceiptLine[];
 };
 
 export type Order = {
