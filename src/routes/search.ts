@@ -12,7 +12,7 @@ searchRoute.get("/search", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
 
-  const [items, locations, orders, receipts, transfers, workOrders, counts] = await Promise.all([
+  const [items, locations, orders, receipts, transfers, workOrders, counts, purchases, returns] = await Promise.all([
     db
       .select({
         id: schema.items.id,
@@ -111,7 +111,37 @@ searchRoute.get("/search", async (c) => {
       .from(schema.cycleCounts)
       .where(and(eq(schema.cycleCounts.organizationId, organizationId), like(schema.cycleCounts.number, needle)))
       .limit(8),
+    db
+      .select({
+        id: schema.purchases.id,
+        number: schema.purchases.number,
+        vendorName: schema.purchases.vendorName,
+        status: schema.purchases.status,
+      })
+      .from(schema.purchases)
+      .where(
+        and(
+          eq(schema.purchases.organizationId, organizationId),
+          or(like(schema.purchases.number, needle), like(schema.purchases.vendorName, needle)),
+        ),
+      )
+      .limit(8),
+    db
+      .select({
+        id: schema.rmas.id,
+        number: schema.rmas.number,
+        customerName: schema.rmas.customerName,
+        status: schema.rmas.status,
+      })
+      .from(schema.rmas)
+      .where(
+        and(
+          eq(schema.rmas.organizationId, organizationId),
+          or(like(schema.rmas.number, needle), like(schema.rmas.customerName, needle)),
+        ),
+      )
+      .limit(8),
   ]);
 
-  return c.json({ q, items, locations, orders, receipts, transfers, workOrders, counts });
+  return c.json({ q, items, locations, orders, receipts, transfers, workOrders, counts, purchases, returns });
 });

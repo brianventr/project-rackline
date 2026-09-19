@@ -96,6 +96,10 @@ function LookupResult({ hit }: { hit: ScanHit }) {
         }
       : hit.kind === "receipt"
         ? { title: hit.receipt.number, status: hit.receipt.status, to: documentPath("receipt", hit.receipt.id), floor: `/floor/receive?id=${hit.receipt.id}` }
+        : hit.kind === "purchase"
+          ? { title: hit.purchase.number, status: hit.purchase.status, to: documentPath("purchase", hit.purchase.id), floor: `/floor/receive?purchase=${hit.purchase.id}` }
+          : hit.kind === "rma"
+            ? { title: hit.rma.number, status: hit.rma.status, to: documentPath("rma", hit.rma.id), floor: `/floor/return?id=${hit.rma.id}` }
         : hit.kind === "transfer"
           ? { title: hit.transfer.number, status: hit.transfer.status, to: documentPath("transfer", hit.transfer.id), floor: "/floor/putaway" }
           : hit.kind === "workOrder"

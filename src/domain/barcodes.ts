@@ -6,6 +6,8 @@ export type ScanKind =
   | "transfer"
   | "workOrder"
   | "cycleCount"
+  | "purchase"
+  | "rma"
   | "unknown";
 
 export type ParsedScan = {
@@ -28,6 +30,10 @@ const PREFIXES: Array<{ prefix: string; kind: Exclude<ScanKind, "unknown"> }> = 
   { prefix: "TRN:", kind: "transfer" },
   { prefix: "WO:", kind: "workOrder" },
   { prefix: "CC:", kind: "cycleCount" },
+  { prefix: "PO:", kind: "purchase" },
+  { prefix: "PUR:", kind: "purchase" },
+  { prefix: "RMA:", kind: "rma" },
+  { prefix: "RET:", kind: "rma" },
 ];
 
 export function normalizeBarcode(raw: string): string {
@@ -56,5 +62,9 @@ export function documentPath(kind: Exclude<ScanKind, "unknown" | "location" | "i
       return `/make/work-orders/${id}`;
     case "cycleCount":
       return `/stock/counts/${id}`;
+    case "purchase":
+      return `/inbound/purchases/${id}`;
+    case "rma":
+      return `/outbound/returns/${id}`;
   }
 }

@@ -24,6 +24,17 @@ describe("inventory engine", () => {
     expect(plan.balances.get(balanceKey("A-01-01", "bulb"))).toBe(10);
     expect(plan.movements).toHaveLength(1);
     expect(plan.movements[0]?.type).toBe("receive");
+    expect(plan.movements[0]?.refType).toBe("receipt");
+
+    const tagged = planReceive({
+      itemId: "bulb",
+      locationId: "RECV",
+      qty: 2,
+      refId: "po-1",
+      refType: "purchase",
+      balances: plan.balances,
+    });
+    expect(tagged.movements[0]?.refType).toBe("purchase");
   });
 
   it("picks down to zero and rejects a short pick", () => {

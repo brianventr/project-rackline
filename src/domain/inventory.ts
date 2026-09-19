@@ -71,6 +71,7 @@ export function planReceive(input: {
   qty: number;
   refId: string;
   balances: Map<string, number>;
+  refType?: string;
 }): StockPlan {
   requirePositiveQty(input.qty);
   const balances = new Map(input.balances);
@@ -83,7 +84,7 @@ export function planReceive(input: {
         itemId: input.itemId,
         qty: input.qty,
         toLocationId: input.locationId,
-        refType: "receipt",
+        refType: input.refType ?? "receipt",
         refId: input.refId,
       },
     ],

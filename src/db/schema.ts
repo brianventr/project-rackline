@@ -409,6 +409,74 @@ export const cycleCountLines = sqliteTable("cycle_count_lines", {
   countedQty: integer("counted_qty").notNull(),
 });
 
+export const purchases = sqliteTable("purchases", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  warehouseId: text("warehouse_id")
+    .notNull()
+    .references(() => warehouses.id),
+  number: text("number").notNull(),
+  vendorName: text("vendor_name").notNull(),
+  status: text("status").notNull(),
+  locationId: text("location_id").references(() => locations.id),
+  notes: text("notes"),
+  createdAt: integer("created_at").notNull(),
+  orderedAt: integer("ordered_at"),
+  receivedAt: integer("received_at"),
+});
+
+export const purchaseLines = sqliteTable(
+  "purchase_lines",
+  {
+    id: text("id").primaryKey(),
+    purchaseId: text("purchase_id")
+      .notNull()
+      .references(() => purchases.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id),
+    qtyOrdered: integer("qty_ordered").notNull(),
+    qtyReceived: integer("qty_received").notNull().default(0),
+  },
+  (t) => [uniqueIndex("purchase_lines_purchase_item").on(t.purchaseId, t.itemId)],
+);
+
+export const rmas = sqliteTable("rmas", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  warehouseId: text("warehouse_id")
+    .notNull()
+    .references(() => warehouses.id),
+  number: text("number").notNull(),
+  customerName: text("customer_name").notNull(),
+  status: text("status").notNull(),
+  orderId: text("order_id").references(() => orders.id),
+  locationId: text("location_id").references(() => locations.id),
+  notes: text("notes"),
+  createdAt: integer("created_at").notNull(),
+  receivedAt: integer("received_at"),
+});
+
+export const rmaLines = sqliteTable(
+  "rma_lines",
+  {
+    id: text("id").primaryKey(),
+    rmaId: text("rma_id")
+      .notNull()
+      .references(() => rmas.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id),
+    qtyExpected: integer("qty_expected").notNull(),
+    qtyReceived: integer("qty_received").notNull().default(0),
+  },
+  (t) => [uniqueIndex("rma_lines_rma_item").on(t.rmaId, t.itemId)],
+);
+
 export type ItemType = "raw" | "wip" | "finished" | "packaging";
 export type LocationType = "receiving" | "storage" | "production" | "shipping";
 export type Role = "owner" | "operator";
@@ -420,6 +488,8 @@ export type ShopifySyncStatus = "none" | "inbound" | "pending_fulfill" | "synced
 export type WorkOrderStatus = "draft" | "in_progress" | "completed";
 export type TransferStatus = "draft" | "in_progress" | "posted";
 export type CycleCountStatus = "draft" | "counting" | "posted";
+export type PurchaseStatus = "draft" | "ordered" | "receiving" | "received";
+export type RmaStatus = "open" | "receiving" | "received";
 export type MovementType =
   | "receive"
   | "move"

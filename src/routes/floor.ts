@@ -592,6 +592,66 @@ floorRoute.get("/scan", async (c) => {
     if (parsed.kind === "cycleCount") notFound("No cycle count matches that barcode");
   }
 
+  if (parsed.kind === "purchase" || parsed.kind === "unknown") {
+    const rows = await db.select().from(schema.purchases).where(eq(schema.purchases.organizationId, organizationId));
+    const purchase = await findByNumber(rows, parsed.value);
+    if (purchase) {
+      const lines = await db
+        .select({
+          id: schema.purchaseLines.id,
+          itemId: schema.purchaseLines.itemId,
+          qtyOrdered: schema.purchaseLines.qtyOrdered,
+          qtyReceived: schema.purchaseLines.qtyReceived,
+          sku: schema.items.sku,
+          itemName: schema.items.name,
+        })
+        .from(schema.purchaseLines)
+        .innerJoin(schema.items, eq(schema.items.id, schema.purchaseLines.itemId))
+        .where(eq(schema.purchaseLines.purchaseId, purchase.id));
+      return c.json({
+        kind: "purchase" as const,
+        purchase: {
+          ...purchase,
+          lines: lines.map((line) => ({
+            ...line,
+            remaining: line.qtyOrdered - line.qtyReceived,
+          })),
+        },
+      });
+    }
+    if (parsed.kind === "purchase") notFound("No purchase matches that barcode");
+  }
+
+  if (parsed.kind === "rma" || parsed.kind === "unknown") {
+    const rows = await db.select().from(schema.rmas).where(eq(schema.rmas.organizationId, organizationId));
+    const rma = await findByNumber(rows, parsed.value);
+    if (rma) {
+      const lines = await db
+        .select({
+          id: schema.rmaLines.id,
+          itemId: schema.rmaLines.itemId,
+          qtyExpected: schema.rmaLines.qtyExpected,
+          qtyReceived: schema.rmaLines.qtyReceived,
+          sku: schema.items.sku,
+          itemName: schema.items.name,
+        })
+        .from(schema.rmaLines)
+        .innerJoin(schema.items, eq(schema.items.id, schema.rmaLines.itemId))
+        .where(eq(schema.rmaLines.rmaId, rma.id));
+      return c.json({
+        kind: "rma" as const,
+        rma: {
+          ...rma,
+          lines: lines.map((line) => ({
+            ...line,
+            remaining: line.qtyExpected - line.qtyReceived,
+          })),
+        },
+      });
+    }
+    if (parsed.kind === "rma") notFound("No return matches that barcode");
+  }
+
   notFound("No location, item, or document matches that barcode");
 });
 

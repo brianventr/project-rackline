@@ -220,6 +220,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
   ]);
 
   const receiptId = newId();
+  const purchaseId = newId();
+  const rmaId = newId();
   const orderId = newId();
   const woId = newId();
   const shopifyOrderRowId = newId();
@@ -236,6 +238,31 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     }),
     db.insert(schema.receiptLines).values({ id: newId(), receiptId, itemId: item.bulb, qty: 12 }),
     db.insert(schema.receiptLines).values({ id: newId(), receiptId, itemId: item.shade, qty: 6 }),
+    db.insert(schema.purchases).values({
+      id: purchaseId,
+      organizationId,
+      warehouseId,
+      number: "PO-DEMO1",
+      vendorName: "Harbor Components",
+      status: "ordered",
+      notes: "Restock bulbs and shades",
+      createdAt: now,
+      orderedAt: now,
+    }),
+    db.insert(schema.purchaseLines).values({
+      id: newId(),
+      purchaseId,
+      itemId: item.bulb,
+      qtyOrdered: 20,
+      qtyReceived: 0,
+    }),
+    db.insert(schema.purchaseLines).values({
+      id: newId(),
+      purchaseId,
+      itemId: item.shade,
+      qtyOrdered: 8,
+      qtyReceived: 0,
+    }),
     db.insert(schema.orders).values({
       id: orderId,
       organizationId,
@@ -247,6 +274,24 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       source: "manual",
     }),
     db.insert(schema.orderLines).values({ id: newId(), orderId, itemId: item.lamp, qty: 2 }),
+    db.insert(schema.rmas).values({
+      id: rmaId,
+      organizationId,
+      warehouseId,
+      number: "RMA-DEMO1",
+      customerName: "Harbor Workshop",
+      status: "open",
+      orderId,
+      notes: "Wrong shade color — restock to dock",
+      createdAt: now,
+    }),
+    db.insert(schema.rmaLines).values({
+      id: newId(),
+      rmaId,
+      itemId: item.lamp,
+      qtyExpected: 1,
+      qtyReceived: 0,
+    }),
     db.insert(schema.workOrders).values({
       id: woId,
       organizationId,
