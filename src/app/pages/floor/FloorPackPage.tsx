@@ -98,20 +98,30 @@ export function FloorPackPage() {
             {lines.map((line) => (
               <li key={line.id} className="flex justify-between">
                 <span>
-                  {line.sku} × {line.qty}
+                  {line.sku} × {line.qtyPicked ?? line.qty}
                 </span>
                 <span>{packedIds.includes(line.id) ? "Verified" : "Scan to verify"}</span>
               </li>
             ))}
           </ul>
           {canPackOrder(active.status) ? (
-            <Button disabled={!allVerified && lines.length > 0} onClick={() => void pack()}>
-              Pack complete
-            </Button>
+            <div className="flex flex-wrap items-center gap-4">
+              <Button disabled={!allVerified && lines.length > 0} onClick={() => void pack()}>
+                Pack complete
+              </Button>
+              <Link className="font-medium underline" to={`/outbound/orders/${active.id}/pack-slip`}>
+                Print pack slip
+              </Link>
+            </div>
           ) : (
-            <Link className="font-medium underline" to={`/floor/ship?id=${active.id}`}>
-              Go ship
-            </Link>
+            <div className="flex flex-wrap gap-4">
+              <Link className="font-medium underline" to={`/floor/ship?id=${active.id}`}>
+                Go ship
+              </Link>
+              <Link className="font-medium underline" to={`/outbound/orders/${active.id}/pack-slip`}>
+                Pack slip
+              </Link>
+            </div>
           )}
         </Card>
       )}

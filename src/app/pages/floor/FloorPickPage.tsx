@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Item, type Location, type Order, type ScanHit } from "../../api";
-import { Button, Card, Field, Select, StatusBadge } from "../../components/ui";
+import { api, type Location, type Order, type ScanHit } from "../../api";
+import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { canPickOrder } from "@/domain/status";
+import { hasUnpicked } from "@/domain/partial-pick";
 
 export function FloorPickPage() {
   const [params] = useSearchParams();
@@ -11,23 +12,41 @@ export function FloorPickPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [active, setActive] = useState<Order | null>(null);
   const [locationId, setLocationId] = useState("");
+  const [qtys, setQtys] = useState<Record<string, string>>({});
+  const [lots, setLots] = useState<Record<string, string>>({});
+  const [serials, setSerials] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+
+  function applyOrder(order: Order, nextLocations: Location[]) {
+    setActive(order);
+    setLocationId(defaultPickLocation(order, nextLocations));
+    setQtys(qtyDefaults(order));
+  }
 
   async function load() {
     const [nextOrders, nextLocations] = await Promise.all([
       api<Order[]>("/api/orders"),
       api<Location[]>("/api/locations"),
     ]);
-    setOrders(nextOrders.filter((row) => canPickOrder(row.status)));
+    setOrders(
+      nextOrders.filter(
+        (row) =>
+          canPickOrder(row.status) &&
+          hasUnpicked(
+            (row.lines ?? []).map((line) => ({
+              lineId: line.id,
+              sku: line.sku,
+              qtyOrdered: line.qty,
+              qtyPicked: line.qtyPicked ?? 0,
+            })),
+          ),
+      ),
+    );
     setLocations(nextLocations);
-    const storage = nextLocations.find((row) => row.type === "storage") ?? nextLocations[0];
-    if (storage) setLocationId(storage.id);
     const wanted = params.get("id");
     if (wanted) {
-      const match = nextOrders.find((row) => row.id === wanted) ?? (await api<Order>(`/api/orders/${wanted}`));
-      setActive(match);
-      const stocked = await locationWithStock(match, nextLocations);
-      if (stocked) setLocationId(stocked);
+      const match = await api<Order>(`/api/orders/${wanted}`);
+      applyOrder(match, nextLocations);
     }
   }
 
@@ -35,26 +54,35 @@ export function FloorPickPage() {
     load().catch((err: Error) => setError(err.message));
   }, []);
 
-  const onScan = useCallback((raw: string) => {
-    setError(null);
-    api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
-      .then((hit) => {
-        if (hit.kind === "order") {
-          void api<Order>(`/api/orders/${hit.order.id}`).then(async (order) => {
-            setActive(order);
-            const stocked = await locationWithStock(order, locations);
-            if (stocked) setLocationId(stocked);
-          });
-          return;
-        }
-        if (hit.kind === "location") {
-          setLocationId(hit.location.id);
-          return;
-        }
-        setError("Scan an order or a pick bay.");
-      })
-      .catch((err: Error) => setError(err.message));
-  }, [locations]);
+  const onScan = useCallback(
+    (raw: string) => {
+      setError(null);
+      api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
+        .then((hit) => {
+          if (hit.kind === "order") {
+            void api<Order>(`/api/orders/${hit.order.id}`).then((order) => applyOrder(order, locations));
+            return;
+          }
+          if (hit.kind === "location") {
+            setLocationId(hit.location.id);
+            return;
+          }
+          if (hit.kind === "item" && active) {
+            const line = (active.lines ?? []).find((row) => row.itemId === hit.item.id || row.sku === hit.item.sku);
+            if (!line) {
+              setError(`${hit.item.sku} is not on this order.`);
+              return;
+            }
+            if (line.suggestedLocation) setLocationId(line.suggestedLocation.locationId);
+            setQtys((current) => ({ ...current, [line.id]: String(line.remaining ?? 0) }));
+            return;
+          }
+          setError("Scan an order, a pick bay, or a SKU on the ticket.");
+        })
+        .catch((err: Error) => setError(err.message));
+    },
+    [locations, active],
+  );
 
   async function pick() {
     if (!active) return;
@@ -63,20 +91,40 @@ export function FloorPickPage() {
       if (active.status === "open" || active.status === "draft") {
         await api(`/api/orders/${active.id}/start`, { method: "POST" });
       }
+      const lines = (active.lines ?? [])
+        .map((line) => ({
+          lineId: line.id,
+          qty: Number(qtys[line.id] || 0),
+          lotCode: lots[line.id] || undefined,
+          serials: serials[line.id] || undefined,
+        }))
+        .filter((line) => line.qty > 0);
       const picked = await api<Order>(`/api/orders/${active.id}/pick`, {
         method: "POST",
-        body: JSON.stringify({ locationId }),
+        body: JSON.stringify({ locationId, lines }),
       });
-      setActive(picked);
+      applyOrder(picked, locations);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Pick failed");
     }
   }
 
+  const remaining = active
+    ? hasUnpicked(
+        (active.lines ?? []).map((line) => ({
+          lineId: line.id,
+          sku: line.sku,
+          qtyOrdered: line.qty,
+          qtyPicked: line.qtyPicked ?? 0,
+        })),
+      )
+    : false;
+  const thisPick = Object.values(qtys).some((value) => Number(value) > 0);
+
   return (
-    <FloorFrame title="Pick" description="Scan the order, go to the bay, confirm the pick." error={error}>
-      <FloorScanBox label="Scan order or bay" placeholder="ORD-DEMO1 or A-01-01" onScan={onScan} />
+    <FloorFrame title="Pick" description="Scan the order, go to the suggested bay, pick the qty, confirm." error={error}>
+      <FloorScanBox label="Scan order, bay, or SKU" placeholder="ORD-DEMO1, B-01-01, or LAMP" onScan={onScan} />
       {!active ? (
         <Card>
           <p className="mb-3 font-medium">Open orders</p>
@@ -86,10 +134,7 @@ export function FloorPickPage() {
                 <button
                   className="w-full text-left"
                   onClick={() => {
-                    setActive(row);
-                    void locationWithStock(row, locations).then((id) => {
-                      if (id) setLocationId(id);
-                    });
+                    void api<Order>(`/api/orders/${row.id}`).then((order) => applyOrder(order, locations));
                   }}
                 >
                   <span className="font-mono">{row.number}</span> {row.customerName} <StatusBadge status={row.status} />
@@ -106,10 +151,51 @@ export function FloorPickPage() {
             <StatusBadge status={active.status} />
           </div>
           <p>{active.customerName}</p>
-          <ul className="text-sm">
+          <ul className="space-y-3 text-sm">
             {(active.lines ?? []).map((line) => (
-              <li key={line.id}>
-                {line.sku} × {line.qty}
+              <li key={line.id} className="space-y-2">
+                <div className="flex justify-between gap-3">
+                  <span>
+                    {line.sku} × {line.qty}
+                    {line.qtyPicked ? <span className="text-muted-foreground"> · picked {line.qtyPicked}</span> : null}
+                  </span>
+                  <button
+                    type="button"
+                    className="font-mono text-xs underline-offset-4 hover:underline"
+                    onClick={() => {
+                      if (line.suggestedLocation) setLocationId(line.suggestedLocation.locationId);
+                    }}
+                  >
+                    {line.suggestedLocation ? line.suggestedLocation.locationCode : line.remaining > 0 ? "no stock" : "done"}
+                  </button>
+                </div>
+                {line.remaining > 0 ? (
+                  <Field label={`This pick (remaining ${line.remaining})`}>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={line.remaining}
+                      value={qtys[line.id] ?? "0"}
+                      onChange={(e) => setQtys((current) => ({ ...current, [line.id]: e.target.value }))}
+                    />
+                  </Field>
+                ) : (
+                  <p className="text-muted-foreground">Picked</p>
+                )}
+                {line.trackLot ? (
+                  <Input
+                    placeholder="Lot code"
+                    value={lots[line.id] ?? ""}
+                    onChange={(e) => setLots((current) => ({ ...current, [line.id]: e.target.value }))}
+                  />
+                ) : null}
+                {line.trackSerial ? (
+                  <Input
+                    placeholder="Serials"
+                    value={serials[line.id] ?? ""}
+                    onChange={(e) => setSerials((current) => ({ ...current, [line.id]: e.target.value }))}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>
@@ -122,12 +208,19 @@ export function FloorPickPage() {
               ))}
             </Select>
           </Field>
-          {canPickOrder(active.status) ? (
-            <Button onClick={() => void pick()}>Pick order</Button>
+          {canPickOrder(active.status) && remaining ? (
+            <Button disabled={!thisPick} onClick={() => void pick()}>
+              Pick from bay
+            </Button>
           ) : (
-            <Link className="font-medium underline" to={`/floor/pack?id=${active.id}`}>
-              Go pack
-            </Link>
+            <div className="flex flex-wrap gap-4">
+              <Link className="font-medium underline" to={`/floor/pack?id=${active.id}`}>
+                Go pack
+              </Link>
+              <Link className="font-medium underline" to={`/outbound/orders/${active.id}/pack-slip`}>
+                Pack slip
+              </Link>
+            </div>
           )}
         </Card>
       )}
@@ -135,19 +228,18 @@ export function FloorPickPage() {
   );
 }
 
-async function locationWithStock(
-  order: { lines?: { itemId: string; qty: number }[] },
-  locations: Location[],
-): Promise<string | null> {
-  for (const line of order.lines ?? []) {
-    try {
-      const item = await api<Item>(`/api/items/${line.itemId}`);
-      const bay =
-        (item.onHand ?? []).find((row) => row.qty >= line.qty) ?? (item.onHand ?? []).find((row) => row.qty > 0);
-      if (bay) return bay.locationId;
-    } catch {
-      /* try the next line */
-    }
-  }
-  return locations.find((row) => row.type === "storage")?.id ?? locations[0]?.id ?? null;
+function qtyDefaults(order: Order): Record<string, string> {
+  return Object.fromEntries((order.lines ?? []).map((line) => [line.id, String(line.remaining ?? 0)]));
+}
+
+function defaultPickLocation(order: Order, locations: Location[]): string {
+  const remaining = (order.lines ?? []).find((line) => (line.remaining ?? 0) > 0);
+  return (
+    remaining?.suggestedLocation?.locationId ||
+    order.pickLocationId ||
+    locations.find((row) => row.slotRole === "pick")?.id ||
+    locations.find((row) => row.type === "storage")?.id ||
+    locations[0]?.id ||
+    ""
+  );
 }

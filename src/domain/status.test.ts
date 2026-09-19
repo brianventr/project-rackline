@@ -27,6 +27,13 @@ describe("order status", () => {
     expect(canShipOrder("packed")).toBe(true);
   });
 
+  it("stays open for picking until the ticket is filled", () => {
+    expect(canPickOrder("picking")).toBe(true);
+    expect(canPackOrder("picking")).toBe(false);
+    expect(canShipOrder("picking")).toBe(false);
+    expect(canPickOrder("picked")).toBe(false);
+  });
+
   it("labels in-progress statuses for people", () => {
     expect(statusLabel("in_progress")).toBe("In progress");
     expect(statusLabel("open")).toBe("open");
