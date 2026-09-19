@@ -180,6 +180,7 @@ export function planMove(input: {
   qty: number;
   refId: string;
   balances: Map<string, number>;
+  refType?: string;
 }): StockPlan {
   requirePositiveQty(input.qty);
   if (input.fromLocationId === input.toLocationId) {
@@ -197,7 +198,7 @@ export function planMove(input: {
         qty: input.qty,
         fromLocationId: input.fromLocationId,
         toLocationId: input.toLocationId,
-        refType: "transfer",
+        refType: input.refType ?? "move",
         refId: input.refId,
       },
     ],

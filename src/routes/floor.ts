@@ -188,6 +188,7 @@ floorRoute.post("/transfers/:id/post", async (c) => {
         qty: line.qty,
         refId: transfer.id,
         balances,
+        refType: "transfer",
       }),
     ),
   );
