@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, type Item, type Me } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
@@ -14,6 +14,7 @@ export function ItemsPage({ me }: { me: Me }) {
 
 function ItemList() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [items, setItems] = useState<Item[]>([]);
   const [sku, setSku] = useState("");
   const [name, setName] = useState("");
@@ -24,13 +25,17 @@ function ItemList() {
   const [trackLot, setTrackLot] = useState(false);
   const [trackSerial, setTrackSerial] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [labels, setLabels] = useState(params.get("labels") === "1");
+  const [ready, setReady] = useState(false);
 
   async function load() {
     setItems(await api<Item[]>("/api/items"));
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load()
+      .then(() => setReady(true))
+      .catch((err: Error) => setError(err.message));
   }, []);
 
   async function create() {
@@ -62,9 +67,52 @@ function ItemList() {
     }
   }
 
+  if (labels) {
+    return (
+      <div>
+        <PageHeader
+          eyebrow="SKU labels"
+          title="Print item barcodes"
+          description="Tape these on totes, bags, and finished goods. Scanning the SKU is enough to look up stock."
+          actions={
+            <div className="flex gap-2 print:hidden">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setLabels(false);
+                  navigate("/stock/items");
+                }}
+              >
+                Back
+              </Button>
+              <Button onClick={() => window.print()}>Print</Button>
+            </div>
+          }
+        />
+        <ErrorBanner error={error} />
+        {!ready ? <p className="text-sm text-muted-foreground">Loading labels…</p> : null}
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 print:grid-cols-3">
+          {items.map((item) => (
+            <div key={item.id} className="break-inside-avoid rounded-xl border border-line bg-card p-3">
+              <p className="font-mono text-sm font-semibold">{item.sku}</p>
+              <p className="text-xs text-muted-foreground">{item.name}</p>
+              <BarcodeLabel value={item.barcode || item.sku} className="mt-2 w-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
-      <PageHeader eyebrow="Stock" title="Items" description="Raw materials, WIP, packaging, and finished goods. Each SKU has a barcode." />
+      <PageHeader eyebrow="Stock" title="Items" description="Raw materials, WIP, packaging, and finished goods. Each SKU has a barcode."
+        actions={
+          <Button variant="ghost" onClick={() => setLabels(true)}>
+            Print labels
+          </Button>
+        }
+      />
       <ErrorBanner error={error} />
       <Card className="mb-6">
         <form className="grid gap-3 md:grid-cols-6" onSubmit={onSubmit(create)}>
@@ -193,6 +241,9 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
           <>
             <Button variant="ghost" onClick={() => navigate("/stock/items")}>
               All items
+            </Button>
+            <Button variant="secondary" onClick={() => window.print()}>
+              Print label
             </Button>
             <Button onClick={() => void save()}>Save</Button>
             {me.role === "owner" ? (

@@ -62,12 +62,14 @@ export function FloorFrame({
 }) {
   return (
     <div className="space-y-6">
-      <div>
+      <div className="print:hidden">
         <p className="mb-1 font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">Floor</p>
         <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
         <p className="mt-1 text-muted-foreground">{description}</p>
       </div>
-      <ErrorBanner error={error} />
+      <div className="print:hidden">
+        <ErrorBanner error={error} />
+      </div>
       {children}
     </div>
   );

@@ -52,6 +52,9 @@ function LookupResult({ hit }: { hit: ScanHit }) {
           <Button>
             <Link to={`/floor/putaway?from=${encodeURIComponent(hit.location.barcode)}`}>Put away / move</Link>
           </Button>
+          <Button variant="secondary" asChild>
+            <Link to={`/floor/print?code=${encodeURIComponent(hit.location.barcode)}`}>Print label</Link>
+          </Button>
           <Button variant="secondary">
             <Link to={`/stock/locations/${hit.location.id}`}>Open record</Link>
           </Button>
@@ -77,7 +80,10 @@ function LookupResult({ hit }: { hit: ScanHit }) {
             <li className="text-muted-foreground">None on hand.</li>
           )}
         </ul>
-        <div className="mt-4">
+        <div className="mt-4 flex gap-2">
+          <Button variant="secondary" asChild>
+            <Link to={`/floor/print?code=${encodeURIComponent(hit.item.barcode || hit.item.sku)}`}>Print label</Link>
+          </Button>
           <Button variant="secondary">
             <Link to={`/stock/items/${hit.item.id}`}>Open record</Link>
           </Button>
@@ -121,6 +127,11 @@ function LookupResult({ hit }: { hit: ScanHit }) {
         <Button>
           <Link to={record.floor}>Do this on the floor</Link>
         </Button>
+        {hit.kind === "order" ? (
+          <Button variant="secondary" asChild>
+            <Link to={`/floor/print?code=${encodeURIComponent(hit.order.number)}`}>Print slip / label</Link>
+          </Button>
+        ) : null}
         <Button variant="secondary">
           <Link to={record.to}>Open record</Link>
         </Button>
