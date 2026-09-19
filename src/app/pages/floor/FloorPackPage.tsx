@@ -104,18 +104,20 @@ export function FloorPackPage() {
               </li>
             ))}
           </ul>
-          <Link className="inline-block font-medium underline" to={`/outbound/orders/${active.id}/pack-slip`}>
-            Print pack slip
-          </Link>
-          {canPackOrder(active.status) ? (
-            <Button disabled={!allVerified && lines.length > 0} onClick={() => void pack()}>
-              Pack complete
-            </Button>
-          ) : (
-            <Link className="font-medium underline" to={`/floor/ship?id=${active.id}`}>
-              Go ship
+          <div className="flex flex-wrap items-center gap-3">
+            <Link className="font-medium underline" to={`/outbound/orders/${active.id}/pack-slip`}>
+              Print pack slip
             </Link>
-          )}
+            {canPackOrder(active.status) ? (
+              <Button disabled={!allVerified && lines.length > 0} onClick={() => void pack()}>
+                Pack complete
+              </Button>
+            ) : (
+              <Link className="font-medium underline" to={`/floor/ship?id=${active.id}`}>
+                Go ship
+              </Link>
+            )}
+          </div>
         </Card>
       )}
     </FloorFrame>
