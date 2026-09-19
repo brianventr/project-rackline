@@ -22,6 +22,7 @@ import { MovePage } from "./pages/MovePage";
 import { PurchasesPage } from "./pages/PurchasesPage";
 import { ReturnsPage } from "./pages/ReturnsPage";
 import { FloorLauncherPage } from "./pages/floor/FloorLauncherPage";
+import { FloorPrintPage } from "./pages/floor/FloorPrintPage";
 import { FloorLookupPage } from "./pages/floor/FloorLookupPage";
 import { FloorReceivePage } from "./pages/floor/FloorReceivePage";
 import { FloorPickPage } from "./pages/floor/FloorPickPage";
@@ -85,6 +86,7 @@ export function App() {
         <Route path="/dashboard" element={<Navigate to="/today" replace />} />
         <Route path="/floor" element={<FloorLauncherPage />} />
         <Route path="/floor/lookup" element={<FloorLookupPage />} />
+        <Route path="/floor/print" element={<FloorPrintPage />} />
         <Route path="/floor/receive" element={<FloorReceivePage />} />
         <Route path="/floor/putaway" element={<MovePage />} />
         <Route path="/floor/pick" element={<FloorPickPage />} />

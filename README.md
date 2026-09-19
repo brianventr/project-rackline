@@ -16,6 +16,8 @@ Iteration 5 adds pick-face replenishment (bulk → pick min), lot/serial overlay
 
 Iteration 6 adds directed partial picks (suggested pick-face bay, remaining qty, over-pick 409) and printable pack slips. The order stays `picking` until every unit is picked.
 
+Iteration 7 adds a floor Print verb and turns Setup → Labels into a print station: scan a bay, SKU, or order; print barcode sheets, pack slips, and shipping labels.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 ## Stack
@@ -89,6 +91,7 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 - **Replenish** moves bulk storage onto a pick face when on-hand is below the SKU's pick min
 - **Lots / serials** overlay the location:item balance. Receive requires a vendor lot or matching serials; pick/move FIFO the oldest lot or serial if omitted
 - **Shipping label** mints `RL-` tracking (Rackline Ground / UPS Ground / USPS Priority) and prints from the order
+- **Print station** scans a bay, SKU, or order. Pack slips queue once picking has started; shipping labels once the ticket is picked. Floor **Print** and Setup **Labels** share that queue
 - **Reorder point** flags SKUs at or below the threshold on the floor board
 
 ## Roles

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, type Location, type Me } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
@@ -37,6 +37,9 @@ function LocationDetail({ me, id }: { me: Me; id: string }) {
             <Button variant="ghost" onClick={() => navigate("/stock/locations")}>
               All locations
             </Button>
+            <Button variant="secondary" onClick={() => window.print()}>
+              Print label
+            </Button>
             <Button variant="secondary">
               <Link to={`/map?location=${location.id}`}>Map</Link>
             </Button>
@@ -71,6 +74,8 @@ function LocationDetail({ me, id }: { me: Me; id: string }) {
 }
 
 function LocationList({ me }: { me: Me }) {
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [locations, setLocations] = useState<Location[]>([]);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -81,7 +86,7 @@ function LocationList({ me }: { me: Me }) {
   const [bay, setBay] = useState("01");
   const [level, setLevel] = useState("1");
   const [error, setError] = useState<string | null>(null);
-  const [labels, setLabels] = useState(false);
+  const [labels, setLabels] = useState(params.get("labels") === "1");
   const { warehouseId } = useWarehouse();
 
   async function load() {
@@ -138,7 +143,13 @@ function LocationList({ me }: { me: Me }) {
           description="Tape these on the physical bay. Scanning the label is enough to move stock."
           actions={
             <div className="flex gap-2 print:hidden">
-              <Button variant="ghost" onClick={() => setLabels(false)}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setLabels(false);
+                  navigate("/stock/locations");
+                }}
+              >
                 Back
               </Button>
               <Button onClick={() => window.print()}>Print</Button>
