@@ -109,6 +109,9 @@ export function LocationsPage({ me }: { me: Me }) {
             <Link className="rounded-lg border border-line px-4 py-2.5 text-sm font-semibold" to="/map">
               Open map
             </Link>
+            <Link className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground" to="/map?edit=1">
+              Build floor
+            </Link>
           </div>
         }
       />
