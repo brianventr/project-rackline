@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
@@ -10,6 +10,7 @@ import { suggestPlacement } from "../domain/map-layout";
 import { suggestReplenishments } from "../domain/replenishment";
 import { suggestPutawayJobs } from "../domain/directed-putaway";
 import { loadPutawayBaysByItem } from "../db/putaway-bays";
+import { countVariance } from "../domain/blind-count";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -662,6 +663,39 @@ catalogRoute.get("/dashboard", async (c) => {
     .where(countWhere)
     .orderBy(desc(schema.cycleCounts.createdAt));
 
+  const countVarianceRows = await db
+    .select({
+      id: schema.cycleCountLines.id,
+      countId: schema.cycleCounts.id,
+      number: schema.cycleCounts.number,
+      status: schema.cycleCounts.status,
+      locationId: schema.cycleCounts.locationId,
+      locationCode: schema.locations.code,
+      sku: schema.items.sku,
+      itemName: schema.items.name,
+      systemQty: schema.cycleCountLines.systemQty,
+      countedQty: schema.cycleCountLines.countedQty,
+      postedAt: schema.cycleCounts.postedAt,
+      warehouseId: schema.cycleCounts.warehouseId,
+    })
+    .from(schema.cycleCountLines)
+    .innerJoin(schema.cycleCounts, eq(schema.cycleCounts.id, schema.cycleCountLines.cycleCountId))
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.cycleCounts.locationId))
+    .innerJoin(schema.items, eq(schema.items.id, schema.cycleCountLines.itemId))
+    .where(
+      and(
+        eq(schema.cycleCounts.organizationId, organizationId),
+        eq(schema.cycleCounts.status, "posted"),
+        ne(schema.cycleCountLines.countedQty, schema.cycleCountLines.systemQty),
+        warehouseId ? eq(schema.cycleCounts.warehouseId, warehouseId) : undefined,
+      ),
+    )
+    .orderBy(desc(schema.cycleCounts.postedAt));
+  const countVariances = countVarianceRows.map((row) => ({
+    ...row,
+    variance: countVariance(row.countedQty, row.systemQty),
+  }));
+
   const openPurchaseRows = await db.select().from(schema.purchases).where(purchaseWhere).orderBy(desc(schema.purchases.createdAt));
   const openReturnRows = await db.select().from(schema.rmas).where(returnWhere).orderBy(desc(schema.rmas.createdAt));
 
@@ -927,6 +961,7 @@ catalogRoute.get("/dashboard", async (c) => {
     openTransfers: openTransferRows.length,
     putawayDue: putawaySuggestions.length,
     openCycleCounts: openCountRows.length,
+    countVariances: countVariances.length,
     openPurchases: openPurchaseRows.length,
     openReturns: openReturnRows.length,
     openReplenishments: openReplenishRows.length,
@@ -941,6 +976,7 @@ catalogRoute.get("/dashboard", async (c) => {
       workOrders: openWorkOrderRows,
       putaways: openTransferRows,
       counts: openCountRows,
+      countVariances,
       purchases: openPurchaseRows,
       returns: openReturnRows,
       replenishments: openReplenishRows,

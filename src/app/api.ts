@@ -367,6 +367,7 @@ export type Dashboard = {
   openTransfers: number;
   putawayDue?: number;
   openCycleCounts: number;
+  countVariances?: number;
   openPurchases: number;
   openReturns: number;
   openReplenishments?: number;
@@ -383,6 +384,7 @@ export type Dashboard = {
     workOrders: WorkOrder[];
     putaways: Transfer[];
     counts: CycleCount[];
+    countVariances?: CountVariance[];
     purchases: Purchase[];
     returns: Rma[];
     replenishments?: Replenishment[];
@@ -429,19 +431,37 @@ export type Transfer = {
   lines?: { id: string; itemId: string; qty: number; sku: string; itemName: string }[];
 };
 
+export type CountVariance = {
+  id: string;
+  countId: string;
+  number: string;
+  status: string;
+  locationId: string;
+  locationCode?: string;
+  sku: string;
+  itemName?: string;
+  systemQty: number;
+  countedQty: number;
+  variance: number;
+  postedAt?: number | null;
+  warehouseId?: string;
+};
+
 export type CycleCount = {
   id: string;
   number: string;
   status: string;
   locationId: string;
   locationCode?: string;
+  locationBarcode?: string;
   warehouseId?: string;
   notes: string | null;
   lines?: {
     id: string;
     itemId: string;
-    systemQty: number;
+    systemQty: number | null;
     countedQty: number;
+    entered?: boolean;
     sku: string;
     itemName: string;
   }[];

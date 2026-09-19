@@ -421,6 +421,7 @@ export const cycleCountLines = sqliteTable("cycle_count_lines", {
     .references(() => items.id),
   systemQty: integer("system_qty").notNull(),
   countedQty: integer("counted_qty").notNull(),
+  entered: integer("entered").notNull().default(0),
 });
 
 export const purchases = sqliteTable("purchases", {

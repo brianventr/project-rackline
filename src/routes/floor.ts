@@ -12,6 +12,7 @@ import { parseScan } from "../domain/barcodes";
 import { canPostCount, canPostTransfer } from "../domain/status";
 import { shouldSuggestPutaway, suggestPutawayJobs } from "../domain/directed-putaway";
 import { loadPutawayBaysByItem } from "../db/putaway-bays";
+import { allLinesEntered, applyCountEntries, revealSystemQty } from "../domain/blind-count";
 
 export const floorRoute = new Hono<AppEnv>();
 
@@ -230,6 +231,7 @@ async function countWithLines(db: AppEnv["Variables"]["db"], organizationId: str
       createdAt: schema.cycleCounts.createdAt,
       postedAt: schema.cycleCounts.postedAt,
       locationCode: schema.locations.code,
+      locationBarcode: schema.locations.barcode,
     })
     .from(schema.cycleCounts)
     .innerJoin(schema.locations, eq(schema.locations.id, schema.cycleCounts.locationId))
@@ -242,13 +244,21 @@ async function countWithLines(db: AppEnv["Variables"]["db"], organizationId: str
       itemId: schema.cycleCountLines.itemId,
       systemQty: schema.cycleCountLines.systemQty,
       countedQty: schema.cycleCountLines.countedQty,
+      entered: schema.cycleCountLines.entered,
       sku: schema.items.sku,
       itemName: schema.items.name,
     })
     .from(schema.cycleCountLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.cycleCountLines.itemId))
     .where(eq(schema.cycleCountLines.cycleCountId, id));
-  return { ...row, lines };
+  return {
+    ...row,
+    lines: lines.map((line) => ({
+      ...line,
+      entered: Boolean(line.entered),
+      systemQty: revealSystemQty(row.status, line.systemQty),
+    })),
+  };
 }
 
 floorRoute.get("/cycle-counts", async (c) => {
@@ -297,10 +307,9 @@ floorRoute.post("/cycle-counts", async (c) => {
       and(
         eq(schema.inventoryBalances.organizationId, organizationId),
         eq(schema.inventoryBalances.locationId, locationId),
+        gt(schema.inventoryBalances.qty, 0),
       ),
     );
-
-  if (onHand.length === 0) badRequest("That location has no on-hand rows to count");
 
   const id = newId();
   const lines = onHand.map((row) => ({
@@ -308,7 +317,8 @@ floorRoute.post("/cycle-counts", async (c) => {
     cycleCountId: id,
     itemId: row.itemId,
     systemQty: row.qty,
-    countedQty: row.qty,
+    countedQty: 0,
+    entered: 0,
   }));
 
   await db.batch([
@@ -347,28 +357,40 @@ floorRoute.post("/cycle-counts/:id/post", async (c) => {
   const count = await countWithLines(db, organizationId, c.req.param("id"));
   if (!canPostCount(count.status)) conflict("Cycle count already posted");
 
-  const countedById = new Map<string, number>();
+  const incoming: { id: string; countedQty: number }[] = [];
   for (const line of body.lines ?? []) {
     if (!line.id) continue;
-    countedById.set(line.id, requireInt(line.countedQty, "countedQty"));
+    const countedQty = requireInt(line.countedQty, "countedQty");
+    if (countedQty < 0) badRequest("countedQty must be a non-negative integer");
+    incoming.push({ id: line.id, countedQty });
   }
 
-  const resolved = count.lines.map((line) => ({
+  const resolved = applyCountEntries(
+    count.lines.map((line) => ({ id: line.id, countedQty: line.countedQty, entered: line.entered })),
+    incoming,
+  );
+  if (!allLinesEntered(resolved)) {
+    conflict("Enter a count for every SKU before posting");
+  }
+
+  const countedById = new Map(resolved.map((line) => [line.id, line.countedQty]));
+  const postedLines = count.lines.map((line) => ({
     ...line,
-    countedQty: countedById.has(line.id) ? countedById.get(line.id)! : line.countedQty,
+    countedQty: countedById.get(line.id) ?? line.countedQty,
+    entered: true,
   }));
 
   const loaded = await loadBalanceMap(
     db,
     organizationId,
-    resolved.map((line) => ({ locationId: count.locationId, itemId: line.itemId })),
+    postedLines.map((line) => ({ locationId: count.locationId, itemId: line.itemId })),
   );
   const current = qtyMap(loaded);
   const plan = planCycleCount({
     refId: count.id,
     locationId: count.locationId,
     balances: current,
-    lines: resolved.map((line) => ({
+    lines: postedLines.map((line) => ({
       itemId: line.itemId,
       sku: line.sku,
       systemQty: current.get(`${count.locationId}:${line.itemId}`) ?? 0,
@@ -384,10 +406,14 @@ floorRoute.post("/cycle-counts/:id/post", async (c) => {
     loaded,
     plan,
     extra: [
-      ...resolved.map((line) =>
+      ...postedLines.map((line) =>
         db
           .update(schema.cycleCountLines)
-          .set({ countedQty: line.countedQty })
+          .set({
+            countedQty: line.countedQty,
+            systemQty: current.get(`${count.locationId}:${line.itemId}`) ?? 0,
+            entered: 1,
+          })
           .where(eq(schema.cycleCountLines.id, line.id)),
       ),
       db

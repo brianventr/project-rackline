@@ -5,6 +5,7 @@ import { Button, Card, Field, Input, Select, StatusBadge } from "../../component
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { useWarehouse } from "../../warehouse";
 import { canPostCount } from "@/domain/status";
+import { allLinesEntered, countVariance, formatCountVariance, isBlindCount } from "@/domain/blind-count";
 
 export function FloorCountPage() {
   const [params] = useSearchParams();
@@ -70,7 +71,9 @@ export function FloorCountPage() {
       const posted = await api<CycleCount>(`/api/cycle-counts/${active.id}/post`, {
         method: "POST",
         body: JSON.stringify({
-          lines: (active.lines ?? []).map((line) => ({ id: line.id, countedQty: line.countedQty })),
+          lines: (active.lines ?? [])
+            .filter((line) => line.entered)
+            .map((line) => ({ id: line.id, countedQty: line.countedQty })),
         }),
       });
       setActive(posted);
@@ -80,8 +83,11 @@ export function FloorCountPage() {
     }
   }
 
+  const lines = active?.lines ?? [];
+  const ready = Boolean(active && canPostCount(active.status) && allLinesEntered(lines));
+
   return (
-    <FloorFrame title="Count" description="Scan a bay, count what’s there, post the variance." error={error}>
+    <FloorFrame title="Count" description="Scan a bay. Count what you see. System qty stays hidden until you post." error={error}>
       <FloorScanBox label="Scan bay" placeholder="A-01-01" onScan={onScan} />
       {!active ? (
         <Card className="space-y-3">
@@ -117,28 +123,60 @@ export function FloorCountPage() {
             <h2 className="text-xl font-semibold">{active.number}</h2>
             <StatusBadge status={active.status} />
           </div>
-          {(active.lines ?? []).map((line) => (
-            <Field key={line.id} label={`${line.sku} (system ${line.systemQty})`}>
-              <Input
-                type="number"
-                min={0}
-                value={String(line.countedQty)}
-                disabled={!canPostCount(active.status)}
-                onChange={(e) => {
-                  const countedQty = Number(e.target.value);
-                  setActive((current) =>
-                    current
-                      ? {
-                          ...current,
-                          lines: (current.lines ?? []).map((row) => (row.id === line.id ? { ...row, countedQty } : row)),
-                        }
-                      : current,
-                  );
-                }}
-              />
-            </Field>
-          ))}
-          {canPostCount(active.status) ? <Button onClick={() => void post()}>Post variances</Button> : <p>Posted.</p>}
+          <p className="text-sm text-muted-foreground">
+            {active.locationCode}
+            {isBlindCount(active.status) ? " · Blind count" : ""}
+          </p>
+          {lines.length === 0 ? (
+            <p className="text-sm">Nothing on the snapshot. Confirm the bay is empty, then post.</p>
+          ) : (
+            lines.map((line) => (
+              <Field
+                key={line.id}
+                label={
+                  isBlindCount(active.status) || line.systemQty === null
+                    ? line.sku
+                    : `${line.sku} · system ${line.systemQty} · variance ${formatCountVariance(countVariance(line.countedQty, line.systemQty))}`
+                }
+              >
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="Count"
+                  value={line.entered ? String(line.countedQty) : ""}
+                  disabled={!canPostCount(active.status)}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    const countedQty = raw === "" ? 0 : Number(e.target.value);
+                    setActive((current) =>
+                      current
+                        ? {
+                            ...current,
+                            lines: (current.lines ?? []).map((row) =>
+                              row.id === line.id
+                                ? { ...row, countedQty: Number.isFinite(countedQty) ? countedQty : 0, entered: raw !== "" }
+                                : row,
+                            ),
+                          }
+                        : current,
+                    );
+                  }}
+                />
+              </Field>
+            ))
+          )}
+          {canPostCount(active.status) ? (
+            <>
+              {!ready && lines.length > 0 ? (
+                <p className="text-sm text-muted-foreground">Enter every SKU (0 is a real count) before posting.</p>
+              ) : null}
+              <Button disabled={!ready} onClick={() => void post()}>
+                {lines.length === 0 ? "Confirm empty" : "Post variances"}
+              </Button>
+            </>
+          ) : (
+            <p>Posted.</p>
+          )}
         </Card>
       )}
     </FloorFrame>

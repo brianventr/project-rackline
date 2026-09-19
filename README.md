@@ -20,6 +20,8 @@ Iteration 7 adds a floor Print verb and turns Setup → Labels into a print stat
 
 Iteration 8 adds directed putaway: after receive, the dock suggests a bulk/storage bay per SKU (consolidate, prefer bulk, same aisle as the pick face). Floor Put away can move one SKU onto that bay; Today lists dock stock waiting to be put away.
 
+Iteration 9 makes cycle counts blind: the floor and office hide system qty until the count is posted, typing 0 is a real empty count, empty bays can be confirmed empty, and Today lists posted variances.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 ## Stack
@@ -87,7 +89,7 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 - **Pack slip** prints ordered vs picked qty from the order record
 - **Ship** writes an outbound movement (qty already left at pick) and, for Shopify orders, creates a fulfillment
 - **Adjust** applies a signed delta with a reason
-- **Cycle count** snapshots a bin, then posts variances against *current* on-hand so concurrent movement is not double-applied
+- **Cycle count** snapshots a bin without showing system qty. Every SKU must be entered (0 is a real count); posting more than once is blocked. Empty bays can be confirmed empty. Variances post against *current* on-hand so concurrent movement is not double-applied; Today lists posted counts where counted ≠ system
 - **Work order complete** consumes `BOM qty × WO qty` from the source location and produces finished goods into the output location. Short components return HTTP 409
 - **Kit complete** is the same explode, in one step, with `kit_consume` / `kit_produce` ledger types
 - **Replenish** moves bulk storage onto a pick face when on-hand is below the SKU's pick min
