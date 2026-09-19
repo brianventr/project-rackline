@@ -124,22 +124,18 @@ function finish(geo: THREE.BufferGeometry) {
   return geo;
 }
 
-function makeColumnModule() {
-  const w = 0.15;
-  const d = 0.128;
-  const h = COLUMN_MODULE;
-  const t = 0.007;
-  const parts: THREE.BufferGeometry[] = [];
-
-  const face = new THREE.Shape();
-  face.moveTo(-w / 2, -h / 2);
-  face.lineTo(w / 2, -h / 2);
-  face.lineTo(w / 2, h / 2);
-  face.lineTo(-w / 2, h / 2);
-  face.closePath();
-  face.holes.push(teardropHole(0, -0.004));
-  const web = new THREE.ExtrudeGeometry(face, {
-    depth: t,
+function makePunchedPlate(width: number, height: number) {
+  const shape = new THREE.Shape();
+  const hw = width / 2;
+  const hh = height / 2;
+  shape.moveTo(-hw, -hh);
+  shape.lineTo(hw, -hh);
+  shape.lineTo(hw, hh);
+  shape.lineTo(-hw, hh);
+  shape.closePath();
+  shape.holes.push(teardropHole(0, -0.004));
+  return new THREE.ExtrudeGeometry(shape, {
+    depth: 0.007,
     bevelEnabled: true,
     bevelThickness: 0.0009,
     bevelSize: 0.0007,
@@ -147,21 +143,30 @@ function makeColumnModule() {
     curveSegments: 20,
     steps: 1,
   });
-  web.rotateY(Math.PI / 2);
-  web.translate(-d / 2, 0, 0);
-  parts.push(web);
+}
+
+function makeColumnModule() {
+  const w = 0.15;
+  const d = 0.128;
+  const h = COLUMN_MODULE;
+  const t = 0.007;
+  const parts: THREE.BufferGeometry[] = [];
+
+  const left = makePunchedPlate(d, h);
+  left.translate(0, 0, -w / 2);
+  parts.push(left);
+
+  const right = makePunchedPlate(d, h);
+  right.translate(0, 0, w / 2 - t);
+  parts.push(right);
+
+  const front = new THREE.BoxGeometry(t, h, w, 1, 3, 3);
+  front.translate(-d / 2 + t / 2, 0, 0);
+  parts.push(front);
 
   const back = new THREE.BoxGeometry(t, h, w, 1, 3, 3);
   back.translate(d / 2 - t / 2, 0, 0);
   parts.push(back);
-
-  const left = new THREE.BoxGeometry(d, h, t, 3, 3, 1);
-  left.translate(0, 0, -w / 2 + t / 2);
-  parts.push(left);
-
-  const right = new THREE.BoxGeometry(d, h, t, 3, 3, 1);
-  right.translate(0, 0, w / 2 - t / 2);
-  parts.push(right);
 
   return mergeParts(parts);
 }
