@@ -242,7 +242,7 @@ function ReplenishmentDetail({ id }: { id: string }) {
         }
       />
       <ErrorBanner error={error} />
-      <DocumentActivity refId={doc.id} />
+      <DocumentActivity refId={doc.id} refreshKey={doc.status} />
     </div>
   );
 }

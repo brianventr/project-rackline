@@ -245,7 +245,7 @@ function OrderDetail({ id }: { id: string }) {
                 Buy label
               </Button>
             </Card>
-            <DocumentActivity refId={order.id} />
+            <DocumentActivity refId={order.id} refreshKey={order.status} />
           </DocumentRail>
         }
       >

@@ -194,7 +194,7 @@ function KitDetail({ id }: { id: string }) {
           </tr>
         ))}
       </Table>
-      <DocumentActivity refId={kit.id} />
+      <DocumentActivity refId={kit.id} refreshKey={kit.status} />
     </div>
   );
 }
