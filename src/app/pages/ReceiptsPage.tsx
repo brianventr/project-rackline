@@ -176,7 +176,7 @@ function ReceiptDetail({ id }: { id: string }) {
                 </Select>
               </Field>
             </Card>
-            <DocumentActivity refId={receipt.id} />
+            <DocumentActivity refId={receipt.id} refreshKey={receipt.status} />
           </DocumentRail>
         }
       >

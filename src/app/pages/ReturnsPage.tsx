@@ -234,7 +234,7 @@ function ReturnDetail({ id }: { id: string }) {
                 </Select>
               </Field>
             </Card>
-            <DocumentActivity refId={rma.id} />
+            <DocumentActivity refId={rma.id} refreshKey={`${rma.status}:${(rma.lines ?? []).map((line) => line.qtyReceived).join(",")}`} />
           </DocumentRail>
         }
       >

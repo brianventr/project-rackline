@@ -200,7 +200,7 @@ function PurchaseDetail({ id }: { id: string }) {
                 </Select>
               </Field>
             </Card>
-            <DocumentActivity refId={purchase.id} />
+            <DocumentActivity refId={purchase.id} refreshKey={`${purchase.status}:${(purchase.lines ?? []).map((line) => line.qtyReceived).join(",")}`} />
           </DocumentRail>
         }
       >
