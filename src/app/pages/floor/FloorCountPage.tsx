@@ -5,7 +5,7 @@ import { Button, Card, Field, Input, Select, StatusBadge } from "../../component
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { useWarehouse } from "../../warehouse";
 import { canPostCount } from "@/domain/status";
-import { allLinesEntered, isBlindCount } from "@/domain/blind-count";
+import { allLinesEntered, countVariance, formatCountVariance, isBlindCount } from "@/domain/blind-count";
 
 export function FloorCountPage() {
   const [params] = useSearchParams();
@@ -131,7 +131,14 @@ export function FloorCountPage() {
             <p className="text-sm">Nothing on the snapshot. Confirm the bay is empty, then post.</p>
           ) : (
             lines.map((line) => (
-              <Field key={line.id} label={line.sku}>
+              <Field
+                key={line.id}
+                label={
+                  isBlindCount(active.status) || line.systemQty === null
+                    ? line.sku
+                    : `${line.sku} · system ${line.systemQty} · variance ${formatCountVariance(countVariance(line.countedQty, line.systemQty))}`
+                }
+              >
                 <Input
                   type="number"
                   min={0}

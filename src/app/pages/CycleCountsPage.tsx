@@ -169,7 +169,7 @@ function CountDetail({ id }: { id: string }) {
       {canPostCount(active.status) && !ready && lines.length > 0 ? (
         <p className="text-sm text-muted-foreground">Enter every SKU (0 is a real count) before posting.</p>
       ) : null}
-      <DocumentActivity refId={active.id} />
+      <DocumentActivity refId={active.id} refreshKey={active.status} />
       {lines.length === 0 ? (
         <Card>
           <p className="text-sm">Nothing on the snapshot. Confirm the bay is empty, then post.</p>
