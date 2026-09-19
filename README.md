@@ -14,6 +14,8 @@ Iteration 4 aligns blank receipts with that same partial: expected vs received q
 
 Iteration 5 adds pick-face replenishment (bulk → pick min), lot/serial overlay on the existing location:item ledger, printable carrier shipping labels with generated `RL-` tracking, and one-step kitting from a recipe.
 
+Iteration 6 adds directed partial picks (suggested pick-face bay, remaining qty, over-pick 409) and printable pack slips. The order stays `picking` until every unit is picked.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 ## Stack
@@ -77,7 +79,8 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 
 - **Receive** adds qty to a location (blank receipt, purchase order, or customer return). Lines track received vs expected; posting more than remaining returns HTTP 409 (`OVER_RECEIVE`); the document stays `receiving` until every unit is in
 - **Move / transfer** decrements the from bin and increments the to bin in one ledger movement
-- **Pick** decrements the pick bin
+- **Pick** decrements the pick bin. Lines track picked vs ordered; posting more than remaining returns HTTP 409 (`OVER_PICK`); the document stays `picking` until every unit is picked. The API suggests a pick-face bay that covers remaining qty
+- **Pack slip** prints ordered vs picked qty from the order record
 - **Ship** writes an outbound movement (qty already left at pick) and, for Shopify orders, creates a fulfillment
 - **Adjust** applies a signed delta with a reason
 - **Cycle count** snapshots a bin, then posts variances against *current* on-hand so concurrent movement is not double-applied

@@ -4,6 +4,7 @@ import { api, type Item, type Location, type Order } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
 import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
 import { ORDER_STEPS, canPackOrder, canPickOrder, canShipOrder } from "@/domain/status";
+import { hasUnpicked } from "@/domain/partial-pick";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { LineFields } from "./ReceiptsPage";
 
@@ -57,7 +58,7 @@ function OrderList() {
       <PageHeader
         eyebrow="Outbound"
         title="Orders"
-        description="Shopify checkouts and floor orders. Pick, pack, then ship."
+        description="Shopify checkouts and floor orders. Pick from the suggested bay, pack, then ship."
         actions={<Button onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New order"}</Button>}
       />
       <ErrorBanner error={error} />
@@ -98,6 +99,9 @@ function OrderDetail({ id }: { id: string }) {
   const [order, setOrder] = useState<Order | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [pickLocation, setPickLocation] = useState("");
+  const [qtys, setQtys] = useState<Record<string, string>>({});
+  const [lots, setLots] = useState<Record<string, string>>({});
+  const [serials, setSerials] = useState<Record<string, string>>({});
   const [trackingNumber, setTrackingNumber] = useState("");
   const [trackingCompany, setTrackingCompany] = useState("");
   const [carrierService, setCarrierService] = useState("rackline_ground");
@@ -107,9 +111,8 @@ function OrderDetail({ id }: { id: string }) {
     const [next, nextLocations] = await Promise.all([api<Order>(`/api/orders/${id}`), api<Location[]>("/api/locations")]);
     setOrder(next);
     setLocations(nextLocations);
-    const storage = nextLocations.find((row) => row.type === "storage") ?? nextLocations[0];
-    const stocked = await locationWithStock(next, nextLocations);
-    setPickLocation(next.pickLocationId || stocked || storage?.id || "");
+    setPickLocation(defaultPickLocation(next, nextLocations));
+    setQtys(qtyDefaults(next));
     setTrackingNumber(next.trackingNumber || "");
     setTrackingCompany(next.trackingCompany || "");
     setCarrierService(next.carrierService || "rackline_ground");
@@ -120,9 +123,24 @@ function OrderDetail({ id }: { id: string }) {
   }, [id]);
 
   async function pick() {
+    if (!order) return;
     setError(null);
     try {
-      setOrder(await api<Order>(`/api/orders/${id}/pick`, { method: "POST", body: JSON.stringify({ locationId: pickLocation }) }));
+      const lines = (order.lines ?? [])
+        .map((line) => ({
+          lineId: line.id,
+          qty: Number(qtys[line.id] || 0),
+          lotCode: lots[line.id] || undefined,
+          serials: serials[line.id] || undefined,
+        }))
+        .filter((line) => line.qty > 0);
+      const next = await api<Order>(`/api/orders/${id}/pick`, {
+        method: "POST",
+        body: JSON.stringify({ locationId: pickLocation, lines }),
+      });
+      setOrder(next);
+      setPickLocation(defaultPickLocation(next, locations));
+      setQtys(qtyDefaults(next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Pick failed");
     }
@@ -165,6 +183,15 @@ function OrderDetail({ id }: { id: string }) {
   }
 
   if (!order) return <ErrorBanner error={error} />;
+  const remaining = hasUnpicked(
+    (order.lines ?? []).map((line) => ({
+      lineId: line.id,
+      sku: line.sku,
+      qtyOrdered: line.qty,
+      qtyPicked: line.qtyPicked ?? 0,
+    })),
+  );
+  const thisPick = Object.values(qtys).some((value) => Number(value) > 0);
 
   return (
     <div className="space-y-6">
@@ -179,11 +206,18 @@ function OrderDetail({ id }: { id: string }) {
             <Button variant="ghost" onClick={() => navigate("/outbound/orders")}>
               All orders
             </Button>
-            {canPickOrder(order.status) ? <Button onClick={() => void pick()}>Pick</Button> : null}
+            {canPickOrder(order.status) && remaining ? (
+              <Button disabled={!thisPick} onClick={() => void pick()}>
+                Pick
+              </Button>
+            ) : null}
             {canPackOrder(order.status) ? <Button onClick={() => void pack()}>Pack</Button> : null}
             {canShipOrder(order.status) ? (
               <Button onClick={() => void ship()}>{order.source === "shopify" ? "Ship & fulfill" : "Ship"}</Button>
             ) : null}
+            <Button variant="secondary">
+              <Link to={`/outbound/orders/${order.id}/pack-slip`}>Pack slip</Link>
+            </Button>
             <Button variant="secondary">
               <Link to={`/outbound/orders/${order.id}/shipping-label`}>Label</Link>
             </Button>
@@ -245,16 +279,64 @@ function OrderDetail({ id }: { id: string }) {
                 Buy label
               </Button>
             </Card>
-            <DocumentActivity refId={order.id} refreshKey={order.status} />
+            <DocumentActivity
+              refId={order.id}
+              refreshKey={`${order.status}:${(order.lines ?? []).map((line) => line.qtyPicked).join(",")}`}
+            />
           </DocumentRail>
         }
       >
-        <Table columns={["SKU", "Item", "Qty"]}>
+        <Table columns={["SKU", "Item", "Ordered", "Picked", "Bay", "This pick", "Lot / serial"]}>
           {(order.lines ?? []).map((line) => (
             <tr key={line.id}>
               <td className="px-4 py-3 font-mono">{line.sku}</td>
               <td className="px-4 py-3">{line.itemName}</td>
               <td className="px-4 py-3 font-mono">{line.qty}</td>
+              <td className="px-4 py-3 font-mono">{line.qtyPicked ?? 0}</td>
+              <td className="px-4 py-3 font-mono text-sm">
+                {line.suggestedLocation ? (
+                  <button
+                    type="button"
+                    className="underline-offset-4 hover:underline"
+                    onClick={() => setPickLocation(line.suggestedLocation!.locationId)}
+                  >
+                    {line.suggestedLocation.locationCode}
+                    <span className="text-muted-foreground"> ×{line.suggestedLocation.qty}</span>
+                  </button>
+                ) : (
+                  <span className="text-muted-foreground">{line.remaining > 0 ? "—" : "Done"}</span>
+                )}
+              </td>
+              <td className="px-4 py-3">
+                {line.remaining > 0 ? (
+                  <Input
+                    type="number"
+                    min={0}
+                    max={line.remaining}
+                    value={qtys[line.id] ?? "0"}
+                    onChange={(e) => setQtys((current) => ({ ...current, [line.id]: e.target.value }))}
+                  />
+                ) : (
+                  <span className="text-muted-foreground">Done</span>
+                )}
+              </td>
+              <td className="px-4 py-3">
+                {line.trackLot ? (
+                  <Input
+                    placeholder="Lot"
+                    value={lots[line.id] ?? ""}
+                    onChange={(e) => setLots((current) => ({ ...current, [line.id]: e.target.value }))}
+                  />
+                ) : null}
+                {line.trackSerial ? (
+                  <Input
+                    className="mt-1"
+                    placeholder="Serials"
+                    value={serials[line.id] ?? ""}
+                    onChange={(e) => setSerials((current) => ({ ...current, [line.id]: e.target.value }))}
+                  />
+                ) : null}
+              </td>
             </tr>
           ))}
         </Table>
@@ -269,16 +351,18 @@ function floorActionForOrder(status: string, id: string): string {
   return `/floor/pick?id=${id}`;
 }
 
-async function locationWithStock(order: Order, locations: Location[]): Promise<string | null> {
-  for (const line of order.lines ?? []) {
-    try {
-      const item = await api<Item>(`/api/items/${line.itemId}`);
-      const bay =
-        (item.onHand ?? []).find((row) => row.qty >= line.qty) ?? (item.onHand ?? []).find((row) => row.qty > 0);
-      if (bay) return bay.locationId;
-    } catch {
-      /* try the next line */
-    }
-  }
-  return locations.find((row) => row.type === "storage")?.id ?? locations[0]?.id ?? null;
+function qtyDefaults(order: Order): Record<string, string> {
+  return Object.fromEntries((order.lines ?? []).map((line) => [line.id, String(line.remaining ?? 0)]));
+}
+
+function defaultPickLocation(order: Order, locations: Location[]): string {
+  const remaining = (order.lines ?? []).find((line) => (line.remaining ?? 0) > 0);
+  return (
+    remaining?.suggestedLocation?.locationId ||
+    order.pickLocationId ||
+    locations.find((row) => row.slotRole === "pick")?.id ||
+    locations.find((row) => row.type === "storage")?.id ||
+    locations[0]?.id ||
+    ""
+  );
 }

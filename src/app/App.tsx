@@ -38,6 +38,7 @@ import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
 import { ReplenishmentsPage } from "./pages/ReplenishmentsPage";
 import { KitsPage } from "./pages/KitsPage";
 import { ShippingLabelPage } from "./pages/ShippingLabelPage";
+import { PackSlipPage } from "./pages/PackSlipPage";
 import { ScannerProvider } from "./scanner/ScannerProvider";
 import { homePath, OwnerOnly } from "./warehouse";
 
@@ -128,6 +129,7 @@ export function App() {
         <Route path="/outbound/orders" element={<OrdersPage />} />
         <Route path="/outbound/orders/:id" element={<OrdersPage />} />
         <Route path="/outbound/orders/:id/shipping-label" element={<ShippingLabelPage />} />
+        <Route path="/outbound/orders/:id/pack-slip" element={<PackSlipPage />} />
         <Route path="/outbound/returns" element={<ReturnsPage />} />
         <Route path="/outbound/returns/:id" element={<ReturnsPage />} />
         <Route

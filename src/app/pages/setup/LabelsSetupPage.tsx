@@ -24,6 +24,10 @@ export function LabelsSetupPage() {
         <li>
           Shipping labels print from the order record or floor ship after <span className="font-medium">Buy label</span>.
         </li>
+        <li>
+          Pack slips print from the order record, floor pick, or floor pack at{" "}
+          <span className="font-mono">/outbound/orders/:id/pack-slip</span>.
+        </li>
         <li>USB and Bluetooth gun scanners work on every screen. Camera scan is in the header when the browser supports it.</li>
       </ul>
     </div>

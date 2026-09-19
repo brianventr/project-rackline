@@ -231,3 +231,16 @@ body,
 html {
   scroll-behavior: smooth;
 }
+
+@media print {
+  [data-slot="sidebar"],
+  [data-slot="sidebar-gap"],
+  [data-slot="sidebar-inset"] {
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  [data-slot="sidebar"] {
+    display: none !important;
+  }
+}
