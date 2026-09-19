@@ -154,6 +154,16 @@ describe("inventory engine", () => {
     expect(plan.movements[0]?.reason).toMatch(/0 → 2/);
   });
 
+  it("confirms an empty bay with no movements", () => {
+    const plan = planCycleCount({
+      refId: "cc-empty",
+      locationId: "B-01-01",
+      balances: new Map(),
+      lines: [],
+    });
+    expect(plan.movements).toHaveLength(0);
+  });
+
   it("applies signed adjustments and blocks negative on-hand", () => {
     const start = new Map([[balanceKey("A-01-01", "cord"), 4]]);
     const up = planAdjust({

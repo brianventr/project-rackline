@@ -5,6 +5,7 @@ import { ErrorBanner, PageHeader, StatusBadge } from "../components/ui";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useWarehouse } from "../warehouse";
 import { statusLabel } from "@/domain/status";
+import { formatCountVariance } from "@/domain/blind-count";
 
 export function TodayPage() {
   const { warehouseId } = useWarehouse();
@@ -34,6 +35,7 @@ export function TodayPage() {
           { label: "To put away", value: data ? data.openTransfers + (data.putawayDue ?? 0) : "—", to: "/floor/putaway" },
           { label: "To fulfill", value: data?.openOrders ?? "—", to: "/outbound/orders" },
           { label: "To replenish", value: data ? (data.replenishDue ?? 0) + (data.openReplenishments ?? 0) : "—", to: "/stock/replenish" },
+          { label: "Count variance", value: data?.countVariances ?? "—", to: "/stock/counts" },
         ].map((stat) => (
           <Link key={stat.label} to={stat.to}>
             <Card className="from-primary/5 to-card bg-gradient-to-t shadow-xs">
@@ -185,6 +187,19 @@ export function TodayPage() {
             status: row.status,
             actionTo: `/floor/count?id=${row.id}`,
             action: "Count",
+          }))}
+        />
+        <QueueCard
+          title="Count variance"
+          empty="No posted count variances."
+          rows={(queues?.countVariances ?? []).map((row) => ({
+            id: row.id,
+            to: `/stock/counts/${row.countId}`,
+            title: `${row.sku} ${formatCountVariance(row.variance)}`,
+            meta: `${row.number} · ${row.locationCode || "bay"} · counted ${row.countedQty} vs ${row.systemQty}`,
+            status: "variance",
+            actionTo: `/stock/counts/${row.countId}`,
+            action: "Review",
           }))}
         />
         <QueueCard
