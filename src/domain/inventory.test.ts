@@ -87,6 +87,19 @@ describe("inventory engine", () => {
     expect(moved.balances.get(balanceKey("RECV", "bulb"))).toBe(3);
     expect(moved.balances.get(balanceKey("A-01-01", "bulb"))).toBe(5);
     expect(moved.movements[0]?.type).toBe("move");
+    expect(moved.movements[0]?.refType).toBe("move");
+
+    const tagged = planMove({
+      itemId: "bulb",
+      sku: "LED-BULB",
+      fromLocationId: "RECV",
+      toLocationId: "A-01-01",
+      qty: 1,
+      refId: "xfr-doc",
+      refType: "transfer",
+      balances: moved.balances,
+    });
+    expect(tagged.movements[0]?.refType).toBe("transfer");
 
     expect(() =>
       planMove({
@@ -219,6 +232,67 @@ describe("work orders", () => {
           { itemId: "shade", sku: "SHADE", qty: 1 },
         ],
         balances,
+      }),
+    ).toThrow(InsufficientStockError);
+  });
+});
+
+describe("bin moves", () => {
+  it("moves a full bin onto another location", () => {
+    const start = new Map([
+      [balanceKey("A-01-01", "bulb"), 40],
+      [balanceKey("A-01-01", "shade"), 20],
+    ]);
+    const moved = chainPlans(start, [
+      (balances) =>
+        planMove({
+          itemId: "bulb",
+          sku: "LED-BULB",
+          qty: 40,
+          fromLocationId: "A-01-01",
+          toLocationId: "A-02-01",
+          refId: "move-1",
+          balances,
+        }),
+      (balances) =>
+        planMove({
+          itemId: "shade",
+          sku: "SHADE",
+          qty: 20,
+          fromLocationId: "A-01-01",
+          toLocationId: "A-02-01",
+          refId: "move-1",
+          balances,
+        }),
+    ]);
+    expect(moved.balances.get(balanceKey("A-01-01", "bulb"))).toBe(0);
+    expect(moved.balances.get(balanceKey("A-02-01", "bulb"))).toBe(40);
+    expect(moved.balances.get(balanceKey("A-02-01", "shade"))).toBe(20);
+    expect(moved.movements.every((m) => m.type === "move")).toBe(true);
+  });
+
+  it("rejects a move onto the same bay and a short move", () => {
+    expect(() =>
+      planMove({
+        itemId: "cord",
+        sku: "CORD",
+        qty: 1,
+        fromLocationId: "A-01-01",
+        toLocationId: "A-01-01",
+        refId: "move-2",
+        balances: new Map([[balanceKey("A-01-01", "cord"), 4]]),
+      }),
+    ).toThrow(/must differ/);
+
+    expect(() =>
+      planMove({
+        itemId: "cord",
+        sku: "CORD",
+        qty: 5,
+        fromLocationId: "A-01-01",
+        toLocationId: "SHIP",
+        refId: "move-3",
+        balances: new Map([[balanceKey("A-01-01", "cord"), 4]]),
       }),
     ).toThrow(InsufficientStockError);
   });

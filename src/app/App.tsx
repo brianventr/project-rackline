@@ -12,6 +12,9 @@ import { OrdersPage } from "./pages/OrdersPage";
 import { BomsPage } from "./pages/BomsPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
 import { AdjustmentsPage } from "./pages/AdjustmentsPage";
+import { MapPage } from "./pages/MapPage";
+import { MovePage } from "./pages/MovePage";
+import { ScannerProvider } from "./scanner/ScannerProvider";
 import { ShopifyPage } from "./pages/ShopifyPage";
 import { TransfersPage } from "./pages/TransfersPage";
 import { CycleCountsPage } from "./pages/CycleCountsPage";
@@ -19,7 +22,11 @@ import { LedgerPage } from "./pages/LedgerPage";
 
 function Guard({ me }: { me: Me | null }) {
   if (!me) return <Navigate to="/login" replace />;
-  return <AppShell me={me} />;
+  return (
+    <ScannerProvider>
+      <AppShell me={me} />
+    </ScannerProvider>
+  );
 }
 
 export function App() {
@@ -46,6 +53,8 @@ export function App() {
       <Route path="/login" element={me ? <Navigate to="/" replace /> : <AuthPage />} />
       <Route element={<Guard me={me} />}>
         <Route path="/" element={<DashboardPage />} />
+        <Route path="/map" element={me ? <MapPage me={me} /> : null} />
+        <Route path="/move" element={<MovePage />} />
         <Route path="/items" element={me ? <ItemsPage me={me} /> : null} />
         <Route path="/locations" element={me ? <LocationsPage me={me} /> : null} />
         <Route path="/inventory" element={<InventoryPage />} />

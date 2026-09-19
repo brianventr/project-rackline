@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type InventoryRow } from "../api";
 import { ErrorBanner, Input, PageHeader, Table } from "../components/ui";
 
@@ -29,7 +30,7 @@ export function InventoryPage() {
       <PageHeader
         eyebrow="Stock"
         title="On-hand"
-        description="Every unit sits in a location. Search by SKU or bin."
+        description="Every unit sits in a location. Search by SKU or bin, then jump to that bay on the map."
         actions={<Input placeholder="Filter SKU or bin" value={query} onChange={(e) => setQuery(e.target.value)} />}
       />
       <ErrorBanner error={error} />
@@ -38,7 +39,11 @@ export function InventoryPage() {
           <tr key={row.id}>
             <td className="px-4 py-3 font-mono">{row.sku}</td>
             <td className="px-4 py-3">{row.itemName}</td>
-            <td className="px-4 py-3 font-mono">{row.locationCode}</td>
+            <td className="px-4 py-3 font-mono">
+              <Link className="underline decoration-line underline-offset-2" to={`/map?location=${row.locationId}`}>
+                {row.locationCode}
+              </Link>
+            </td>
             <td className="px-4 py-3 capitalize">{row.itemType}</td>
             <td className="px-4 py-3 font-mono tabular">{row.qty}</td>
           </tr>

@@ -138,6 +138,39 @@ export function planShip(input: {
   };
 }
 
+export function planMove(input: {
+  itemId: string;
+  sku: string;
+  qty: number;
+  fromLocationId: string;
+  toLocationId: string;
+  refId: string;
+  balances: Map<string, number>;
+  refType?: string;
+}): StockPlan {
+  requirePositiveQty(input.qty);
+  if (input.fromLocationId === input.toLocationId) {
+    throw new Error("From and to locations must differ");
+  }
+  const balances = new Map(input.balances);
+  applyDelta(balances, input.fromLocationId, input.itemId, -input.qty, input.sku);
+  applyDelta(balances, input.toLocationId, input.itemId, input.qty, input.sku);
+  return {
+    balances,
+    movements: [
+      {
+        type: "move",
+        itemId: input.itemId,
+        qty: input.qty,
+        fromLocationId: input.fromLocationId,
+        toLocationId: input.toLocationId,
+        refType: input.refType ?? "move",
+        refId: input.refId,
+      },
+    ],
+  };
+}
+
 export function planAdjust(input: {
   itemId: string;
   sku: string;
@@ -167,38 +200,6 @@ export function planAdjust(input: {
         refType: "adjustment",
         refId: input.refId,
         reason: input.reason.trim(),
-      },
-    ],
-  };
-}
-
-export function planMove(input: {
-  itemId: string;
-  sku: string;
-  fromLocationId: string;
-  toLocationId: string;
-  qty: number;
-  refId: string;
-  balances: Map<string, number>;
-}): StockPlan {
-  requirePositiveQty(input.qty);
-  if (input.fromLocationId === input.toLocationId) {
-    throw new Error("From and to locations must differ");
-  }
-  const balances = new Map(input.balances);
-  applyDelta(balances, input.fromLocationId, input.itemId, -input.qty, input.sku);
-  applyDelta(balances, input.toLocationId, input.itemId, input.qty, input.sku);
-  return {
-    balances,
-    movements: [
-      {
-        type: "move",
-        itemId: input.itemId,
-        qty: input.qty,
-        fromLocationId: input.fromLocationId,
-        toLocationId: input.toLocationId,
-        refType: "transfer",
-        refId: input.refId,
       },
     ],
   };

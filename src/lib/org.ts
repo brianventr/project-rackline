@@ -26,6 +26,9 @@ export async function provisionOrganization(
       organizationId,
       name: "Main warehouse",
       createdAt: now,
+      mapWidth: 42,
+      mapDepth: 28,
+      mapHeight: 8,
     }),
   ]);
   return { organizationId, warehouseId };
@@ -69,6 +72,21 @@ export async function getOrgLocation(db: AppDb, organizationId: string, location
     .limit(1);
   if (!location) notFound("Location not found");
   return location;
+}
+
+export async function getOrgLocationByScan(db: AppDb, organizationId: string, code: string) {
+  const [byBarcode] = await db
+    .select()
+    .from(schema.locations)
+    .where(and(eq(schema.locations.organizationId, organizationId), eq(schema.locations.barcode, code)))
+    .limit(1);
+  if (byBarcode) return byBarcode;
+  const [byCode] = await db
+    .select()
+    .from(schema.locations)
+    .where(and(eq(schema.locations.organizationId, organizationId), eq(schema.locations.code, code)))
+    .limit(1);
+  return byCode ?? null;
 }
 
 export const ITEM_TYPES = ["raw", "wip", "finished", "packaging"] as const;
