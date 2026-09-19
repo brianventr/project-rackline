@@ -75,6 +75,7 @@ function LocationList({ me }: { me: Me }) {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [type, setType] = useState("storage");
+  const [slotRole, setSlotRole] = useState("none");
   const [aisle, setAisle] = useState("A");
   const [rack, setRack] = useState("01");
   const [bay, setBay] = useState("01");
@@ -103,6 +104,7 @@ function LocationList({ me }: { me: Me }) {
           name,
           type,
           barcode: code,
+          slotRole: type === "storage" ? slotRole : "none",
           aisle: type === "storage" ? aisle : undefined,
           rack: type === "storage" ? rack : undefined,
           bay: type === "storage" ? bay : undefined,
@@ -197,6 +199,15 @@ function LocationList({ me }: { me: Me }) {
               ))}
             </Select>
           </Field>
+          {type === "storage" ? (
+            <Field label="Slot role">
+              <Select value={slotRole} onChange={(e) => setSlotRole(e.target.value)}>
+                <option value="none">none</option>
+                <option value="pick">pick</option>
+                <option value="bulk">bulk</option>
+              </Select>
+            </Field>
+          ) : null}
           <Field label="Level">
             <Input type="number" min={1} value={level} onChange={(e) => setLevel(e.target.value)} />
           </Field>
@@ -218,7 +229,7 @@ function LocationList({ me }: { me: Me }) {
           </div>
         </form>
       </Card>
-      <Table columns={["Code", "Name", "Bay", "Map", "Barcode", ""]}>
+      <Table columns={["Code", "Name", "Bay", "Role", "Map", "Barcode", ""]}>
         {locations
           .filter((location) => !warehouseId || location.warehouseId === warehouseId)
           .map((location) => (
@@ -233,6 +244,7 @@ function LocationList({ me }: { me: Me }) {
               {location.area}
               {location.aisle ? ` · ${location.aisle}-${location.rack}-${location.bay}` : ""} L{location.level}
             </td>
+            <td className="px-4 py-3 text-sm">{location.slotRole && location.slotRole !== "none" ? location.slotRole : "—"}</td>
             <td className="px-4 py-3 font-mono text-xs">
               {location.posX},{location.posY},{location.posZ}
             </td>

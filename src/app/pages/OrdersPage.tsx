@@ -100,6 +100,7 @@ function OrderDetail({ id }: { id: string }) {
   const [pickLocation, setPickLocation] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
   const [trackingCompany, setTrackingCompany] = useState("");
+  const [carrierService, setCarrierService] = useState("rackline_ground");
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -111,6 +112,7 @@ function OrderDetail({ id }: { id: string }) {
     setPickLocation(next.pickLocationId || stocked || storage?.id || "");
     setTrackingNumber(next.trackingNumber || "");
     setTrackingCompany(next.trackingCompany || "");
+    setCarrierService(next.carrierService || "rackline_ground");
   }
 
   useEffect(() => {
@@ -141,7 +143,11 @@ function OrderDetail({ id }: { id: string }) {
       setOrder(
         await api<Order>(`/api/orders/${id}/ship`, {
           method: "POST",
-          body: JSON.stringify({ trackingNumber: trackingNumber || undefined, trackingCompany: trackingCompany || undefined }),
+          body: JSON.stringify({
+            trackingNumber: trackingNumber || undefined,
+            trackingCompany: trackingCompany || undefined,
+            carrierService,
+          }),
         }),
       );
     } catch (err) {
@@ -179,6 +185,9 @@ function OrderDetail({ id }: { id: string }) {
               <Button onClick={() => void ship()}>{order.source === "shopify" ? "Ship & fulfill" : "Ship"}</Button>
             ) : null}
             <Button variant="secondary">
+              <Link to={`/outbound/orders/${order.id}/shipping-label`}>Label</Link>
+            </Button>
+            <Button variant="secondary">
               <Link to={floorActionForOrder(order.status, order.id)}>Floor</Link>
             </Button>
             {order.status === "shipped" && order.source === "shopify" && order.shopifySyncStatus === "failed" ? (
@@ -208,12 +217,33 @@ function OrderDetail({ id }: { id: string }) {
                   ))}
                 </Select>
               </Field>
+              <Field label="Carrier service">
+                <Select value={carrierService} onChange={(e) => setCarrierService(e.target.value)}>
+                  <option value="rackline_ground">Rackline Ground</option>
+                  <option value="ups_ground">UPS Ground</option>
+                  <option value="usps_priority">USPS Priority</option>
+                </Select>
+              </Field>
               <Field label="Tracking">
                 <Input value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} />
               </Field>
               <Field label="Carrier">
                 <Input value={trackingCompany} onChange={(e) => setTrackingCompany(e.target.value)} />
               </Field>
+              {order.shipToAddress ? <p className="whitespace-pre-line text-sm text-muted-foreground">{order.shipToAddress}</p> : null}
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  void api(`/api/orders/${id}/label`, {
+                    method: "POST",
+                    body: JSON.stringify({ carrierService, trackingNumber: trackingNumber || undefined }),
+                  })
+                    .then(() => load())
+                    .catch((err: Error) => setError(err.message))
+                }
+              >
+                Buy label
+              </Button>
             </Card>
             <DocumentActivity refId={order.id} />
           </DocumentRail>

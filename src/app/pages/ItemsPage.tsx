@@ -20,6 +20,9 @@ function ItemList() {
   const [type, setType] = useState("raw");
   const [barcode, setBarcode] = useState("");
   const [reorderPoint, setReorderPoint] = useState("0");
+  const [pickMin, setPickMin] = useState("0");
+  const [trackLot, setTrackLot] = useState(false);
+  const [trackSerial, setTrackSerial] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -35,12 +38,24 @@ function ItemList() {
     try {
       const created = await api<Item>("/api/items", {
         method: "POST",
-        body: JSON.stringify({ sku, name, type, barcode: barcode || sku, reorderPoint: Number(reorderPoint) }),
+        body: JSON.stringify({
+          sku,
+          name,
+          type,
+          barcode: barcode || sku,
+          reorderPoint: Number(reorderPoint),
+          pickMin: Number(pickMin),
+          trackLot,
+          trackSerial,
+        }),
       });
       setSku("");
       setName("");
       setBarcode("");
       setReorderPoint("0");
+      setPickMin("0");
+      setTrackLot(false);
+      setTrackSerial(false);
       navigate(`/stock/items/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create item");
@@ -74,12 +89,23 @@ function ItemList() {
           <Field label="Reorder point">
             <Input type="number" min={0} value={reorderPoint} onChange={(e) => setReorderPoint(e.target.value)} />
           </Field>
+          <Field label="Pick min">
+            <Input type="number" min={0} value={pickMin} onChange={(e) => setPickMin(e.target.value)} />
+          </Field>
+          <label className="flex items-end gap-2 pb-2 text-sm">
+            <input type="checkbox" checked={trackLot} onChange={(e) => setTrackLot(e.target.checked)} />
+            Lots
+          </label>
+          <label className="flex items-end gap-2 pb-2 text-sm">
+            <input type="checkbox" checked={trackSerial} onChange={(e) => setTrackSerial(e.target.checked)} />
+            Serials
+          </label>
           <div className="flex items-end">
             <Button type="submit">Add item</Button>
           </div>
         </form>
       </Card>
-      <Table columns={["SKU", "Barcode", "Name", "Type", "Reorder"]}>
+      <Table columns={["SKU", "Barcode", "Name", "Type", "Reorder", "Pick min"]}>
         {items.map((item) => (
           <tr key={item.id}>
             <td className="px-4 py-3 font-mono text-sm">
@@ -91,6 +117,7 @@ function ItemList() {
             <td className="px-4 py-3">{item.name}</td>
             <td className="px-4 py-3 capitalize">{item.type}</td>
             <td className="px-4 py-3">{item.reorderPoint}</td>
+            <td className="px-4 py-3">{item.pickMin ?? 0}</td>
           </tr>
         ))}
       </Table>
@@ -104,6 +131,9 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
   const [name, setName] = useState("");
   const [barcode, setBarcode] = useState("");
   const [reorderPoint, setReorderPoint] = useState("0");
+  const [pickMin, setPickMin] = useState("0");
+  const [trackLot, setTrackLot] = useState(false);
+  const [trackSerial, setTrackSerial] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -113,6 +143,9 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
         setName(next.name);
         setBarcode(next.barcode);
         setReorderPoint(String(next.reorderPoint ?? 0));
+        setPickMin(String(next.pickMin ?? 0));
+        setTrackLot(Boolean(next.trackLot));
+        setTrackSerial(Boolean(next.trackSerial));
       })
       .catch((err: Error) => setError(err.message));
   }, [id]);
@@ -123,7 +156,14 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
       setItem(
         await api<Item>(`/api/items/${id}`, {
           method: "PATCH",
-          body: JSON.stringify({ name, barcode, reorderPoint: Number(reorderPoint) }),
+          body: JSON.stringify({
+            name,
+            barcode,
+            reorderPoint: Number(reorderPoint),
+            pickMin: Number(pickMin),
+            trackLot,
+            trackSerial,
+          }),
         }),
       );
     } catch (err) {
@@ -177,6 +217,17 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
         <Field label="Reorder point">
           <Input type="number" min={0} value={reorderPoint} onChange={(e) => setReorderPoint(e.target.value)} />
         </Field>
+        <Field label="Pick min">
+          <Input type="number" min={0} value={pickMin} onChange={(e) => setPickMin(e.target.value)} />
+        </Field>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={trackLot} onChange={(e) => setTrackLot(e.target.checked)} />
+          Track lots
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={trackSerial} onChange={(e) => setTrackSerial(e.target.checked)} />
+          Track serials
+        </label>
       </Card>
       <Table columns={["Location", "Qty"]}>
         {(item.onHand ?? []).map((row) => (
@@ -190,6 +241,28 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
           </tr>
         ))}
       </Table>
+      {(item.lots ?? []).length ? (
+        <Table columns={["Location", "Lot", "Qty"]}>
+          {(item.lots ?? []).map((row) => (
+            <tr key={`${row.locationId}:${row.lotCode}`}>
+              <td className="px-4 py-3 font-mono">{row.locationCode}</td>
+              <td className="px-4 py-3 font-mono">{row.lotCode}</td>
+              <td className="px-4 py-3 font-mono">{row.qty}</td>
+            </tr>
+          ))}
+        </Table>
+      ) : null}
+      {(item.serials ?? []).length ? (
+        <Table columns={["Serial", "Status", "Location"]}>
+          {(item.serials ?? []).map((row) => (
+            <tr key={row.serialCode}>
+              <td className="px-4 py-3 font-mono">{row.serialCode}</td>
+              <td className="px-4 py-3">{row.status}</td>
+              <td className="px-4 py-3 font-mono">{row.locationCode || "—"}</td>
+            </tr>
+          ))}
+        </Table>
+      ) : null}
     </div>
   );
 }

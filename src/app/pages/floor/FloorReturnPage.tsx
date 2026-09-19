@@ -13,6 +13,7 @@ export function FloorReturnPage() {
   const [active, setActive] = useState<Rma | null>(null);
   const [locationId, setLocationId] = useState("");
   const [qtys, setQtys] = useState<Record<string, string>>({});
+  const [serials, setSerials] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
@@ -73,7 +74,11 @@ export function FloorReturnPage() {
     setError(null);
     try {
       const lines = (active.lines ?? [])
-        .map((line) => ({ itemId: line.itemId, qty: Number(qtys[line.itemId] || 0) }))
+        .map((line) => ({
+          itemId: line.itemId,
+          qty: Number(qtys[line.itemId] || 0),
+          serials: serials[line.itemId] || undefined,
+        }))
         .filter((line) => line.qty > 0);
       const posted = await api<Rma>(`/api/returns/${active.id}/receive`, {
         method: "POST",
@@ -126,7 +131,8 @@ export function FloorReturnPage() {
           </div>
           <ul className="space-y-3 text-sm">
             {(active.lines ?? []).map((line) => (
-              <li key={line.id} className="grid grid-cols-[1fr_6rem] items-center gap-2">
+              <li key={line.id} className="space-y-2">
+                <div className="grid grid-cols-[1fr_6rem] items-center gap-2">
                 <span>
                   {line.sku} · {line.qtyReceived}/{line.qtyExpected}
                 </span>
@@ -141,6 +147,14 @@ export function FloorReturnPage() {
                 ) : (
                   <span className="text-muted-foreground">Done</span>
                 )}
+                </div>
+                {line.trackSerial ? (
+                  <Input
+                    placeholder="Serials"
+                    value={serials[line.itemId] ?? ""}
+                    onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>

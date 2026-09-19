@@ -1,4 +1,4 @@
-import { applyDelta, type MovementDraft, type StockPlan } from "./inventory";
+import { applyDelta, type MovementDraft, type MovementType, type StockPlan } from "./inventory";
 
 export type BomComponent = {
   itemId: string;
@@ -30,19 +30,27 @@ export function planCompleteWorkOrder(input: {
   outputLocationId: string;
   bomLines: BomComponent[];
   balances: Map<string, number>;
+  refType?: string;
+  consumeType?: MovementType;
+  produceType?: MovementType;
+  outputLotCode?: string | null;
+  outputSerials?: string[] | null;
 }): StockPlan {
   const exploded = explodeBom(input.bomLines, input.qty);
   const balances = new Map(input.balances);
   const movements: MovementDraft[] = [];
+  const refType = input.refType ?? "work_order";
+  const consumeType = input.consumeType ?? "wo_consume";
+  const produceType = input.produceType ?? "wo_produce";
 
   for (const line of exploded) {
     applyDelta(balances, input.sourceLocationId, line.itemId, -line.qty, line.sku);
     movements.push({
-      type: "wo_consume",
+      type: consumeType,
       itemId: line.itemId,
       qty: line.qty,
       fromLocationId: input.sourceLocationId,
-      refType: "work_order",
+      refType,
       refId: input.workOrderId,
     });
   }
@@ -55,13 +63,44 @@ export function planCompleteWorkOrder(input: {
     input.finishedSku,
   );
   movements.push({
-    type: "wo_produce",
+    type: produceType,
     itemId: input.finishedItemId,
     qty: input.qty,
     toLocationId: input.outputLocationId,
-    refType: "work_order",
+    refType,
     refId: input.workOrderId,
+    lotCode: input.outputLotCode ?? null,
+    serials: input.outputSerials ?? null,
   });
 
   return { balances, movements };
+}
+
+export function planCompleteKit(input: {
+  kitId: string;
+  finishedItemId: string;
+  finishedSku: string;
+  qty: number;
+  sourceLocationId: string;
+  outputLocationId: string;
+  bomLines: BomComponent[];
+  balances: Map<string, number>;
+  outputLotCode?: string | null;
+  outputSerials?: string[] | null;
+}): StockPlan {
+  return planCompleteWorkOrder({
+    workOrderId: input.kitId,
+    finishedItemId: input.finishedItemId,
+    finishedSku: input.finishedSku,
+    qty: input.qty,
+    sourceLocationId: input.sourceLocationId,
+    outputLocationId: input.outputLocationId,
+    bomLines: input.bomLines,
+    balances: input.balances,
+    refType: "kit",
+    consumeType: "kit_consume",
+    produceType: "kit_produce",
+    outputLotCode: input.outputLotCode,
+    outputSerials: input.outputSerials,
+  });
 }

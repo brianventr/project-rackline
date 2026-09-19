@@ -22,6 +22,8 @@ import {
   Users,
   Tag,
   BoxSelect,
+  ArrowDownToLine,
+  Layers,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Logo } from "@/components/logo";
@@ -68,6 +70,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
         { title: "Items", url: "/stock/items", icon: Package },
         { title: "Locations", url: "/stock/locations", icon: Warehouse },
         { title: "Counts", url: "/stock/counts", icon: Calculator },
+        { title: "Replenish", url: "/stock/replenish", icon: ArrowDownToLine },
         { title: "Ledger", url: "/stock/ledger", icon: ScrollText },
       ],
     },
@@ -76,6 +79,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
       items: [
         { title: "Recipes", url: "/make/recipes", icon: Factory },
         { title: "Work orders", url: "/make/work-orders", icon: Hammer },
+        { title: "Kits", url: "/make/kits", icon: Layers },
       ],
     },
     {

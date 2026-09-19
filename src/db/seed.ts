@@ -12,11 +12,16 @@ import { areaForType, gridPosition } from "../domain/map-layout";
 export const DEMO_EMAIL = "demo@northwind.makers";
 export const DEMO_PASSWORD = "rackline-demo";
 
+function lampSerials(start: number, count: number): string[] {
+  return Array.from({ length: count }, (_, index) => `LAMP-${start + index}`);
+}
+
 type LocSeed = {
   key: string;
   code: string;
   name: string;
   type: "receiving" | "storage" | "production" | "shipping";
+  slotRole?: "pick" | "bulk" | "none";
   aisle?: string;
   rack?: string;
   bay?: string;
@@ -42,8 +47,8 @@ const DEMO_LOCATIONS: LocSeed[] = [
     sizeY: 4,
     sizeZ: 3,
   },
-  { key: "a0101", code: "A-01-01", name: "Aisle A / rack 01 / bay 01", type: "storage", aisle: "A", rack: "01", bay: "01", level: 1 },
-  { key: "a0102", code: "A-01-02", name: "Aisle A / rack 01 / bay 02", type: "storage", aisle: "A", rack: "01", bay: "02", level: 1 },
+  { key: "a0101", code: "A-01-01", name: "Aisle A / rack 01 / bay 01", type: "storage", aisle: "A", rack: "01", bay: "01", level: 1, slotRole: "bulk" },
+  { key: "a0102", code: "A-01-02", name: "Aisle A / rack 01 / bay 02", type: "storage", aisle: "A", rack: "01", bay: "02", level: 1, slotRole: "pick" },
   { key: "a0103", code: "A-01-03", name: "Aisle A / rack 01 / bay 03", type: "storage", aisle: "A", rack: "01", bay: "03", level: 1 },
   { key: "a0101l2", code: "A-01-01-2", name: "Aisle A / rack 01 / bay 01 / level 2", type: "storage", aisle: "A", rack: "01", bay: "01", level: 2 },
   { key: "a0102l2", code: "A-01-02-2", name: "Aisle A / rack 01 / bay 02 / level 2", type: "storage", aisle: "A", rack: "01", bay: "02", level: 2 },
@@ -51,9 +56,9 @@ const DEMO_LOCATIONS: LocSeed[] = [
   { key: "a0201", code: "A-02-01", name: "Aisle A / rack 02 / bay 01", type: "storage", aisle: "A", rack: "02", bay: "01", level: 1 },
   { key: "a0202", code: "A-02-02", name: "Aisle A / rack 02 / bay 02", type: "storage", aisle: "A", rack: "02", bay: "02", level: 1 },
   { key: "a0203", code: "A-02-03", name: "Aisle A / rack 02 / bay 03", type: "storage", aisle: "A", rack: "02", bay: "03", level: 1 },
-  { key: "b0101", code: "B-01-01", name: "Aisle B / rack 01 / bay 01", type: "storage", aisle: "B", rack: "01", bay: "01", level: 1 },
+  { key: "b0101", code: "B-01-01", name: "Aisle B / rack 01 / bay 01", type: "storage", aisle: "B", rack: "01", bay: "01", level: 1, slotRole: "pick" },
   { key: "b0102", code: "B-01-02", name: "Aisle B / rack 01 / bay 02", type: "storage", aisle: "B", rack: "01", bay: "02", level: 1 },
-  { key: "b0101l2", code: "B-01-01-2", name: "Aisle B / rack 01 / bay 01 / level 2", type: "storage", aisle: "B", rack: "01", bay: "01", level: 2 },
+  { key: "b0101l2", code: "B-01-01-2", name: "Aisle B / rack 01 / bay 01 / level 2", type: "storage", aisle: "B", rack: "01", bay: "01", level: 2, slotRole: "bulk" },
   {
     key: "prod",
     code: "PROD",
@@ -108,6 +113,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       sizeX: row.sizeX ?? grid?.sizeX ?? 4,
       sizeY: row.sizeY ?? grid?.sizeY ?? 3,
       sizeZ: row.sizeZ ?? grid?.sizeZ ?? 2,
+      slotRole: row.slotRole ?? "none",
     });
   });
   await db.batch(locationInserts as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
@@ -129,6 +135,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       barcode: "LED-BULB",
       createdAt: now,
       reorderPoint: 24,
+      pickMin: 20,
+      trackLot: true,
     }),
     db.insert(schema.items).values({
       id: item.shade,
@@ -169,16 +177,20 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       barcode: "LAMP",
       createdAt: now,
       reorderPoint: 4,
+      pickMin: 12,
+      trackSerial: true,
     }),
   ]);
 
   const starting = [
-    { itemId: item.bulb, locationId: locIds.a0101!, qty: 40 },
+    { itemId: item.bulb, locationId: locIds.a0101!, qty: 25, lotCode: "LOT-2026-A" },
+    { itemId: item.bulb, locationId: locIds.a0101!, qty: 15, lotCode: "LOT-2026-B" },
     { itemId: item.shade, locationId: locIds.a0101!, qty: 20 },
     { itemId: item.base, locationId: locIds.a0101!, qty: 15 },
     { itemId: item.cord, locationId: locIds.a0101!, qty: 25 },
-    { itemId: item.lamp, locationId: locIds.b0101!, qty: 8 },
-    { itemId: item.bulb, locationId: locIds.a0102!, qty: 6 },
+    { itemId: item.lamp, locationId: locIds.b0101!, qty: 8, serials: lampSerials(1001, 8) },
+    { itemId: item.lamp, locationId: locIds.b0101l2!, qty: 6, serials: lampSerials(1009, 6) },
+    { itemId: item.bulb, locationId: locIds.a0102!, qty: 6, lotCode: "LOT-2026-A" },
     { itemId: item.shade, locationId: locIds.a0201!, qty: 4 },
   ];
   const seedRef = "seed";
@@ -191,6 +203,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
         qty: line.qty,
         refId: seedRef,
         balances,
+        lotCode: line.lotCode,
+        serials: line.serials,
       }),
     ),
   );
@@ -224,6 +238,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
   const rmaId = newId();
   const orderId = newId();
   const woId = newId();
+  const kitId = newId();
   const shopifyOrderRowId = newId();
   const shopifyLineId = "8801";
   await db.batch([
@@ -272,6 +287,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       status: "open",
       createdAt: now,
       source: "manual",
+      shipToAddress: "14 Dock Street\nPortland, OR 97201",
     }),
     db.insert(schema.orderLines).values({ id: newId(), orderId, itemId: item.lamp, qty: 2 }),
     db.insert(schema.rmas).values({
@@ -304,6 +320,18 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       outputLocationId: locIds.prod!,
       createdAt: now,
     }),
+    db.insert(schema.kitBuilds).values({
+      id: kitId,
+      organizationId,
+      warehouseId,
+      number: "KIT-DEMO1",
+      itemId: item.lamp,
+      qty: 1,
+      status: "draft",
+      sourceLocationId: locIds.a0101!,
+      outputLocationId: locIds.b0101!,
+      createdAt: now,
+    }),
     db.insert(schema.shopifyConnections).values({
       id: newId(),
       organizationId,
@@ -330,6 +358,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       shopifyFulfillmentOrderId: demoFulfillmentOrderId("1004"),
       shopifySyncStatus: "inbound",
       shopifyShopDomain: "northwind-makers.myshopify.com",
+      shipToAddress: "88 Harbor Ave\nSeattle, WA 98101",
     }),
     db.insert(schema.orderLines).values({
       id: newId(),

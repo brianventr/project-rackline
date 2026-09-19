@@ -18,7 +18,11 @@ export function LabelsSetupPage() {
         <li>
           Scan prefixes: <span className="font-mono">LOC:</span>, <span className="font-mono">SKU:</span>,{" "}
           <span className="font-mono">ORD:</span>, <span className="font-mono">RCP:</span>,{" "}
-          <span className="font-mono">PO:</span>, <span className="font-mono">RMA:</span>, <span className="font-mono">WO:</span>
+          <span className="font-mono">PO:</span>, <span className="font-mono">RMA:</span>, <span className="font-mono">WO:</span>,{" "}
+          <span className="font-mono">RPL:</span>, <span className="font-mono">KIT:</span>
+        </li>
+        <li>
+          Shipping labels print from the order record or floor ship after <span className="font-medium">Buy label</span>.
         </li>
         <li>USB and Bluetooth gun scanners work on every screen. Camera scan is in the header when the browser supports it.</li>
       </ul>

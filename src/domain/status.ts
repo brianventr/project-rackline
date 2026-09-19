@@ -5,6 +5,8 @@ export const WORK_ORDER_STEPS = ["draft", "in_progress", "completed"] as const;
 export const COUNT_STEPS = ["draft", "counting", "posted"] as const;
 export const PURCHASE_STEPS = ["draft", "ordered", "receiving", "received"] as const;
 export const RETURN_STEPS = ["open", "receiving", "received"] as const;
+export const REPLENISH_STEPS = ["draft", "in_progress", "posted"] as const;
+export const KIT_STEPS = ["draft", "completed"] as const;
 
 export type OrderStep = (typeof ORDER_STEPS)[number];
 export type ReceiptStep = (typeof RECEIPT_STEPS)[number];
@@ -74,6 +76,14 @@ export function canPostCount(status: string): boolean {
   return status === "draft" || status === "counting";
 }
 
+export function canPostReplenishment(status: string): boolean {
+  return status === "draft" || status === "in_progress";
+}
+
+export function canCompleteKit(status: string): boolean {
+  return status === "draft";
+}
+
 export function isOpenOrder(status: string): boolean {
   const value = normalizeOrderStatus(status);
   return value !== "shipped" && value !== "cancelled";
@@ -93,6 +103,14 @@ export function isOpenWorkOrder(status: string): boolean {
 
 export function isOpenCount(status: string): boolean {
   return canPostCount(status);
+}
+
+export function isOpenReplenishment(status: string): boolean {
+  return canPostReplenishment(status);
+}
+
+export function isOpenKit(status: string): boolean {
+  return canCompleteKit(status);
 }
 
 export function statusLabel(status: string): string {

@@ -30,9 +30,14 @@ import { FloorShipPage } from "./pages/floor/FloorShipPage";
 import { FloorCountPage } from "./pages/floor/FloorCountPage";
 import { FloorAssemblePage } from "./pages/floor/FloorAssemblePage";
 import { FloorReturnPage } from "./pages/floor/FloorReturnPage";
+import { FloorReplenishPage } from "./pages/floor/FloorReplenishPage";
+import { FloorKitPage } from "./pages/floor/FloorKitPage";
 import { WarehouseSetupPage } from "./pages/setup/WarehouseSetupPage";
 import { TeamPage } from "./pages/setup/TeamPage";
 import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
+import { ReplenishmentsPage } from "./pages/ReplenishmentsPage";
+import { KitsPage } from "./pages/KitsPage";
+import { ShippingLabelPage } from "./pages/ShippingLabelPage";
 import { ScannerProvider } from "./scanner/ScannerProvider";
 import { homePath, OwnerOnly } from "./warehouse";
 
@@ -86,6 +91,8 @@ export function App() {
         <Route path="/floor/ship" element={<FloorShipPage />} />
         <Route path="/floor/count" element={<FloorCountPage />} />
         <Route path="/floor/assemble" element={<FloorAssemblePage />} />
+        <Route path="/floor/kit" element={<FloorKitPage />} />
+        <Route path="/floor/replenish" element={<FloorReplenishPage />} />
         <Route path="/floor/return" element={<FloorReturnPage />} />
         <Route
           path="/floor/adjust"
@@ -110,12 +117,17 @@ export function App() {
         <Route path="/stock/locations/:id" element={me ? <LocationsPage me={me} /> : null} />
         <Route path="/stock/counts" element={<CycleCountsPage />} />
         <Route path="/stock/counts/:id" element={<CycleCountsPage />} />
+        <Route path="/stock/replenish" element={<ReplenishmentsPage />} />
+        <Route path="/stock/replenish/:id" element={<ReplenishmentsPage />} />
         <Route path="/stock/ledger" element={<LedgerPage />} />
         <Route path="/make/recipes" element={me ? <BomsPage me={me} /> : null} />
         <Route path="/make/work-orders" element={<WorkOrdersPage />} />
         <Route path="/make/work-orders/:id" element={<WorkOrdersPage />} />
+        <Route path="/make/kits" element={<KitsPage />} />
+        <Route path="/make/kits/:id" element={<KitsPage />} />
         <Route path="/outbound/orders" element={<OrdersPage />} />
         <Route path="/outbound/orders/:id" element={<OrdersPage />} />
+        <Route path="/outbound/orders/:id/shipping-label" element={<ShippingLabelPage />} />
         <Route path="/outbound/returns" element={<ReturnsPage />} />
         <Route path="/outbound/returns/:id" element={<ReturnsPage />} />
         <Route

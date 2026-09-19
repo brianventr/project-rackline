@@ -8,6 +8,7 @@ import { docNumber, newId } from "../lib/ids";
 import { postReceiveLines } from "../db/stock";
 import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError } from "../domain/partial-receive";
 import { canReceiveReturn } from "../domain/status";
+import { parseSerialList } from "../domain/lots";
 
 export const returnsRoute = new Hono<AppEnv>();
 
@@ -49,6 +50,8 @@ async function rmaWithLines(db: AppEnv["Variables"]["db"], organizationId: strin
       qtyReceived: schema.rmaLines.qtyReceived,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      trackLot: schema.items.trackLot,
+      trackSerial: schema.items.trackSerial,
     })
     .from(schema.rmaLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.rmaLines.itemId))
@@ -191,7 +194,10 @@ returnsRoute.post("/returns/:id/start", async (c) => {
 });
 
 returnsRoute.post("/returns/:id/receive", async (c) => {
-  const body = await c.req.json<{ locationId?: string; lines?: { itemId?: string; qty?: number }[] }>();
+  const body = await c.req.json<{
+    locationId?: string;
+    lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[] }[];
+  }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -206,9 +212,11 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
       ? body.lines.map((line) => ({
           itemId: requireString(line.itemId, "itemId"),
           qty: requireInt(line.qty, "qty"),
+          lotCode: line.lotCode?.trim() || null,
+          serials: parseSerialList(line.serials),
         }))
       : rma.lines
-          .map((line) => ({ itemId: line.itemId, qty: line.remaining }))
+          .map((line) => ({ itemId: line.itemId, qty: line.remaining, lotCode: null as string | null, serials: [] as string[] }))
           .filter((line) => line.qty > 0);
 
   let applied;
@@ -229,7 +237,14 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
     locationId,
     refType: "return",
     refId: rma.id,
-    lines: applied.posted,
+    lines: applied.posted.map((line) => {
+      const extra = incoming.find((row) => row.itemId === line.itemId);
+      return {
+        ...line,
+        lotCode: extra?.lotCode,
+        serials: extra?.serials.length ? extra.serials : null,
+      };
+    }),
     extra: [
       ...rma.lines.map((line) =>
         db

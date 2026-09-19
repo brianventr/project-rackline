@@ -104,6 +104,10 @@ function LookupResult({ hit }: { hit: ScanHit }) {
           ? { title: hit.transfer.number, status: hit.transfer.status, to: documentPath("transfer", hit.transfer.id), floor: "/floor/putaway" }
           : hit.kind === "workOrder"
             ? { title: hit.workOrder.number, status: hit.workOrder.status, to: documentPath("workOrder", hit.workOrder.id), floor: `/floor/assemble?id=${hit.workOrder.id}` }
+            : hit.kind === "replenishment"
+              ? { title: hit.replenishment.number, status: hit.replenishment.status, to: documentPath("replenishment", hit.replenishment.id), floor: `/floor/replenish?id=${hit.replenishment.id}` }
+              : hit.kind === "kit"
+                ? { title: hit.kit.number, status: hit.kit.status, to: documentPath("kit", hit.kit.id), floor: `/floor/kit?id=${hit.kit.id}` }
             : { title: hit.cycleCount.number, status: hit.cycleCount.status, to: documentPath("cycleCount", hit.cycleCount.id), floor: `/floor/count?id=${hit.cycleCount.id}` };
 
   return (

@@ -6,6 +6,8 @@ import {
   canReceivePurchase,
   canReceiveReturn,
   canShipOrder,
+  canCompleteKit,
+  canPostReplenishment,
   isOpenOrder,
   isOpenPurchase,
   normalizeOrderStatus,
@@ -49,5 +51,13 @@ describe("order status", () => {
     expect(canReceive("draft")).toBe(true);
     expect(canReceive("receiving")).toBe(true);
     expect(canReceive("received")).toBe(false);
+  });
+
+  it("posts replenishments like transfers and completes kits from draft", () => {
+    expect(canPostReplenishment("draft")).toBe(true);
+    expect(canPostReplenishment("in_progress")).toBe(true);
+    expect(canPostReplenishment("posted")).toBe(false);
+    expect(canCompleteKit("draft")).toBe(true);
+    expect(canCompleteKit("completed")).toBe(false);
   });
 });

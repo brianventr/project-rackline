@@ -12,6 +12,8 @@ Iteration 3 fills the parked Purchases and Returns slots: vendor POs with partia
 
 Iteration 4 aligns blank receipts with that same partial: expected vs received qty, over-receive 409, and the document stays `receiving` until every unit is in.
 
+Iteration 5 adds pick-face replenishment (bulk → pick min), lot/serial overlay on the existing location:item ledger, printable carrier shipping labels with generated `RL-` tracking, and one-step kitting from a recipe.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 ## Stack
@@ -36,7 +38,7 @@ Open [http://localhost:5173](http://localhost:5173). Guests see the landing page
 On the sign-in screen, either:
 
 - Create an organization, or
-- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt `RCP-DEMO1` (12× LED-BULB + 6× SHADE — partial receive is allowed), purchase order `PO-DEMO1` (Harbor Components), return `RMA-DEMO1` (Harbor Workshop), a floor order, Shopify order `#1004` (Maya Chen), and a work order. Then open **Map** and **Move**.
+- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt `RCP-DEMO1` (12× LED-BULB + 6× SHADE — partial receive is allowed), purchase order `PO-DEMO1` (Harbor Components), return `RMA-DEMO1` (Harbor Workshop), a floor order, Shopify order `#1004` (Maya Chen), a work order, and kit `KIT-DEMO1`. LED-BULB is lot-tracked (`LOT-2026-A` / `LOT-2026-B`) with pick min 20 on `A-01-02`; LAMP is serial-tracked (`LAMP-1001`–`LAMP-1014`) with pick min 12 on `B-01-01`. Then open **Map** and **Move**.
 
 `wrangler.jsonc` uses a placeholder `database_id`. Local D1 does not need a Cloudflare account. When you are ready to deploy:
 
@@ -80,6 +82,10 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 - **Adjust** applies a signed delta with a reason
 - **Cycle count** snapshots a bin, then posts variances against *current* on-hand so concurrent movement is not double-applied
 - **Work order complete** consumes `BOM qty × WO qty` from the source location and produces finished goods into the output location. Short components return HTTP 409
+- **Kit complete** is the same explode, in one step, with `kit_consume` / `kit_produce` ledger types
+- **Replenish** moves bulk storage onto a pick face when on-hand is below the SKU's pick min
+- **Lots / serials** overlay the location:item balance. Receive requires a vendor lot or matching serials; pick/move FIFO the oldest lot or serial if omitted
+- **Shipping label** mints `RL-` tracking (Rackline Ground / UPS Ground / USPS Priority) and prints from the order
 - **Reorder point** flags SKUs at or below the threshold on the floor board
 
 ## Roles

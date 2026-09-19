@@ -104,6 +104,7 @@ export async function getOrgItemByScan(db: AppDb, organizationId: string, code: 
 
 export const ITEM_TYPES = ["raw", "wip", "finished", "packaging"] as const;
 export const LOCATION_TYPES = ["receiving", "storage", "production", "shipping"] as const;
+export const SLOT_ROLES = ["pick", "bulk", "none"] as const;
 
 export function isItemType(value: string): value is (typeof ITEM_TYPES)[number] {
   return (ITEM_TYPES as readonly string[]).includes(value);
@@ -111,6 +112,10 @@ export function isItemType(value: string): value is (typeof ITEM_TYPES)[number] 
 
 export function isLocationType(value: string): value is (typeof LOCATION_TYPES)[number] {
   return (LOCATION_TYPES as readonly string[]).includes(value);
+}
+
+export function isSlotRole(value: string): value is (typeof SLOT_ROLES)[number] {
+  return (SLOT_ROLES as readonly string[]).includes(value);
 }
 
 export type LineInput = { itemId: string; qty: number };

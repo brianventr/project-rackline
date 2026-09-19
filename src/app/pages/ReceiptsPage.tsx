@@ -98,6 +98,8 @@ function ReceiptDetail({ id }: { id: string }) {
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationId, setLocationId] = useState("");
   const [qtys, setQtys] = useState<Record<string, string>>({});
+  const [lots, setLots] = useState<Record<string, string>>({});
+  const [serials, setSerials] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -130,7 +132,12 @@ function ReceiptDetail({ id }: { id: string }) {
     setError(null);
     try {
       const lines = (receipt.lines ?? [])
-        .map((line) => ({ itemId: line.itemId, qty: Number(qtys[line.itemId] || 0) }))
+        .map((line) => ({
+          itemId: line.itemId,
+          qty: Number(qtys[line.itemId] || 0),
+          lotCode: lots[line.itemId] || undefined,
+          serials: serials[line.itemId] || undefined,
+        }))
         .filter((line) => line.qty > 0);
       const next = await api<Receipt>(`/api/receipts/${id}/receive`, {
         method: "POST",
@@ -194,7 +201,7 @@ function ReceiptDetail({ id }: { id: string }) {
           </DocumentRail>
         }
       >
-        <Table columns={["SKU", "Item", "Expected", "Received", "This receive"]}>
+        <Table columns={["SKU", "Item", "Expected", "Received", "This receive", "Lot / serial"]}>
           {(receipt.lines ?? []).map((line) => (
             <tr key={line.id}>
               <td className="px-4 py-3 font-mono">{line.sku}</td>
@@ -213,6 +220,23 @@ function ReceiptDetail({ id }: { id: string }) {
                 ) : (
                   <span className="text-muted-foreground">Done</span>
                 )}
+              </td>
+              <td className="px-4 py-3">
+                {line.trackLot ? (
+                  <Input
+                    placeholder="Lot"
+                    value={lots[line.itemId] ?? ""}
+                    onChange={(e) => setLots((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                  />
+                ) : null}
+                {line.trackSerial ? (
+                  <Input
+                    className="mt-1"
+                    placeholder="Serials"
+                    value={serials[line.itemId] ?? ""}
+                    onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                  />
+                ) : null}
               </td>
             </tr>
           ))}

@@ -33,7 +33,7 @@ export function TodayPage() {
           { label: "To receive", value: data ? data.openReceipts + data.openPurchases : "—", to: "/inbound/purchases" },
           { label: "To put away", value: data?.openTransfers ?? "—", to: "/inbound/putaway" },
           { label: "To fulfill", value: data?.openOrders ?? "—", to: "/outbound/orders" },
-          { label: "Returns", value: data?.openReturns ?? "—", to: "/outbound/returns" },
+          { label: "To replenish", value: data ? (data.replenishDue ?? 0) + (data.openReplenishments ?? 0) : "—", to: "/stock/replenish" },
         ].map((stat) => (
           <Link key={stat.label} to={stat.to}>
             <Card className="from-primary/5 to-card bg-gradient-to-t shadow-xs">
@@ -110,6 +110,45 @@ export function TodayPage() {
             actionTo: `/floor/assemble?id=${row.id}`,
             action: "Assemble",
           }))}
+        />
+        <QueueCard
+          title="Kits"
+          empty="No open kits."
+          rows={(queues?.kits ?? []).map((row) => ({
+            id: row.id,
+            to: `/make/kits/${row.id}`,
+            title: row.number,
+            meta: `${row.sku} × ${row.qty}`,
+            status: row.status,
+            actionTo: `/floor/kit?id=${row.id}`,
+            action: "Kit",
+          }))}
+        />
+        <QueueCard
+          title="Replenish"
+          empty="Pick faces are at min."
+          rows={[
+            ...(queues?.replenishments ?? []).map((row) => ({
+              id: row.id,
+              to: `/stock/replenish/${row.id}`,
+              title: row.number,
+              meta: `${row.sku} ${row.fromCode ?? "bulk"} → ${row.toCode ?? "pick"}`,
+              status: row.status,
+              actionTo: `/floor/replenish?id=${row.id}`,
+              action: "Replenish",
+            })),
+            ...(data?.replenishSuggestions ?? [])
+              .filter((row) => !(queues?.replenishments ?? []).some((doc) => doc.itemId === row.itemId && doc.toLocationId === row.toLocationId && doc.status !== "posted"))
+              .map((row) => ({
+                id: `sug-${row.itemId}-${row.toLocationId}`,
+                to: "/stock/replenish",
+                title: `${row.sku} × ${row.qty}`,
+                meta: `${row.fromCode} → ${row.toCode} · pick ${row.pickQty}/${row.pickMin}`,
+                status: "suggested",
+                actionTo: "/floor/replenish",
+                action: "Replenish",
+              })),
+          ]}
         />
         <QueueCard
           title="Returns"

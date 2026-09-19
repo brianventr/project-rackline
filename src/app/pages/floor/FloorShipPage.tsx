@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { api, type Order, type ScanHit } from "../../api";
-import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
+import { Link, useSearchParams } from "react-router-dom";
+import { api, type Order, type ScanHit, type ShippingLabel } from "../../api";
+import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { canShipOrder } from "@/domain/status";
 
@@ -11,6 +11,7 @@ export function FloorShipPage() {
   const [active, setActive] = useState<Order | null>(null);
   const [trackingNumber, setTrackingNumber] = useState("");
   const [trackingCompany, setTrackingCompany] = useState("");
+  const [carrierService, setCarrierService] = useState("rackline_ground");
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
@@ -44,6 +45,7 @@ export function FloorShipPage() {
         body: JSON.stringify({
           trackingNumber: trackingNumber || undefined,
           trackingCompany: trackingCompany || undefined,
+          carrierService,
         }),
       });
       setActive(shipped);
@@ -79,6 +81,13 @@ export function FloorShipPage() {
             <StatusBadge status={active.status} />
           </div>
           <p>{active.customerName}</p>
+          <Field label="Carrier service">
+            <Select value={carrierService} onChange={(e) => setCarrierService(e.target.value)}>
+              <option value="rackline_ground">Rackline Ground</option>
+              <option value="ups_ground">UPS Ground</option>
+              <option value="usps_priority">USPS Priority</option>
+            </Select>
+          </Field>
           <Field label="Tracking number">
             <Input value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} />
           </Field>
@@ -86,7 +95,32 @@ export function FloorShipPage() {
             <Input value={trackingCompany} onChange={(e) => setTrackingCompany(e.target.value)} placeholder="UPS, USPS…" />
           </Field>
           {canShipOrder(active.status) ? (
-            <Button onClick={() => void ship()}>{active.source === "shopify" ? "Ship & fulfill" : "Ship"}</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  if (!active) return;
+                  api<ShippingLabel>(`/api/orders/${active.id}/label`, {
+                    method: "POST",
+                    body: JSON.stringify({ carrierService, trackingNumber: trackingNumber || undefined }),
+                  })
+                    .then((label) => {
+                      setTrackingNumber(label.trackingNumber);
+                      setTrackingCompany(label.carrierCompany);
+                      setDone(`${label.trackingNumber} bought.`);
+                    })
+                    .catch((err: Error) => setError(err.message));
+                }}
+              >
+                Buy label
+              </Button>
+              {trackingNumber || active.trackingNumber ? (
+                <Button variant="secondary">
+                  <Link to={`/outbound/orders/${active.id}/shipping-label`}>Print label</Link>
+                </Button>
+              ) : null}
+              <Button onClick={() => void ship()}>{active.source === "shopify" ? "Ship & fulfill" : "Ship"}</Button>
+            </div>
           ) : (
             <p>Already shipped.</p>
           )}
