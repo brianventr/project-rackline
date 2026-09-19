@@ -26,13 +26,16 @@ function ItemList() {
   const [trackSerial, setTrackSerial] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [labels, setLabels] = useState(params.get("labels") === "1");
+  const [ready, setReady] = useState(false);
 
   async function load() {
     setItems(await api<Item[]>("/api/items"));
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load()
+      .then(() => setReady(true))
+      .catch((err: Error) => setError(err.message));
   }, []);
 
   async function create() {
@@ -86,6 +89,8 @@ function ItemList() {
             </div>
           }
         />
+        <ErrorBanner error={error} />
+        {!ready ? <p className="text-sm text-muted-foreground">Loading labels…</p> : null}
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 print:grid-cols-3">
           {items.map((item) => (
             <div key={item.id} className="break-inside-avoid rounded-xl border border-line bg-card p-3">

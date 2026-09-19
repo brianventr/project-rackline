@@ -63,6 +63,7 @@ export function Button({
   disabled,
   onClick,
   className,
+  asChild,
 }: {
   children: ReactNode;
   type?: "button" | "submit";
@@ -70,6 +71,7 @@ export function Button({
   disabled?: boolean;
   onClick?: () => void;
   className?: string;
+  asChild?: boolean;
 }) {
   const mapped =
     variant === "primary"
@@ -80,7 +82,14 @@ export function Button({
           ? "outline"
           : "secondary";
   return (
-    <UiButton type={type} variant={mapped} disabled={disabled} onClick={onClick} className={className}>
+    <UiButton
+      type={asChild ? undefined : type}
+      variant={mapped}
+      disabled={disabled}
+      onClick={onClick}
+      className={className}
+      asChild={asChild}
+    >
       {children}
     </UiButton>
   );

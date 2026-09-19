@@ -52,7 +52,7 @@ export function FloorPrintPage() {
           {jobs.length ? (
             <div className="flex flex-wrap gap-2">
               {jobs.map((job) => (
-                <Button key={job.href} variant={job.kind === "pack-slip" ? "primary" : "secondary"}>
+                <Button key={job.href} variant={job.kind === "pack-slip" ? "primary" : "secondary"} asChild>
                   <Link to={job.href}>{job.kind === "pack-slip" ? "Pack slip" : "Shipping label"}</Link>
                 </Button>
               ))}
@@ -91,7 +91,7 @@ function PrintCard({
       <div className="flex flex-wrap gap-2 print:hidden">
         <Button onClick={() => window.print()}>Print label</Button>
         {jobs[0] ? (
-          <Button variant="secondary">
+          <Button variant="secondary" asChild>
             <Link to={jobs[0].href}>Open record</Link>
           </Button>
         ) : null}
@@ -139,7 +139,8 @@ function WaitingJobs() {
             <li key={job.href}>
               <Link className="underline" to={job.href}>
                 {job.title}
-              </Link>
+              </Link>{" "}
+              <span className="text-muted-foreground">{job.subtitle}</span>
             </li>
           ))}
           {labels.length === 0 ? <li className="text-muted-foreground">None waiting.</li> : null}

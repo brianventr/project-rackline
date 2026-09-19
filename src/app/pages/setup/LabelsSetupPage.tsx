@@ -30,7 +30,7 @@ export function LabelsSetupPage() {
         title="Print station"
         description="Bay labels, SKU labels, pack slips, and shipping labels from one bench."
         actions={
-          <Button variant="secondary">
+          <Button variant="secondary" asChild>
             <Link to="/floor/print">Floor print</Link>
           </Button>
         }
