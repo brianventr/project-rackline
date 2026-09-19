@@ -15,6 +15,13 @@ import {
 } from "../domain/lots";
 import { badRequest } from "../lib/http";
 import { newId } from "../lib/ids";
+import {
+  HeldStockError,
+  isHoldRestrictedType,
+  matchingHoldForMove,
+  unheldLots,
+  type OpenHold,
+} from "../domain/holds";
 
 type TrackedItem = {
   id: string;
@@ -39,6 +46,7 @@ export async function expandMovementsForTraceability(
   db: AppDb,
   organizationId: string,
   movements: MovementDraft[],
+  holds: OpenHold[] = [],
 ): Promise<MovementDraft[]> {
   const itemIds = [...new Set(movements.map((row) => row.itemId))];
   if (itemIds.length === 0) return movements;
@@ -59,7 +67,7 @@ export async function expandMovementsForTraceability(
       expanded.push(movement);
       continue;
     }
-    expanded.push(...(await expandOne(db, organizationId, item, movement)));
+    expanded.push(...(await expandOne(db, organizationId, item, movement, holds)));
   }
   return expanded;
 }
@@ -69,12 +77,20 @@ async function expandOne(
   organizationId: string,
   item: TrackedItem,
   movement: MovementDraft,
+  holds: OpenHold[],
 ): Promise<MovementDraft[]> {
   let lotCode = movement.lotCode?.trim() ? normalizeLotCode(movement.lotCode) : null;
   let serials = movement.serials?.length ? normalizeSerials(movement.serials) : [];
 
   if (item.trackSerial && serials.length) {
     assertSerialQty(movement.qty, serials, item.sku);
+  }
+
+  if (isHoldRestrictedType(movement.type) && movement.fromLocationId) {
+    const hit = matchingHoldForMove(holds, movement.fromLocationId, item.id, lotCode);
+    if (hit) {
+      throw new HeldStockError(hit.sku ?? item.sku, hit.locationCode, hit.number, hit.reason);
+    }
   }
 
   if (item.trackLot && !lotCode && isInbound(movement)) {
@@ -95,7 +111,16 @@ async function expandOne(
 
   if (item.trackLot && !lotCode && isOutbound(movement) && movement.fromLocationId) {
     const lots = await loadLotsAt(db, organizationId, movement.fromLocationId, item.id);
-    const allocated = allocateFifoLots(lots, movement.qty, item.sku);
+    const available = unheldLots(lots, holds, movement.fromLocationId, item.id);
+    const availableQty = available.reduce((sum, row) => sum + Math.max(0, row.qty), 0);
+    const onHand = lots.reduce((sum, row) => sum + Math.max(0, row.qty), 0);
+    if (availableQty < movement.qty && onHand >= movement.qty) {
+      const hit = holds.find(
+        (hold) => hold.locationId === movement.fromLocationId && (!hold.itemId || hold.itemId === item.id),
+      );
+      throw new HeldStockError(item.sku, hit?.locationCode ?? movement.fromLocationId, hit?.number ?? "hold", hit?.reason ?? "QC");
+    }
+    const allocated = allocateFifoLots(available, movement.qty, item.sku);
     const split: MovementDraft[] = [];
     for (const row of allocated) {
       const piece: MovementDraft = { ...movement, qty: row.qty, lotCode: row.lotCode, serials: null };

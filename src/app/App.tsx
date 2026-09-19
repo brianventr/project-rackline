@@ -16,6 +16,7 @@ import { AdjustmentsPage } from "./pages/AdjustmentsPage";
 import { ShopifyPage } from "./pages/ShopifyPage";
 import { TransfersPage } from "./pages/TransfersPage";
 import { CycleCountsPage } from "./pages/CycleCountsPage";
+import { HoldsPage } from "./pages/HoldsPage";
 import { LedgerPage } from "./pages/LedgerPage";
 import { MapPage } from "./pages/MapPage";
 import { MovePage } from "./pages/MovePage";
@@ -29,6 +30,7 @@ import { FloorPickPage } from "./pages/floor/FloorPickPage";
 import { FloorPackPage } from "./pages/floor/FloorPackPage";
 import { FloorShipPage } from "./pages/floor/FloorShipPage";
 import { FloorCountPage } from "./pages/floor/FloorCountPage";
+import { FloorHoldPage } from "./pages/floor/FloorHoldPage";
 import { FloorAssemblePage } from "./pages/floor/FloorAssemblePage";
 import { FloorReturnPage } from "./pages/floor/FloorReturnPage";
 import { FloorReplenishPage } from "./pages/floor/FloorReplenishPage";
@@ -93,6 +95,7 @@ export function App() {
         <Route path="/floor/pack" element={<FloorPackPage />} />
         <Route path="/floor/ship" element={<FloorShipPage />} />
         <Route path="/floor/count" element={<FloorCountPage />} />
+        <Route path="/floor/hold" element={<FloorHoldPage />} />
         <Route path="/floor/assemble" element={<FloorAssemblePage />} />
         <Route path="/floor/kit" element={<FloorKitPage />} />
         <Route path="/floor/replenish" element={<FloorReplenishPage />} />
@@ -120,6 +123,8 @@ export function App() {
         <Route path="/stock/locations/:id" element={me ? <LocationsPage me={me} /> : null} />
         <Route path="/stock/counts" element={<CycleCountsPage />} />
         <Route path="/stock/counts/:id" element={<CycleCountsPage />} />
+        <Route path="/stock/holds" element={<HoldsPage />} />
+        <Route path="/stock/holds/:id" element={<HoldsPage />} />
         <Route path="/stock/replenish" element={<ReplenishmentsPage />} />
         <Route path="/stock/replenish/:id" element={<ReplenishmentsPage />} />
         <Route path="/stock/ledger" element={<LedgerPage />} />
@@ -178,6 +183,7 @@ export function App() {
         <Route path="/boms" element={<Navigate to="/make/recipes" replace />} />
         <Route path="/work-orders" element={<Navigate to="/make/work-orders" replace />} />
         <Route path="/counts" element={<Navigate to="/stock/counts" replace />} />
+        <Route path="/holds" element={<Navigate to="/stock/holds" replace />} />
         <Route path="/adjustments" element={<Navigate to="/floor/adjust" replace />} />
         <Route path="/ledger" element={<Navigate to="/stock/ledger" replace />} />
       </Route>

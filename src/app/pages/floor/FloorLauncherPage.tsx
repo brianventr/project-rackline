@@ -13,6 +13,7 @@ const verbs = [
   { to: "/floor/ship", title: "Ship", body: "Buy a label, close the order, fulfill Shopify." },
   { to: "/floor/return", title: "Return", body: "Receive an RMA back into a bay." },
   { to: "/floor/count", title: "Count", body: "Blind-count a bay. System qty stays hidden until you post." },
+  { to: "/floor/hold", title: "Hold", body: "Lock a bay, SKU, or lot so pick and replenish skip it." },
   { to: "/floor/assemble", title: "Assemble", body: "Complete a work order on the bench." },
   { to: "/floor/kit", title: "Kit", body: "Build a finished SKU from its recipe in one step." },
 ];

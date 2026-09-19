@@ -7,6 +7,7 @@ export const PURCHASE_STEPS = ["draft", "ordered", "receiving", "received"] as c
 export const RETURN_STEPS = ["open", "receiving", "received"] as const;
 export const REPLENISH_STEPS = ["draft", "in_progress", "posted"] as const;
 export const KIT_STEPS = ["draft", "completed"] as const;
+export const HOLD_STEPS = ["open", "released"] as const;
 
 export type OrderStep = (typeof ORDER_STEPS)[number];
 export type ReceiptStep = (typeof RECEIPT_STEPS)[number];
@@ -84,6 +85,10 @@ export function canCompleteKit(status: string): boolean {
   return status === "draft";
 }
 
+export function canReleaseHold(status: string): boolean {
+  return status === "open";
+}
+
 export function isOpenOrder(status: string): boolean {
   const value = normalizeOrderStatus(status);
   return value !== "shipped" && value !== "cancelled";
@@ -111,6 +116,10 @@ export function isOpenReplenishment(status: string): boolean {
 
 export function isOpenKit(status: string): boolean {
   return canCompleteKit(status);
+}
+
+export function isOpenHoldStatus(status: string): boolean {
+  return canReleaseHold(status);
 }
 
 export function statusLabel(status: string): string {

@@ -24,6 +24,7 @@ import {
   BoxSelect,
   ArrowDownToLine,
   Layers,
+  ShieldAlert,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Logo } from "@/components/logo";
@@ -70,6 +71,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
         { title: "Items", url: "/stock/items", icon: Package },
         { title: "Locations", url: "/stock/locations", icon: Warehouse },
         { title: "Counts", url: "/stock/counts", icon: Calculator },
+        { title: "Holds", url: "/stock/holds", icon: ShieldAlert },
         { title: "Replenish", url: "/stock/replenish", icon: ArrowDownToLine },
         { title: "Ledger", url: "/stock/ledger", icon: ScrollText },
       ],

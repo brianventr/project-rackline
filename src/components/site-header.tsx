@@ -144,6 +144,8 @@ function pathForScan(hit: ScanHit): string | null {
       return documentPath("replenishment", hit.replenishment.id);
     case "kit":
       return documentPath("kit", hit.kit.id);
+    case "hold":
+      return documentPath("hold", hit.hold.id);
   }
 }
 
@@ -269,6 +271,11 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               Kit {row.number}
             </button>
           ))}
+          {results?.holds?.map((row) => (
+            <button key={row.id} className="block w-full text-left" onClick={() => go(`/stock/holds/${row.id}`)}>
+              Hold {row.number}
+            </button>
+          ))}
           {results &&
           !results.items.length &&
           !results.locations.length &&
@@ -280,7 +287,8 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           !results.purchases.length &&
           !results.returns.length &&
           !results.replenishments?.length &&
-          !results.kits?.length ? (
+          !results.kits?.length &&
+          !results.holds?.length ? (
             <p className="text-muted-foreground">Nothing matches that search.</p>
           ) : null}
         </div>
