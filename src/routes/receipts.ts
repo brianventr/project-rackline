@@ -6,9 +6,19 @@ import { badRequest, conflict, notFound, requireInt, requireString } from "../li
 import { getOrgItem, getOrgLocation } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
 import { postReceiveLines } from "../db/stock";
+import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError } from "../domain/partial-receive";
 import { canReceive } from "../domain/status";
 
 export const receiptsRoute = new Hono<AppEnv>();
+
+function asExpected(line: { itemId: string; sku: string; qty: number; qtyReceived: number }) {
+  return {
+    itemId: line.itemId,
+    sku: line.sku,
+    qtyExpected: line.qty,
+    qtyReceived: line.qtyReceived,
+  };
+}
 
 async function receiptWithLines(db: AppEnv["Variables"]["db"], organizationId: string, id: string) {
   const [receipt] = await db
@@ -22,13 +32,17 @@ async function receiptWithLines(db: AppEnv["Variables"]["db"], organizationId: s
       id: schema.receiptLines.id,
       itemId: schema.receiptLines.itemId,
       qty: schema.receiptLines.qty,
+      qtyReceived: schema.receiptLines.qtyReceived,
       sku: schema.items.sku,
       itemName: schema.items.name,
     })
     .from(schema.receiptLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.receiptLines.itemId))
     .where(eq(schema.receiptLines.receiptId, id));
-  return { ...receipt, lines };
+  return {
+    ...receipt,
+    lines: lines.map((line) => ({ ...line, remaining: remainingOnLine(asExpected(line)) })),
+  };
 }
 
 receiptsRoute.get("/receipts", async (c) => {
@@ -46,6 +60,7 @@ receiptsRoute.get("/receipts", async (c) => {
       receiptId: schema.receiptLines.receiptId,
       itemId: schema.receiptLines.itemId,
       qty: schema.receiptLines.qty,
+      qtyReceived: schema.receiptLines.qtyReceived,
       sku: schema.items.sku,
       itemName: schema.items.name,
     })
@@ -63,7 +78,15 @@ receiptsRoute.get("/receipts", async (c) => {
     list.push(line);
     byReceipt.set(line.receiptId, list);
   }
-  return c.json(rows.map((row) => ({ ...row, lines: byReceipt.get(row.id) ?? [] })));
+  return c.json(
+    rows.map((row) => {
+      const receiptLines = (byReceipt.get(row.id) ?? []).map((line) => ({
+        ...line,
+        remaining: remainingOnLine(asExpected(line)),
+      }));
+      return { ...row, lines: receiptLines };
+    }),
+  );
 });
 
 receiptsRoute.get("/receipts/:id", async (c) => {
@@ -85,13 +108,16 @@ receiptsRoute.post("/receipts", async (c) => {
   const organizationId = c.get("organizationId")!;
   const now = Date.now();
   const id = newId();
+  const seen = new Set<string>();
   const lines = [];
   for (const line of body.lines) {
     const itemId = requireString(line.itemId, "itemId");
     const qty = requireInt(line.qty, "qty");
     if (qty <= 0) badRequest("Line quantity must be positive");
+    if (seen.has(itemId)) badRequest("Each SKU can appear once on a receipt");
+    seen.add(itemId);
     await getOrgItem(db, organizationId, itemId);
-    lines.push({ id: newId(), receiptId: id, itemId, qty });
+    lines.push({ id: newId(), receiptId: id, itemId, qty, qtyReceived: 0 });
   }
 
   await db.batch([
@@ -120,16 +146,42 @@ receiptsRoute.post("/receipts/:id/start", async (c) => {
 });
 
 receiptsRoute.post("/receipts/:id/receive", async (c) => {
-  const body = await c.req.json<{ locationId?: string }>();
+  const body = await c.req.json<{ locationId?: string; lines?: { itemId?: string; qty?: number }[] }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
-  const receipt = await receiptWithLines(db, organizationId, c.req.param("id"));
-  if (!canReceive(receipt.status)) conflict("Receipt already posted");
+  let receipt = await receiptWithLines(db, organizationId, c.req.param("id"));
+  if (!canReceive(receipt.status)) conflict("Receipt is already received");
+  if (!hasRemaining(receipt.lines.map(asExpected))) conflict("Receipt has nothing remaining");
   await getOrgLocation(db, organizationId, locationId);
 
+  if (receipt.status === "draft") {
+    await db.update(schema.receipts).set({ status: "receiving" }).where(eq(schema.receipts.id, receipt.id));
+    receipt = await receiptWithLines(db, organizationId, receipt.id);
+  }
+
+  const incoming =
+    Array.isArray(body.lines) && body.lines.length > 0
+      ? body.lines.map((line) => ({
+          itemId: requireString(line.itemId, "itemId"),
+          qty: requireInt(line.qty, "qty"),
+        }))
+      : receipt.lines
+          .map((line) => ({ itemId: line.itemId, qty: line.remaining }))
+          .filter((line) => line.qty > 0);
+
+  let applied;
+  try {
+    applied = applyPartialReceive(receipt.lines.map(asExpected), incoming);
+  } catch (err) {
+    if (err instanceof OverReceiveError) throw err;
+    badRequest(err instanceof Error ? err.message : "Invalid receive");
+  }
   const now = Date.now();
+  const nextStatus = isFullyReceived(applied.next) ? "received" : "receiving";
+  const qtyByItem = new Map(applied.next.map((line) => [line.itemId, line.qtyReceived]));
+
   await postReceiveLines(db, {
     organizationId,
     createdBy: user.id,
@@ -137,11 +189,21 @@ receiptsRoute.post("/receipts/:id/receive", async (c) => {
     locationId,
     refType: "receipt",
     refId: receipt.id,
-    lines: receipt.lines.map((line) => ({ itemId: line.itemId, qty: line.qty })),
+    lines: applied.posted,
     extra: [
+      ...receipt.lines.map((line) =>
+        db
+          .update(schema.receiptLines)
+          .set({ qtyReceived: qtyByItem.get(line.itemId) ?? line.qtyReceived })
+          .where(eq(schema.receiptLines.id, line.id)),
+      ),
       db
         .update(schema.receipts)
-        .set({ status: "received", locationId, receivedAt: now })
+        .set({
+          status: nextStatus,
+          locationId,
+          receivedAt: nextStatus === "received" ? now : receipt.receivedAt,
+        })
         .where(eq(schema.receipts.id, receipt.id)),
     ],
   });

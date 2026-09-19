@@ -4,6 +4,7 @@ import { api, type Item, type Location, type Receipt } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
 import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
 import { RECEIPT_STEPS, canReceive } from "@/domain/status";
+import { hasRemaining } from "@/domain/partial-receive";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
 type Line = { itemId: string; qty: string };
@@ -56,7 +57,7 @@ function ReceiptList() {
       <PageHeader
         eyebrow="Inbound"
         title="Receipts"
-        description="Create the inbound document here. Receive it on the floor."
+        description="Create the inbound document here. Receive it on the dock, including partials."
         actions={<Button onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New receipt"}</Button>}
       />
       <ErrorBanner error={error} />
@@ -96,6 +97,7 @@ function ReceiptDetail({ id }: { id: string }) {
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationId, setLocationId] = useState("");
+  const [qtys, setQtys] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -107,6 +109,7 @@ function ReceiptDetail({ id }: { id: string }) {
     setLocations(nextLocations);
     const dock = nextLocations.find((row) => row.type === "receiving") ?? nextLocations[0];
     if (dock) setLocationId(next.locationId || dock.id);
+    setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
   }
 
   useEffect(() => {
@@ -123,20 +126,31 @@ function ReceiptDetail({ id }: { id: string }) {
   }
 
   async function receive() {
+    if (!receipt) return;
     setError(null);
     try {
-      setReceipt(
-        await api<Receipt>(`/api/receipts/${id}/receive`, {
-          method: "POST",
-          body: JSON.stringify({ locationId }),
-        }),
-      );
+      const lines = (receipt.lines ?? [])
+        .map((line) => ({ itemId: line.itemId, qty: Number(qtys[line.itemId] || 0) }))
+        .filter((line) => line.qty > 0);
+      const next = await api<Receipt>(`/api/receipts/${id}/receive`, {
+        method: "POST",
+        body: JSON.stringify({ locationId, lines }),
+      });
+      setReceipt(next);
+      setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not receive");
     }
   }
 
   if (!receipt) return <ErrorBanner error={error} />;
+  const remaining = hasRemaining(
+    (receipt.lines ?? []).map((line) => ({
+      itemId: line.itemId,
+      qtyExpected: line.qty,
+      qtyReceived: line.qtyReceived,
+    })),
+  );
 
   return (
     <div className="space-y-6">
@@ -152,8 +166,8 @@ function ReceiptDetail({ id }: { id: string }) {
               All receipts
             </Button>
             {receipt.status === "draft" ? <Button onClick={() => void start()}>Start receiving</Button> : null}
-            {canReceive(receipt.status) ? <Button onClick={() => void receive()}>Receive</Button> : null}
-            {canReceive(receipt.status) ? (
+            {canReceive(receipt.status) && remaining ? <Button onClick={() => void receive()}>Receive</Button> : null}
+            {canReceive(receipt.status) && remaining ? (
               <Button variant="secondary">
                 <Link to={`/floor/receive?id=${receipt.id}`}>Floor</Link>
               </Button>
@@ -176,16 +190,30 @@ function ReceiptDetail({ id }: { id: string }) {
                 </Select>
               </Field>
             </Card>
-            <DocumentActivity refId={receipt.id} refreshKey={receipt.status} />
+            <DocumentActivity refId={receipt.id} refreshKey={`${receipt.status}:${(receipt.lines ?? []).map((line) => line.qtyReceived).join(",")}`} />
           </DocumentRail>
         }
       >
-        <Table columns={["SKU", "Item", "Qty"]}>
+        <Table columns={["SKU", "Item", "Expected", "Received", "This receive"]}>
           {(receipt.lines ?? []).map((line) => (
             <tr key={line.id}>
               <td className="px-4 py-3 font-mono">{line.sku}</td>
               <td className="px-4 py-3">{line.itemName}</td>
               <td className="px-4 py-3 font-mono">{line.qty}</td>
+              <td className="px-4 py-3 font-mono">{line.qtyReceived}</td>
+              <td className="px-4 py-3">
+                {line.remaining > 0 ? (
+                  <Input
+                    type="number"
+                    min={0}
+                    max={line.remaining}
+                    value={qtys[line.itemId] ?? "0"}
+                    onChange={(e) => setQtys((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                  />
+                ) : (
+                  <span className="text-muted-foreground">Done</span>
+                )}
+              </td>
             </tr>
           ))}
         </Table>

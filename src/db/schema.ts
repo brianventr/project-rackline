@@ -189,16 +189,21 @@ export const receipts = sqliteTable("receipts", {
   receivedAt: integer("received_at"),
 });
 
-export const receiptLines = sqliteTable("receipt_lines", {
-  id: text("id").primaryKey(),
-  receiptId: text("receipt_id")
-    .notNull()
-    .references(() => receipts.id, { onDelete: "cascade" }),
-  itemId: text("item_id")
-    .notNull()
-    .references(() => items.id),
-  qty: integer("qty").notNull(),
-});
+export const receiptLines = sqliteTable(
+  "receipt_lines",
+  {
+    id: text("id").primaryKey(),
+    receiptId: text("receipt_id")
+      .notNull()
+      .references(() => receipts.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id),
+    qty: integer("qty").notNull(),
+    qtyReceived: integer("qty_received").notNull().default(0),
+  },
+  (t) => [uniqueIndex("receipt_lines_receipt_item").on(t.receiptId, t.itemId)],
+);
 
 export const orders = sqliteTable(
   "orders",
