@@ -96,9 +96,9 @@ function filletedPolygon(target: THREE.Shape | THREE.Path, pts: Array<[number, n
 
 function teardropHole(cx: number, cy: number) {
   const hole = new THREE.Path();
-  const r = 0.0092;
-  hole.absarc(cx, cy - 0.0036, r, Math.PI * 0.16, Math.PI * 0.84, false);
-  hole.lineTo(cx, cy + 0.0164);
+  const r = 0.0154;
+  hole.absarc(cx, cy - 0.005, r, Math.PI * 0.16, Math.PI * 0.84, false);
+  hole.lineTo(cx, cy + 0.026);
   hole.closePath();
   return hole;
 }
@@ -125,10 +125,10 @@ function finish(geo: THREE.BufferGeometry) {
 }
 
 function makeColumnModule() {
-  const w = 0.08;
-  const d = 0.074;
+  const w = 0.15;
+  const d = 0.128;
   const h = COLUMN_MODULE;
-  const t = 0.0044;
+  const t = 0.007;
   const parts: THREE.BufferGeometry[] = [];
 
   const face = new THREE.Shape();
@@ -167,10 +167,10 @@ function makeColumnModule() {
 }
 
 function makeBraceChannel() {
-  const w = 0.038;
-  const d = 0.028;
-  const t = 0.0032;
-  const lip = 0.008;
+  const w = 0.048;
+  const d = 0.036;
+  const t = 0.0038;
+  const lip = 0.01;
   const shape = new THREE.Shape();
   filletedPolygon(
     shape,
@@ -207,11 +207,11 @@ function makeBraceChannel() {
 }
 
 function makeStepBeamGeometry() {
-  const w = 0.078;
-  const h = 0.142;
-  const stepW = 0.038;
-  const stepH = 0.046;
-  const t = 0.0034;
+  const w = 0.11;
+  const h = 0.175;
+  const stepW = 0.048;
+  const stepH = 0.052;
+  const t = 0.004;
   const outer: Array<[number, number]> = [
     [0, 0],
     [w, 0],
@@ -413,6 +413,13 @@ export const GEOS = {
 
 export const cartonGeometry = GEOS.carton;
 
+export function loadFootprint(sizeX: number, sizeY: number) {
+  return {
+    sx: Math.min(1.22, Math.max(0.7, sizeX - 0.55)),
+    sz: Math.min(1.02, Math.max(0.7, sizeY - 0.55)),
+  };
+}
+
 export type RackParts = {
   columns: Pose[];
   footplates: Pose[];
@@ -437,7 +444,7 @@ export function buildRackParts(spec: RackSpec, explode: boolean): RackParts {
   const height = spec.levels * spec.levelHeight + (spec.levels - 1) * extra;
   const alongX = spec.rotation === 90 || spec.rotation === 270;
   const beamYaw = alongX ? Math.PI / 2 : 0;
-  const post = 0.09;
+  const post = 0.14;
   const yaw = yawForAlong(spec);
   const modules = columnModuleCount(height);
   const parts: RackParts = {
@@ -474,8 +481,8 @@ export function buildRackParts(spec: RackSpec, explode: boolean): RackParts {
           ry: channelYaw,
         });
       }
-      parts.footplates.push({ x: p.x, y: 0.018, z: p.z, sx: 0.36, sy: 0.036, sz: 0.36, ry: channelYaw });
-      parts.caps.push({ x: p.x, y: height - 0.016, z: p.z, sx: 0.2, sy: 0.032, sz: 0.2, ry: channelYaw });
+      parts.footplates.push({ x: p.x, y: 0.02, z: p.z, sx: 0.46, sy: 0.04, sz: 0.46, ry: channelYaw });
+      parts.caps.push({ x: p.x, y: height - 0.018, z: p.z, sx: 0.28, sy: 0.036, sz: 0.28, ry: channelYaw });
       const boltSpread = 0.115;
       for (const dx of [-boltSpread, boltSpread]) {
         for (const dz of [-boltSpread, boltSpread]) {
@@ -490,9 +497,9 @@ export function buildRackParts(spec: RackSpec, explode: boolean): RackParts {
     const along = i * spec.bayPitch;
     const front = alongAcrossToWorld(spec, along, post);
     const rear = alongAcrossToWorld(spec, along, spec.bayDepth - post);
-    const braceCount = Math.max(4, Math.round(height / 0.95));
-    const y0 = 0.26;
-    const y1 = height - 0.22;
+    const braceCount = Math.max(3, Math.round(height / 2.15));
+    const y0 = 0.34;
+    const y1 = height - 0.26;
     for (let b = 0; b < braceCount; b += 1) {
       const y = y0 + ((y1 - y0) * b) / Math.max(1, braceCount - 1);
       parts.braces.push(poseAlong(front.x, y, front.z, rear.x, y, rear.z));
@@ -500,8 +507,11 @@ export function buildRackParts(spec: RackSpec, explode: boolean): RackParts {
     for (let b = 0; b < braceCount - 1; b += 1) {
       const ya = y0 + ((y1 - y0) * b) / Math.max(1, braceCount - 1);
       const yb = y0 + ((y1 - y0) * (b + 1)) / Math.max(1, braceCount - 1);
-      parts.braces.push(poseAlong(front.x, ya, front.z, rear.x, yb, rear.z));
-      parts.braces.push(poseAlong(rear.x, ya, rear.z, front.x, yb, front.z));
+      if (b % 2 === 0) {
+        parts.braces.push(poseAlong(front.x, ya, front.z, rear.x, yb, rear.z));
+      } else {
+        parts.braces.push(poseAlong(rear.x, ya, rear.z, front.x, yb, front.z));
+      }
     }
   }
 

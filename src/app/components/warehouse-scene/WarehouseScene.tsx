@@ -16,7 +16,7 @@ import {
   type RackSpec,
 } from "@/domain/rack-builder";
 import { readSceneTheme, type SceneTheme } from "./theme";
-import { cartonGeometry, PALLET_HEIGHT, PALLET_LIFT, RackFrames, RackPallets } from "./rack-meshes";
+import { cartonGeometry, PALLET_HEIGHT, PALLET_LIFT, RackFrames, RackPallets, loadFootprint } from "./rack-meshes";
 
 export type CameraMode = "top" | "orbit";
 export type Ghost =
@@ -136,18 +136,19 @@ function InstancedBins({
       const center = worldCenter(row);
       const lift = explodeLift(row.level ?? 1, { levelHeight: Math.max(1, row.sizeZ) }, explode);
       const occupied = (row.unitsOnHand ?? 0) > 0;
-      const cartonH = ghost ? Math.max(0.25, row.sizeZ - 0.28) : occupied ? Math.max(0.35, row.sizeZ - 0.55) : Math.max(0.22, row.sizeZ - 0.45);
+      const pad = loadFootprint(row.sizeX, row.sizeY);
+      const cartonH = ghost
+        ? Math.max(0.28, Math.min(1.15, row.sizeZ - 0.22))
+        : occupied
+          ? Math.max(0.42, Math.min(1.08, row.sizeZ - 0.72))
+          : Math.max(0.2, Math.min(0.42, row.sizeZ - 0.5));
       const cartonY = ghost
-        ? center.y + 0.04 + lift
+        ? row.posZ + 0.22 + lift + cartonH / 2
         : occupied
           ? row.posZ + PALLET_LIFT + lift + PALLET_HEIGHT + cartonH / 2
           : center.y + 0.02 + lift;
       dummy.position.set(center.x, cartonY, center.z);
-      dummy.scale.set(
-        Math.max(0.25, row.sizeX - (occupied || ghost ? 0.5 : 0.36)),
-        cartonH,
-        Math.max(0.25, row.sizeY - (occupied || ghost ? 0.5 : 0.36)),
-      );
+      dummy.scale.set(ghost ? Math.max(0.4, row.sizeX - 0.28) : pad.sx - (occupied ? 0.06 : 0.12), cartonH, ghost ? Math.max(0.4, row.sizeY - 0.28) : pad.sz - (occupied ? 0.06 : 0.12));
       dummy.updateMatrix();
       inst.setMatrixAt(i, dummy.matrix);
       if (ghost) {
@@ -682,7 +683,7 @@ export function WarehouseScene(props: Props) {
             minZoom={6}
             maxZoom={80}
             maxDistance={110}
-            minDistance={1.2}
+            minDistance={2.4}
             mouseButtons={{
               LEFT: props.cameraMode === "orbit" && !props.placing ? THREE.MOUSE.ROTATE : (undefined as unknown as THREE.MOUSE),
               MIDDLE: THREE.MOUSE.PAN,

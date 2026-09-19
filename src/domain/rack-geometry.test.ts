@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultRackSpec } from "./rack-builder";
-import { buildRackParts, COLUMN_MODULE, columnModuleCount } from "../app/components/warehouse-scene/rack-geometry";
+import { buildRackParts, COLUMN_MODULE, columnModuleCount, loadFootprint } from "../app/components/warehouse-scene/rack-geometry";
 
 describe("rack geometry", () => {
   it("stacks a punched column module on every upright", () => {
@@ -37,6 +37,13 @@ describe("rack geometry", () => {
     const exploded = buildRackParts(spec, true);
     expect(exploded.columns.length).toBeGreaterThan(solid.columns.length);
     expect(exploded.beams).toHaveLength(solid.beams.length);
-    expect(exploded.braces.length).toBeGreaterThan(solid.braces.length);
+    expect(exploded.braces.length).toBeGreaterThanOrEqual(solid.braces.length);
+  });
+
+  it("sizes pallet loads smaller than the bay so uprights stay visible", () => {
+    const pad = loadFootprint(3, 4);
+    expect(pad.sx).toBeLessThan(1.3);
+    expect(pad.sz).toBeLessThan(1.1);
+    expect(pad.sx).toBeGreaterThan(0.7);
   });
 });

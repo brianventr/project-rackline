@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { RackSpec } from "@/domain/rack-builder";
 import type { SceneTheme } from "./theme";
-import { GEOS, PALLET_HEIGHT, PALLET_LIFT, buildRackParts, type Pose } from "./rack-geometry";
+import { GEOS, PALLET_HEIGHT, PALLET_LIFT, buildRackParts, loadFootprint, type Pose } from "./rack-geometry";
 
-export { cartonGeometry, PALLET_HEIGHT, PALLET_LIFT, buildRackParts } from "./rack-geometry";
+export { cartonGeometry, PALLET_HEIGHT, PALLET_LIFT, buildRackParts, loadFootprint } from "./rack-geometry";
 export type { Pose, RackParts } from "./rack-geometry";
 
 function InstancedParts({
@@ -106,13 +106,14 @@ export function RackPallets({
     () =>
       occupied.map((row) => {
         const lift = explode ? Math.max(0, ((row.level ?? 1) - 1) * Math.max(1, row.sizeZ) * 0.55) : 0;
+        const pad = loadFootprint(row.sizeX, row.sizeY);
         return {
           x: row.posX + row.sizeX / 2,
           y: row.posZ + PALLET_LIFT + lift,
           z: row.posY + row.sizeY / 2,
-          sx: Math.max(0.5, row.sizeX - 0.42),
+          sx: pad.sx,
           sy: 1,
-          sz: Math.max(0.5, row.sizeY - 0.42),
+          sz: pad.sz,
         };
       }),
     [occupied, explode],
@@ -123,11 +124,10 @@ export function RackPallets({
       const lift = explode ? Math.max(0, ((row.level ?? 1) - 1) * Math.max(1, row.sizeZ) * 0.55) : 0;
       const x = row.posX + row.sizeX / 2;
       const z = row.posY + row.sizeY / 2;
-      const y = row.posZ + PALLET_LIFT + lift + PALLET_HEIGHT + 0.42 * Math.max(0.3, row.sizeZ - 0.4);
-      const sx = Math.max(0.4, row.sizeX - 0.5);
-      const sz = Math.max(0.4, row.sizeY - 0.5);
-      next.push({ x, y, z, sx: sx + 0.02, sy: 0.04, sz: sz * 0.16 });
-      next.push({ x, y, z, sx: sx * 0.16, sy: 0.04, sz: sz + 0.02 });
+      const pad = loadFootprint(row.sizeX, row.sizeY);
+      const y = row.posZ + PALLET_LIFT + lift + PALLET_HEIGHT + 0.48;
+      next.push({ x, y, z, sx: pad.sx * 0.92, sy: 0.035, sz: pad.sz * 0.16 });
+      next.push({ x, y, z, sx: pad.sx * 0.16, sy: 0.035, sz: pad.sz * 0.92 });
     }
     return next;
   }, [occupied, explode]);
