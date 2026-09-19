@@ -31,7 +31,7 @@ export function TodayPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { label: "To receive", value: data ? data.openReceipts + data.openPurchases : "—", to: "/inbound/purchases" },
-          { label: "To put away", value: data?.openTransfers ?? "—", to: "/inbound/putaway" },
+          { label: "To put away", value: data ? data.openTransfers + (data.putawayDue ?? 0) : "—", to: "/floor/putaway" },
           { label: "To fulfill", value: data?.openOrders ?? "—", to: "/outbound/orders" },
           { label: "To replenish", value: data ? (data.replenishDue ?? 0) + (data.openReplenishments ?? 0) : "—", to: "/stock/replenish" },
         ].map((stat) => (
@@ -75,15 +75,26 @@ export function TodayPage() {
         <QueueCard
           title="Putaway"
           empty="Nothing waiting to be put away."
-          rows={(queues?.putaways ?? []).map((row) => ({
-            id: row.id,
-            to: `/inbound/putaway/${row.id}`,
-            title: row.number,
-            meta: `${row.fromCode ?? "from"} → ${row.toCode ?? "to"}`,
-            status: row.status,
-            actionTo: `/floor/putaway`,
-            action: "Put away",
-          }))}
+          rows={[
+            ...(queues?.putaways ?? []).map((row) => ({
+              id: row.id,
+              to: `/inbound/putaway/${row.id}`,
+              title: row.number,
+              meta: `${row.fromCode ?? "from"} → ${row.toCode ?? "to"}`,
+              status: row.status,
+              actionTo: `/floor/putaway?from=${encodeURIComponent(row.fromBarcode || row.fromCode || "")}`,
+              action: "Put away",
+            })),
+            ...(data?.putawaySuggestions ?? []).map((row) => ({
+              id: `dock-${row.fromLocationId}-${row.itemId}`,
+              to: `/stock/items/${row.itemId}`,
+              title: `${row.sku} × ${row.qty}`,
+              meta: `${row.fromCode} → ${row.toCode}`,
+              status: "dock",
+              actionTo: `/floor/putaway?from=${encodeURIComponent(row.fromBarcode)}`,
+              action: "Put away",
+            })),
+          ]}
         />
         <QueueCard
           title="Pick / pack / ship"

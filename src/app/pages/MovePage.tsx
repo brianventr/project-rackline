@@ -113,6 +113,40 @@ export function MovePage() {
     }
   }
 
+  async function refreshFrom(barcode: string) {
+    const hit = await api<ScanHit>(`/api/scan?code=${encodeURIComponent(barcode)}`);
+    if (hit.kind !== "location") return;
+    setFrom({ barcode: hit.location.barcode, hit });
+    setTo({ barcode: "", hit: null });
+    setStep(hit.contents.length ? "to" : "from");
+  }
+
+  async function putawayLine(fromHit: ScanLocationHit, row: MapContent) {
+    const suggested = row.suggestedLocation;
+    if (!suggested) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const moved = await api<{ moved: MapContent[]; from: { code: string }; to: { code: string } }>("/api/moves", {
+        method: "POST",
+        body: JSON.stringify({
+          fromBarcode: fromHit.location.barcode,
+          toBarcode: suggested.barcode,
+          lines: [{ itemId: row.itemId, qty: row.qty }],
+        }),
+      });
+      const summary = moved.moved.map((line) => `${line.qty} ${line.sku}`).join(", ");
+      setResult(`Moved ${summary} from ${moved.from.code} to ${moved.to.code}.`);
+      const nextMap = await api<WarehouseMapData>("/api/map");
+      setMap(nextMap);
+      await refreshFrom(fromHit.location.barcode);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Move failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function onTypedScan() {
     const value = (step === "from" ? from.barcode : to.barcode).trim();
     if (value) void resolveSlot(step, value);
@@ -125,7 +159,7 @@ export function MovePage() {
       <PageHeader
         eyebrow="Floor"
         title="Put away"
-        description="Scan the bay you are leaving, then scan the bay you are putting it in. The whole slot moves — no quantity typing."
+        description="Scan the bay you are leaving. For dock stock, put each SKU onto the suggested bulk bay — or scan a destination to move the whole slot."
         actions={
           <Button variant="secondary" onClick={scanner.openCamera}>
             Open camera
@@ -138,7 +172,11 @@ export function MovePage() {
         <div className="space-y-4">
           <Card className={step === "from" ? "ring-2 ring-amber" : ""}>
             <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">1. From</p>
-            <SlotCard slot={from} />
+            <SlotCard
+              slot={from}
+              busy={busy}
+              onPutawayLine={from.hit ? (row) => void putawayLine(from.hit!, row) : undefined}
+            />
           </Card>
           <Card className={step === "to" ? "ring-2 ring-amber" : ""}>
             <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">2. To</p>
@@ -193,7 +231,7 @@ export function MovePage() {
             locations={map.locations}
             selectedId={step === "from" ? from.hit?.location.id : to.hit?.location.id}
             fromId={from.hit?.location.id}
-            toId={to.hit?.location.id}
+            toId={to.hit?.location.id ?? from.hit?.contents.find((row) => row.suggestedLocation)?.suggestedLocation?.locationId}
             view="iso"
             levelFilter="all"
             onSelect={(location) => {
@@ -206,7 +244,15 @@ export function MovePage() {
   );
 }
 
-function SlotCard({ slot }: { slot: Slot }) {
+function SlotCard({
+  slot,
+  busy,
+  onPutawayLine,
+}: {
+  slot: Slot;
+  busy?: boolean;
+  onPutawayLine?: (row: MapContent) => void;
+}) {
   if (!slot.hit) {
     return <p className="mt-2 text-sm text-muted-foreground">Waiting for a location barcode.</p>;
   }
@@ -226,12 +272,30 @@ function SlotCard({ slot }: { slot: Slot }) {
         </div>
         <BarcodeLabel value={location.barcode} className="h-12 max-w-[9rem]" height={32} />
       </div>
-      <ul className="mt-3 space-y-1 text-sm">
+      <ul className="mt-3 space-y-2 text-sm">
         {contents.length ? (
           contents.map((row) => (
-            <li key={row.itemId} className="flex justify-between">
-              <span className="font-mono">{row.sku}</span>
-              <span className="font-mono tabular">{row.qty}</span>
+            <li key={row.itemId} className="flex items-start justify-between gap-3">
+              <span>
+                <span className="font-mono">{row.sku}</span>
+                <span className="font-mono tabular"> × {row.qty}</span>
+                {row.suggestedLocation ? (
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    Suggested {row.suggestedLocation.locationCode}
+                    {row.suggestedLocation.qty > 0 ? ` · ${row.suggestedLocation.qty} already there` : ""}
+                  </span>
+                ) : null}
+              </span>
+              {row.suggestedLocation && onPutawayLine ? (
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => onPutawayLine(row)}
+                  className="h-8 shrink-0 px-2 text-xs"
+                >
+                  Put on {row.suggestedLocation.locationCode}
+                </Button>
+              ) : null}
             </li>
           ))
         ) : (
