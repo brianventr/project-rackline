@@ -186,15 +186,29 @@ export type Order = {
   trackingCompany?: string | null;
   trackingUrl?: string | null;
   packedAt?: number | null;
+  pickedAt?: number | null;
   shopify?: { status?: string; fulfillmentId?: string | null; error?: string | null };
-  lines?: {
-    id: string;
-    itemId: string;
-    qty: number;
-    sku: string;
-    itemName: string;
-    shopifyLineItemId?: string | null;
-  }[];
+  lines?: OrderLine[];
+};
+
+export type SuggestedBay = {
+  locationId: string;
+  locationCode: string;
+  locationName: string;
+  barcode: string;
+  qty: number;
+};
+
+export type OrderLine = {
+  id: string;
+  itemId: string;
+  qty: number;
+  qtyPicked: number;
+  remaining: number;
+  sku: string;
+  itemName: string;
+  shopifyLineItemId?: string | null;
+  suggestedLocation?: SuggestedBay | null;
 };
 
 export type ShopifyConnection = {

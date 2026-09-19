@@ -231,3 +231,11 @@ body,
 html {
   scroll-behavior: smooth;
 }
+
+@media print {
+  [data-slot="sidebar"],
+  [data-slot="sidebar-gap"],
+  [data-slot="sidebar-container"] {
+    display: none !important;
+  }
+}

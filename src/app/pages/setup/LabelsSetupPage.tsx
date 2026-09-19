@@ -20,6 +20,12 @@ export function LabelsSetupPage() {
           <span className="font-mono">ORD:</span>, <span className="font-mono">RCP:</span>,{" "}
           <span className="font-mono">PO:</span>, <span className="font-mono">RMA:</span>, <span className="font-mono">WO:</span>
         </li>
+        <li>
+          <Link className="underline" to="/outbound/orders">
+            Print pack slips
+          </Link>{" "}
+          from an order record or the pack floor screen.
+        </li>
         <li>USB and Bluetooth gun scanners work on every screen. Camera scan is in the header when the browser supports it.</li>
       </ul>
     </div>

@@ -10,6 +10,7 @@ import { LocationsPage } from "./pages/LocationsPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { ReceiptsPage } from "./pages/ReceiptsPage";
 import { OrdersPage } from "./pages/OrdersPage";
+import { PackSlipPage } from "./pages/PackSlipPage";
 import { BomsPage } from "./pages/BomsPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
 import { AdjustmentsPage } from "./pages/AdjustmentsPage";
@@ -115,6 +116,7 @@ export function App() {
         <Route path="/make/work-orders" element={<WorkOrdersPage />} />
         <Route path="/make/work-orders/:id" element={<WorkOrdersPage />} />
         <Route path="/outbound/orders" element={<OrdersPage />} />
+        <Route path="/outbound/orders/:id/pack-slip" element={<PackSlipPage />} />
         <Route path="/outbound/orders/:id" element={<OrdersPage />} />
         <Route path="/outbound/returns" element={<ReturnsPage />} />
         <Route path="/outbound/returns/:id" element={<ReturnsPage />} />

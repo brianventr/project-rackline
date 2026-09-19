@@ -5,6 +5,7 @@ import { getMembership } from "./lib/org";
 import { HttpError } from "./lib/http";
 import { InsufficientStockError } from "./domain/inventory";
 import { OverReceiveError } from "./domain/partial-receive";
+import { OverPickError } from "./domain/partial-pick";
 import type { AppEnv } from "./lib/types";
 import { originFrom } from "./lib/types";
 import { registerRoute } from "./routes/register";
@@ -44,6 +45,18 @@ app.onError((err, c) => {
       {
         error: err.message,
         code: "OVER_RECEIVE",
+        sku: err.sku,
+        remaining: err.remaining,
+        qty: err.qty,
+      },
+      409,
+    );
+  }
+  if (err instanceof OverPickError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "OVER_PICK",
         sku: err.sku,
         remaining: err.remaining,
         qty: err.qty,

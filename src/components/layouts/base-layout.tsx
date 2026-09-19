@@ -18,6 +18,7 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
   const { config } = useSidebarConfig();
   const location = useLocation();
   const floor = location.pathname.startsWith("/floor");
+  const packSlip = location.pathname.endsWith("/pack-slip");
 
   return (
     <SidebarProvider
@@ -31,12 +32,18 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
       }
       className={config.collapsible === "none" ? "sidebar-none-mode" : ""}
     >
-      {floor ? null : <AppSidebar variant={config.variant} collapsible={config.collapsible} side={config.side} />}
+      {floor ? null : (
+        <div className="print:hidden">
+          <AppSidebar variant={config.variant} collapsible={config.collapsible} side={config.side} />
+        </div>
+      )}
       <SidebarInset>
         <SiteHeader floor={floor} />
         <div className="flex flex-1 flex-col">
           <div className="@container/main flex flex-1 flex-col gap-2">
-            <div className={`flex flex-col gap-4 px-4 py-4 md:gap-6 md:px-6 md:py-6 ${floor ? "max-w-3xl mx-auto w-full" : ""}`}>
+            <div
+              className={`flex flex-col gap-4 px-4 py-4 md:gap-6 md:px-6 md:py-6 ${floor ? "max-w-3xl mx-auto w-full" : ""} ${packSlip ? "print:p-0" : ""}`}
+            >
               {title ? (
                 <div className="flex flex-col gap-1">
                   <h1 className="text-2xl font-bold tracking-tight">{title}</h1>

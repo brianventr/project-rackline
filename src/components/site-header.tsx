@@ -36,7 +36,7 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
   }, [location.pathname]);
 
   return (
-    <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height)">
+    <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height) print:hidden">
       <div className="flex w-full items-center gap-1 px-4 py-3 lg:gap-2 lg:px-6">
         {onFloor ? (
           <Link to="/floor" className="text-sm font-semibold">
