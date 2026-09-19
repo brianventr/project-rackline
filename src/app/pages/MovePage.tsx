@@ -23,6 +23,8 @@ export function MovePage() {
   const [result, setResult] = useState<string | null>(null);
   const fromRef = useRef(from);
   fromRef.current = from;
+  const toRef = useRef(to);
+  toRef.current = to;
   const inputRef = useRef<HTMLInputElement>(null);
   const handledAt = useMemo(() => ({ current: 0 }), []);
 
@@ -34,6 +36,7 @@ export function MovePage() {
 
   useEffect(() => {
     if (params.get("from")) void resolveSlot("from", params.get("from")!);
+    else if (params.get("to")) void resolveSlot("to", params.get("to")!);
   }, [params]);
 
   useEffect(() => {
@@ -58,14 +61,22 @@ export function MovePage() {
       }
       if (which === "from") {
         setFrom({ barcode: hit.location.barcode, hit });
-        setStep("to");
+        if (toRef.current.hit) {
+          await commit(hit, toRef.current.hit);
+        } else {
+          setStep("to");
+        }
       } else {
         if (fromRef.current.hit && hit.location.id === fromRef.current.hit.location.id) {
           setError("Scan a different bay for the destination.");
           return;
         }
         setTo({ barcode: hit.location.barcode, hit });
-        await commit(fromRef.current.hit, hit);
+        if (fromRef.current.hit) {
+          await commit(fromRef.current.hit, hit);
+        } else {
+          setStep("from");
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Barcode not recognized");
@@ -112,8 +123,8 @@ export function MovePage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Floor move"
-        title="Move a slot"
+        eyebrow="Floor"
+        title="Put away"
         description="Scan the bay you are leaving, then scan the bay you are putting it in. The whole slot moves — no quantity typing."
         actions={
           <Button variant="secondary" onClick={scanner.openCamera}>

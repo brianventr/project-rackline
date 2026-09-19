@@ -4,19 +4,23 @@ import type { ComponentProps } from "react";
 import {
   LayoutDashboard,
   Map,
-  ArrowLeftRight,
+  ScanLine,
+  Truck,
+  Repeat,
+  ShoppingCart,
   Boxes,
   Package,
   Warehouse,
-  Truck,
-  Repeat,
-  ClipboardList,
-  Store,
+  Calculator,
+  ScrollText,
   Factory,
   Hammer,
-  Calculator,
-  SlidersHorizontal,
-  ScrollText,
+  ClipboardList,
+  Undo2,
+  Store,
+  Settings2,
+  Users,
+  Tag,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Logo } from "@/components/logo";
@@ -32,52 +36,67 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { useSession } from "@/app/session";
-
-const navGroups = [
-  {
-    label: "Floor",
-    items: [
-      { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-      { title: "Map", url: "/map", icon: Map },
-      { title: "Move", url: "/move", icon: ArrowLeftRight },
-      { title: "On-hand", url: "/inventory", icon: Boxes },
-    ],
-  },
-  {
-    label: "Catalog",
-    items: [
-      { title: "Items", url: "/items", icon: Package },
-      { title: "Locations", url: "/locations", icon: Warehouse },
-    ],
-  },
-  {
-    label: "Inbound / outbound",
-    items: [
-      { title: "Receive", url: "/receipts", icon: Truck },
-      { title: "Transfers", url: "/transfers", icon: Repeat },
-      { title: "Orders", url: "/orders", icon: ClipboardList },
-      { title: "Shopify", url: "/shopify", icon: Store },
-    ],
-  },
-  {
-    label: "Production",
-    items: [
-      { title: "BOMs", url: "/boms", icon: Factory },
-      { title: "Work orders", url: "/work-orders", icon: Hammer },
-    ],
-  },
-  {
-    label: "Control",
-    items: [
-      { title: "Cycle counts", url: "/counts", icon: Calculator },
-      { title: "Adjust", url: "/adjustments", icon: SlidersHorizontal },
-      { title: "Ledger", url: "/ledger", icon: ScrollText },
-    ],
-  },
-];
+import { homePath } from "@/app/warehouse";
 
 export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
   const me = useSession();
+  const owner = me.role === "owner";
+
+  const navGroups = [
+    {
+      label: "Today",
+      items: [
+        { title: "Today", url: "/today", icon: LayoutDashboard },
+        { title: "Floor", url: "/floor", icon: ScanLine },
+        { title: "Map", url: "/map", icon: Map },
+      ],
+    },
+    {
+      label: "Inbound",
+      items: [
+        { title: "Receipts", url: "/inbound/receipts", icon: Truck },
+        { title: "Putaway", url: "/inbound/putaway", icon: Repeat },
+        { title: "Purchases", url: "/inbound/purchases", icon: ShoppingCart },
+      ],
+    },
+    {
+      label: "Stock",
+      items: [
+        { title: "On hand", url: "/stock", icon: Boxes },
+        { title: "Items", url: "/stock/items", icon: Package },
+        { title: "Locations", url: "/stock/locations", icon: Warehouse },
+        { title: "Counts", url: "/stock/counts", icon: Calculator },
+        { title: "Ledger", url: "/stock/ledger", icon: ScrollText },
+      ],
+    },
+    {
+      label: "Make",
+      items: [
+        { title: "Recipes", url: "/make/recipes", icon: Factory },
+        { title: "Work orders", url: "/make/work-orders", icon: Hammer },
+      ],
+    },
+    {
+      label: "Outbound",
+      items: [
+        { title: "Orders", url: "/outbound/orders", icon: ClipboardList },
+        { title: "Returns", url: "/outbound/returns", icon: Undo2 },
+      ],
+    },
+    ...(owner
+      ? [
+          {
+            label: "Setup",
+            items: [
+              { title: "Shopify", url: "/setup/shopify", icon: Store },
+              { title: "Warehouse", url: "/setup/warehouse", icon: Settings2 },
+              { title: "Team", url: "/setup/team", icon: Users },
+              { title: "Labels", url: "/setup/labels", icon: Tag },
+            ],
+          },
+        ]
+      : []),
+  ];
 
   return (
     <Sidebar {...props}>
@@ -85,7 +104,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link to="/dashboard">
+              <Link to={homePath(me.role)}>
                 <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
                   <Logo className="size-4" />
                 </div>

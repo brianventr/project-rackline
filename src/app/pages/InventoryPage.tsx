@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type InventoryRow } from "../api";
 import { ErrorBanner, Input, PageHeader, Table } from "../components/ui";
+import { useWarehouse, inWarehouse } from "../warehouse";
 
 export function InventoryPage() {
+  const { warehouseId } = useWarehouse();
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -14,15 +17,16 @@ export function InventoryPage() {
   }, []);
 
   const filtered = useMemo(() => {
+    const scoped = inWarehouse(rows, warehouseId);
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
+    if (!q) return scoped;
+    return scoped.filter(
       (row) =>
         row.sku.toLowerCase().includes(q) ||
         row.itemName.toLowerCase().includes(q) ||
         row.locationCode.toLowerCase().includes(q),
     );
-  }, [rows, query]);
+  }, [rows, query, warehouseId]);
 
   return (
     <div>
@@ -36,9 +40,17 @@ export function InventoryPage() {
       <Table columns={["SKU", "Item", "Location", "Type", "Qty"]}>
         {filtered.map((row) => (
           <tr key={row.id}>
-            <td className="px-4 py-3 font-mono">{row.sku}</td>
+            <td className="px-4 py-3 font-mono">
+              <Link className="hover:underline" to={`/stock/items/${row.itemId}`}>
+                {row.sku}
+              </Link>
+            </td>
             <td className="px-4 py-3">{row.itemName}</td>
-            <td className="px-4 py-3 font-mono">{row.locationCode}</td>
+            <td className="px-4 py-3 font-mono">
+              <Link className="hover:underline" to={`/stock/locations/${row.locationId}`}>
+                {row.locationCode}
+              </Link>
+            </td>
             <td className="px-4 py-3 capitalize">{row.itemType}</td>
             <td className="px-4 py-3 font-mono tabular">{row.qty}</td>
           </tr>

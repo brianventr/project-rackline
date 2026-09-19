@@ -106,7 +106,7 @@ export function ShopifyPage({ me }: { me: Me }) {
   return (
     <div>
       <PageHeader
-        eyebrow="Channel"
+        eyebrow="Setup"
         title="Shopify"
         description="Customer checkout lands here as a pick ticket. After ship, Rackline posts fulfillment back to Shopify."
       />
@@ -211,7 +211,7 @@ export function ShopifyPage({ me }: { me: Me }) {
         <p className="mb-4 text-sm text-muted-foreground">
           Builds a signed Shopify <span className="font-mono">orders/create</span> payload and runs the same ingest
           path as a live webhook. Then pick and ship it on{" "}
-          <Link className="underline" to="/orders">
+          <Link className="underline" to="/outbound/orders">
             Orders
           </Link>
           .

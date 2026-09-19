@@ -46,7 +46,7 @@ export function AdjustmentsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Cycle count"
+        eyebrow="Floor"
         title="Adjust"
         description="Signed quantity change with a reason. Negative qty cannot drive a bin below zero."
       />

@@ -34,7 +34,7 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
           throw new Error(data.error || "Sign up failed");
         }
       }
-      window.location.assign("/dashboard");
+      window.location.assign("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -52,7 +52,7 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
         password: demo.password,
       });
       if (result.error) throw new Error(result.error.message || "Demo sign in failed");
-      window.location.assign("/dashboard");
+      window.location.assign("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load demo");
     } finally {
