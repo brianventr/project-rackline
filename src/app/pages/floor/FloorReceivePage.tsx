@@ -158,7 +158,17 @@ export function FloorReceivePage() {
   return (
     <FloorFrame title="Receive" description="Scan a receipt or purchase order, scan the dock, post it into the bay." error={error}>
       <FloorScanBox label="Scan receipt, PO, or bay" placeholder="PO-DEMO1, RCP-DEMO1, or RECV" onScan={onScan} />
-      {done ? <p className="text-sm text-emerald-700">{done}</p> : null}
+      {done ? (
+        <p className="text-sm text-emerald-700">
+          {done}{" "}
+          <Link
+            className="font-medium underline"
+            to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
+          >
+            Put away
+          </Link>
+        </p>
+      ) : null}
       {!activeReceipt && !activePurchase ? (
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
@@ -268,7 +278,15 @@ export function FloorReceivePage() {
           ) ? (
             <Button onClick={() => void receivePurchase()}>Post receive</Button>
           ) : (
-            <p>Fully received.</p>
+            <div className="space-y-2">
+              <p>Fully received.</p>
+              <Link
+                className="block text-sm underline"
+                to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
+              >
+                Put away from this bay
+              </Link>
+            </div>
           )}
           <button className="text-sm underline" onClick={() => setActivePurchase(null)}>
             Back to list
@@ -338,7 +356,15 @@ export function FloorReceivePage() {
           ) ? (
             <Button onClick={() => void receiveReceipt()}>Post receive</Button>
           ) : (
-            <p>Fully received.</p>
+            <div className="space-y-2">
+              <p>Fully received.</p>
+              <Link
+                className="block text-sm underline"
+                to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
+              >
+                Put away from this bay
+              </Link>
+            </div>
           )}
           <button className="text-sm underline" onClick={() => setActiveReceipt(null)}>
             Back to list

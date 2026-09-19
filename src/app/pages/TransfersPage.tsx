@@ -38,9 +38,12 @@ function TransferList() {
     setItems(nextItems);
     setLocations(nextLocations);
     const recv = nextLocations.find((location) => location.type === "receiving") ?? nextLocations[0];
-    const storage = nextLocations.find((location) => location.type === "storage") ?? nextLocations[1];
+    const bulk =
+      nextLocations.find((location) => location.slotRole === "bulk") ??
+      nextLocations.find((location) => location.type === "storage") ??
+      nextLocations[1];
     if (recv) setFromLocationId(recv.id);
-    if (storage) setToLocationId(storage.id);
+    if (bulk) setToLocationId(bulk.id);
   }
 
   useEffect(() => {
@@ -74,7 +77,7 @@ function TransferList() {
         description="Documented bin-to-bin moves. Scan-to-move lives on the floor."
         actions={
           <div className="flex gap-2">
-            <Button variant="secondary">
+            <Button variant="secondary" asChild>
               <Link to="/floor/putaway">Scan move</Link>
             </Button>
             <Button onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New putaway"}</Button>
@@ -180,8 +183,10 @@ function TransferDetail({ id }: { id: string }) {
             </Button>
             {transfer.status === "draft" ? <Button onClick={() => void start()}>Start</Button> : null}
             {canPostTransfer(transfer.status) ? <Button onClick={() => void post()}>Post</Button> : null}
-            <Button variant="secondary">
-              <Link to="/floor/putaway">Floor</Link>
+            <Button variant="secondary" asChild>
+              <Link to={`/floor/putaway?from=${encodeURIComponent(transfer.fromBarcode || transfer.fromCode || "")}`}>
+                Floor
+              </Link>
             </Button>
           </>
         }

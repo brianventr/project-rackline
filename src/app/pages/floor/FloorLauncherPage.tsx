@@ -6,7 +6,7 @@ const verbs = [
   { to: "/floor/lookup", title: "Lookup", body: "Scan a SKU, bay, or document." },
   { to: "/floor/print", title: "Print", body: "Print a bay, SKU, pack slip, or shipping label." },
   { to: "/floor/receive", title: "Receive", body: "Post a receipt or purchase onto the dock, including partials." },
-  { to: "/floor/putaway", title: "Put away", body: "Scan from bay, then to bay." },
+  { to: "/floor/putaway", title: "Put away", body: "Scan the dock, then the suggested bulk bay." },
   { to: "/floor/replenish", title: "Replenish", body: "Move bulk onto a pick face below min." },
   { to: "/floor/pick", title: "Pick", body: "Go to the suggested bay and pick remaining qty." },
   { to: "/floor/pack", title: "Pack", body: "Verify lines, print a pack slip, close the box." },

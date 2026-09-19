@@ -89,6 +89,7 @@ export type MapContent = {
   itemName: string;
   itemType: string;
   qty: number;
+  suggestedLocation?: SuggestedLocation | null;
 };
 
 export type MapLocation = Location & {
@@ -341,6 +342,20 @@ export type ShippingLabel = {
   trackingUrl: string;
 };
 
+export type PutawaySuggestion = {
+  itemId: string;
+  sku: string;
+  itemName: string;
+  qty: number;
+  fromLocationId: string;
+  fromCode: string;
+  fromBarcode: string;
+  toLocationId: string;
+  toCode: string;
+  toBarcode: string;
+  warehouseId: string;
+};
+
 export type Dashboard = {
   onHandUnits: number;
   binRows: number;
@@ -350,6 +365,7 @@ export type Dashboard = {
   openWorkOrders: number;
   shopifyOpenOrders: number;
   openTransfers: number;
+  putawayDue?: number;
   openCycleCounts: number;
   openPurchases: number;
   openReturns: number;
@@ -360,6 +376,7 @@ export type Dashboard = {
   recent: { id: string; type: string; qty: number; createdAt: number; sku: string }[];
   hotBays: { locationId: string; locationCode: string; locationName: string; units: number }[];
   replenishSuggestions?: ReplenishSuggestion[];
+  putawaySuggestions?: PutawaySuggestion[];
   queues: {
     receipts: Receipt[];
     orders: Order[];
@@ -405,6 +422,8 @@ export type Transfer = {
   toLocationId: string;
   fromCode?: string;
   toCode?: string;
+  fromBarcode?: string;
+  toBarcode?: string;
   warehouseId?: string;
   notes: string | null;
   lines?: { id: string; itemId: string; qty: number; sku: string; itemName: string }[];

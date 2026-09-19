@@ -18,6 +18,8 @@ Iteration 6 adds directed partial picks (suggested pick-face bay, remaining qty,
 
 Iteration 7 adds a floor Print verb and turns Setup → Labels into a print station: scan a bay, SKU, or order; print barcode sheets, pack slips, and shipping labels.
 
+Iteration 8 adds directed putaway: after receive, the dock suggests a bulk/storage bay per SKU (consolidate, prefer bulk, same aisle as the pick face). Floor Put away can move one SKU onto that bay; Today lists dock stock waiting to be put away.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 ## Stack
@@ -80,7 +82,7 @@ Demo mode never calls Shopify; it stores the GraphQL payload that would have bee
 All quantity changes go through one engine (`src/domain/inventory.ts`) and an append-only movement ledger.
 
 - **Receive** adds qty to a location (blank receipt, purchase order, or customer return). Lines track received vs expected; posting more than remaining returns HTTP 409 (`OVER_RECEIVE`); the document stays `receiving` until every unit is in
-- **Move / transfer** decrements the from bin and increments the to bin in one ledger movement
+- **Move / transfer** decrements the from bin and increments the to bin in one ledger movement. Dock, ship, and bench stock get a suggested bulk/storage bay (same idea as directed pick)
 - **Pick** decrements the pick bin. Lines track picked vs ordered; posting more than remaining returns HTTP 409 (`OVER_PICK`); the document stays `picking` until every unit is picked. The API suggests a pick-face bay that covers remaining qty
 - **Pack slip** prints ordered vs picked qty from the order record
 - **Ship** writes an outbound movement (qty already left at pick) and, for Shopify orders, creates a fulfillment

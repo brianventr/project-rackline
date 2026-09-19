@@ -8,6 +8,8 @@ import { badRequest, requireInt, requireString, optionalInt, optionalString } fr
 import { newId } from "../lib/ids";
 import { suggestPlacement } from "../domain/map-layout";
 import { suggestReplenishments } from "../domain/replenishment";
+import { suggestPutawayJobs } from "../domain/directed-putaway";
+import { loadPutawayBaysByItem } from "../db/putaway-bays";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -634,6 +636,8 @@ catalogRoute.get("/dashboard", async (c) => {
       toLocationId: schema.transfers.toLocationId,
       fromCode: fromLoc.code,
       toCode: toLoc.code,
+      fromBarcode: fromLoc.barcode,
+      toBarcode: toLoc.barcode,
       notes: schema.transfers.notes,
       createdAt: schema.transfers.createdAt,
     })
@@ -750,6 +754,73 @@ catalogRoute.get("/dashboard", async (c) => {
     items: replenishItems,
   });
 
+  const stagingRows = await db
+    .select({
+      locationId: schema.locations.id,
+      locationCode: schema.locations.code,
+      locationName: schema.locations.name,
+      barcode: schema.locations.barcode,
+      type: schema.locations.type,
+      warehouseId: schema.locations.warehouseId,
+      itemId: schema.items.id,
+      sku: schema.items.sku,
+      itemName: schema.items.name,
+      qty: schema.inventoryBalances.qty,
+    })
+    .from(schema.inventoryBalances)
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
+    .innerJoin(schema.items, eq(schema.items.id, schema.inventoryBalances.itemId))
+    .where(
+      and(
+        eq(schema.inventoryBalances.organizationId, organizationId),
+        warehouseId ? eq(schema.locations.warehouseId, warehouseId) : undefined,
+        gt(schema.inventoryBalances.qty, 0),
+        inArray(schema.locations.type, ["receiving", "shipping", "production"]),
+      ),
+    );
+
+  const putawaySuggestions = [];
+  const stagingByWarehouse = new Map<string, typeof stagingRows>();
+  for (const row of stagingRows) {
+    const list = stagingByWarehouse.get(row.warehouseId) ?? [];
+    list.push(row);
+    stagingByWarehouse.set(row.warehouseId, list);
+  }
+  for (const [whId, rows] of stagingByWarehouse) {
+    const itemIds = [...new Set(rows.map((row) => row.itemId))];
+    const baysByItem = await loadPutawayBaysByItem(db, organizationId, whId, itemIds);
+    const byLocation = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const list = byLocation.get(row.locationId) ?? [];
+      list.push(row);
+      byLocation.set(row.locationId, list);
+    }
+    for (const [locationId, contents] of byLocation) {
+      const first = contents[0]!;
+      const jobs = suggestPutawayJobs(
+        { id: locationId, code: first.locationCode, barcode: first.barcode, type: first.type },
+        contents,
+        baysByItem,
+      );
+      for (const job of jobs) {
+        if (!job.suggested) continue;
+        putawaySuggestions.push({
+          itemId: job.itemId,
+          sku: job.sku,
+          itemName: job.itemName,
+          qty: job.qty,
+          fromLocationId: job.fromLocationId,
+          fromCode: job.fromCode,
+          fromBarcode: job.fromBarcode,
+          toLocationId: job.suggested.locationId,
+          toCode: job.suggested.locationCode,
+          toBarcode: job.suggested.barcode,
+          warehouseId: whId,
+        });
+      }
+    }
+  }
+
   const shopifyExceptions = await db
     .select()
     .from(schema.orders)
@@ -854,6 +925,7 @@ catalogRoute.get("/dashboard", async (c) => {
     openWorkOrders: openWorkOrderRows.length,
     shopifyOpenOrders: Number(shopifyOpen?.n ?? 0),
     openTransfers: openTransferRows.length,
+    putawayDue: putawaySuggestions.length,
     openCycleCounts: openCountRows.length,
     openPurchases: openPurchaseRows.length,
     openReturns: openReturnRows.length,
@@ -876,5 +948,6 @@ catalogRoute.get("/dashboard", async (c) => {
       shopifyExceptions,
     },
     replenishSuggestions,
+    putawaySuggestions,
   });
 });

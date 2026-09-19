@@ -10,6 +10,8 @@ import { chainPlans, planCycleCount, planMove } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { parseScan } from "../domain/barcodes";
 import { canPostCount, canPostTransfer } from "../domain/status";
+import { shouldSuggestPutaway, suggestPutawayJobs } from "../domain/directed-putaway";
+import { loadPutawayBaysByItem } from "../db/putaway-bays";
 
 export const floorRoute = new Hono<AppEnv>();
 
@@ -30,6 +32,8 @@ async function transferWithLines(db: AppEnv["Variables"]["db"], organizationId: 
       postedAt: schema.transfers.postedAt,
       fromCode: fromLoc.code,
       toCode: toLoc.code,
+      fromBarcode: fromLoc.barcode,
+      toBarcode: toLoc.barcode,
     })
     .from(schema.transfers)
     .innerJoin(fromLoc, eq(fromLoc.id, schema.transfers.fromLocationId))
@@ -67,6 +71,8 @@ floorRoute.get("/transfers", async (c) => {
       warehouseId: schema.transfers.warehouseId,
       fromCode: fromLoc.code,
       toCode: toLoc.code,
+      fromBarcode: fromLoc.barcode,
+      toBarcode: toLoc.barcode,
     })
     .from(schema.transfers)
     .innerJoin(fromLoc, eq(fromLoc.id, schema.transfers.fromLocationId))
@@ -495,7 +501,40 @@ floorRoute.get("/scan", async (c) => {
           gt(schema.inventoryBalances.qty, 0),
         ),
       );
-    return { kind: "location" as const, location, contents };
+    if (!shouldSuggestPutaway(location.type) || contents.length === 0) {
+      return { kind: "location" as const, location, contents };
+    }
+    const baysByItem = await loadPutawayBaysByItem(
+      db,
+      organizationId,
+      location.warehouseId,
+      [...new Set(contents.map((row) => row.itemId))],
+    );
+    const jobs = suggestPutawayJobs(
+      { id: location.id, code: location.code, barcode: location.barcode, type: location.type },
+      contents,
+      baysByItem,
+    );
+    const suggestedByItem = new Map(jobs.map((job) => [job.itemId, job.suggested]));
+    return {
+      kind: "location" as const,
+      location,
+      contents: contents.map((row) => {
+        const suggested = suggestedByItem.get(row.itemId);
+        return {
+          ...row,
+          suggestedLocation: suggested
+            ? {
+                locationId: suggested.locationId,
+                locationCode: suggested.locationCode,
+                locationName: suggested.locationName,
+                barcode: suggested.barcode,
+                qty: suggested.qty,
+              }
+            : null,
+        };
+      }),
+    };
   }
 
   async function itemHit(code: string) {

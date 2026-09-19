@@ -105,7 +105,17 @@ export function FloorReturnPage() {
   return (
     <FloorFrame title="Return" description="Scan an RMA, scan the bay, put the goods back on hand." error={error}>
       <FloorScanBox label="Scan return or bay" placeholder="RMA-DEMO1 or RECV" onScan={onScan} />
-      {done ? <p className="text-sm text-emerald-700">{done}</p> : null}
+      {done ? (
+        <p className="text-sm text-emerald-700">
+          {done}{" "}
+          <Link
+            className="font-medium underline"
+            to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
+          >
+            Put away
+          </Link>
+        </p>
+      ) : null}
       {!active ? (
         <Card>
           <p className="mb-3 font-medium">Open returns</p>
@@ -170,7 +180,15 @@ export function FloorReturnPage() {
           {canReceiveReturn(active.status) && remaining ? (
             <Button onClick={() => void receive()}>Post return</Button>
           ) : (
-            <p>Already received.</p>
+            <div className="space-y-2">
+              <p>Already received.</p>
+              <Link
+                className="block text-sm underline"
+                to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
+              >
+                Put away from this bay
+              </Link>
+            </div>
           )}
           <Link className="block text-sm underline" to="/outbound/returns">
             Office returns
