@@ -24,6 +24,11 @@ describe("order status", () => {
     expect(canShipOrder("packed")).toBe(true);
   });
 
+  it("keeps an in-progress pick open until lines are filled", () => {
+    expect(canPickOrder("picking")).toBe(true);
+    expect(canPackOrder("picking")).toBe(false);
+  });
+
   it("labels in-progress statuses for people", () => {
     expect(statusLabel("in_progress")).toBe("In progress");
     expect(statusLabel("open")).toBe("open");

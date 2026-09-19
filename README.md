@@ -10,6 +10,8 @@ Iteration 2 adds bin-to-bin transfers (putaway), cycle counts, the inventory led
 
 Iteration 3 fills the parked Purchases and Returns slots: vendor POs with partial receive onto the dock, and customer RMAs that receive stock back into a bay.
 
+Iteration 4 adds line-level directed picks (partial qty from the suggested bay) and printable pack slips.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 ## Stack
@@ -34,7 +36,7 @@ Open [http://localhost:5173](http://localhost:5173). Guests see the landing page
 On the sign-in screen, either:
 
 - Create an organization, or
-- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt, purchase order `PO-DEMO1` (Harbor Components), return `RMA-DEMO1` (Harbor Workshop), a floor order, Shopify order `#1004` (Maya Chen), and a work order. Then open **Map** and **Move**.
+- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt, purchase order `PO-DEMO1` (Harbor Components), return `RMA-DEMO1` (Harbor Workshop), a floor order, Shopify order `#1004` (Maya Chen), and a work order. Pick `ORD-DEMO1` from suggested bay `B-01-01` (partial qty is allowed) and print a pack slip from the order. Then open **Map** and **Move**.
 
 `wrangler.jsonc` uses a placeholder `database_id`. Local D1 does not need a Cloudflare account. When you are ready to deploy:
 
@@ -73,7 +75,7 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 
 - **Receive** adds qty to a location (blank receipt, purchase order, or customer return)
 - **Move / transfer** decrements the from bin and increments the to bin in one ledger movement
-- **Pick** decrements the pick bin
+- **Pick** decrements the pick bin, including partial line qty from a directed bay. The order stays picking until every line is filled
 - **Ship** writes an outbound movement (qty already left at pick) and, for Shopify orders, creates a fulfillment
 - **Adjust** applies a signed delta with a reason
 - **Cycle count** snapshots a bin, then posts variances against *current* on-hand so concurrent movement is not double-applied

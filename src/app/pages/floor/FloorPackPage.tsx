@@ -72,7 +72,7 @@ export function FloorPackPage() {
   const allVerified = lines.length > 0 && lines.every((line) => packedIds.includes(line.id));
 
   return (
-    <FloorFrame title="Pack" description="Scan the tote or order, verify each line, close the box." error={error}>
+    <FloorFrame title="Pack" description="Scan the tote or order, verify each line, print the pack slip, close the box." error={error}>
       <FloorScanBox label="Scan order or SKU" placeholder="ORD-… or LAMP" onScan={onScan} />
       {!active ? (
         <Card>
@@ -98,12 +98,15 @@ export function FloorPackPage() {
             {lines.map((line) => (
               <li key={line.id} className="flex justify-between">
                 <span>
-                  {line.sku} × {line.qty}
+                  {line.sku} × {line.qtyPicked ?? line.qty}
                 </span>
                 <span>{packedIds.includes(line.id) ? "Verified" : "Scan to verify"}</span>
               </li>
             ))}
           </ul>
+          <Link className="inline-block font-medium underline" to={`/outbound/orders/${active.id}/pack-slip`}>
+            Print pack slip
+          </Link>
           {canPackOrder(active.status) ? (
             <Button disabled={!allVerified && lines.length > 0} onClick={() => void pack()}>
               Pack complete

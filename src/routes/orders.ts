@@ -9,10 +9,104 @@ import { chainPlans, planPick, type MovementDraft, type StockPlan } from "../dom
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { fulfillShopifyOrder } from "../domain/shopify-fulfill";
 import { canPackOrder, canPickOrder, canShipOrder, canStartPack, canStartPick } from "../domain/status";
+import {
+  applyPartialPick,
+  hasUnpicked,
+  isFullyPicked,
+  remainingToPick,
+  suggestPickBay,
+  OverPickError,
+  type PickLine,
+  type StockedBay,
+} from "../domain/partial-pick";
 
 export const ordersRoute = new Hono<AppEnv>();
 
-async function orderWithLines(db: AppEnv["Variables"]["db"], organizationId: string, id: string) {
+function asPickLine(line: { id: string; sku: string; qty: number; qtyPicked: number }): PickLine {
+  return {
+    lineId: line.id,
+    sku: line.sku,
+    qtyOrdered: line.qty,
+    qtyPicked: line.qtyPicked,
+  };
+}
+
+async function suggestedByItem(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  itemIds: string[],
+): Promise<Map<string, StockedBay[]>> {
+  const byItem = new Map<string, StockedBay[]>();
+  if (itemIds.length === 0) return byItem;
+  const rows = await db
+    .select({
+      itemId: schema.inventoryBalances.itemId,
+      locationId: schema.locations.id,
+      locationCode: schema.locations.code,
+      locationName: schema.locations.name,
+      barcode: schema.locations.barcode,
+      qty: schema.inventoryBalances.qty,
+      type: schema.locations.type,
+    })
+    .from(schema.inventoryBalances)
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
+    .where(
+      and(eq(schema.inventoryBalances.organizationId, organizationId), inArray(schema.inventoryBalances.itemId, itemIds)),
+    );
+  for (const row of rows) {
+    const list = byItem.get(row.itemId) ?? [];
+    list.push({
+      locationId: row.locationId,
+      locationCode: row.locationCode,
+      locationName: row.locationName,
+      barcode: row.barcode,
+      qty: row.qty,
+      type: row.type,
+    });
+    byItem.set(row.itemId, list);
+  }
+  return byItem;
+}
+
+function withRemaining<T extends { id: string; sku: string; qty: number; qtyPicked: number }>(line: T) {
+  return { ...line, remaining: remainingToPick(asPickLine(line)) };
+}
+
+async function withSuggestions<T extends { id: string; itemId: string; sku: string; qty: number; qtyPicked: number }>(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  lines: T[],
+) {
+  const bays = await suggestedByItem(
+    db,
+    organizationId,
+    [...new Set(lines.map((line) => line.itemId))],
+  );
+  return lines.map((line) => {
+    const remaining = remainingToPick(asPickLine(line));
+    const suggested = remaining > 0 ? suggestPickBay(bays.get(line.itemId) ?? [], remaining) : null;
+    return {
+      ...line,
+      remaining,
+      suggestedLocation: suggested
+        ? {
+            locationId: suggested.locationId,
+            locationCode: suggested.locationCode,
+            locationName: suggested.locationName,
+            barcode: suggested.barcode,
+            qty: suggested.qty,
+          }
+        : null,
+    };
+  });
+}
+
+async function orderWithLines(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  id: string,
+  options: { suggest?: boolean } = { suggest: true },
+) {
   const [order] = await db
     .select()
     .from(schema.orders)
@@ -24,6 +118,7 @@ async function orderWithLines(db: AppEnv["Variables"]["db"], organizationId: str
       id: schema.orderLines.id,
       itemId: schema.orderLines.itemId,
       qty: schema.orderLines.qty,
+      qtyPicked: schema.orderLines.qtyPicked,
       sku: schema.items.sku,
       itemName: schema.items.name,
       shopifyLineItemId: schema.orderLines.shopifyLineItemId,
@@ -32,7 +127,10 @@ async function orderWithLines(db: AppEnv["Variables"]["db"], organizationId: str
     .from(schema.orderLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.orderLines.itemId))
     .where(eq(schema.orderLines.orderId, id));
-  return { ...order, lines };
+  return {
+    ...order,
+    lines: options.suggest ? await withSuggestions(db, organizationId, lines) : lines.map(withRemaining),
+  };
 }
 
 ordersRoute.get("/orders", async (c) => {
@@ -50,6 +148,7 @@ ordersRoute.get("/orders", async (c) => {
       orderId: schema.orderLines.orderId,
       itemId: schema.orderLines.itemId,
       qty: schema.orderLines.qty,
+      qtyPicked: schema.orderLines.qtyPicked,
       sku: schema.items.sku,
       itemName: schema.items.name,
     })
@@ -67,7 +166,12 @@ ordersRoute.get("/orders", async (c) => {
     list.push(line);
     byOrder.set(line.orderId, list);
   }
-  return c.json(rows.map((row) => ({ ...row, lines: byOrder.get(row.id) ?? [] })));
+  return c.json(
+    rows.map((row) => ({
+      ...row,
+      lines: (byOrder.get(row.id) ?? []).map(withRemaining),
+    })),
+  );
 });
 
 ordersRoute.get("/orders/:id", async (c) => {
@@ -95,7 +199,7 @@ ordersRoute.post("/orders", async (c) => {
     const qty = requireInt(line.qty, "qty");
     if (qty <= 0) badRequest("Line quantity must be positive");
     await getOrgItem(db, organizationId, itemId);
-    lines.push({ id: newId(), orderId: id, itemId, qty });
+    lines.push({ id: newId(), orderId: id, itemId, qty, qtyPicked: 0 });
   }
 
   await db.batch([
@@ -117,42 +221,74 @@ ordersRoute.post("/orders", async (c) => {
 ordersRoute.post("/orders/:id/start", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const order = await orderWithLines(db, organizationId, c.req.param("id"));
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canStartPick(order.status)) conflict("Order is not open to start picking");
   await db.update(schema.orders).set({ status: "picking" }).where(eq(schema.orders.id, order.id));
   return c.json(await orderWithLines(db, organizationId, order.id));
 });
 
 ordersRoute.post("/orders/:id/pick", async (c) => {
-  const body = await c.req.json<{ locationId?: string }>();
+  const body = await c.req.json<{ locationId?: string; lines?: { lineId?: string; qty?: number }[] }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
-  const order = await orderWithLines(db, organizationId, c.req.param("id"));
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canPickOrder(order.status)) conflict("Order is not open for picking");
+  if (!hasUnpicked(order.lines.map(asPickLine))) conflict("Order has nothing remaining to pick");
   await getOrgLocation(db, organizationId, locationId);
+
+  const incoming =
+    Array.isArray(body.lines) && body.lines.length > 0
+      ? body.lines.map((line) => ({
+          lineId: requireString(line.lineId, "lineId"),
+          qty: requireInt(line.qty, "qty"),
+        }))
+      : order.lines
+          .map((line) => ({ lineId: line.id, qty: line.remaining }))
+          .filter((line) => line.qty > 0);
+
+  let applied;
+  try {
+    applied = applyPartialPick(order.lines.map(asPickLine), incoming);
+  } catch (err) {
+    if (err instanceof OverPickError) throw err;
+    badRequest(err instanceof Error ? err.message : "Invalid pick");
+  }
+
+  const postedByLine = new Map(applied.posted.map((row) => [row.lineId, row.qty]));
+  const pickLines = order.lines
+    .filter((line) => (postedByLine.get(line.id) ?? 0) > 0)
+    .map((line) => ({
+      itemId: line.itemId,
+      sku: line.sku,
+      qty: postedByLine.get(line.id)!,
+    }));
 
   const loaded = await loadBalanceMap(
     db,
     organizationId,
-    order.lines.map((line) => ({ locationId, itemId: line.itemId })),
+    pickLines.map((line) => ({ locationId, itemId: line.itemId })),
   );
   const plan = chainPlans(
     qtyMap(loaded),
-    order.lines.map((line) => (balances) =>
-      planPick({
-        itemId: line.itemId,
-        sku: line.sku,
-        locationId,
-        qty: line.qty,
-        refId: order.id,
-        balances,
-      }),
+    pickLines.map(
+      (line) => (balances) =>
+        planPick({
+          itemId: line.itemId,
+          sku: line.sku,
+          locationId,
+          qty: line.qty,
+          refId: order.id,
+          balances,
+        }),
     ),
   );
 
   const now = Date.now();
+  const fully = isFullyPicked(applied.next);
+  const qtyPickedByLine = new Map(applied.next.map((line) => [line.lineId, line.qtyPicked]));
+
   await persistStockPlan(db, {
     organizationId,
     createdBy: user.id,
@@ -160,9 +296,19 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
     loaded,
     plan,
     extra: [
+      ...order.lines.map((line) =>
+        db
+          .update(schema.orderLines)
+          .set({ qtyPicked: qtyPickedByLine.get(line.id) ?? line.qtyPicked })
+          .where(eq(schema.orderLines.id, line.id)),
+      ),
       db
         .update(schema.orders)
-        .set({ status: "picked", pickLocationId: locationId, pickedAt: now })
+        .set({
+          status: fully ? "picked" : "picking",
+          pickLocationId: locationId,
+          pickedAt: fully ? now : order.pickedAt,
+        })
         .where(eq(schema.orders.id, order.id)),
     ],
   });
@@ -173,7 +319,7 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
 ordersRoute.post("/orders/:id/pack", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const order = await orderWithLines(db, organizationId, c.req.param("id"));
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canPackOrder(order.status)) conflict("Order must be picked before packing");
   const now = Date.now();
   await db
@@ -186,7 +332,7 @@ ordersRoute.post("/orders/:id/pack", async (c) => {
 ordersRoute.post("/orders/:id/start-pack", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const order = await orderWithLines(db, organizationId, c.req.param("id"));
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canStartPack(order.status)) conflict("Order must be picked before packing");
   await db.update(schema.orders).set({ status: "packing" }).where(eq(schema.orders.id, order.id));
   return c.json(await orderWithLines(db, organizationId, order.id));
@@ -201,7 +347,7 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
-  const order = await orderWithLines(db, organizationId, c.req.param("id"));
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canShipOrder(order.status)) conflict("Order must be packed before shipping");
   const locationId = order.pickLocationId;
   if (!locationId) conflict("Pick location missing");
