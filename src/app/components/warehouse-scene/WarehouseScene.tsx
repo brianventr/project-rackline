@@ -16,7 +16,7 @@ import {
   type RackSpec,
 } from "@/domain/rack-builder";
 import { readSceneTheme, type SceneTheme } from "./theme";
-import { cartonGeometry, RackFrames, RackPallets } from "./rack-meshes";
+import { cartonGeometry, PALLET_HEIGHT, PALLET_LIFT, RackFrames, RackPallets } from "./rack-meshes";
 
 export type CameraMode = "top" | "orbit";
 export type Ghost =
@@ -140,7 +140,7 @@ function InstancedBins({
       const cartonY = ghost
         ? center.y + 0.04 + lift
         : occupied
-          ? row.posZ + 0.13 + lift + 0.14 + cartonH / 2
+          ? row.posZ + PALLET_LIFT + lift + PALLET_HEIGHT + cartonH / 2
           : center.y + 0.02 + lift;
       dummy.position.set(center.x, cartonY, center.z);
       dummy.scale.set(
@@ -449,10 +449,11 @@ function SceneContents(
 
   return (
     <>
-      <hemisphereLight args={[props.theme.dark ? "#7f90a8" : "#f6f8fa", props.theme.dark ? "#161616" : "#8a9198", 0.72]} />
-      <directionalLight position={[w * 0.28, 56, d * 0.08]} intensity={props.theme.dark ? 1.2 : 1.42} />
-      <directionalLight position={[-14, 22, d + 6]} intensity={0.42} />
-      <directionalLight position={[w + 8, 10, -6]} intensity={0.22} />
+      <hemisphereLight args={[props.theme.dark ? "#8ea0b8" : "#f7f8fa", props.theme.dark ? "#121212" : "#8a9198", 0.9]} />
+      <directionalLight position={[w * 0.22, 58, d * 0.12]} intensity={props.theme.dark ? 1.35 : 1.62} />
+      <directionalLight position={[-18, 28, d + 10]} intensity={0.55} />
+      <directionalLight position={[w + 12, 16, -8]} intensity={0.32} />
+      <directionalLight position={[w * 0.55, 9, d * 0.7]} intensity={0.18} />
       <Ground warehouse={props.warehouse} theme={props.theme} onMove={props.onFloorMove} onClick={props.onFloorClick} />
       <DragPlane warehouse={props.warehouse} enabled={Boolean(props.translating)} onMove={props.onTranslateMove} />
       {props.objects.map((object) => {
@@ -644,13 +645,16 @@ export function WarehouseScene(props: Props) {
     >
       <WebGLBoundary>
         <Canvas
-          dpr={[1, 1.75]}
+          dpr={[1, 2]}
           gl={{
             antialias: true,
             alpha: false,
             powerPreference: "default",
             failIfMajorPerformanceCaveat: false,
             toneMapping: THREE.ACESFilmicToneMapping,
+          }}
+          onCreated={({ gl }) => {
+            gl.toneMappingExposure = 1.08;
           }}
           frameloop="always"
           onPointerMissed={() => {
@@ -676,9 +680,9 @@ export function WarehouseScene(props: Props) {
             minPolarAngle={props.cameraMode === "top" ? PLAN_TILT : 0.18}
             maxPolarAngle={props.cameraMode === "top" ? PLAN_TILT : Math.PI / 2 - 0.06}
             minZoom={6}
-            maxZoom={56}
+            maxZoom={80}
             maxDistance={110}
-            minDistance={8}
+            minDistance={1.2}
             mouseButtons={{
               LEFT: props.cameraMode === "orbit" && !props.placing ? THREE.MOUSE.ROTATE : (undefined as unknown as THREE.MOUSE),
               MIDDLE: THREE.MOUSE.PAN,
