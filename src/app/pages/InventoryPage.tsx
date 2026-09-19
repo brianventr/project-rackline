@@ -33,11 +33,11 @@ export function InventoryPage() {
       <PageHeader
         eyebrow="Stock"
         title="On-hand"
-        description="Every unit sits in a location. Search by SKU or bin."
+        description="Every unit sits in a location. ATP is on-hand minus holds and reservations."
         actions={<Input placeholder="Filter SKU or bin" value={query} onChange={(e) => setQuery(e.target.value)} />}
       />
       <ErrorBanner error={error} />
-      <Table columns={["SKU", "Item", "Location", "Type", "Qty"]}>
+      <Table columns={["SKU", "Item", "Location", "Type", "On hand", "Allocated", "ATP"]}>
         {filtered.map((row) => (
           <tr key={row.id}>
             <td className="px-4 py-3 font-mono">
@@ -53,6 +53,8 @@ export function InventoryPage() {
             </td>
             <td className="px-4 py-3 capitalize">{row.itemType}</td>
             <td className="px-4 py-3 font-mono tabular">{row.qty}</td>
+            <td className="px-4 py-3 font-mono tabular">{row.allocated ?? 0}</td>
+            <td className="px-4 py-3 font-mono tabular">{row.atp ?? row.qty}</td>
           </tr>
         ))}
       </Table>

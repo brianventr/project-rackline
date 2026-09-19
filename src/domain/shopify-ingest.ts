@@ -13,6 +13,7 @@ import {
   type ShopifyFulfillmentOrderNode,
 } from "./shopify";
 import { createShopifyGraphqlClient, fetchOrderFulfillmentOrders } from "../lib/shopify-client";
+import { releaseOpenAllocations } from "../db/allocations";
 
 export class ShopifyIngestError extends Error {
   constructor(
@@ -197,6 +198,8 @@ export async function cancelShopifyDraft(
     .where(and(eq(schema.orders.organizationId, organizationId), eq(schema.orders.shopifyOrderId, shopifyOrderId)))
     .limit(1);
   if (!order || (order.status !== "open" && order.status !== "draft" && order.status !== "picking")) return false;
+  const now = Date.now();
+  await releaseOpenAllocations(db, order.id, now);
   await db
     .update(schema.orders)
     .set({ status: "cancelled", shopifySyncStatus: "inbound" })

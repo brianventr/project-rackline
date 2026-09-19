@@ -37,6 +37,7 @@ export function TodayPage() {
           { label: "To replenish", value: data ? (data.replenishDue ?? 0) + (data.openReplenishments ?? 0) : "—", to: "/stock/replenish" },
           { label: "Count variance", value: data?.countVariances ?? "—", to: "/stock/counts" },
           { label: "On hold", value: data?.openHolds ?? "—", to: "/stock/holds" },
+          { label: "Allocated", value: data?.allocatedUnits ?? "—", to: "/outbound/orders" },
         ].map((stat) => (
           <Link key={stat.label} to={stat.to}>
             <Card className="from-primary/5 to-card bg-gradient-to-t shadow-xs">

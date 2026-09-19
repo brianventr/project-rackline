@@ -280,7 +280,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
           Track serials
         </label>
       </Card>
-      <Table columns={["Location", "Qty"]}>
+      <Table columns={["Location", "On hand", "Allocated", "ATP"]}>
         {(item.onHand ?? []).map((row) => (
           <tr key={row.locationId}>
             <td className="px-4 py-3 font-mono">
@@ -289,6 +289,8 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
               </Link>
             </td>
             <td className="px-4 py-3 font-mono">{row.qty}</td>
+            <td className="px-4 py-3 font-mono">{row.allocated ?? 0}</td>
+            <td className="px-4 py-3 font-mono">{row.atp ?? row.qty}</td>
           </tr>
         ))}
       </Table>

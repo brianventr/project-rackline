@@ -10,8 +10,9 @@ import { planMove } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { suggestReplenishments } from "../domain/replenishment";
 import { canPostReplenishment } from "../domain/status";
-import { applyHoldsToOnHand, matchingHoldForMove } from "../domain/holds";
-import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
+import { matchingHoldForMove } from "../domain/holds";
+import { loadOpenHolds } from "../db/holds";
+import { atpOnHand } from "../db/allocations";
 
 export const replenishmentsRoute = new Hono<AppEnv>();
 
@@ -95,8 +96,7 @@ replenishmentsRoute.get("/replenishments/suggestions", async (c) => {
   ]);
 
   const holds = await loadOpenHolds(db, organizationId, warehouseId);
-  const lotQtys = await loadHeldLotQuantities(db, organizationId, holds);
-  const available = applyHoldsToOnHand(onHand, holds, lotQtys);
+  const available = await atpOnHand(db, organizationId, onHand, { warehouseId });
   return c.json(
     suggestReplenishments({ locations, onHand: available, items }).filter(
       (job) =>

@@ -45,6 +45,9 @@ function LookupResult({ hit }: { hit: ScanHit }) {
                       Hold {row.holdNumber}
                     </span>
                   ) : null}
+                  {(row.allocated ?? 0) > 0 ? (
+                    <span className="ml-2 text-xs uppercase text-muted-foreground">Allocated {row.allocated}</span>
+                  ) : null}
                 </span>
                 <span className="font-mono">{row.availableQty ?? row.qty}</span>
               </li>
@@ -88,6 +91,9 @@ function LookupResult({ hit }: { hit: ScanHit }) {
                 <span className="font-mono">
                   {row.locationCode}
                   {row.held ? <span className="ml-2 text-xs uppercase text-destructive">Hold</span> : null}
+                  {(row.allocated ?? 0) > 0 ? (
+                    <span className="ml-2 text-xs uppercase text-muted-foreground">Allocated {row.allocated}</span>
+                  ) : null}
                 </span>
                 <span className="font-mono">{row.availableQty ?? row.qty}</span>
               </li>
