@@ -15,6 +15,7 @@ import {
 } from "../domain/inventory";
 import { newId } from "../lib/ids";
 import { appendTraceabilityStatements, expandMovementsForTraceability } from "./traceability";
+import { assertOutboundNotHeld, loadOpenHolds } from "./holds";
 
 export type AppDb = DrizzleD1Database<typeof import("./schema")>;
 
@@ -74,11 +75,14 @@ export async function persistStockPlan(
   },
 ): Promise<void> {
   const statements: BatchItem<"sqlite">[] = [...((input.extra as BatchItem<"sqlite">[] | undefined) ?? [])];
+  const holds = await loadOpenHolds(db, input.organizationId);
   const movements: MovementDraft[] = await expandMovementsForTraceability(
     db,
     input.organizationId,
     input.plan.movements,
+    holds,
   );
+  assertOutboundNotHeld(movements, holds);
 
   for (const [key, qty] of input.plan.balances) {
     const { locationId, itemId } = parseBalanceKey(key);

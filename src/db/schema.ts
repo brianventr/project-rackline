@@ -579,6 +579,27 @@ export const kitBuilds = sqliteTable("kit_builds", {
   completedAt: integer("completed_at"),
 });
 
+export const inventoryHolds = sqliteTable("inventory_holds", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  warehouseId: text("warehouse_id")
+    .notNull()
+    .references(() => warehouses.id),
+  number: text("number").notNull(),
+  status: text("status").notNull(),
+  locationId: text("location_id")
+    .notNull()
+    .references(() => locations.id),
+  itemId: text("item_id").references(() => items.id),
+  lotCode: text("lot_code"),
+  reason: text("reason").notNull(),
+  notes: text("notes"),
+  createdAt: integer("created_at").notNull(),
+  releasedAt: integer("released_at"),
+});
+
 export type ItemType = "raw" | "wip" | "finished" | "packaging";
 export type LocationType = "receiving" | "storage" | "production" | "shipping";
 export type SlotRole = "pick" | "bulk" | "none";
@@ -595,6 +616,7 @@ export type PurchaseStatus = "draft" | "ordered" | "receiving" | "received";
 export type RmaStatus = "open" | "receiving" | "received";
 export type ReplenishmentStatus = "draft" | "in_progress" | "posted";
 export type KitBuildStatus = "draft" | "completed";
+export type HoldStatus = "open" | "released";
 export type SerialStatus = "on_hand" | "shipped" | "consumed";
 export type MovementType =
   | "receive"

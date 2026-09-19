@@ -89,6 +89,10 @@ export type MapContent = {
   itemName: string;
   itemType: string;
   qty: number;
+  held?: boolean;
+  holdNumber?: string | null;
+  holdReason?: string | null;
+  availableQty?: number;
   suggestedLocation?: SuggestedLocation | null;
 };
 
@@ -116,12 +120,23 @@ export type ScanLocationHit = {
   kind: "location";
   location: Location;
   contents: MapContent[];
+  holds?: Hold[];
 };
 
 export type ScanItemHit = {
   kind: "item";
   item: Item;
-  onHand: { locationId: string; locationCode: string; locationName: string; barcode: string; qty: number }[];
+  onHand: {
+    locationId: string;
+    locationCode: string;
+    locationName: string;
+    barcode: string;
+    qty: number;
+    held?: boolean;
+    holdNumber?: string | null;
+    holdReason?: string | null;
+    availableQty?: number;
+  }[];
 };
 
 export type ScanOrderHit = { kind: "order"; order: Order };
@@ -133,6 +148,7 @@ export type ScanPurchaseHit = { kind: "purchase"; purchase: Purchase };
 export type ScanRmaHit = { kind: "rma"; rma: Rma };
 export type ScanReplenishmentHit = { kind: "replenishment"; replenishment: Replenishment };
 export type ScanKitHit = { kind: "kit"; kit: KitBuild };
+export type ScanHoldHit = { kind: "hold"; hold: Hold };
 
 export type ScanHit =
   | ScanLocationHit
@@ -145,7 +161,8 @@ export type ScanHit =
   | ScanPurchaseHit
   | ScanRmaHit
   | ScanReplenishmentHit
-  | ScanKitHit;
+  | ScanKitHit
+  | ScanHoldHit;
 
 export type MoveResult = {
   ok: true;
@@ -368,6 +385,7 @@ export type Dashboard = {
   putawayDue?: number;
   openCycleCounts: number;
   countVariances?: number;
+  openHolds?: number;
   openPurchases: number;
   openReturns: number;
   openReplenishments?: number;
@@ -385,6 +403,7 @@ export type Dashboard = {
     putaways: Transfer[];
     counts: CycleCount[];
     countVariances?: CountVariance[];
+    holds?: Hold[];
     purchases: Purchase[];
     returns: Rma[];
     replenishments?: Replenishment[];
@@ -406,6 +425,7 @@ export type SearchResults = {
   returns: Pick<Rma, "id" | "number" | "customerName" | "status">[];
   replenishments?: Pick<Replenishment, "id" | "number" | "status">[];
   kits?: Pick<KitBuild, "id" | "number" | "status">[];
+  holds?: Pick<Hold, "id" | "number" | "status">[];
 };
 
 export type TeamMember = {
@@ -465,6 +485,24 @@ export type CycleCount = {
     sku: string;
     itemName: string;
   }[];
+};
+
+export type Hold = {
+  id: string;
+  number: string;
+  status: string;
+  warehouseId: string;
+  locationId: string;
+  locationCode?: string;
+  locationBarcode?: string;
+  itemId: string | null;
+  sku?: string | null;
+  itemName?: string | null;
+  lotCode: string | null;
+  reason: string;
+  notes: string | null;
+  createdAt: number;
+  releasedAt: number | null;
 };
 
 export type Movement = {

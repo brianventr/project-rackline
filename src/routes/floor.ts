@@ -13,6 +13,8 @@ import { canPostCount, canPostTransfer } from "../domain/status";
 import { shouldSuggestPutaway, suggestPutawayJobs } from "../domain/directed-putaway";
 import { loadPutawayBaysByItem } from "../db/putaway-bays";
 import { allLinesEntered, applyCountEntries, revealSystemQty } from "../domain/blind-count";
+import { applyHoldsToOnHand, HeldStockError, matchingHoldForMove } from "../domain/holds";
+import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
 
 export const floorRoute = new Hono<AppEnv>();
 
@@ -527,25 +529,43 @@ floorRoute.get("/scan", async (c) => {
           gt(schema.inventoryBalances.qty, 0),
         ),
       );
+    const holds = await loadOpenHolds(db, organizationId, location.warehouseId);
+    const lotQtys = await loadHeldLotQuantities(db, organizationId, holds);
+    const withLocation = contents.map((row) => ({ ...row, locationId: location.id }));
+    const available = applyHoldsToOnHand(withLocation, holds, lotQtys);
+    const availableByItem = new Map(available.map((row) => [row.itemId, row.qty]));
+    const annotated = contents.map((row) => {
+      const hit = matchingHoldForMove(holds, location.id, row.itemId);
+      return {
+        ...row,
+        held: Boolean(hit),
+        holdNumber: hit?.number ?? null,
+        holdReason: hit?.reason ?? null,
+        availableQty: availableByItem.get(row.itemId) ?? row.qty,
+      };
+    });
+    const locationHolds = holds.filter((hold) => hold.locationId === location.id);
     if (!shouldSuggestPutaway(location.type) || contents.length === 0) {
-      return { kind: "location" as const, location, contents };
+      return { kind: "location" as const, location, contents: annotated, holds: locationHolds };
     }
+    const movable = available.filter((row) => row.qty > 0);
     const baysByItem = await loadPutawayBaysByItem(
       db,
       organizationId,
       location.warehouseId,
-      [...new Set(contents.map((row) => row.itemId))],
+      [...new Set(movable.map((row) => row.itemId))],
     );
     const jobs = suggestPutawayJobs(
       { id: location.id, code: location.code, barcode: location.barcode, type: location.type },
-      contents,
+      movable,
       baysByItem,
     );
     const suggestedByItem = new Map(jobs.map((job) => [job.itemId, job.suggested]));
     return {
       kind: "location" as const,
       location,
-      contents: contents.map((row) => {
+      holds: locationHolds,
+      contents: annotated.map((row) => {
         const suggested = suggestedByItem.get(row.itemId);
         return {
           ...row,
@@ -573,6 +593,7 @@ floorRoute.get("/scan", async (c) => {
         locationName: schema.locations.name,
         barcode: schema.locations.barcode,
         qty: schema.inventoryBalances.qty,
+        itemId: schema.inventoryBalances.itemId,
       })
       .from(schema.inventoryBalances)
       .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
@@ -583,7 +604,20 @@ floorRoute.get("/scan", async (c) => {
           gt(schema.inventoryBalances.qty, 0),
         ),
       );
-    return { kind: "item" as const, item, onHand };
+    const holds = await loadOpenHolds(db, organizationId);
+    const lotQtys = await loadHeldLotQuantities(db, organizationId, holds);
+    const available = applyHoldsToOnHand(onHand, holds, lotQtys);
+    const annotated = available.map((row) => {
+      const hit = matchingHoldForMove(holds, row.locationId, item.id);
+      return {
+        ...row,
+        held: Boolean(hit) || row.qty < (onHand.find((entry) => entry.locationId === row.locationId)?.qty ?? row.qty),
+        holdNumber: hit?.number ?? null,
+        holdReason: hit?.reason ?? null,
+        availableQty: row.qty,
+      };
+    });
+    return { kind: "item" as const, item, onHand: annotated };
   }
 
   async function findByNumber<T extends { number: string }>(
@@ -758,6 +792,34 @@ floorRoute.get("/scan", async (c) => {
     if (parsed.kind === "kit") notFound("No kit matches that barcode");
   }
 
+  if (parsed.kind === "hold" || parsed.kind === "unknown") {
+    const rows = await db
+      .select({
+        id: schema.inventoryHolds.id,
+        warehouseId: schema.inventoryHolds.warehouseId,
+        number: schema.inventoryHolds.number,
+        status: schema.inventoryHolds.status,
+        locationId: schema.inventoryHolds.locationId,
+        itemId: schema.inventoryHolds.itemId,
+        lotCode: schema.inventoryHolds.lotCode,
+        reason: schema.inventoryHolds.reason,
+        notes: schema.inventoryHolds.notes,
+        createdAt: schema.inventoryHolds.createdAt,
+        releasedAt: schema.inventoryHolds.releasedAt,
+        locationCode: schema.locations.code,
+        locationBarcode: schema.locations.barcode,
+        sku: schema.items.sku,
+        itemName: schema.items.name,
+      })
+      .from(schema.inventoryHolds)
+      .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryHolds.locationId))
+      .leftJoin(schema.items, eq(schema.items.id, schema.inventoryHolds.itemId))
+      .where(eq(schema.inventoryHolds.organizationId, organizationId));
+    const hold = await findByNumber(rows, parsed.value);
+    if (hold) return c.json({ kind: "hold" as const, hold });
+    if (parsed.kind === "hold") notFound("No hold matches that barcode");
+  }
+
   notFound("No location, item, or document matches that barcode");
 });
 
@@ -809,6 +871,14 @@ floorRoute.post("/moves", async (c) => {
 
   if (onHand.length === 0) badRequest(`${from.code} is empty`);
 
+  const holds = await loadOpenHolds(db, organizationId, from.warehouseId);
+  const lotQtys = await loadHeldLotQuantities(db, organizationId, holds);
+  const available = applyHoldsToOnHand(
+    onHand.map((row) => ({ ...row, locationId: from.id })),
+    holds,
+    lotQtys,
+  );
+
   const requested = body.lines?.length
     ? body.lines.map((line) => {
         const itemId = requireString(line.itemId, "itemId");
@@ -816,10 +886,23 @@ floorRoute.post("/moves", async (c) => {
         if (!Number.isInteger(qty) || qty <= 0) badRequest("Move quantity must be a positive integer");
         const row = onHand.find((entry) => entry.itemId === itemId);
         if (!row) badRequest("Item is not in the from location");
-        if (qty > row.qty) badRequest(`Only ${row.qty} of ${row.sku} in ${from.code}`);
+        const free = available.find((entry) => entry.itemId === itemId)?.qty ?? 0;
+        if (qty > free) {
+          const hit = matchingHoldForMove(holds, from.id, itemId);
+          if (hit) throw new HeldStockError(hit.sku ?? row.sku, hit.locationCode, hit.number, hit.reason);
+          badRequest(`Only ${row.qty} of ${row.sku} in ${from.code}`);
+        }
         return { itemId, sku: row.sku, itemName: row.itemName, qty };
       })
-    : onHand.map((row) => ({ itemId: row.itemId, sku: row.sku, itemName: row.itemName, qty: row.qty }));
+    : available
+        .filter((row) => row.qty > 0)
+        .map((row) => ({ itemId: row.itemId, sku: row.sku, itemName: row.itemName, qty: row.qty }));
+
+  if (requested.length === 0) {
+    const hit = matchingHoldForMove(holds, from.id, onHand[0]!.itemId) ?? holds.find((hold) => hold.locationId === from.id);
+    if (hit) throw new HeldStockError(hit.sku ?? onHand[0]!.sku, hit.locationCode, hit.number, hit.reason);
+    badRequest(`${from.code} is empty`);
+  }
 
   for (const line of requested) {
     await getOrgItem(db, organizationId, line.itemId);

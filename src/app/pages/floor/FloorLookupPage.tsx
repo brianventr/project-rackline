@@ -40,17 +40,30 @@ function LookupResult({ hit }: { hit: ScanHit }) {
               <li key={row.itemId} className="flex justify-between">
                 <span>
                   <span className="font-mono">{row.sku}</span> {row.itemName}
+                  {row.held ? (
+                    <span className="ml-2 text-xs uppercase text-destructive">
+                      Hold {row.holdNumber}
+                    </span>
+                  ) : null}
                 </span>
-                <span className="font-mono">{row.qty}</span>
+                <span className="font-mono">{row.availableQty ?? row.qty}</span>
               </li>
             ))
           ) : (
             <li className="text-muted-foreground">Empty bay.</li>
           )}
         </ul>
+        {hit.holds?.length ? (
+          <p className="mt-3 text-sm text-destructive">
+            On hold: {hit.holds.map((hold) => `${hold.number} (${hold.reason})`).join(", ")}
+          </p>
+        ) : null}
         <div className="mt-4 flex gap-2">
           <Button>
             <Link to={`/floor/putaway?from=${encodeURIComponent(hit.location.barcode)}`}>Put away / move</Link>
+          </Button>
+          <Button variant="secondary" asChild>
+            <Link to={`/floor/hold?location=${hit.location.id}`}>Hold</Link>
           </Button>
           <Button variant="secondary" asChild>
             <Link to={`/floor/print?code=${encodeURIComponent(hit.location.barcode)}`}>Print label</Link>
@@ -72,8 +85,11 @@ function LookupResult({ hit }: { hit: ScanHit }) {
           {hit.onHand.length ? (
             hit.onHand.map((row) => (
               <li key={row.locationId} className="flex justify-between">
-                <span className="font-mono">{row.locationCode}</span>
-                <span className="font-mono">{row.qty}</span>
+                <span className="font-mono">
+                  {row.locationCode}
+                  {row.held ? <span className="ml-2 text-xs uppercase text-destructive">Hold</span> : null}
+                </span>
+                <span className="font-mono">{row.availableQty ?? row.qty}</span>
               </li>
             ))
           ) : (
@@ -81,6 +97,9 @@ function LookupResult({ hit }: { hit: ScanHit }) {
           )}
         </ul>
         <div className="mt-4 flex gap-2">
+          <Button variant="secondary" asChild>
+            <Link to={`/floor/hold?item=${hit.item.id}`}>Hold</Link>
+          </Button>
           <Button variant="secondary" asChild>
             <Link to={`/floor/print?code=${encodeURIComponent(hit.item.barcode || hit.item.sku)}`}>Print label</Link>
           </Button>
@@ -114,6 +133,8 @@ function LookupResult({ hit }: { hit: ScanHit }) {
               ? { title: hit.replenishment.number, status: hit.replenishment.status, to: documentPath("replenishment", hit.replenishment.id), floor: `/floor/replenish?id=${hit.replenishment.id}` }
               : hit.kind === "kit"
                 ? { title: hit.kit.number, status: hit.kit.status, to: documentPath("kit", hit.kit.id), floor: `/floor/kit?id=${hit.kit.id}` }
+                : hit.kind === "hold"
+                  ? { title: hit.hold.number, status: hit.hold.status, to: documentPath("hold", hit.hold.id), floor: `/floor/hold?id=${hit.hold.id}` }
             : { title: hit.cycleCount.number, status: hit.cycleCount.status, to: documentPath("cycleCount", hit.cycleCount.id), floor: `/floor/count?id=${hit.cycleCount.id}` };
 
   return (

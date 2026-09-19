@@ -8,6 +8,7 @@ import {
   canShipOrder,
   canCompleteKit,
   canPostReplenishment,
+  canReleaseHold,
   isOpenOrder,
   isOpenPurchase,
   normalizeOrderStatus,
@@ -66,5 +67,10 @@ describe("order status", () => {
     expect(canPostReplenishment("posted")).toBe(false);
     expect(canCompleteKit("draft")).toBe(true);
     expect(canCompleteKit("completed")).toBe(false);
+  });
+
+  it("releases holds while they are open", () => {
+    expect(canReleaseHold("open")).toBe(true);
+    expect(canReleaseHold("released")).toBe(false);
   });
 });

@@ -21,6 +21,7 @@ import {
   type PickLine,
   type StockedBay,
 } from "../domain/partial-pick";
+import { availableOnHand } from "../db/holds";
 
 export const ordersRoute = new Hono<AppEnv>();
 
@@ -64,7 +65,8 @@ async function suggestedByItem(
     .where(
       and(eq(schema.inventoryBalances.organizationId, organizationId), inArray(schema.inventoryBalances.itemId, itemIds)),
     );
-  for (const row of rows) {
+  const available = await availableOnHand(db, organizationId, rows);
+  for (const row of available) {
     const list = byItem.get(row.itemId) ?? [];
     list.push({
       locationId: row.locationId,

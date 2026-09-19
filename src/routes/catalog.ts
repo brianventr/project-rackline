@@ -11,6 +11,8 @@ import { suggestReplenishments } from "../domain/replenishment";
 import { suggestPutawayJobs } from "../domain/directed-putaway";
 import { loadPutawayBaysByItem } from "../db/putaway-bays";
 import { countVariance } from "../domain/blind-count";
+import { applyHoldsToOnHand, matchingHoldForMove } from "../domain/holds";
+import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -743,6 +745,35 @@ catalogRoute.get("/dashboard", async (c) => {
     .where(kitWhere)
     .orderBy(desc(schema.kitBuilds.createdAt));
 
+  const holdWhere = and(
+    eq(schema.inventoryHolds.organizationId, organizationId),
+    eq(schema.inventoryHolds.status, "open"),
+    warehouseId ? eq(schema.inventoryHolds.warehouseId, warehouseId) : undefined,
+  );
+  const openHoldRows = await db
+    .select({
+      id: schema.inventoryHolds.id,
+      warehouseId: schema.inventoryHolds.warehouseId,
+      number: schema.inventoryHolds.number,
+      status: schema.inventoryHolds.status,
+      locationId: schema.inventoryHolds.locationId,
+      itemId: schema.inventoryHolds.itemId,
+      lotCode: schema.inventoryHolds.lotCode,
+      reason: schema.inventoryHolds.reason,
+      notes: schema.inventoryHolds.notes,
+      createdAt: schema.inventoryHolds.createdAt,
+      releasedAt: schema.inventoryHolds.releasedAt,
+      locationCode: schema.locations.code,
+      locationBarcode: schema.locations.barcode,
+      sku: schema.items.sku,
+      itemName: schema.items.name,
+    })
+    .from(schema.inventoryHolds)
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryHolds.locationId))
+    .leftJoin(schema.items, eq(schema.items.id, schema.inventoryHolds.itemId))
+    .where(holdWhere)
+    .orderBy(desc(schema.inventoryHolds.createdAt));
+
   const slotLocations = await db
     .select({
       id: schema.locations.id,
@@ -782,11 +813,17 @@ catalogRoute.get("/dashboard", async (c) => {
     })
     .from(schema.items)
     .where(eq(schema.items.organizationId, organizationId));
+  const openHolds = await loadOpenHolds(db, organizationId, warehouseId);
+  const heldLotQtys = await loadHeldLotQuantities(db, organizationId, openHolds);
   const replenishSuggestions = suggestReplenishments({
     locations: slotLocations,
-    onHand: replenishOnHand,
+    onHand: applyHoldsToOnHand(replenishOnHand, openHolds, heldLotQtys),
     items: replenishItems,
-  });
+  }).filter(
+    (job) =>
+      !matchingHoldForMove(openHolds, job.fromLocationId, job.itemId) &&
+      !matchingHoldForMove(openHolds, job.toLocationId, job.itemId),
+  );
 
   const stagingRows = await db
     .select({
@@ -814,8 +851,9 @@ catalogRoute.get("/dashboard", async (c) => {
     );
 
   const putawaySuggestions = [];
-  const stagingByWarehouse = new Map<string, typeof stagingRows>();
-  for (const row of stagingRows) {
+  const availableStaging = applyHoldsToOnHand(stagingRows, openHolds, heldLotQtys).filter((row) => row.qty > 0);
+  const stagingByWarehouse = new Map<string, typeof availableStaging>();
+  for (const row of availableStaging) {
     const list = stagingByWarehouse.get(row.warehouseId) ?? [];
     list.push(row);
     stagingByWarehouse.set(row.warehouseId, list);
@@ -962,6 +1000,7 @@ catalogRoute.get("/dashboard", async (c) => {
     putawayDue: putawaySuggestions.length,
     openCycleCounts: openCountRows.length,
     countVariances: countVariances.length,
+    openHolds: openHoldRows.length,
     openPurchases: openPurchaseRows.length,
     openReturns: openReturnRows.length,
     openReplenishments: openReplenishRows.length,
@@ -977,6 +1016,7 @@ catalogRoute.get("/dashboard", async (c) => {
       putaways: openTransferRows,
       counts: openCountRows,
       countVariances,
+      holds: openHoldRows,
       purchases: openPurchaseRows,
       returns: openReturnRows,
       replenishments: openReplenishRows,

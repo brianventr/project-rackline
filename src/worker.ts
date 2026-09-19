@@ -6,6 +6,7 @@ import { HttpError } from "./lib/http";
 import { InsufficientStockError } from "./domain/inventory";
 import { OverReceiveError } from "./domain/partial-receive";
 import { OverPickError } from "./domain/partial-pick";
+import { HeldStockError } from "./domain/holds";
 import type { AppEnv } from "./lib/types";
 import { originFrom } from "./lib/types";
 import { registerRoute } from "./routes/register";
@@ -26,6 +27,7 @@ import { teamRoute } from "./routes/team";
 import { layoutRoute } from "./routes/layout";
 import { replenishmentsRoute } from "./routes/replenishments";
 import { kitsRoute } from "./routes/kits";
+import { holdsRoute } from "./routes/holds";
 
 const app = new Hono<AppEnv>();
 
@@ -62,6 +64,19 @@ app.onError((err, c) => {
         sku: err.sku,
         remaining: err.remaining,
         qty: err.qty,
+      },
+      409,
+    );
+  }
+  if (err instanceof HeldStockError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "HELD_STOCK",
+        sku: err.sku,
+        locationCode: err.locationCode,
+        holdNumber: err.holdNumber,
+        reason: err.reason,
       },
       409,
     );
@@ -136,5 +151,6 @@ app.route("/api", teamRoute);
 app.route("/api", layoutRoute);
 app.route("/api", replenishmentsRoute);
 app.route("/api", kitsRoute);
+app.route("/api", holdsRoute);
 
 export default app;
