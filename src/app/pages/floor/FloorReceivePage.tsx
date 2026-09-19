@@ -15,6 +15,8 @@ export function FloorReceivePage() {
   const [activePurchase, setActivePurchase] = useState<Purchase | null>(null);
   const [locationId, setLocationId] = useState("");
   const [qtys, setQtys] = useState<Record<string, string>>({});
+  const [lots, setLots] = useState<Record<string, string>>({});
+  const [serials, setSerials] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
@@ -108,7 +110,12 @@ export function FloorReceivePage() {
     setError(null);
     try {
       const lines = (activeReceipt.lines ?? [])
-        .map((line) => ({ itemId: line.itemId, qty: Number(qtys[line.itemId] || 0) }))
+        .map((line) => ({
+          itemId: line.itemId,
+          qty: Number(qtys[line.itemId] || 0),
+          lotCode: lots[line.itemId] || undefined,
+          serials: serials[line.itemId] || undefined,
+        }))
         .filter((line) => line.qty > 0);
       const posted = await api<Receipt>(`/api/receipts/${activeReceipt.id}/receive`, {
         method: "POST",
@@ -128,7 +135,12 @@ export function FloorReceivePage() {
     setError(null);
     try {
       const lines = (activePurchase.lines ?? [])
-        .map((line) => ({ itemId: line.itemId, qty: Number(qtys[line.itemId] || 0) }))
+        .map((line) => ({
+          itemId: line.itemId,
+          qty: Number(qtys[line.itemId] || 0),
+          lotCode: lots[line.itemId] || undefined,
+          serials: serials[line.itemId] || undefined,
+        }))
         .filter((line) => line.qty > 0);
       const posted = await api<Purchase>(`/api/purchases/${activePurchase.id}/receive`, {
         method: "POST",
@@ -203,7 +215,8 @@ export function FloorReceivePage() {
           </div>
           <ul className="space-y-3 text-sm">
             {(activePurchase.lines ?? []).map((line) => (
-              <li key={line.id} className="grid grid-cols-[1fr_6rem] items-center gap-2">
+              <li key={line.id} className="space-y-2">
+                <div className="grid grid-cols-[1fr_6rem] items-center gap-2">
                 <span>
                   {line.sku} · {line.qtyReceived}/{line.qtyOrdered}
                 </span>
@@ -218,6 +231,21 @@ export function FloorReceivePage() {
                 ) : (
                   <span className="text-muted-foreground">Done</span>
                 )}
+                </div>
+                {line.trackLot ? (
+                  <Input
+                    placeholder="Lot code"
+                    value={lots[line.itemId] ?? ""}
+                    onChange={(e) => setLots((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                  />
+                ) : null}
+                {line.trackSerial ? (
+                  <Input
+                    placeholder="Serials"
+                    value={serials[line.itemId] ?? ""}
+                    onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>
@@ -257,7 +285,8 @@ export function FloorReceivePage() {
           </div>
           <ul className="space-y-3 text-sm">
             {(activeReceipt!.lines ?? []).map((line) => (
-              <li key={line.id} className="grid grid-cols-[1fr_6rem] items-center gap-2">
+              <li key={line.id} className="space-y-2">
+                <div className="grid grid-cols-[1fr_6rem] items-center gap-2">
                 <span>
                   {line.sku} · {line.qtyReceived}/{line.qty}
                 </span>
@@ -272,6 +301,21 @@ export function FloorReceivePage() {
                 ) : (
                   <span className="text-muted-foreground">Done</span>
                 )}
+                </div>
+                {line.trackLot ? (
+                  <Input
+                    placeholder="Lot code"
+                    value={lots[line.itemId] ?? ""}
+                    onChange={(e) => setLots((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                  />
+                ) : null}
+                {line.trackSerial ? (
+                  <Input
+                    placeholder="Serials"
+                    value={serials[line.itemId] ?? ""}
+                    onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>

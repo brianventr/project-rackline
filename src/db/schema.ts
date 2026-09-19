@@ -108,6 +108,7 @@ export const locations = sqliteTable(
     sizeX: integer("size_x").notNull().default(4),
     sizeY: integer("size_y").notNull().default(3),
     sizeZ: integer("size_z").notNull().default(2),
+    slotRole: text("slot_role").notNull().default("none"),
   },
   (t) => [
     uniqueIndex("locations_org_wh_code").on(t.organizationId, t.warehouseId, t.code),
@@ -128,6 +129,9 @@ export const items = sqliteTable(
     barcode: text("barcode").notNull().default(""),
     createdAt: integer("created_at").notNull(),
     reorderPoint: integer("reorder_point").notNull().default(0),
+    pickMin: integer("pick_min").notNull().default(0),
+    trackLot: integer("track_lot", { mode: "boolean" }).notNull().default(false),
+    trackSerial: integer("track_serial", { mode: "boolean" }).notNull().default(false),
   },
   (t) => [
     uniqueIndex("items_org_sku").on(t.organizationId, t.sku),
@@ -171,6 +175,8 @@ export const inventoryMovements = sqliteTable("inventory_movements", {
   reason: text("reason"),
   createdAt: integer("created_at").notNull(),
   createdBy: text("created_by").notNull(),
+  lotCode: text("lot_code"),
+  serialsJson: text("serials_json"),
 });
 
 export const receipts = sqliteTable("receipts", {
@@ -236,6 +242,8 @@ export const orders = sqliteTable(
     trackingNumber: text("tracking_number"),
     trackingCompany: text("tracking_company"),
     trackingUrl: text("tracking_url"),
+    shipToAddress: text("ship_to_address"),
+    carrierService: text("carrier_service"),
   },
   (t) => [uniqueIndex("shopify_orders_org_order").on(t.organizationId, t.shopifyOrderId)],
 );
@@ -482,8 +490,96 @@ export const rmaLines = sqliteTable(
   (t) => [uniqueIndex("rma_lines_rma_item").on(t.rmaId, t.itemId)],
 );
 
+export const lotBalances = sqliteTable(
+  "lot_balances",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    locationId: text("location_id")
+      .notNull()
+      .references(() => locations.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    lotCode: text("lot_code").notNull(),
+    qty: integer("qty").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("lot_balances_org_loc_item_lot").on(t.organizationId, t.locationId, t.itemId, t.lotCode)],
+);
+
+export const serials = sqliteTable(
+  "serials",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    serialCode: text("serial_code").notNull(),
+    locationId: text("location_id").references(() => locations.id, { onDelete: "set null" }),
+    status: text("status").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("serials_org_item_code").on(t.organizationId, t.itemId, t.serialCode)],
+);
+
+export const replenishments = sqliteTable("replenishments", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  warehouseId: text("warehouse_id")
+    .notNull()
+    .references(() => warehouses.id),
+  number: text("number").notNull(),
+  status: text("status").notNull(),
+  itemId: text("item_id")
+    .notNull()
+    .references(() => items.id),
+  qty: integer("qty").notNull(),
+  fromLocationId: text("from_location_id")
+    .notNull()
+    .references(() => locations.id),
+  toLocationId: text("to_location_id")
+    .notNull()
+    .references(() => locations.id),
+  notes: text("notes"),
+  createdAt: integer("created_at").notNull(),
+  postedAt: integer("posted_at"),
+});
+
+export const kitBuilds = sqliteTable("kit_builds", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  warehouseId: text("warehouse_id")
+    .notNull()
+    .references(() => warehouses.id),
+  number: text("number").notNull(),
+  status: text("status").notNull(),
+  itemId: text("item_id")
+    .notNull()
+    .references(() => items.id),
+  qty: integer("qty").notNull(),
+  sourceLocationId: text("source_location_id")
+    .notNull()
+    .references(() => locations.id),
+  outputLocationId: text("output_location_id")
+    .notNull()
+    .references(() => locations.id),
+  createdAt: integer("created_at").notNull(),
+  completedAt: integer("completed_at"),
+});
+
 export type ItemType = "raw" | "wip" | "finished" | "packaging";
 export type LocationType = "receiving" | "storage" | "production" | "shipping";
+export type SlotRole = "pick" | "bulk" | "none";
 export type Role = "owner" | "operator";
 export type ReceiptStatus = "draft" | "receiving" | "received";
 export type OrderStatus = "open" | "picking" | "picked" | "packing" | "packed" | "shipped" | "cancelled";
@@ -495,6 +591,9 @@ export type TransferStatus = "draft" | "in_progress" | "posted";
 export type CycleCountStatus = "draft" | "counting" | "posted";
 export type PurchaseStatus = "draft" | "ordered" | "receiving" | "received";
 export type RmaStatus = "open" | "receiving" | "received";
+export type ReplenishmentStatus = "draft" | "in_progress" | "posted";
+export type KitBuildStatus = "draft" | "completed";
+export type SerialStatus = "on_hand" | "shipped" | "consumed";
 export type MovementType =
   | "receive"
   | "move"
@@ -502,4 +601,6 @@ export type MovementType =
   | "ship"
   | "adjust"
   | "wo_consume"
-  | "wo_produce";
+  | "wo_produce"
+  | "kit_consume"
+  | "kit_produce";

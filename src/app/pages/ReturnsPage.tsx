@@ -135,6 +135,7 @@ function ReturnDetail({ id }: { id: string }) {
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationId, setLocationId] = useState("");
   const [qtys, setQtys] = useState<Record<string, string>>({});
+  const [serials, setSerials] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -164,7 +165,11 @@ function ReturnDetail({ id }: { id: string }) {
     setError(null);
     try {
       const lines = (rma.lines ?? [])
-        .map((line) => ({ itemId: line.itemId, qty: Number(qtys[line.itemId] || 0) }))
+        .map((line) => ({
+          itemId: line.itemId,
+          qty: Number(qtys[line.itemId] || 0),
+          serials: serials[line.itemId] || undefined,
+        }))
         .filter((line) => line.qty > 0);
       const next = await api<Rma>(`/api/returns/${id}/receive`, {
         method: "POST",
@@ -238,7 +243,7 @@ function ReturnDetail({ id }: { id: string }) {
           </DocumentRail>
         }
       >
-        <Table columns={["SKU", "Item", "Expected", "Received", "This receive"]}>
+        <Table columns={["SKU", "Item", "Expected", "Received", "This receive", "Serials"]}>
           {(rma.lines ?? []).map((line) => (
             <tr key={line.id}>
               <td className="px-4 py-3 font-mono">{line.sku}</td>
@@ -257,6 +262,15 @@ function ReturnDetail({ id }: { id: string }) {
                 ) : (
                   <span className="text-muted-foreground">Done</span>
                 )}
+              </td>
+              <td className="px-4 py-3">
+                {line.trackSerial ? (
+                  <Input
+                    placeholder="Serials"
+                    value={serials[line.itemId] ?? ""}
+                    onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                  />
+                ) : null}
               </td>
             </tr>
           ))}

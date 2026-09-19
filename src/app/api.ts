@@ -53,7 +53,12 @@ export type Item = {
   type: string;
   barcode: string;
   reorderPoint: number;
+  pickMin?: number;
+  trackLot?: boolean;
+  trackSerial?: boolean;
   onHand?: { locationId: string; locationCode: string; locationName: string; barcode: string; qty: number }[];
+  lots?: { locationId: string; locationCode: string; lotCode: string; qty: number }[];
+  serials?: { serialCode: string; status: string; locationId: string | null; locationCode: string | null }[];
 };
 
 export type Location = {
@@ -73,6 +78,7 @@ export type Location = {
   sizeX: number;
   sizeY: number;
   sizeZ: number;
+  slotRole?: string;
   warehouseId: string;
   warehouseName: string;
 };
@@ -124,6 +130,8 @@ export type ScanWorkOrderHit = { kind: "workOrder"; workOrder: WorkOrder };
 export type ScanCycleCountHit = { kind: "cycleCount"; cycleCount: CycleCount };
 export type ScanPurchaseHit = { kind: "purchase"; purchase: Purchase };
 export type ScanRmaHit = { kind: "rma"; rma: Rma };
+export type ScanReplenishmentHit = { kind: "replenishment"; replenishment: Replenishment };
+export type ScanKitHit = { kind: "kit"; kit: KitBuild };
 
 export type ScanHit =
   | ScanLocationHit
@@ -134,7 +142,9 @@ export type ScanHit =
   | ScanWorkOrderHit
   | ScanCycleCountHit
   | ScanPurchaseHit
-  | ScanRmaHit;
+  | ScanRmaHit
+  | ScanReplenishmentHit
+  | ScanKitHit;
 
 export type MoveResult = {
   ok: true;
@@ -165,6 +175,8 @@ export type ReceiptLine = {
   remaining: number;
   sku: string;
   itemName: string;
+  trackLot?: boolean;
+  trackSerial?: boolean;
 };
 
 export type Receipt = {
@@ -195,6 +207,8 @@ export type Order = {
   trackingNumber?: string | null;
   trackingCompany?: string | null;
   trackingUrl?: string | null;
+  shipToAddress?: string | null;
+  carrierService?: string | null;
   packedAt?: number | null;
   shopify?: { status?: string; fulfillmentId?: string | null; error?: string | null };
   lines?: {
@@ -252,6 +266,66 @@ export type WorkOrder = {
   warehouseId?: string;
 };
 
+export type KitBuild = {
+  id: string;
+  number: string;
+  itemId: string;
+  qty: number;
+  status: string;
+  sku: string;
+  itemName: string;
+  sourceLocationId: string;
+  outputLocationId: string;
+  createdAt: number;
+  warehouseId?: string;
+  trackLot?: boolean;
+  trackSerial?: boolean;
+  components?: { itemId: string; qty: number; sku: string; itemName: string }[];
+};
+
+export type Replenishment = {
+  id: string;
+  number: string;
+  status: string;
+  itemId: string;
+  qty: number;
+  sku: string;
+  itemName: string;
+  fromLocationId: string;
+  toLocationId: string;
+  fromCode?: string;
+  toCode?: string;
+  warehouseId?: string;
+  notes?: string | null;
+  createdAt: number;
+};
+
+export type ReplenishSuggestion = {
+  itemId: string;
+  sku: string;
+  itemName: string;
+  pickMin: number;
+  pickQty: number;
+  fromLocationId: string;
+  fromCode: string;
+  toLocationId: string;
+  toCode: string;
+  qty: number;
+  warehouseId: string;
+};
+
+export type ShippingLabel = {
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  shipToAddress: string;
+  carrierCompany: string;
+  carrierService: string;
+  carrierServiceId: string;
+  trackingNumber: string;
+  trackingUrl: string;
+};
+
 export type Dashboard = {
   onHandUnits: number;
   binRows: number;
@@ -264,9 +338,13 @@ export type Dashboard = {
   openCycleCounts: number;
   openPurchases: number;
   openReturns: number;
+  openReplenishments?: number;
+  openKits?: number;
+  replenishDue?: number;
   lowStock: { itemId: string; sku: string; name: string; onHand: number; reorderPoint: number }[];
   recent: { id: string; type: string; qty: number; createdAt: number; sku: string }[];
   hotBays: { locationId: string; locationCode: string; locationName: string; units: number }[];
+  replenishSuggestions?: ReplenishSuggestion[];
   queues: {
     receipts: Receipt[];
     orders: Order[];
@@ -275,6 +353,8 @@ export type Dashboard = {
     counts: CycleCount[];
     purchases: Purchase[];
     returns: Rma[];
+    replenishments?: Replenishment[];
+    kits?: KitBuild[];
     shopifyExceptions: Order[];
   };
 };
@@ -290,6 +370,8 @@ export type SearchResults = {
   counts: Pick<CycleCount, "id" | "number" | "status">[];
   purchases: Pick<Purchase, "id" | "number" | "vendorName" | "status">[];
   returns: Pick<Rma, "id" | "number" | "customerName" | "status">[];
+  replenishments?: Pick<Replenishment, "id" | "number" | "status">[];
+  kits?: Pick<KitBuild, "id" | "number" | "status">[];
 };
 
 export type TeamMember = {
@@ -341,6 +423,8 @@ export type Movement = {
   createdAt: number;
   fromLocationCode: string | null;
   toLocationCode: string | null;
+  lotCode?: string | null;
+  serialsJson?: string | null;
 };
 
 export type PurchaseLine = {
@@ -351,6 +435,8 @@ export type PurchaseLine = {
   remaining: number;
   sku: string;
   itemName: string;
+  trackLot?: boolean;
+  trackSerial?: boolean;
 };
 
 export type Purchase = {
@@ -373,6 +459,8 @@ export type RmaLine = {
   remaining: number;
   sku: string;
   itemName: string;
+  trackLot?: boolean;
+  trackSerial?: boolean;
 };
 
 export type Rma = {

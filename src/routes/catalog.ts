@@ -3,10 +3,11 @@ import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
-import { requireOwner, isItemType, isLocationType, getOrgLocation } from "../lib/org";
+import { requireOwner, isItemType, isLocationType, isSlotRole, getOrgLocation } from "../lib/org";
 import { badRequest, requireInt, requireString, optionalInt, optionalString } from "../lib/http";
 import { newId } from "../lib/ids";
 import { suggestPlacement } from "../domain/map-layout";
+import { suggestReplenishments } from "../domain/replenishment";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -104,6 +105,7 @@ catalogRoute.get("/locations", async (c) => {
       sizeX: schema.locations.sizeX,
       sizeY: schema.locations.sizeY,
       sizeZ: schema.locations.sizeZ,
+      slotRole: schema.locations.slotRole,
       warehouseId: schema.locations.warehouseId,
       warehouseName: schema.warehouses.name,
     })
@@ -132,12 +134,15 @@ catalogRoute.post("/locations", async (c) => {
     sizeX?: number;
     sizeY?: number;
     sizeZ?: number;
+    slotRole?: string;
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
   const code = requireString(body.code, "code").toUpperCase();
   const name = requireString(body.name, "name");
   const type = requireString(body.type, "type");
   if (!isLocationType(type)) badRequest("Invalid location type");
+  const slotRole = optionalString(body.slotRole) ?? "none";
+  if (!isSlotRole(slotRole)) badRequest("Invalid slot role");
   const barcode = (optionalString(body.barcode) ?? code).toUpperCase();
 
   const db = c.get("db");
@@ -194,6 +199,7 @@ catalogRoute.post("/locations", async (c) => {
         sizeX: placement.sizeX,
         sizeY: placement.sizeY,
         sizeZ: placement.sizeZ,
+        slotRole,
       })
       .returning();
     return c.json(row, 201);
@@ -218,6 +224,7 @@ catalogRoute.patch("/locations/:id", async (c) => {
     sizeX?: number;
     sizeY?: number;
     sizeZ?: number;
+    slotRole?: string;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -247,6 +254,11 @@ catalogRoute.patch("/locations/:id", async (c) => {
   if (sizeY !== undefined) patch.sizeY = sizeY;
   const sizeZ = optionalInt(body.sizeZ, "sizeZ");
   if (sizeZ !== undefined) patch.sizeZ = sizeZ;
+  const slotRole = optionalString(body.slotRole);
+  if (slotRole) {
+    if (!isSlotRole(slotRole)) badRequest("Invalid slot role");
+    patch.slotRole = slotRole;
+  }
 
   if (Object.keys(patch).length === 0) badRequest("No location fields to update");
 
@@ -306,7 +318,29 @@ catalogRoute.get("/items/:id", async (c) => {
     .where(
       and(eq(schema.inventoryBalances.organizationId, organizationId), eq(schema.inventoryBalances.itemId, item.id)),
     );
-  return c.json({ ...item, onHand });
+  const lots = await db
+    .select({
+      locationId: schema.locations.id,
+      locationCode: schema.locations.code,
+      lotCode: schema.lotBalances.lotCode,
+      qty: schema.lotBalances.qty,
+    })
+    .from(schema.lotBalances)
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.lotBalances.locationId))
+    .where(
+      and(eq(schema.lotBalances.organizationId, organizationId), eq(schema.lotBalances.itemId, item.id)),
+    );
+  const serialRows = await db
+    .select({
+      serialCode: schema.serials.serialCode,
+      status: schema.serials.status,
+      locationId: schema.serials.locationId,
+      locationCode: schema.locations.code,
+    })
+    .from(schema.serials)
+    .leftJoin(schema.locations, eq(schema.locations.id, schema.serials.locationId))
+    .where(and(eq(schema.serials.organizationId, organizationId), eq(schema.serials.itemId, item.id)));
+  return c.json({ ...item, onHand, lots, serials: serialRows });
 });
 
 catalogRoute.get("/locations/:id", async (c) => {
@@ -339,6 +373,9 @@ catalogRoute.post("/items", async (c) => {
     type?: string;
     reorderPoint?: number;
     barcode?: string;
+    pickMin?: number;
+    trackLot?: boolean;
+    trackSerial?: boolean;
   }>();
   const sku = requireString(body.sku, "sku").toUpperCase();
   const name = requireString(body.name, "name");
@@ -347,6 +384,8 @@ catalogRoute.post("/items", async (c) => {
   const barcode = (optionalString(body.barcode) ?? sku).toUpperCase();
   const reorderPoint = body.reorderPoint === undefined ? 0 : requireInt(body.reorderPoint, "reorderPoint");
   if (reorderPoint < 0) badRequest("Reorder point cannot be negative");
+  const pickMin = body.pickMin === undefined ? 0 : requireInt(body.pickMin, "pickMin");
+  if (pickMin < 0) badRequest("Pick min cannot be negative");
   try {
     const [row] = await c
       .get("db")
@@ -360,6 +399,9 @@ catalogRoute.post("/items", async (c) => {
         barcode,
         createdAt: Date.now(),
         reorderPoint,
+        pickMin,
+        trackLot: Boolean(body.trackLot),
+        trackSerial: Boolean(body.trackSerial),
       })
       .returning();
     return c.json(row, 201);
@@ -369,18 +411,39 @@ catalogRoute.post("/items", async (c) => {
 });
 
 catalogRoute.patch("/items/:id", async (c) => {
-  const body = await c.req.json<{ reorderPoint?: number; name?: string; barcode?: string }>();
+  const body = await c.req.json<{
+    reorderPoint?: number;
+    name?: string;
+    barcode?: string;
+    pickMin?: number;
+    trackLot?: boolean;
+    trackSerial?: boolean;
+  }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const patch: { reorderPoint?: number; name?: string; barcode?: string } = {};
+  const patch: {
+    reorderPoint?: number;
+    name?: string;
+    barcode?: string;
+    pickMin?: number;
+    trackLot?: boolean;
+    trackSerial?: boolean;
+  } = {};
   if (body.reorderPoint !== undefined) {
     const reorderPoint = requireInt(body.reorderPoint, "reorderPoint");
     if (reorderPoint < 0) badRequest("Reorder point cannot be negative");
     patch.reorderPoint = reorderPoint;
   }
+  if (body.pickMin !== undefined) {
+    const pickMin = requireInt(body.pickMin, "pickMin");
+    if (pickMin < 0) badRequest("Pick min cannot be negative");
+    patch.pickMin = pickMin;
+  }
   if (body.name !== undefined) patch.name = requireString(body.name, "name");
   const barcode = optionalString(body.barcode);
   if (barcode) patch.barcode = barcode.toUpperCase();
+  if (body.trackLot !== undefined) patch.trackLot = Boolean(body.trackLot);
+  if (body.trackSerial !== undefined) patch.trackSerial = Boolean(body.trackSerial);
   if (Object.keys(patch).length === 0) badRequest("Nothing to update");
   try {
     const [row] = await db
@@ -452,6 +515,8 @@ catalogRoute.get("/movements", async (c) => {
       toLocationId: schema.inventoryMovements.toLocationId,
       fromLocationCode: fromLoc.code,
       toLocationCode: toLoc.code,
+      lotCode: schema.inventoryMovements.lotCode,
+      serialsJson: schema.inventoryMovements.serialsJson,
     })
     .from(schema.inventoryMovements)
     .innerJoin(schema.items, eq(schema.items.id, schema.inventoryMovements.itemId))
@@ -527,6 +592,16 @@ catalogRoute.get("/dashboard", async (c) => {
     inArray(schema.rmas.status, ["open", "receiving"]),
     warehouseId ? eq(schema.rmas.warehouseId, warehouseId) : undefined,
   );
+  const replenishWhere = and(
+    eq(schema.replenishments.organizationId, organizationId),
+    inArray(schema.replenishments.status, ["draft", "in_progress"]),
+    warehouseId ? eq(schema.replenishments.warehouseId, warehouseId) : undefined,
+  );
+  const kitWhere = and(
+    eq(schema.kitBuilds.organizationId, organizationId),
+    eq(schema.kitBuilds.status, "draft"),
+    warehouseId ? eq(schema.kitBuilds.warehouseId, warehouseId) : undefined,
+  );
 
   const openReceiptRows = await db.select().from(schema.receipts).where(receiptWhere).orderBy(desc(schema.receipts.createdAt));
   const openOrderRows = await db.select().from(schema.orders).where(orderWhere).orderBy(desc(schema.orders.createdAt));
@@ -585,6 +660,95 @@ catalogRoute.get("/dashboard", async (c) => {
 
   const openPurchaseRows = await db.select().from(schema.purchases).where(purchaseWhere).orderBy(desc(schema.purchases.createdAt));
   const openReturnRows = await db.select().from(schema.rmas).where(returnWhere).orderBy(desc(schema.rmas.createdAt));
+
+  const rplFrom = alias(schema.locations, "rpl_from");
+  const rplTo = alias(schema.locations, "rpl_to");
+  const openReplenishRows = await db
+    .select({
+      id: schema.replenishments.id,
+      number: schema.replenishments.number,
+      status: schema.replenishments.status,
+      itemId: schema.replenishments.itemId,
+      qty: schema.replenishments.qty,
+      fromLocationId: schema.replenishments.fromLocationId,
+      toLocationId: schema.replenishments.toLocationId,
+      fromCode: rplFrom.code,
+      toCode: rplTo.code,
+      sku: schema.items.sku,
+      itemName: schema.items.name,
+      createdAt: schema.replenishments.createdAt,
+      warehouseId: schema.replenishments.warehouseId,
+    })
+    .from(schema.replenishments)
+    .innerJoin(schema.items, eq(schema.items.id, schema.replenishments.itemId))
+    .innerJoin(rplFrom, eq(rplFrom.id, schema.replenishments.fromLocationId))
+    .innerJoin(rplTo, eq(rplTo.id, schema.replenishments.toLocationId))
+    .where(replenishWhere)
+    .orderBy(desc(schema.replenishments.createdAt));
+
+  const openKitRows = await db
+    .select({
+      id: schema.kitBuilds.id,
+      number: schema.kitBuilds.number,
+      itemId: schema.kitBuilds.itemId,
+      qty: schema.kitBuilds.qty,
+      status: schema.kitBuilds.status,
+      sku: schema.items.sku,
+      itemName: schema.items.name,
+      sourceLocationId: schema.kitBuilds.sourceLocationId,
+      outputLocationId: schema.kitBuilds.outputLocationId,
+      createdAt: schema.kitBuilds.createdAt,
+      warehouseId: schema.kitBuilds.warehouseId,
+    })
+    .from(schema.kitBuilds)
+    .innerJoin(schema.items, eq(schema.items.id, schema.kitBuilds.itemId))
+    .where(kitWhere)
+    .orderBy(desc(schema.kitBuilds.createdAt));
+
+  const slotLocations = await db
+    .select({
+      id: schema.locations.id,
+      code: schema.locations.code,
+      warehouseId: schema.locations.warehouseId,
+      slotRole: schema.locations.slotRole,
+      aisle: schema.locations.aisle,
+      rack: schema.locations.rack,
+    })
+    .from(schema.locations)
+    .where(
+      and(
+        eq(schema.locations.organizationId, organizationId),
+        warehouseId ? eq(schema.locations.warehouseId, warehouseId) : undefined,
+      ),
+    );
+  const replenishOnHand = await db
+    .select({
+      locationId: schema.inventoryBalances.locationId,
+      itemId: schema.inventoryBalances.itemId,
+      qty: schema.inventoryBalances.qty,
+    })
+    .from(schema.inventoryBalances)
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
+    .where(
+      and(
+        eq(schema.inventoryBalances.organizationId, organizationId),
+        warehouseId ? eq(schema.locations.warehouseId, warehouseId) : undefined,
+      ),
+    );
+  const replenishItems = await db
+    .select({
+      id: schema.items.id,
+      sku: schema.items.sku,
+      name: schema.items.name,
+      pickMin: schema.items.pickMin,
+    })
+    .from(schema.items)
+    .where(eq(schema.items.organizationId, organizationId));
+  const replenishSuggestions = suggestReplenishments({
+    locations: slotLocations,
+    onHand: replenishOnHand,
+    items: replenishItems,
+  });
 
   const shopifyExceptions = await db
     .select()
@@ -693,6 +857,9 @@ catalogRoute.get("/dashboard", async (c) => {
     openCycleCounts: openCountRows.length,
     openPurchases: openPurchaseRows.length,
     openReturns: openReturnRows.length,
+    openReplenishments: openReplenishRows.length,
+    openKits: openKitRows.length,
+    replenishDue: replenishSuggestions.length,
     lowStock,
     recent,
     hotBays: hotBays.map((row) => ({ ...row, units: Number(row.units) })),
@@ -704,7 +871,10 @@ catalogRoute.get("/dashboard", async (c) => {
       counts: openCountRows,
       purchases: openPurchaseRows,
       returns: openReturnRows,
+      replenishments: openReplenishRows,
+      kits: openKitRows,
       shopifyExceptions,
     },
+    replenishSuggestions,
   });
 });

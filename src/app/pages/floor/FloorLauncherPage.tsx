@@ -6,12 +6,14 @@ const verbs = [
   { to: "/floor/lookup", title: "Lookup", body: "Scan a SKU, bay, or document." },
   { to: "/floor/receive", title: "Receive", body: "Post a receipt or purchase onto the dock, including partials." },
   { to: "/floor/putaway", title: "Put away", body: "Scan from bay, then to bay." },
+  { to: "/floor/replenish", title: "Replenish", body: "Move bulk onto a pick face below min." },
   { to: "/floor/pick", title: "Pick", body: "Take an order out of storage." },
   { to: "/floor/pack", title: "Pack", body: "Confirm lines into the box." },
-  { to: "/floor/ship", title: "Ship", body: "Close the order and fulfill Shopify." },
+  { to: "/floor/ship", title: "Ship", body: "Buy a label, close the order, fulfill Shopify." },
   { to: "/floor/return", title: "Return", body: "Receive an RMA back into a bay." },
   { to: "/floor/count", title: "Count", body: "Snapshot a bay and post variance." },
   { to: "/floor/assemble", title: "Assemble", body: "Complete a work order on the bench." },
+  { to: "/floor/kit", title: "Kit", body: "Build a finished SKU from its recipe in one step." },
 ];
 
 export function FloorLauncherPage() {

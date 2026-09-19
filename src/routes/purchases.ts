@@ -8,6 +8,7 @@ import { docNumber, newId } from "../lib/ids";
 import { postReceiveLines } from "../db/stock";
 import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError } from "../domain/partial-receive";
 import { canReceivePurchase, canStartPurchase } from "../domain/status";
+import { parseSerialList } from "../domain/lots";
 
 export const purchasesRoute = new Hono<AppEnv>();
 
@@ -35,6 +36,8 @@ async function purchaseWithLines(db: AppEnv["Variables"]["db"], organizationId: 
       qtyReceived: schema.purchaseLines.qtyReceived,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      trackLot: schema.items.trackLot,
+      trackSerial: schema.items.trackSerial,
     })
     .from(schema.purchaseLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.purchaseLines.itemId))
@@ -152,7 +155,10 @@ purchasesRoute.post("/purchases/:id/start", async (c) => {
 });
 
 purchasesRoute.post("/purchases/:id/receive", async (c) => {
-  const body = await c.req.json<{ locationId?: string; lines?: { itemId?: string; qty?: number }[] }>();
+  const body = await c.req.json<{
+    locationId?: string;
+    lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[] }[];
+  }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -175,9 +181,11 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
       ? body.lines.map((line) => ({
           itemId: requireString(line.itemId, "itemId"),
           qty: requireInt(line.qty, "qty"),
+          lotCode: line.lotCode?.trim() || null,
+          serials: parseSerialList(line.serials),
         }))
       : purchase.lines
-          .map((line) => ({ itemId: line.itemId, qty: line.remaining }))
+          .map((line) => ({ itemId: line.itemId, qty: line.remaining, lotCode: null as string | null, serials: [] as string[] }))
           .filter((line) => line.qty > 0);
 
   let applied;
@@ -198,7 +206,14 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
     locationId,
     refType: "purchase",
     refId: purchase.id,
-    lines: applied.posted,
+    lines: applied.posted.map((line) => {
+      const extra = incoming.find((row) => row.itemId === line.itemId);
+      return {
+        ...line,
+        lotCode: extra?.lotCode,
+        serials: extra?.serials.length ? extra.serials : null,
+      };
+    }),
     extra: [
       ...purchase.lines.map((line) =>
         db

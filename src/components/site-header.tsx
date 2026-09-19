@@ -140,6 +140,10 @@ function pathForScan(hit: ScanHit): string | null {
       return documentPath("purchase", hit.purchase.id);
     case "rma":
       return documentPath("rma", hit.rma.id);
+    case "replenishment":
+      return documentPath("replenishment", hit.replenishment.id);
+    case "kit":
+      return documentPath("kit", hit.kit.id);
   }
 }
 
@@ -255,6 +259,16 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               Return {rma.number} · {rma.customerName}
             </button>
           ))}
+          {results?.replenishments?.map((row) => (
+            <button key={row.id} className="block w-full text-left" onClick={() => go(`/stock/replenish/${row.id}`)}>
+              Replenish {row.number}
+            </button>
+          ))}
+          {results?.kits?.map((row) => (
+            <button key={row.id} className="block w-full text-left" onClick={() => go(`/make/kits/${row.id}`)}>
+              Kit {row.number}
+            </button>
+          ))}
           {results &&
           !results.items.length &&
           !results.locations.length &&
@@ -264,7 +278,9 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           !results.workOrders.length &&
           !results.counts.length &&
           !results.purchases.length &&
-          !results.returns.length ? (
+          !results.returns.length &&
+          !results.replenishments?.length &&
+          !results.kits?.length ? (
             <p className="text-muted-foreground">Nothing matches that search.</p>
           ) : null}
         </div>

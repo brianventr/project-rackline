@@ -10,9 +10,11 @@ import {
   chainPlans,
   parseBalanceKey,
   planReceive,
+  type MovementDraft,
   type StockPlan,
 } from "../domain/inventory";
 import { newId } from "../lib/ids";
+import { appendTraceabilityStatements, expandMovementsForTraceability } from "./traceability";
 
 export type AppDb = DrizzleD1Database<typeof import("./schema")>;
 
@@ -72,6 +74,11 @@ export async function persistStockPlan(
   },
 ): Promise<void> {
   const statements: BatchItem<"sqlite">[] = [...((input.extra as BatchItem<"sqlite">[] | undefined) ?? [])];
+  const movements: MovementDraft[] = await expandMovementsForTraceability(
+    db,
+    input.organizationId,
+    input.plan.movements,
+  );
 
   for (const [key, qty] of input.plan.balances) {
     const { locationId, itemId } = parseBalanceKey(key);
@@ -97,7 +104,7 @@ export async function persistStockPlan(
     }
   }
 
-  for (const movement of input.plan.movements) {
+  for (const movement of movements) {
     statements.push(
       db.insert(inventoryMovements).values({
         id: newId(),
@@ -112,9 +119,18 @@ export async function persistStockPlan(
         reason: movement.reason ?? null,
         createdAt: input.now,
         createdBy: input.createdBy,
+        lotCode: movement.lotCode ?? null,
+        serialsJson: movement.serials?.length ? JSON.stringify(movement.serials) : null,
       }),
     );
   }
+
+  await appendTraceabilityStatements(db, {
+    organizationId: input.organizationId,
+    now: input.now,
+    movements,
+    statements,
+  });
 
   if (statements.length === 0) return;
   await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
@@ -129,7 +145,7 @@ export async function postReceiveLines(
     locationId: string;
     refType: string;
     refId: string;
-    lines: { itemId: string; qty: number }[];
+    lines: { itemId: string; qty: number; lotCode?: string | null; serials?: string[] | null }[];
     extra?: BatchItem<"sqlite">[];
   },
 ): Promise<void> {
@@ -147,6 +163,8 @@ export async function postReceiveLines(
         qty: line.qty,
         refId: input.refId,
         refType: input.refType,
+        lotCode: line.lotCode,
+        serials: line.serials,
         balances,
       }),
     ),

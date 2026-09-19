@@ -9,6 +9,8 @@ import { chainPlans, planPick, type MovementDraft, type StockPlan } from "../dom
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { fulfillShopifyOrder } from "../domain/shopify-fulfill";
 import { canPackOrder, canPickOrder, canShipOrder, canStartPack, canStartPick } from "../domain/status";
+import { buildShippingLabel, isCarrierService, resolveCarrier } from "../domain/shipping-label";
+import { parseSerialList } from "../domain/lots";
 
 export const ordersRoute = new Hono<AppEnv>();
 
@@ -78,6 +80,7 @@ ordersRoute.post("/orders", async (c) => {
   const body = await c.req.json<{
     warehouseId?: string;
     customerName?: string;
+    shipToAddress?: string;
     lines?: { itemId?: string; qty?: number }[];
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
@@ -107,6 +110,7 @@ ordersRoute.post("/orders", async (c) => {
       customerName,
       status: "open",
       createdAt: Date.now(),
+      shipToAddress: body.shipToAddress?.trim() || null,
     }),
     ...lines.map((line) => db.insert(schema.orderLines).values(line)),
   ]);
@@ -124,7 +128,10 @@ ordersRoute.post("/orders/:id/start", async (c) => {
 });
 
 ordersRoute.post("/orders/:id/pick", async (c) => {
-  const body = await c.req.json<{ locationId?: string }>();
+  const body = await c.req.json<{
+    locationId?: string;
+    lines?: { itemId?: string; lotCode?: string; serials?: string | string[] }[];
+  }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -133,6 +140,16 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
   if (!canPickOrder(order.status)) conflict("Order is not open for picking");
   await getOrgLocation(db, organizationId, locationId);
 
+  const traceByItem = new Map(
+    (body.lines ?? []).map((line) => [
+      requireString(line.itemId, "itemId"),
+      {
+        lotCode: line.lotCode?.trim() || null,
+        serials: parseSerialList(line.serials),
+      },
+    ]),
+  );
+
   const loaded = await loadBalanceMap(
     db,
     organizationId,
@@ -140,16 +157,19 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
   );
   const plan = chainPlans(
     qtyMap(loaded),
-    order.lines.map((line) => (balances) =>
-      planPick({
+    order.lines.map((line) => (balances) => {
+      const trace = traceByItem.get(line.itemId);
+      return planPick({
         itemId: line.itemId,
         sku: line.sku,
         locationId,
         qty: line.qty,
         refId: order.id,
         balances,
-      }),
-    ),
+        lotCode: trace?.lotCode,
+        serials: trace?.serials.length ? trace.serials : null,
+      });
+    }),
   );
 
   const now = Date.now();
@@ -192,12 +212,75 @@ ordersRoute.post("/orders/:id/start-pack", async (c) => {
   return c.json(await orderWithLines(db, organizationId, order.id));
 });
 
+ordersRoute.get("/orders/:id/label", async (c) => {
+  const order = await orderWithLines(c.get("db"), c.get("organizationId")!, c.req.param("id"));
+  return c.json(buildShippingLabel(order));
+});
+
+ordersRoute.post("/orders/:id/label", async (c) => {
+  const body = await c.req
+    .json<{
+      trackingNumber?: string;
+      trackingCompany?: string;
+      trackingUrl?: string;
+      carrierService?: string;
+      shipToAddress?: string;
+    }>()
+    .catch(
+      () =>
+        ({}) as {
+          trackingNumber?: string;
+          trackingCompany?: string;
+          trackingUrl?: string;
+          carrierService?: string;
+          shipToAddress?: string;
+        },
+    );
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const order = await orderWithLines(db, organizationId, c.req.param("id"));
+  const status = order.status === "draft" ? "open" : order.status;
+  if (status === "cancelled") conflict("Cancelled orders cannot take a label");
+  const carrierService =
+    body.carrierService?.trim() || order.carrierService || "rackline_ground";
+  if (!isCarrierService(carrierService)) badRequest("Unknown carrier service");
+  const carrier = resolveCarrier(carrierService);
+  const shipToAddress = body.shipToAddress?.trim() || order.shipToAddress;
+  const label = buildShippingLabel({
+    ...order,
+    shipToAddress,
+    trackingNumber: body.trackingNumber?.trim() || order.trackingNumber,
+    trackingCompany: body.trackingCompany?.trim() || order.trackingCompany || carrier.company,
+    trackingUrl: body.trackingUrl?.trim() || order.trackingUrl,
+    carrierService,
+  });
+  await db
+    .update(schema.orders)
+    .set({
+      trackingNumber: label.trackingNumber,
+      trackingCompany: label.carrierCompany,
+      trackingUrl: label.trackingUrl,
+      carrierService: label.carrierServiceId,
+      shipToAddress: label.shipToAddress,
+    })
+    .where(eq(schema.orders.id, order.id));
+  return c.json(buildShippingLabel(await orderWithLines(db, organizationId, order.id)));
+});
+
 ordersRoute.post("/orders/:id/ship", async (c) => {
   const body = await c.req.json<{
     trackingNumber?: string;
     trackingCompany?: string;
     trackingUrl?: string;
-  }>().catch(() => ({} as { trackingNumber?: string; trackingCompany?: string; trackingUrl?: string }));
+    carrierService?: string;
+    shipToAddress?: string;
+  }>().catch(() => ({} as {
+    trackingNumber?: string;
+    trackingCompany?: string;
+    trackingUrl?: string;
+    carrierService?: string;
+    shipToAddress?: string;
+  }));
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
@@ -216,9 +299,16 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   }));
   const plan: StockPlan = { balances: new Map(), movements };
   const now = Date.now();
-  const trackingNumber = body.trackingNumber?.trim() || null;
-  const trackingCompany = body.trackingCompany?.trim() || null;
-  const trackingUrl = body.trackingUrl?.trim() || null;
+  const carrierService = body.carrierService?.trim() || order.carrierService || "rackline_ground";
+  if (!isCarrierService(carrierService)) badRequest("Unknown carrier service");
+  const label = buildShippingLabel({
+    ...order,
+    shipToAddress: body.shipToAddress?.trim() || order.shipToAddress,
+    trackingNumber: body.trackingNumber?.trim() || order.trackingNumber,
+    trackingCompany: body.trackingCompany?.trim() || order.trackingCompany,
+    trackingUrl: body.trackingUrl?.trim() || order.trackingUrl,
+    carrierService,
+  });
   await persistStockPlan(db, {
     organizationId,
     createdBy: user.id,
@@ -231,9 +321,11 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
         .set({
           status: "shipped",
           shippedAt: now,
-          trackingNumber,
-          trackingCompany,
-          trackingUrl,
+          trackingNumber: label.trackingNumber,
+          trackingCompany: label.carrierCompany,
+          trackingUrl: label.trackingUrl,
+          carrierService: label.carrierServiceId,
+          shipToAddress: label.shipToAddress,
           shopifySyncStatus: order.source === "shopify" ? "pending_fulfill" : order.shopifySyncStatus,
         })
         .where(eq(schema.orders.id, order.id)),

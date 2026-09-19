@@ -23,6 +23,8 @@ import { floorRoute } from "./routes/floor";
 import { searchRoute } from "./routes/search";
 import { teamRoute } from "./routes/team";
 import { layoutRoute } from "./routes/layout";
+import { replenishmentsRoute } from "./routes/replenishments";
+import { kitsRoute } from "./routes/kits";
 
 const app = new Hono<AppEnv>();
 
@@ -119,5 +121,7 @@ app.route("/api", floorRoute);
 app.route("/api", searchRoute);
 app.route("/api", teamRoute);
 app.route("/api", layoutRoute);
+app.route("/api", replenishmentsRoute);
+app.route("/api", kitsRoute);
 
 export default app;

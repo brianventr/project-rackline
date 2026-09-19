@@ -5,7 +5,9 @@ export type MovementType =
   | "ship"
   | "adjust"
   | "wo_consume"
-  | "wo_produce";
+  | "wo_produce"
+  | "kit_consume"
+  | "kit_produce";
 
 export type MovementDraft = {
   type: MovementType;
@@ -16,6 +18,8 @@ export type MovementDraft = {
   refType: string;
   refId: string;
   reason?: string | null;
+  lotCode?: string | null;
+  serials?: string[] | null;
 };
 
 export type StockPlan = {
@@ -72,6 +76,8 @@ export function planReceive(input: {
   refId: string;
   balances: Map<string, number>;
   refType?: string;
+  lotCode?: string | null;
+  serials?: string[] | null;
 }): StockPlan {
   requirePositiveQty(input.qty);
   const balances = new Map(input.balances);
@@ -86,6 +92,8 @@ export function planReceive(input: {
         toLocationId: input.locationId,
         refType: input.refType ?? "receipt",
         refId: input.refId,
+        lotCode: input.lotCode ?? null,
+        serials: input.serials ?? null,
       },
     ],
   };
@@ -98,6 +106,8 @@ export function planPick(input: {
   qty: number;
   refId: string;
   balances: Map<string, number>;
+  lotCode?: string | null;
+  serials?: string[] | null;
 }): StockPlan {
   requirePositiveQty(input.qty);
   const balances = new Map(input.balances);
@@ -112,6 +122,8 @@ export function planPick(input: {
         fromLocationId: input.locationId,
         refType: "order",
         refId: input.refId,
+        lotCode: input.lotCode ?? null,
+        serials: input.serials ?? null,
       },
     ],
   };
@@ -182,6 +194,8 @@ export function planMove(input: {
   refId: string;
   balances: Map<string, number>;
   refType?: string;
+  lotCode?: string | null;
+  serials?: string[] | null;
 }): StockPlan {
   requirePositiveQty(input.qty);
   if (input.fromLocationId === input.toLocationId) {
@@ -201,6 +215,8 @@ export function planMove(input: {
         toLocationId: input.toLocationId,
         refType: input.refType ?? "move",
         refId: input.refId,
+        lotCode: input.lotCode ?? null,
+        serials: input.serials ?? null,
       },
     ],
   };

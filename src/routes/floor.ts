@@ -675,6 +675,20 @@ floorRoute.get("/scan", async (c) => {
     if (parsed.kind === "rma") notFound("No return matches that barcode");
   }
 
+  if (parsed.kind === "replenishment" || parsed.kind === "unknown") {
+    const rows = await db.select().from(schema.replenishments).where(eq(schema.replenishments.organizationId, organizationId));
+    const replenishment = await findByNumber(rows, parsed.value);
+    if (replenishment) return c.json({ kind: "replenishment" as const, replenishment });
+    if (parsed.kind === "replenishment") notFound("No replenishment matches that barcode");
+  }
+
+  if (parsed.kind === "kit" || parsed.kind === "unknown") {
+    const rows = await db.select().from(schema.kitBuilds).where(eq(schema.kitBuilds.organizationId, organizationId));
+    const kit = await findByNumber(rows, parsed.value);
+    if (kit) return c.json({ kind: "kit" as const, kit });
+    if (parsed.kind === "kit") notFound("No kit matches that barcode");
+  }
+
   notFound("No location, item, or document matches that barcode");
 });
 

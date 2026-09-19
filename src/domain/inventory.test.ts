@@ -10,7 +10,7 @@ import {
   planPick,
   planReceive,
 } from "./inventory";
-import { explodeBom, planCompleteWorkOrder } from "./manufacturing";
+import { explodeBom, planCompleteKit, planCompleteWorkOrder } from "./manufacturing";
 
 describe("inventory engine", () => {
   it("receives stock into a location", () => {
@@ -223,6 +223,29 @@ describe("work orders", () => {
     expect(plan.balances.get(balanceKey("PROD", "lamp"))).toBe(3);
     expect(plan.movements.filter((m) => m.type === "wo_consume")).toHaveLength(4);
     expect(plan.movements.filter((m) => m.type === "wo_produce")).toHaveLength(1);
+  });
+
+  it("kits consume components with kit movement types", () => {
+    const balances = new Map<string, number>([
+      [balanceKey("A-01-01", "bulb"), 4],
+      [balanceKey("A-01-01", "shade"), 4],
+    ]);
+    const plan = planCompleteKit({
+      kitId: "kit-1",
+      finishedItemId: "lamp",
+      finishedSku: "LAMP",
+      qty: 1,
+      sourceLocationId: "A-01-01",
+      outputLocationId: "B-01-01",
+      bomLines: [
+        { itemId: "bulb", sku: "LED-BULB", qty: 1 },
+        { itemId: "shade", sku: "SHADE", qty: 1 },
+      ],
+      balances,
+    });
+    expect(plan.movements.map((m) => m.type)).toEqual(["kit_consume", "kit_consume", "kit_produce"]);
+    expect(plan.movements.every((m) => m.refType === "kit")).toBe(true);
+    expect(plan.balances.get(balanceKey("B-01-01", "lamp"))).toBe(1);
   });
 
   it("rejects a work order when a component is short", () => {
