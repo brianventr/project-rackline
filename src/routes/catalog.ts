@@ -517,6 +517,16 @@ catalogRoute.get("/dashboard", async (c) => {
     inArray(schema.cycleCounts.status, ["draft", "counting"]),
     warehouseId ? eq(schema.cycleCounts.warehouseId, warehouseId) : undefined,
   );
+  const purchaseWhere = and(
+    eq(schema.purchases.organizationId, organizationId),
+    inArray(schema.purchases.status, ["draft", "ordered", "receiving"]),
+    warehouseId ? eq(schema.purchases.warehouseId, warehouseId) : undefined,
+  );
+  const returnWhere = and(
+    eq(schema.rmas.organizationId, organizationId),
+    inArray(schema.rmas.status, ["open", "receiving"]),
+    warehouseId ? eq(schema.rmas.warehouseId, warehouseId) : undefined,
+  );
 
   const openReceiptRows = await db.select().from(schema.receipts).where(receiptWhere).orderBy(desc(schema.receipts.createdAt));
   const openOrderRows = await db.select().from(schema.orders).where(orderWhere).orderBy(desc(schema.orders.createdAt));
@@ -572,6 +582,9 @@ catalogRoute.get("/dashboard", async (c) => {
     .innerJoin(schema.locations, eq(schema.locations.id, schema.cycleCounts.locationId))
     .where(countWhere)
     .orderBy(desc(schema.cycleCounts.createdAt));
+
+  const openPurchaseRows = await db.select().from(schema.purchases).where(purchaseWhere).orderBy(desc(schema.purchases.createdAt));
+  const openReturnRows = await db.select().from(schema.rmas).where(returnWhere).orderBy(desc(schema.rmas.createdAt));
 
   const shopifyExceptions = await db
     .select()
@@ -678,6 +691,8 @@ catalogRoute.get("/dashboard", async (c) => {
     shopifyOpenOrders: Number(shopifyOpen?.n ?? 0),
     openTransfers: openTransferRows.length,
     openCycleCounts: openCountRows.length,
+    openPurchases: openPurchaseRows.length,
+    openReturns: openReturnRows.length,
     lowStock,
     recent,
     hotBays: hotBays.map((row) => ({ ...row, units: Number(row.units) })),
@@ -687,6 +702,8 @@ catalogRoute.get("/dashboard", async (c) => {
       workOrders: openWorkOrderRows,
       putaways: openTransferRows,
       counts: openCountRows,
+      purchases: openPurchaseRows,
+      returns: openReturnRows,
       shopifyExceptions,
     },
   });

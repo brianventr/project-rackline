@@ -19,6 +19,8 @@ import { CycleCountsPage } from "./pages/CycleCountsPage";
 import { LedgerPage } from "./pages/LedgerPage";
 import { MapPage } from "./pages/MapPage";
 import { MovePage } from "./pages/MovePage";
+import { PurchasesPage } from "./pages/PurchasesPage";
+import { ReturnsPage } from "./pages/ReturnsPage";
 import { FloorLauncherPage } from "./pages/floor/FloorLauncherPage";
 import { FloorLookupPage } from "./pages/floor/FloorLookupPage";
 import { FloorReceivePage } from "./pages/floor/FloorReceivePage";
@@ -27,10 +29,10 @@ import { FloorPackPage } from "./pages/floor/FloorPackPage";
 import { FloorShipPage } from "./pages/floor/FloorShipPage";
 import { FloorCountPage } from "./pages/floor/FloorCountPage";
 import { FloorAssemblePage } from "./pages/floor/FloorAssemblePage";
+import { FloorReturnPage } from "./pages/floor/FloorReturnPage";
 import { WarehouseSetupPage } from "./pages/setup/WarehouseSetupPage";
 import { TeamPage } from "./pages/setup/TeamPage";
 import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
-import { ComingSoonPage } from "./components/document";
 import { ScannerProvider } from "./scanner/ScannerProvider";
 import { homePath, OwnerOnly } from "./warehouse";
 
@@ -84,6 +86,7 @@ export function App() {
         <Route path="/floor/ship" element={<FloorShipPage />} />
         <Route path="/floor/count" element={<FloorCountPage />} />
         <Route path="/floor/assemble" element={<FloorAssemblePage />} />
+        <Route path="/floor/return" element={<FloorReturnPage />} />
         <Route
           path="/floor/adjust"
           element={
@@ -98,18 +101,8 @@ export function App() {
         <Route path="/inbound/receipts/:id" element={<ReceiptsPage />} />
         <Route path="/inbound/putaway" element={<TransfersPage />} />
         <Route path="/inbound/putaway/:id" element={<TransfersPage />} />
-        <Route
-          path="/inbound/purchases"
-          element={
-            <ComingSoonPage
-              eyebrow="Inbound"
-              title="Purchases"
-              body="Receive against a purchase order when the shop outgrows blank receipts."
-              backTo="/inbound/receipts"
-              backLabel="Start with a receipt"
-            />
-          }
-        />
+        <Route path="/inbound/purchases" element={<PurchasesPage />} />
+        <Route path="/inbound/purchases/:id" element={<PurchasesPage />} />
         <Route path="/stock" element={<InventoryPage />} />
         <Route path="/stock/items" element={me ? <ItemsPage me={me} /> : null} />
         <Route path="/stock/items/:id" element={me ? <ItemsPage me={me} /> : null} />
@@ -123,18 +116,8 @@ export function App() {
         <Route path="/make/work-orders/:id" element={<WorkOrdersPage />} />
         <Route path="/outbound/orders" element={<OrdersPage />} />
         <Route path="/outbound/orders/:id" element={<OrdersPage />} />
-        <Route
-          path="/outbound/returns"
-          element={
-            <ComingSoonPage
-              eyebrow="Outbound"
-              title="Returns"
-              body="Customer returns will land here as RMAs that receive back into a bay."
-              backTo="/outbound/orders"
-              backLabel="Back to orders"
-            />
-          }
-        />
+        <Route path="/outbound/returns" element={<ReturnsPage />} />
+        <Route path="/outbound/returns/:id" element={<ReturnsPage />} />
         <Route
           path="/setup/shopify"
           element={

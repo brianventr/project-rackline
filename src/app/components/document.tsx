@@ -88,13 +88,13 @@ export function DocumentFrame({ children, rail }: { children: ReactNode; rail?: 
   );
 }
 
-export function DocumentActivity({ refId }: { refId: string }) {
+export function DocumentActivity({ refId, refreshKey }: { refId: string; refreshKey?: string | number }) {
   const [rows, setRows] = useState<Movement[]>([]);
   useEffect(() => {
     api<Movement[]>(`/api/movements?refId=${encodeURIComponent(refId)}`)
       .then(setRows)
       .catch(() => setRows([]));
-  }, [refId]);
+  }, [refId, refreshKey]);
   return (
     <div className="rounded-xl border bg-card p-4">
       <p className="mb-2 text-sm font-medium">Activity</p>

@@ -5,8 +5,7 @@ import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
 import { getOrgItem, getOrgLocation } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
-import { chainPlans, planReceive } from "../domain/inventory";
-import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
+import { postReceiveLines } from "../db/stock";
 import { canReceive } from "../domain/status";
 
 export const receiptsRoute = new Hono<AppEnv>();
@@ -130,28 +129,15 @@ receiptsRoute.post("/receipts/:id/receive", async (c) => {
   if (!canReceive(receipt.status)) conflict("Receipt already posted");
   await getOrgLocation(db, organizationId, locationId);
 
-  const pairs = receipt.lines.map((line) => ({ locationId, itemId: line.itemId }));
-  const loaded = await loadBalanceMap(db, organizationId, pairs);
-  const plan = chainPlans(
-    qtyMap(loaded),
-    receipt.lines.map((line) => (balances) =>
-      planReceive({
-        itemId: line.itemId,
-        locationId,
-        qty: line.qty,
-        refId: receipt.id,
-        balances,
-      }),
-    ),
-  );
-
   const now = Date.now();
-  await persistStockPlan(db, {
+  await postReceiveLines(db, {
     organizationId,
     createdBy: user.id,
     now,
-    loaded,
-    plan,
+    locationId,
+    refType: "receipt",
+    refId: receipt.id,
+    lines: receipt.lines.map((line) => ({ itemId: line.itemId, qty: line.qty })),
     extra: [
       db
         .update(schema.receipts)

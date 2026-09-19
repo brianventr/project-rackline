@@ -3,6 +3,8 @@ export const RECEIPT_STEPS = ["draft", "receiving", "received"] as const;
 export const TRANSFER_STEPS = ["draft", "in_progress", "posted"] as const;
 export const WORK_ORDER_STEPS = ["draft", "in_progress", "completed"] as const;
 export const COUNT_STEPS = ["draft", "counting", "posted"] as const;
+export const PURCHASE_STEPS = ["draft", "ordered", "receiving", "received"] as const;
+export const RETURN_STEPS = ["open", "receiving", "received"] as const;
 
 export type OrderStep = (typeof ORDER_STEPS)[number];
 export type ReceiptStep = (typeof RECEIPT_STEPS)[number];
@@ -38,6 +40,26 @@ export function canShipOrder(status: string): boolean {
 
 export function canReceive(status: string): boolean {
   return status === "draft" || status === "receiving";
+}
+
+export function canStartPurchase(status: string): boolean {
+  return status === "draft";
+}
+
+export function canReceivePurchase(status: string): boolean {
+  return status === "draft" || status === "ordered" || status === "receiving";
+}
+
+export function canReceiveReturn(status: string): boolean {
+  return status === "open" || status === "receiving";
+}
+
+export function isOpenPurchase(status: string): boolean {
+  return canReceivePurchase(status);
+}
+
+export function isOpenReturn(status: string): boolean {
+  return canReceiveReturn(status);
 }
 
 export function canPostTransfer(status: string): boolean {

@@ -4,6 +4,7 @@ import { createAuth } from "./lib/auth";
 import { getMembership } from "./lib/org";
 import { HttpError } from "./lib/http";
 import { InsufficientStockError } from "./domain/inventory";
+import { OverReceiveError } from "./domain/partial-receive";
 import type { AppEnv } from "./lib/types";
 import { originFrom } from "./lib/types";
 import { registerRoute } from "./routes/register";
@@ -11,7 +12,9 @@ import { demoRoute } from "./routes/demo";
 import { meRoute } from "./routes/me";
 import { catalogRoute } from "./routes/catalog";
 import { receiptsRoute } from "./routes/receipts";
+import { purchasesRoute } from "./routes/purchases";
 import { ordersRoute } from "./routes/orders";
+import { returnsRoute } from "./routes/returns";
 import { adjustmentsRoute } from "./routes/adjustments";
 import { manufacturingRoute } from "./routes/manufacturing";
 import { shopifyPublicRoute, shopifyRoute } from "./routes/shopify";
@@ -32,6 +35,18 @@ app.onError((err, c) => {
         sku: err.sku,
         onHand: err.onHand,
         needed: err.needed,
+      },
+      409,
+    );
+  }
+  if (err instanceof OverReceiveError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "OVER_RECEIVE",
+        sku: err.sku,
+        remaining: err.remaining,
+        qty: err.qty,
       },
       409,
     );
@@ -94,7 +109,9 @@ app.use("/api/*", async (c, next) => {
 app.route("/api", meRoute);
 app.route("/api", catalogRoute);
 app.route("/api", receiptsRoute);
+app.route("/api", purchasesRoute);
 app.route("/api", ordersRoute);
+app.route("/api", returnsRoute);
 app.route("/api", adjustmentsRoute);
 app.route("/api", manufacturingRoute);
 app.route("/api", shopifyRoute);

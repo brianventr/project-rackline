@@ -122,6 +122,8 @@ export type ScanReceiptHit = { kind: "receipt"; receipt: Receipt };
 export type ScanTransferHit = { kind: "transfer"; transfer: Transfer };
 export type ScanWorkOrderHit = { kind: "workOrder"; workOrder: WorkOrder };
 export type ScanCycleCountHit = { kind: "cycleCount"; cycleCount: CycleCount };
+export type ScanPurchaseHit = { kind: "purchase"; purchase: Purchase };
+export type ScanRmaHit = { kind: "rma"; rma: Rma };
 
 export type ScanHit =
   | ScanLocationHit
@@ -130,7 +132,9 @@ export type ScanHit =
   | ScanReceiptHit
   | ScanTransferHit
   | ScanWorkOrderHit
-  | ScanCycleCountHit;
+  | ScanCycleCountHit
+  | ScanPurchaseHit
+  | ScanRmaHit;
 
 export type MoveResult = {
   ok: true;
@@ -248,6 +252,8 @@ export type Dashboard = {
   shopifyOpenOrders: number;
   openTransfers: number;
   openCycleCounts: number;
+  openPurchases: number;
+  openReturns: number;
   lowStock: { itemId: string; sku: string; name: string; onHand: number; reorderPoint: number }[];
   recent: { id: string; type: string; qty: number; createdAt: number; sku: string }[];
   hotBays: { locationId: string; locationCode: string; locationName: string; units: number }[];
@@ -257,6 +263,8 @@ export type Dashboard = {
     workOrders: WorkOrder[];
     putaways: Transfer[];
     counts: CycleCount[];
+    purchases: Purchase[];
+    returns: Rma[];
     shopifyExceptions: Order[];
   };
 };
@@ -270,6 +278,8 @@ export type SearchResults = {
   transfers: Pick<Transfer, "id" | "number" | "status">[];
   workOrders: Pick<WorkOrder, "id" | "number" | "status">[];
   counts: Pick<CycleCount, "id" | "number" | "status">[];
+  purchases: Pick<Purchase, "id" | "number" | "vendorName" | "status">[];
+  returns: Pick<Rma, "id" | "number" | "customerName" | "status">[];
 };
 
 export type TeamMember = {
@@ -321,4 +331,50 @@ export type Movement = {
   createdAt: number;
   fromLocationCode: string | null;
   toLocationCode: string | null;
+};
+
+export type PurchaseLine = {
+  id: string;
+  itemId: string;
+  qtyOrdered: number;
+  qtyReceived: number;
+  remaining: number;
+  sku: string;
+  itemName: string;
+};
+
+export type Purchase = {
+  id: string;
+  number: string;
+  vendorName: string;
+  status: string;
+  notes: string | null;
+  createdAt: number;
+  locationId: string | null;
+  warehouseId?: string;
+  lines?: PurchaseLine[];
+};
+
+export type RmaLine = {
+  id: string;
+  itemId: string;
+  qtyExpected: number;
+  qtyReceived: number;
+  remaining: number;
+  sku: string;
+  itemName: string;
+};
+
+export type Rma = {
+  id: string;
+  number: string;
+  customerName: string;
+  status: string;
+  notes: string | null;
+  createdAt: number;
+  orderId: string | null;
+  orderNumber?: string | null;
+  locationId: string | null;
+  warehouseId?: string;
+  lines?: RmaLine[];
 };

@@ -17,7 +17,8 @@ export function LabelsSetupPage() {
         </li>
         <li>
           Scan prefixes: <span className="font-mono">LOC:</span>, <span className="font-mono">SKU:</span>,{" "}
-          <span className="font-mono">ORD:</span>, <span className="font-mono">RCP:</span>, <span className="font-mono">WO:</span>
+          <span className="font-mono">ORD:</span>, <span className="font-mono">RCP:</span>,{" "}
+          <span className="font-mono">PO:</span>, <span className="font-mono">RMA:</span>, <span className="font-mono">WO:</span>
         </li>
         <li>USB and Bluetooth gun scanners work on every screen. Camera scan is in the header when the browser supports it.</li>
       </ul>

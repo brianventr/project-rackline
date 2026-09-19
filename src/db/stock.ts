@@ -7,7 +7,9 @@ import {
   type MovementType,
 } from "./schema";
 import {
+  chainPlans,
   parseBalanceKey,
+  planReceive,
   type StockPlan,
 } from "../domain/inventory";
 import { newId } from "../lib/ids";
@@ -116,4 +118,45 @@ export async function persistStockPlan(
 
   if (statements.length === 0) return;
   await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+}
+
+export async function postReceiveLines(
+  db: AppDb,
+  input: {
+    organizationId: string;
+    createdBy: string;
+    now: number;
+    locationId: string;
+    refType: string;
+    refId: string;
+    lines: { itemId: string; qty: number }[];
+    extra?: BatchItem<"sqlite">[];
+  },
+): Promise<void> {
+  const loaded = await loadBalanceMap(
+    db,
+    input.organizationId,
+    input.lines.map((line) => ({ locationId: input.locationId, itemId: line.itemId })),
+  );
+  const plan = chainPlans(
+    qtyMap(loaded),
+    input.lines.map((line) => (balances) =>
+      planReceive({
+        itemId: line.itemId,
+        locationId: input.locationId,
+        qty: line.qty,
+        refId: input.refId,
+        refType: input.refType,
+        balances,
+      }),
+    ),
+  );
+  await persistStockPlan(db, {
+    organizationId: input.organizationId,
+    createdBy: input.createdBy,
+    now: input.now,
+    loaded,
+    plan,
+    extra: input.extra,
+  });
 }

@@ -30,10 +30,10 @@ export function TodayPage() {
       <ErrorBanner error={error} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "To receive", value: data?.openReceipts ?? "—", to: "/inbound/receipts" },
+          { label: "To receive", value: data ? data.openReceipts + data.openPurchases : "—", to: "/inbound/purchases" },
           { label: "To put away", value: data?.openTransfers ?? "—", to: "/inbound/putaway" },
           { label: "To fulfill", value: data?.openOrders ?? "—", to: "/outbound/orders" },
-          { label: "On the bench", value: data?.openWorkOrders ?? "—", to: "/make/work-orders" },
+          { label: "Returns", value: data?.openReturns ?? "—", to: "/outbound/returns" },
         ].map((stat) => (
           <Link key={stat.label} to={stat.to}>
             <Card className="from-primary/5 to-card bg-gradient-to-t shadow-xs">
@@ -56,6 +56,19 @@ export function TodayPage() {
             meta: row.notes || "Receive onto the dock",
             status: row.status,
             actionTo: `/floor/receive?id=${row.id}`,
+            action: "Receive",
+          }))}
+        />
+        <QueueCard
+          title="Purchase orders"
+          empty="No open purchases."
+          rows={(queues?.purchases ?? []).map((row) => ({
+            id: row.id,
+            to: `/inbound/purchases/${row.id}`,
+            title: row.number,
+            meta: row.vendorName,
+            status: row.status,
+            actionTo: `/floor/receive?purchase=${row.id}`,
             action: "Receive",
           }))}
         />
@@ -96,6 +109,19 @@ export function TodayPage() {
             status: row.status,
             actionTo: `/floor/assemble?id=${row.id}`,
             action: "Assemble",
+          }))}
+        />
+        <QueueCard
+          title="Returns"
+          empty="No open RMAs."
+          rows={(queues?.returns ?? []).map((row) => ({
+            id: row.id,
+            to: `/outbound/returns/${row.id}`,
+            title: row.number,
+            meta: row.customerName,
+            status: row.status,
+            actionTo: `/floor/return?id=${row.id}`,
+            action: "Receive",
           }))}
         />
         <QueueCard
