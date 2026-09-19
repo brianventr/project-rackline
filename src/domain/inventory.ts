@@ -146,6 +146,7 @@ export function planMove(input: {
   toLocationId: string;
   refId: string;
   balances: Map<string, number>;
+  refType?: string;
 }): StockPlan {
   requirePositiveQty(input.qty);
   if (input.fromLocationId === input.toLocationId) {
@@ -163,7 +164,7 @@ export function planMove(input: {
         qty: input.qty,
         fromLocationId: input.fromLocationId,
         toLocationId: input.toLocationId,
-        refType: "move",
+        refType: input.refType ?? "move",
         refId: input.refId,
       },
     ],
@@ -202,6 +203,34 @@ export function planAdjust(input: {
       },
     ],
   };
+}
+
+export function planCycleCount(input: {
+  refId: string;
+  locationId: string;
+  lines: { itemId: string; sku: string; systemQty: number; countedQty: number }[];
+  balances: Map<string, number>;
+}): StockPlan {
+  const steps: Array<(balances: Map<string, number>) => StockPlan> = [];
+  for (const line of input.lines) {
+    if (!Number.isInteger(line.countedQty) || line.countedQty < 0) {
+      throw new Error(`Counted quantity for ${line.sku} must be a non-negative integer`);
+    }
+    const delta = line.countedQty - line.systemQty;
+    if (delta === 0) continue;
+    steps.push((balances) =>
+      planAdjust({
+        itemId: line.itemId,
+        sku: line.sku,
+        locationId: input.locationId,
+        qtyDelta: delta,
+        reason: `Cycle count variance (${line.systemQty} → ${line.countedQty})`,
+        refId: input.refId,
+        balances,
+      }),
+    );
+  }
+  return chainPlans(input.balances, steps);
 }
 
 export function mergePlans(plans: StockPlan[]): StockPlan {

@@ -1,32 +1,33 @@
 import { useEffect, useState } from "react";
-import { api, type Item, type Location, type Me, type Receipt } from "../api";
+import { api, type Item, type Location, type Me, type Transfer } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
 
 type Line = { itemId: string; qty: string };
 
-export function ReceiptsPage({ me }: { me: Me }) {
-  const [receipts, setReceipts] = useState<Receipt[]>([]);
+export function TransfersPage({ me }: { me: Me }) {
+  const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [fromLocationId, setFromLocationId] = useState("");
+  const [toLocationId, setToLocationId] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
-  const [receiveLocation, setReceiveLocation] = useState("");
   const [error, setError] = useState<string | null>(null);
   const warehouseId = me.warehouses[0]?.id;
 
   async function load() {
-    const [nextReceipts, nextItems, nextLocations] = await Promise.all([
-      api<Receipt[]>("/api/receipts"),
+    const [nextTransfers, nextItems, nextLocations] = await Promise.all([
+      api<Transfer[]>("/api/transfers"),
       api<Item[]>("/api/items"),
       api<Location[]>("/api/locations"),
     ]);
-    setReceipts(nextReceipts);
+    setTransfers(nextTransfers);
     setItems(nextItems);
     setLocations(nextLocations);
-    if (!receiveLocation) {
-      const recv = nextLocations.find((location) => location.type === "receiving") ?? nextLocations[0];
-      if (recv) setReceiveLocation(recv.id);
-    }
+    const recv = nextLocations.find((location) => location.type === "receiving") ?? nextLocations[0];
+    const storage = nextLocations.find((location) => location.type === "storage") ?? nextLocations[1];
+    if (!fromLocationId && recv) setFromLocationId(recv.id);
+    if (!toLocationId && storage) setToLocationId(storage.id);
   }
 
   useEffect(() => {
@@ -36,10 +37,12 @@ export function ReceiptsPage({ me }: { me: Me }) {
   async function create() {
     setError(null);
     try {
-      await api("/api/receipts", {
+      await api("/api/transfers", {
         method: "POST",
         body: JSON.stringify({
           warehouseId,
+          fromLocationId,
+          toLocationId,
           notes,
           lines: lines
             .filter((line) => line.itemId)
@@ -50,35 +53,52 @@ export function ReceiptsPage({ me }: { me: Me }) {
       setLines([{ itemId: "", qty: "1" }]);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create receipt");
+      setError(err instanceof Error ? err.message : "Could not create transfer");
     }
   }
 
-  async function receive(id: string) {
+  async function post(id: string) {
     setError(null);
     try {
-      await api(`/api/receipts/${id}/receive`, {
-        method: "POST",
-        body: JSON.stringify({ locationId: receiveLocation }),
-      });
+      await api(`/api/transfers/${id}/post`, { method: "POST" });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not receive");
+      setError(err instanceof Error ? err.message : "Could not post transfer");
     }
   }
 
   return (
     <div>
       <PageHeader
-        eyebrow="Inbound"
-        title="Receive"
-        description="Draft a receipt, then post it into a bin. Posting writes the inventory ledger."
+        eyebrow="Putaway"
+        title="Transfers"
+        description="Move stock from one bin to another — dock to rack, bench to staging. Posting writes a move on the ledger."
       />
       <ErrorBanner error={error} />
       <Card className="mb-6">
         <form className="space-y-4" onSubmit={onSubmit(create)}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="From">
+              <Select value={fromLocationId} onChange={(e) => setFromLocationId(e.target.value)}>
+                {locations.map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {location.code} — {location.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="To">
+              <Select value={toLocationId} onChange={(e) => setToLocationId(e.target.value)}>
+                {locations.map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {location.code} — {location.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
           <Field label="Notes">
-            <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="PO or vendor reference" />
+            <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Putaway from receiving" />
           </Field>
           <div className="space-y-2">
             {lines.map((line, index) => (
@@ -114,34 +134,24 @@ export function ReceiptsPage({ me }: { me: Me }) {
               Add line
             </Button>
           </div>
-          <Button type="submit">Create receipt</Button>
+          <Button type="submit">Create transfer</Button>
         </form>
       </Card>
-      <div className="mb-4 max-w-sm">
-        <Field label="Post into location">
-          <Select value={receiveLocation} onChange={(e) => setReceiveLocation(e.target.value)}>
-            {locations.map((location) => (
-              <option key={location.id} value={location.id}>
-                {location.code} — {location.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
-      <Table columns={["Number", "Status", "Lines", "Notes", ""]}>
-        {receipts.map((receipt) => (
-          <tr key={receipt.id}>
-            <td className="px-4 py-3 font-mono">{receipt.number}</td>
+      <Table columns={["Number", "From", "To", "Lines", "Status", ""]}>
+        {transfers.map((transfer) => (
+          <tr key={transfer.id}>
+            <td className="px-4 py-3 font-mono">{transfer.number}</td>
+            <td className="px-4 py-3 font-mono">{transfer.fromCode}</td>
+            <td className="px-4 py-3 font-mono">{transfer.toCode}</td>
+            <td className="px-4 py-3 text-sm">{summarizeLines(transfer.lines)}</td>
             <td className="px-4 py-3">
-              <StatusBadge status={receipt.status} />
+              <StatusBadge status={transfer.status} />
             </td>
-            <td className="px-4 py-3 text-sm">{summarizeLines(receipt.lines)}</td>
-            <td className="px-4 py-3 text-muted">{receipt.notes || "—"}</td>
             <td className="px-4 py-3 text-right">
-              {receipt.status === "draft" ? (
-                <Button onClick={() => receive(receipt.id)}>Receive</Button>
+              {transfer.status === "draft" ? (
+                <Button onClick={() => post(transfer.id)}>Post</Button>
               ) : (
-                <span className="text-xs text-muted">Posted</span>
+                <span className="text-xs text-muted">Moved</span>
               )}
             </td>
           </tr>

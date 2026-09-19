@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type Item, type Location, type Me, type Order } from "../api";
-import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit } from "../components/ui";
+import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
 
 type Line = { itemId: string; qty: string };
 
@@ -11,6 +12,8 @@ export function OrdersPage({ me }: { me: Me }) {
   const [customerName, setCustomerName] = useState("");
   const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
   const [pickLocation, setPickLocation] = useState("");
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [trackingCompany, setTrackingCompany] = useState("");
   const [error, setError] = useState<string | null>(null);
   const warehouseId = me.warehouses[0]?.id;
 
@@ -70,10 +73,26 @@ export function OrdersPage({ me }: { me: Me }) {
   async function ship(id: string) {
     setError(null);
     try {
-      await api(`/api/orders/${id}/ship`, { method: "POST" });
+      await api(`/api/orders/${id}/ship`, {
+        method: "POST",
+        body: JSON.stringify({
+          trackingNumber: trackingNumber || undefined,
+          trackingCompany: trackingCompany || undefined,
+        }),
+      });
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ship failed");
+    }
+  }
+
+  async function retryShopify(id: string) {
+    setError(null);
+    try {
+      await api(`/api/orders/${id}/shopify/fulfill`, { method: "POST" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Shopify fulfill failed");
     }
   }
 
@@ -82,7 +101,7 @@ export function OrdersPage({ me }: { me: Me }) {
       <PageHeader
         eyebrow="Outbound"
         title="Orders"
-        description="Pick decrements the bin. Ship records the outbound movement without double-counting."
+        description="Shopify checkouts arrive as drafts. Pick decrements the bin. Ship records the outbound movement and posts fulfillment back to Shopify."
       />
       <ErrorBanner error={error} />
       <Card className="mb-6">
@@ -124,10 +143,10 @@ export function OrdersPage({ me }: { me: Me }) {
               Add line
             </Button>
           </div>
-          <Button type="submit">Create order</Button>
+          <Button type="submit">Create floor order</Button>
         </form>
       </Card>
-      <div className="mb-4 max-w-sm">
+      <div className="mb-4 grid gap-3 md:grid-cols-3">
         <Field label="Pick from location">
           <Select value={pickLocation} onChange={(e) => setPickLocation(e.target.value)}>
             {locations.map((location) => (
@@ -137,19 +156,64 @@ export function OrdersPage({ me }: { me: Me }) {
             ))}
           </Select>
         </Field>
+        <Field label="Tracking number">
+          <Input
+            value={trackingNumber}
+            onChange={(e) => setTrackingNumber(e.target.value)}
+            placeholder="Optional for Shopify"
+          />
+        </Field>
+        <Field label="Carrier">
+          <Input
+            value={trackingCompany}
+            onChange={(e) => setTrackingCompany(e.target.value)}
+            placeholder="UPS, USPS…"
+          />
+        </Field>
       </div>
-      <Table columns={["Number", "Customer", "Status", ""]}>
+      <Table columns={["Number", "Channel", "Customer", "Lines", "Status", "Shopify", ""]}>
         {orders.map((order) => (
           <tr key={order.id}>
             <td className="px-4 py-3 font-mono">{order.number}</td>
+            <td className="px-4 py-3">
+              {order.source === "shopify" ? (
+                <Link className="font-medium text-warn underline-offset-2 hover:underline" to="/shopify">
+                  Shopify
+                </Link>
+              ) : (
+                <span className="text-muted">Floor</span>
+              )}
+            </td>
             <td className="px-4 py-3">{order.customerName}</td>
+            <td className="px-4 py-3 text-sm">{summarizeLines(order.lines)}</td>
             <td className="px-4 py-3">
               <StatusBadge status={order.status} />
+            </td>
+            <td className="px-4 py-3">
+              {order.source === "shopify" ? (
+                <div>
+                  <StatusBadge status={order.shopifySyncStatus || "inbound"} />
+                  {order.shopifySyncError ? (
+                    <p className="mt-1 max-w-xs text-xs text-bad">{order.shopifySyncError}</p>
+                  ) : null}
+                </div>
+              ) : (
+                <span className="text-muted">—</span>
+              )}
             </td>
             <td className="px-4 py-3 text-right">
               <div className="flex justify-end gap-2">
                 {order.status === "draft" ? <Button onClick={() => pick(order.id)}>Pick</Button> : null}
-                {order.status === "picked" ? <Button onClick={() => ship(order.id)}>Ship</Button> : null}
+                {order.status === "picked" ? (
+                  <Button onClick={() => ship(order.id)}>
+                    {order.source === "shopify" ? "Ship & fulfill" : "Ship"}
+                  </Button>
+                ) : null}
+                {order.status === "shipped" && order.source === "shopify" && order.shopifySyncStatus === "failed" ? (
+                  <Button variant="secondary" onClick={() => retryShopify(order.id)}>
+                    Retry Shopify
+                  </Button>
+                ) : null}
               </div>
             </td>
           </tr>

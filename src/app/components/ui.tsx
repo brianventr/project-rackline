@@ -1,6 +1,10 @@
 import {
+  cloneElement,
+  isValidElement,
+  useId,
   type FormEvent,
   type InputHTMLAttributes,
+  type ReactElement,
   type ReactNode,
   type SelectHTMLAttributes,
 } from "react";
@@ -76,11 +80,16 @@ export function Field({
   label: string;
   children: ReactNode;
 }) {
+  const id = useId();
   return (
-    <label className="block text-sm">
-      <span className="mb-1.5 block font-medium text-ink/80">{label}</span>
-      {children}
-    </label>
+    <div className="block text-sm">
+      <label htmlFor={id} className="mb-1.5 block font-medium text-ink/80">
+        {label}
+      </label>
+      {isValidElement(children)
+        ? cloneElement(children as ReactElement<{ id?: string }>, { id })
+        : children}
+    </div>
   );
 }
 
@@ -97,11 +106,19 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
 
 export function StatusBadge({ status }: { status: string }) {
   const tone =
-    status === "received" || status === "shipped" || status === "completed"
+    status === "received" ||
+    status === "shipped" ||
+    status === "completed" ||
+    status === "posted" ||
+    status === "synced" ||
+    status === "ok" ||
+    status === "demo"
       ? "bg-ok/15 text-ok"
-      : status === "picked"
+      : status === "picked" || status === "inbound" || status === "pending_fulfill" || status === "live"
         ? "bg-amber/20 text-warn"
-        : "bg-line text-ink";
+        : status === "cancelled" || status === "failed"
+          ? "bg-bad/15 text-bad"
+          : "bg-line text-ink";
   return (
     <span className={`rounded-full px-2.5 py-0.5 font-mono text-xs uppercase tracking-wide ${tone}`}>
       {status}
@@ -157,4 +174,9 @@ export function onSubmit(handler: () => Promise<void>) {
     event.preventDefault();
     await handler();
   };
+}
+
+export function summarizeLines(lines?: { sku: string; qty: number }[]): string {
+  if (!lines?.length) return "—";
+  return lines.map((line) => `${line.sku} × ${line.qty}`).join(", ");
 }

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
@@ -7,6 +7,7 @@ import { getOrgItem, getOrgLocation } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
 import { chainPlans, planPick, type MovementDraft, type StockPlan } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
+import { fulfillShopifyOrder } from "../domain/shopify-fulfill";
 
 export const ordersRoute = new Hono<AppEnv>();
 
@@ -24,6 +25,8 @@ async function orderWithLines(db: AppEnv["Variables"]["db"], organizationId: str
       qty: schema.orderLines.qty,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      shopifyLineItemId: schema.orderLines.shopifyLineItemId,
+      shopifyFulfillmentLineItemId: schema.orderLines.shopifyFulfillmentLineItemId,
     })
     .from(schema.orderLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.orderLines.itemId))
@@ -32,13 +35,38 @@ async function orderWithLines(db: AppEnv["Variables"]["db"], organizationId: str
 }
 
 ordersRoute.get("/orders", async (c) => {
-  const rows = await c
-    .get("db")
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const rows = await db
     .select()
     .from(schema.orders)
-    .where(eq(schema.orders.organizationId, c.get("organizationId")!))
+    .where(eq(schema.orders.organizationId, organizationId))
     .orderBy(desc(schema.orders.createdAt));
-  return c.json(rows);
+  if (rows.length === 0) return c.json([]);
+  const lines = await db
+    .select({
+      id: schema.orderLines.id,
+      orderId: schema.orderLines.orderId,
+      itemId: schema.orderLines.itemId,
+      qty: schema.orderLines.qty,
+      sku: schema.items.sku,
+      itemName: schema.items.name,
+    })
+    .from(schema.orderLines)
+    .innerJoin(schema.items, eq(schema.items.id, schema.orderLines.itemId))
+    .where(
+      inArray(
+        schema.orderLines.orderId,
+        rows.map((row) => row.id),
+      ),
+    );
+  const byOrder = new Map<string, typeof lines>();
+  for (const line of lines) {
+    const list = byOrder.get(line.orderId) ?? [];
+    list.push(line);
+    byOrder.set(line.orderId, list);
+  }
+  return c.json(rows.map((row) => ({ ...row, lines: byOrder.get(row.id) ?? [] })));
 });
 
 ordersRoute.get("/orders/:id", async (c) => {
@@ -133,6 +161,11 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
 });
 
 ordersRoute.post("/orders/:id/ship", async (c) => {
+  const body = await c.req.json<{
+    trackingNumber?: string;
+    trackingCompany?: string;
+    trackingUrl?: string;
+  }>().catch(() => ({} as { trackingNumber?: string; trackingCompany?: string; trackingUrl?: string }));
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
@@ -151,6 +184,9 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   }));
   const plan: StockPlan = { balances: new Map(), movements };
   const now = Date.now();
+  const trackingNumber = body.trackingNumber?.trim() || null;
+  const trackingCompany = body.trackingCompany?.trim() || null;
+  const trackingUrl = body.trackingUrl?.trim() || null;
   await persistStockPlan(db, {
     organizationId,
     createdBy: user.id,
@@ -158,9 +194,29 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
     loaded: new Map(),
     plan,
     extra: [
-      db.update(schema.orders).set({ status: "shipped", shippedAt: now }).where(eq(schema.orders.id, order.id)),
+      db
+        .update(schema.orders)
+        .set({
+          status: "shipped",
+          shippedAt: now,
+          trackingNumber,
+          trackingCompany,
+          trackingUrl,
+          shopifySyncStatus: order.source === "shopify" ? "pending_fulfill" : order.shopifySyncStatus,
+        })
+        .where(eq(schema.orders.id, order.id)),
     ],
   });
 
-  return c.json(await orderWithLines(db, organizationId, order.id));
+  let shopify;
+  if (order.source === "shopify") {
+    shopify = await fulfillShopifyOrder(db, organizationId, order.id);
+  }
+  return c.json({ ...(await orderWithLines(db, organizationId, order.id)), shopify });
+});
+
+ordersRoute.post("/orders/:id/shopify/fulfill", async (c) => {
+  const result = await fulfillShopifyOrder(c.get("db"), c.get("organizationId")!, c.req.param("id"));
+  const order = await orderWithLines(c.get("db"), c.get("organizationId")!, c.req.param("id"));
+  return c.json({ ...order, shopify: result }, result.status === "failed" ? 409 : 200);
 });

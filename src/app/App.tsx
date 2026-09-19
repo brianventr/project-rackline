@@ -15,6 +15,10 @@ import { AdjustmentsPage } from "./pages/AdjustmentsPage";
 import { MapPage } from "./pages/MapPage";
 import { MovePage } from "./pages/MovePage";
 import { ScannerProvider } from "./scanner/ScannerProvider";
+import { ShopifyPage } from "./pages/ShopifyPage";
+import { TransfersPage } from "./pages/TransfersPage";
+import { CycleCountsPage } from "./pages/CycleCountsPage";
+import { LedgerPage } from "./pages/LedgerPage";
 
 function Guard({ me }: { me: Me | null }) {
   if (!me) return <Navigate to="/login" replace />;
@@ -55,10 +59,14 @@ export function App() {
         <Route path="/locations" element={me ? <LocationsPage me={me} /> : null} />
         <Route path="/inventory" element={<InventoryPage />} />
         <Route path="/receipts" element={me ? <ReceiptsPage me={me} /> : null} />
+        <Route path="/transfers" element={me ? <TransfersPage me={me} /> : null} />
         <Route path="/orders" element={me ? <OrdersPage me={me} /> : null} />
+        <Route path="/shopify" element={me ? <ShopifyPage me={me} /> : null} />
         <Route path="/boms" element={me ? <BomsPage me={me} /> : null} />
         <Route path="/work-orders" element={me ? <WorkOrdersPage me={me} /> : null} />
+        <Route path="/counts" element={me ? <CycleCountsPage me={me} /> : null} />
         <Route path="/adjustments" element={<AdjustmentsPage />} />
+        <Route path="/ledger" element={<LedgerPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
