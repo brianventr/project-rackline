@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { defaultRackSpec } from "./rack-builder";
 import {
   BEAM_HEIGHT,
-  BEAM_WIDTH,
   COL_ACROSS,
   COL_ALONG,
+  HOLE_PITCH,
   PALLET_LIFT,
   beamCenterY,
   buildRackParts,
@@ -25,6 +25,14 @@ const northSouth = () =>
     levelHeight: 2,
   });
 
+function yawY(pose: { qx?: number; qy?: number; qz?: number; qw?: number }) {
+  const x = pose.qx ?? 0;
+  const y = pose.qy ?? 0;
+  const z = pose.qz ?? 0;
+  const w = pose.qw ?? 1;
+  return Math.atan2(2 * (w * y + x * z), 1 - 2 * (y * y + z * z));
+}
+
 describe("rack geometry", () => {
   it("places one upright on each bay-pitch station, not stacked hole modules", () => {
     const spec = northSouth();
@@ -44,21 +52,44 @@ describe("rack geometry", () => {
     expect(parts.beams).toHaveLength(spec.bays * spec.levels * 2);
     const beam = parts.beams[0]!;
     expect(beam.sz).toBeCloseTo(spec.bayPitch - COL_ALONG, 4);
-    expect(beam.sx).toBeCloseTo(BEAM_WIDTH, 4);
-    expect(beam.sy).toBeCloseTo(BEAM_HEIGHT, 4);
+    expect(beam.sx).toBe(1);
+    expect(beam.sy).toBe(1);
     expect(beam.z).toBeCloseTo(7 + spec.bayPitch / 2, 4);
     expect(beam.y).toBeCloseTo(beamCenterY(1, spec, false), 4);
   });
 
-  it("keeps uprights fixed when levels explode and only lifts beams", () => {
+  it("turns C-channel openings and beam steps into the bay", () => {
+    const spec = northSouth();
+    const parts = buildRackParts(spec, false);
+    const front = parts.columns.find((c) => Math.abs(c.x - (2 + COL_ACROSS / 2)) < 1e-6)!;
+    const rear = parts.columns.find((c) => Math.abs(c.x - (2 + spec.bayDepth - COL_ACROSS / 2)) < 1e-6)!;
+    expect(yawY(front)).toBeCloseTo(0, 5);
+    expect(Math.abs(yawY(rear))).toBeCloseTo(Math.PI, 5);
+    const frontBeam = parts.beams.find((b) => Math.abs(b.x - (2 + COL_ACROSS / 2)) < 1e-6)!;
+    expect(yawY(frontBeam)).toBeCloseTo(0, 5);
+  });
+
+  it("keeps uprights and punches fixed when levels explode and only lifts beams", () => {
     const spec = defaultRackSpec({ bays: 2, levels: 4, bayPitch: 4, levelHeight: 2 });
     const solid = buildRackParts(spec, false);
     const exploded = buildRackParts(spec, true);
     expect(exploded.columns).toHaveLength(solid.columns.length);
     expect(exploded.columns[0]!.sy).toBe(solid.columns[0]!.sy);
     expect(exploded.beams).toHaveLength(solid.beams.length);
+    expect(exploded.holes).toHaveLength(solid.holes.length);
+    expect(exploded.waterfalls).toHaveLength(solid.waterfalls.length);
     expect(Math.max(...exploded.beams.map((b) => b.y))).toBeGreaterThan(Math.max(...solid.beams.map((b) => b.y)));
     expect(exploded.beams[0]!.y).toBeCloseTo(solid.beams[0]!.y, 4);
+    expect(exploded.holes[0]!.y).toBeCloseTo(solid.holes[0]!.y, 4);
+  });
+
+  it("punches teardrops on both along-faces of each upright", () => {
+    const spec = northSouth();
+    const parts = buildRackParts(spec, false);
+    const holeCount = Math.max(1, Math.floor((rackHeight(spec) - 0.1) / HOLE_PITCH));
+    expect(parts.holes).toHaveLength(parts.columns.length * 2 * holeCount);
+    expect(parts.wires.length).toBeGreaterThan(0);
+    expect(parts.waterfalls).toHaveLength(parts.beams.length);
   });
 
   it("orients a 90° run so pitch is along X", () => {
@@ -76,8 +107,10 @@ describe("rack geometry", () => {
     const xs = [...new Set(parts.columns.map((c) => c.x))].sort((a, b) => a - b);
     expect(xs).toEqual([5, 8, 11]);
     const beam = parts.beams[0]!;
-    expect(beam.sx).toBeCloseTo(spec.bayPitch - COL_ALONG, 4);
+    expect(beam.sz).toBeCloseTo(spec.bayPitch - COL_ALONG, 4);
+    expect(beam.sx).toBe(1);
     expect(beam.x).toBeCloseTo(5 + spec.bayPitch / 2, 4);
+    expect(Math.abs(yawY(beam))).toBeCloseTo(Math.PI / 2, 5);
   });
 
   it("sizes pallet loads inside the bay instead of filling it", () => {

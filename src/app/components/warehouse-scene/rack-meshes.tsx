@@ -14,6 +14,8 @@ function InstancedParts({
   metalness,
   roughness,
   ghost,
+  polygonOffset,
+  envMapIntensity = 1.15,
 }: {
   poses: Pose[];
   geometry: THREE.BufferGeometry;
@@ -21,6 +23,8 @@ function InstancedParts({
   metalness: number;
   roughness: number;
   ghost?: boolean;
+  polygonOffset?: boolean;
+  envMapIntensity?: number;
 }) {
   const mesh = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
@@ -45,7 +49,10 @@ function InstancedParts({
         roughness={roughness}
         transparent={ghost}
         opacity={ghost ? 0.4 : 1}
-        envMapIntensity={1.1}
+        envMapIntensity={envMapIntensity}
+        polygonOffset={polygonOffset}
+        polygonOffsetFactor={polygonOffset ? -2 : 0}
+        polygonOffsetUnits={polygonOffset ? -2 : 0}
       />
     </instancedMesh>
   );
@@ -65,12 +72,28 @@ export function RackFrames({
   const parts = useMemo(() => buildRackParts(spec, explode), [spec, explode]);
   return (
     <group>
-      <InstancedParts poses={parts.columns} geometry={GEOS.box} color={theme.steel} metalness={0.78} roughness={0.32} ghost={ghost} />
-      <InstancedParts poses={parts.footplates} geometry={GEOS.box} color={theme.steel} metalness={0.72} roughness={0.38} ghost={ghost} />
-      <InstancedParts poses={parts.caps} geometry={GEOS.box} color={theme.steel} metalness={0.78} roughness={0.32} ghost={ghost} />
-      <InstancedParts poses={parts.braces} geometry={GEOS.box} color={theme.steel} metalness={0.74} roughness={0.36} ghost={ghost} />
-      <InstancedParts poses={parts.beams} geometry={GEOS.box} color={theme.beam} metalness={0.7} roughness={0.34} ghost={ghost} />
-      <InstancedParts poses={parts.decks} geometry={GEOS.box} color={theme.galvanized} metalness={0.55} roughness={0.42} ghost={ghost} />
+      <InstancedParts poses={parts.columns} geometry={GEOS.column} color={theme.steel} metalness={0.84} roughness={0.26} ghost={ghost} />
+      <InstancedParts poses={parts.footplates} geometry={GEOS.footplate} color={theme.steel} metalness={0.76} roughness={0.34} ghost={ghost} />
+      <InstancedParts poses={parts.caps} geometry={GEOS.box} color={theme.steel} metalness={0.82} roughness={0.28} ghost={ghost} />
+      <InstancedParts poses={parts.braces} geometry={GEOS.brace} color={theme.steel} metalness={0.8} roughness={0.3} ghost={ghost} />
+      <InstancedParts poses={parts.beams} geometry={GEOS.beam} color={theme.beam} metalness={0.74} roughness={0.3} ghost={ghost} />
+      <InstancedParts poses={parts.connectors} geometry={GEOS.box} color={theme.steel} metalness={0.7} roughness={0.36} ghost={ghost} />
+      <InstancedParts poses={parts.waterfalls} geometry={GEOS.waterfall} color={theme.galvanized} metalness={0.62} roughness={0.38} ghost={ghost} />
+      {ghost ? null : (
+        <>
+          <InstancedParts poses={parts.bolts} geometry={GEOS.hex} color={theme.punch} metalness={0.88} roughness={0.22} />
+          <InstancedParts
+            poses={parts.holes}
+            geometry={GEOS.teardrop}
+            color={theme.punch}
+            metalness={0.18}
+            roughness={0.52}
+            polygonOffset
+            envMapIntensity={0.4}
+          />
+          <InstancedParts poses={parts.wires} geometry={GEOS.wire} color={theme.galvanized} metalness={0.86} roughness={0.22} />
+        </>
+      )}
     </group>
   );
 }
@@ -119,7 +142,8 @@ export function RackPallets({
   if (ghost || pallets.length === 0) return null;
   return (
     <group>
-      <InstancedParts poses={pallets} geometry={GEOS.pallet} color={theme.wood} metalness={0.04} roughness={0.8} />
+      <InstancedParts poses={pallets} geometry={GEOS.palletFrame} color={theme.woodDark} metalness={0.04} roughness={0.86} envMapIntensity={0.2} />
+      <InstancedParts poses={pallets} geometry={GEOS.palletDeck} color={theme.wood} metalness={0.03} roughness={0.78} envMapIntensity={0.2} />
     </group>
   );
 }

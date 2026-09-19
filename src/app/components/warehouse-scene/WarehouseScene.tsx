@@ -450,11 +450,12 @@ function SceneContents(
 
   return (
     <>
-      <hemisphereLight args={[props.theme.dark ? "#8ea0b8" : "#f7f8fa", props.theme.dark ? "#121212" : "#8a9198", 0.9]} />
-      <directionalLight position={[w * 0.22, 58, d * 0.12]} intensity={props.theme.dark ? 1.35 : 1.62} />
-      <directionalLight position={[-18, 28, d + 10]} intensity={0.55} />
-      <directionalLight position={[w + 12, 16, -8]} intensity={0.32} />
-      <directionalLight position={[w * 0.55, 9, d * 0.7]} intensity={0.18} />
+      <hemisphereLight args={[props.theme.dark ? "#9aacbf" : "#f4f6f8", props.theme.dark ? "#101214" : "#7f8790", 0.82]} />
+      <directionalLight position={[w * 0.18, 52, d * 0.08]} intensity={props.theme.dark ? 1.28 : 1.48} />
+      <directionalLight position={[w * 0.55, 14, d + 22]} intensity={0.62} />
+      <directionalLight position={[-16, 22, d * 0.45]} intensity={0.42} />
+      <directionalLight position={[w + 14, 11, -10]} intensity={0.34} />
+      <directionalLight position={[w * 0.5, 5.5, d * 0.55]} intensity={0.16} />
       <Ground warehouse={props.warehouse} theme={props.theme} onMove={props.onFloorMove} onClick={props.onFloorClick} />
       <DragPlane warehouse={props.warehouse} enabled={Boolean(props.translating)} onMove={props.onTranslateMove} />
       {props.objects.map((object) => {
@@ -655,7 +656,7 @@ export function WarehouseScene(props: Props) {
             toneMapping: THREE.ACESFilmicToneMapping,
           }}
           onCreated={({ gl }) => {
-            gl.toneMappingExposure = 1.08;
+            gl.toneMappingExposure = 1.14;
           }}
           frameloop="always"
           onPointerMissed={() => {
