@@ -5,6 +5,7 @@ import { BarcodeLabel } from "../components/BarcodeLabel";
 import { WarehouseMap, type MapView } from "../components/WarehouseMap";
 import { Button, Card, ErrorBanner, PageHeader } from "../components/ui";
 import { useScanner } from "../scanner/ScannerProvider";
+import { useWarehouse } from "../warehouse";
 import { groupFloorObjects, objectForLocation } from "@/domain/rack-builder";
 
 const FloorBuilder = lazy(() =>
@@ -15,6 +16,7 @@ const WarehouseScene = lazy(() =>
 );
 
 export function MapPage({ me }: { me: Me }) {
+  const { warehouseId } = useWarehouse();
   const [params] = useSearchParams();
   const [data, setData] = useState<WarehouseMapData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +27,7 @@ export function MapPage({ me }: { me: Me }) {
   const handledAt = useMemo(() => ({ current: 0 }), []);
 
   async function load() {
-    const next = await api<WarehouseMapData>("/api/map");
+    const next = await api<WarehouseMapData>(`/api/map?warehouseId=${encodeURIComponent(warehouseId)}`);
     setData(next);
     return next;
   }
@@ -41,7 +43,7 @@ export function MapPage({ me }: { me: Me }) {
         if (match) setSelectedId(match.id);
       })
       .catch((err: Error) => setError(err.message));
-  }, [params]);
+  }, [params, warehouseId]);
 
   useEffect(() => {
     const scan = scanner.lastScan;
@@ -50,7 +52,7 @@ export function MapPage({ me }: { me: Me }) {
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(scan.raw)}`)
       .then((hit) => {
         if (hit.kind === "location") setSelectedId(hit.location.id);
-        else if (hit.onHand[0]) setSelectedId(hit.onHand[0].locationId);
+        else if (hit.kind === "item" && hit.onHand[0]) setSelectedId(hit.onHand[0].locationId);
         setError(null);
       })
       .catch((err: Error) => setError(err.message));
@@ -251,10 +253,18 @@ function BayDetail({ location }: { location: MapLocation | null }) {
       )}
       <Link
         className="mt-4 inline-flex rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-paper"
-        to={`/move?from=${encodeURIComponent(location.barcode)}`}
+        to={`/floor/putaway?from=${encodeURIComponent(location.barcode)}`}
       >
-        Move this bay
+        Move this slot
       </Link>
+      <div className="mt-3 flex flex-wrap gap-2 text-sm">
+        <Link className="underline" to={`/floor/putaway?to=${encodeURIComponent(location.barcode)}`}>
+          Put away here
+        </Link>
+        <Link className="underline" to={`/floor/count?location=${location.id}`}>
+          Count this bay
+        </Link>
+      </div>
     </Card>
   );
 }

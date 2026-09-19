@@ -4,18 +4,36 @@ import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
-import { getOrgItem, getOrgLocation, getOrgLocationByScan } from "../lib/org";
+import { getOrgItem, getOrgLocation, getOrgLocationByScan, getOrgItemByScan } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
 import { chainPlans, planCycleCount, planMove } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { parseScan } from "../domain/barcodes";
+import { canPostCount, canPostTransfer } from "../domain/status";
 
 export const floorRoute = new Hono<AppEnv>();
 
 async function transferWithLines(db: AppEnv["Variables"]["db"], organizationId: string, id: string) {
+  const fromLoc = alias(schema.locations, "from_loc");
+  const toLoc = alias(schema.locations, "to_loc");
   const [row] = await db
-    .select()
+    .select({
+      id: schema.transfers.id,
+      organizationId: schema.transfers.organizationId,
+      warehouseId: schema.transfers.warehouseId,
+      number: schema.transfers.number,
+      status: schema.transfers.status,
+      fromLocationId: schema.transfers.fromLocationId,
+      toLocationId: schema.transfers.toLocationId,
+      notes: schema.transfers.notes,
+      createdAt: schema.transfers.createdAt,
+      postedAt: schema.transfers.postedAt,
+      fromCode: fromLoc.code,
+      toCode: toLoc.code,
+    })
     .from(schema.transfers)
+    .innerJoin(fromLoc, eq(fromLoc.id, schema.transfers.fromLocationId))
+    .innerJoin(toLoc, eq(toLoc.id, schema.transfers.toLocationId))
     .where(and(eq(schema.transfers.id, id), eq(schema.transfers.organizationId, organizationId)))
     .limit(1);
   if (!row) notFound("Transfer not found");
@@ -46,6 +64,7 @@ floorRoute.get("/transfers", async (c) => {
       toLocationId: schema.transfers.toLocationId,
       notes: schema.transfers.notes,
       createdAt: schema.transfers.createdAt,
+      warehouseId: schema.transfers.warehouseId,
       fromCode: fromLoc.code,
       toCode: toLoc.code,
     })
@@ -134,12 +153,21 @@ floorRoute.post("/transfers", async (c) => {
   return c.json(await transferWithLines(db, organizationId, id), 201);
 });
 
+floorRoute.post("/transfers/:id/start", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const transfer = await transferWithLines(db, organizationId, c.req.param("id"));
+  if (transfer.status !== "draft") conflict("Transfer is not a draft");
+  await db.update(schema.transfers).set({ status: "in_progress" }).where(eq(schema.transfers.id, transfer.id));
+  return c.json(await transferWithLines(db, organizationId, transfer.id));
+});
+
 floorRoute.post("/transfers/:id/post", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
   const transfer = await transferWithLines(db, organizationId, c.req.param("id"));
-  if (transfer.status !== "draft") conflict("Transfer already posted");
+  if (!canPostTransfer(transfer.status)) conflict("Transfer already posted");
 
   const loaded = await loadBalanceMap(
     db,
@@ -184,8 +212,20 @@ floorRoute.post("/transfers/:id/post", async (c) => {
 
 async function countWithLines(db: AppEnv["Variables"]["db"], organizationId: string, id: string) {
   const [row] = await db
-    .select()
+    .select({
+      id: schema.cycleCounts.id,
+      organizationId: schema.cycleCounts.organizationId,
+      warehouseId: schema.cycleCounts.warehouseId,
+      number: schema.cycleCounts.number,
+      status: schema.cycleCounts.status,
+      locationId: schema.cycleCounts.locationId,
+      notes: schema.cycleCounts.notes,
+      createdAt: schema.cycleCounts.createdAt,
+      postedAt: schema.cycleCounts.postedAt,
+      locationCode: schema.locations.code,
+    })
     .from(schema.cycleCounts)
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.cycleCounts.locationId))
     .where(and(eq(schema.cycleCounts.id, id), eq(schema.cycleCounts.organizationId, organizationId)))
     .limit(1);
   if (!row) notFound("Cycle count not found");
@@ -214,6 +254,7 @@ floorRoute.get("/cycle-counts", async (c) => {
       locationId: schema.cycleCounts.locationId,
       notes: schema.cycleCounts.notes,
       createdAt: schema.cycleCounts.createdAt,
+      warehouseId: schema.cycleCounts.warehouseId,
       locationCode: schema.locations.code,
     })
     .from(schema.cycleCounts)
@@ -280,6 +321,15 @@ floorRoute.post("/cycle-counts", async (c) => {
   return c.json(await countWithLines(db, organizationId, id), 201);
 });
 
+floorRoute.post("/cycle-counts/:id/start", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const count = await countWithLines(db, organizationId, c.req.param("id"));
+  if (count.status !== "draft") conflict("Cycle count is not a draft");
+  await db.update(schema.cycleCounts).set({ status: "counting" }).where(eq(schema.cycleCounts.id, count.id));
+  return c.json(await countWithLines(db, organizationId, count.id));
+});
+
 floorRoute.post("/cycle-counts/:id/post", async (c) => {
   const body = await c.req.json<{ lines?: { id?: string; countedQty?: number }[] }>().catch(() => ({
     lines: [] as { id?: string; countedQty?: number }[],
@@ -288,7 +338,7 @@ floorRoute.post("/cycle-counts/:id/post", async (c) => {
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
   const count = await countWithLines(db, organizationId, c.req.param("id"));
-  if (count.status !== "draft") conflict("Cycle count already posted");
+  if (!canPostCount(count.status)) conflict("Cycle count already posted");
 
   const countedById = new Map<string, number>();
   for (const line of body.lines ?? []) {
@@ -424,57 +474,124 @@ floorRoute.get("/scan", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
 
-  if (parsed.kind !== "item") {
-    const location = await getOrgLocationByScan(db, organizationId, parsed.value);
-    if (location) {
-      const contents = await db
-        .select({
-          itemId: schema.items.id,
-          sku: schema.items.sku,
-          itemName: schema.items.name,
-          itemType: schema.items.type,
-          qty: schema.inventoryBalances.qty,
-        })
-        .from(schema.inventoryBalances)
-        .innerJoin(schema.items, eq(schema.items.id, schema.inventoryBalances.itemId))
-        .where(
-          and(
-            eq(schema.inventoryBalances.organizationId, organizationId),
-            eq(schema.inventoryBalances.locationId, location.id),
-            gt(schema.inventoryBalances.qty, 0),
-          ),
-        );
-      return c.json({ kind: "location" as const, location, contents });
-    }
+  async function locationHit(code: string) {
+    const location = await getOrgLocationByScan(db, organizationId, code);
+    if (!location) return null;
+    const contents = await db
+      .select({
+        itemId: schema.items.id,
+        sku: schema.items.sku,
+        itemName: schema.items.name,
+        itemType: schema.items.type,
+        qty: schema.inventoryBalances.qty,
+      })
+      .from(schema.inventoryBalances)
+      .innerJoin(schema.items, eq(schema.items.id, schema.inventoryBalances.itemId))
+      .where(
+        and(
+          eq(schema.inventoryBalances.organizationId, organizationId),
+          eq(schema.inventoryBalances.locationId, location.id),
+          gt(schema.inventoryBalances.qty, 0),
+        ),
+      );
+    return { kind: "location" as const, location, contents };
+  }
+
+  async function itemHit(code: string) {
+    const item = await getOrgItemByScan(db, organizationId, code);
+    if (!item) return null;
+    const onHand = await db
+      .select({
+        locationId: schema.locations.id,
+        locationCode: schema.locations.code,
+        locationName: schema.locations.name,
+        barcode: schema.locations.barcode,
+        qty: schema.inventoryBalances.qty,
+      })
+      .from(schema.inventoryBalances)
+      .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
+      .where(
+        and(
+          eq(schema.inventoryBalances.organizationId, organizationId),
+          eq(schema.inventoryBalances.itemId, item.id),
+          gt(schema.inventoryBalances.qty, 0),
+        ),
+      );
+    return { kind: "item" as const, item, onHand };
+  }
+
+  async function findByNumber<T extends { number: string }>(
+    rows: T[],
+    value: string,
+  ): Promise<T | undefined> {
+    const needle = value.replace(/^[#]/, "").toUpperCase();
+    return rows.find((row) => {
+      const number = row.number.toUpperCase();
+      return number === value.toUpperCase() || number === needle || number.endsWith(`-${needle}`) || number === `#${needle}`;
+    });
+  }
+
+  if (parsed.kind === "location" || parsed.kind === "unknown") {
+    const hit = await locationHit(parsed.value);
+    if (hit) return c.json(hit);
     if (parsed.kind === "location") notFound("No location matches that barcode");
   }
 
-  const [item] = await db
-    .select()
-    .from(schema.items)
-    .where(and(eq(schema.items.organizationId, organizationId), eq(schema.items.sku, parsed.value)))
-    .limit(1);
-  if (!item) notFound("No location or item matches that barcode");
+  if (parsed.kind === "item" || parsed.kind === "unknown") {
+    const hit = await itemHit(parsed.value);
+    if (hit) return c.json(hit);
+    if (parsed.kind === "item") notFound("No item matches that barcode");
+  }
 
-  const onHand = await db
-    .select({
-      locationId: schema.locations.id,
-      locationCode: schema.locations.code,
-      locationName: schema.locations.name,
-      barcode: schema.locations.barcode,
-      qty: schema.inventoryBalances.qty,
-    })
-    .from(schema.inventoryBalances)
-    .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
-    .where(
-      and(
-        eq(schema.inventoryBalances.organizationId, organizationId),
-        eq(schema.inventoryBalances.itemId, item.id),
-        gt(schema.inventoryBalances.qty, 0),
-      ),
-    );
+  if (parsed.kind === "order" || parsed.kind === "unknown") {
+    const rows = await db.select().from(schema.orders).where(eq(schema.orders.organizationId, organizationId));
+    const order = await findByNumber(rows, parsed.value);
+    if (order) return c.json({ kind: "order" as const, order: await (async () => {
+      const lines = await db
+        .select({
+          id: schema.orderLines.id,
+          itemId: schema.orderLines.itemId,
+          qty: schema.orderLines.qty,
+          sku: schema.items.sku,
+          itemName: schema.items.name,
+        })
+        .from(schema.orderLines)
+        .innerJoin(schema.items, eq(schema.items.id, schema.orderLines.itemId))
+        .where(eq(schema.orderLines.orderId, order.id));
+      return { ...order, lines };
+    })() });
+    if (parsed.kind === "order") notFound("No order matches that barcode");
+  }
 
-  return c.json({ kind: "item" as const, item, onHand });
+  if (parsed.kind === "receipt" || parsed.kind === "unknown") {
+    const rows = await db.select().from(schema.receipts).where(eq(schema.receipts.organizationId, organizationId));
+    const receipt = await findByNumber(rows, parsed.value);
+    if (receipt) return c.json({ kind: "receipt" as const, receipt });
+    if (parsed.kind === "receipt") notFound("No receipt matches that barcode");
+  }
+
+  if (parsed.kind === "transfer" || parsed.kind === "unknown") {
+    const rows = await db.select().from(schema.transfers).where(eq(schema.transfers.organizationId, organizationId));
+    const transfer = await findByNumber(rows, parsed.value);
+    if (transfer) return c.json({ kind: "transfer" as const, transfer });
+    if (parsed.kind === "transfer") notFound("No transfer matches that barcode");
+  }
+
+  if (parsed.kind === "workOrder" || parsed.kind === "unknown") {
+    const rows = await db.select().from(schema.workOrders).where(eq(schema.workOrders.organizationId, organizationId));
+    const workOrder = await findByNumber(rows, parsed.value);
+    if (workOrder) return c.json({ kind: "workOrder" as const, workOrder });
+    if (parsed.kind === "workOrder") notFound("No work order matches that barcode");
+  }
+
+  if (parsed.kind === "cycleCount" || parsed.kind === "unknown") {
+    const rows = await db.select().from(schema.cycleCounts).where(eq(schema.cycleCounts.organizationId, organizationId));
+    const cycleCount = await findByNumber(rows, parsed.value);
+    if (cycleCount) return c.json({ kind: "cycleCount" as const, cycleCount });
+    if (parsed.kind === "cycleCount") notFound("No cycle count matches that barcode");
+  }
+
+  notFound("No location, item, or document matches that barcode");
 });
 
 floorRoute.post("/moves", async (c) => {

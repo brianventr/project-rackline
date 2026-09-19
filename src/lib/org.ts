@@ -86,6 +86,22 @@ export async function getOrgLocationByScan(db: AppDb, organizationId: string, co
   return byCode ?? null;
 }
 
+export async function getOrgItemByScan(db: AppDb, organizationId: string, code: string) {
+  const value = code.trim().toUpperCase();
+  const [byBarcode] = await db
+    .select()
+    .from(schema.items)
+    .where(and(eq(schema.items.organizationId, organizationId), eq(schema.items.barcode, value)))
+    .limit(1);
+  if (byBarcode) return byBarcode;
+  const [bySku] = await db
+    .select()
+    .from(schema.items)
+    .where(and(eq(schema.items.organizationId, organizationId), eq(schema.items.sku, value)))
+    .limit(1);
+  return bySku ?? null;
+}
+
 export const ITEM_TYPES = ["raw", "wip", "finished", "packaging"] as const;
 export const LOCATION_TYPES = ["receiving", "storage", "production", "shipping"] as const;
 

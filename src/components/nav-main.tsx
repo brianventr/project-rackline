@@ -38,10 +38,16 @@ export function NavMain({
 }) {
   const location = useLocation()
 
+  function pathActive(url: string) {
+    if (url === "/stock") return location.pathname === "/stock"
+    return location.pathname === url || location.pathname.startsWith(`${url}/`)
+  }
+
   // Check if any subitem is active to determine if parent should be open
   const shouldBeOpen = (item: typeof items[0]) => {
     if (item.isActive) return true
-    return item.items?.some(subItem => location.pathname === subItem.url) || false
+    if (pathActive(item.url)) return true
+    return item.items?.some(subItem => pathActive(subItem.url)) || false
   }
 
   return (
@@ -69,7 +75,7 @@ export function NavMain({
                     <SidebarMenuSub>
                       {item.items?.map((subItem) => (
                         <SidebarMenuSubItem key={subItem.title}>
-                          <SidebarMenuSubButton asChild className="cursor-pointer" isActive={location.pathname === subItem.url}>
+                          <SidebarMenuSubButton asChild className="cursor-pointer" isActive={pathActive(subItem.url)}>
                             <Link 
                               to={subItem.url}
                               target={(item.title === "Auth Pages" || item.title === "Errors") ? "_blank" : undefined}
@@ -84,7 +90,7 @@ export function NavMain({
                   </CollapsibleContent>
                 </>
               ) : (
-                <SidebarMenuButton asChild tooltip={item.title} className="cursor-pointer" isActive={location.pathname === item.url}>
+                <SidebarMenuButton asChild tooltip={item.title} className="cursor-pointer" isActive={pathActive(item.url)}>
                   <Link to={item.url}>
                     {item.icon && <item.icon />}
                     <span>{item.title}</span>

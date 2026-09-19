@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../lib/types";
 import { requireInt, requireString } from "../lib/http";
-import { getOrgItem, getOrgLocation } from "../lib/org";
+import { getOrgItem, getOrgLocation, requireOwner } from "../lib/org";
 import { newId } from "../lib/ids";
 import { planAdjust } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
@@ -9,6 +9,7 @@ import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 export const adjustmentsRoute = new Hono<AppEnv>();
 
 adjustmentsRoute.post("/adjustments", async (c) => {
+  requireOwner(c.get("role"));
   const body = await c.req.json<{
     locationId?: string;
     itemId?: string;

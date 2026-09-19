@@ -125,10 +125,14 @@ export const items = sqliteTable(
     sku: text("sku").notNull(),
     name: text("name").notNull(),
     type: text("type").notNull(),
+    barcode: text("barcode").notNull().default(""),
     createdAt: integer("created_at").notNull(),
     reorderPoint: integer("reorder_point").notNull().default(0),
   },
-  (t) => [uniqueIndex("items_org_sku").on(t.organizationId, t.sku)],
+  (t) => [
+    uniqueIndex("items_org_sku").on(t.organizationId, t.sku),
+    uniqueIndex("items_org_barcode").on(t.organizationId, t.barcode),
+  ],
 );
 
 export const inventoryBalances = sqliteTable(
@@ -212,6 +216,7 @@ export const orders = sqliteTable(
     pickLocationId: text("pick_location_id"),
     createdAt: integer("created_at").notNull(),
     pickedAt: integer("picked_at"),
+    packedAt: integer("packed_at"),
     shippedAt: integer("shipped_at"),
     source: text("source").notNull().default("manual"),
     shopifyOrderId: text("shopify_order_id"),
@@ -407,12 +412,14 @@ export const cycleCountLines = sqliteTable("cycle_count_lines", {
 export type ItemType = "raw" | "wip" | "finished" | "packaging";
 export type LocationType = "receiving" | "storage" | "production" | "shipping";
 export type Role = "owner" | "operator";
-export type ReceiptStatus = "draft" | "received";
-export type OrderStatus = "draft" | "picked" | "shipped" | "cancelled";
+export type ReceiptStatus = "draft" | "receiving" | "received";
+export type OrderStatus = "open" | "picking" | "picked" | "packing" | "packed" | "shipped" | "cancelled";
 export type OrderSource = "manual" | "shopify";
 export type ShopifyMode = "live" | "demo";
 export type ShopifySyncStatus = "none" | "inbound" | "pending_fulfill" | "synced" | "failed";
-export type WorkOrderStatus = "draft" | "completed";
+export type WorkOrderStatus = "draft" | "in_progress" | "completed";
+export type TransferStatus = "draft" | "in_progress" | "posted";
+export type CycleCountStatus = "draft" | "counting" | "posted";
 export type MovementType =
   | "receive"
   | "move"

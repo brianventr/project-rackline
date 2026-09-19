@@ -19,7 +19,7 @@ export function LedgerPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Audit"
+        eyebrow="Stock"
         title="Ledger"
         description="Every receive, move, pick, ship, adjustment, and work-order movement."
       />

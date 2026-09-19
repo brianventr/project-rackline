@@ -1,12 +1,76 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Location, type Me } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
+import { useWarehouse } from "../warehouse";
 
 const types = ["receiving", "storage", "production", "shipping"];
 
 export function LocationsPage({ me }: { me: Me }) {
+  const { id } = useParams();
+  if (id) return <LocationDetail me={me} id={id} />;
+  return <LocationList me={me} />;
+}
+
+function LocationDetail({ me, id }: { me: Me; id: string }) {
+  const navigate = useNavigate();
+  const [location, setLocation] = useState<(Location & { contents?: { itemId: string; sku: string; itemName: string; qty: number }[] }) | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<Location & { contents?: { itemId: string; sku: string; itemName: string; qty: number }[] }>(`/api/locations/${id}`)
+      .then(setLocation)
+      .catch((err: Error) => setError(err.message));
+  }, [id]);
+
+  if (!location) return <ErrorBanner error={error} />;
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Stock"
+        title={location.code}
+        description={location.name}
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => navigate("/stock/locations")}>
+              All locations
+            </Button>
+            <Button variant="secondary">
+              <Link to={`/map?location=${location.id}`}>Map</Link>
+            </Button>
+            <Button>
+              <Link to={`/floor/putaway?from=${encodeURIComponent(location.barcode)}`}>Move</Link>
+            </Button>
+          </>
+        }
+      />
+      <ErrorBanner error={error} />
+      <div className="max-w-sm rounded-lg border p-3">
+        <BarcodeLabel value={location.barcode} className="mx-auto h-16" />
+      </div>
+      <Table columns={["SKU", "Item", "Qty"]}>
+        {(location.contents ?? []).map((row) => (
+          <tr key={row.itemId}>
+            <td className="px-4 py-3 font-mono">
+              <Link className="hover:underline" to={`/stock/items/${row.itemId}`}>
+                {row.sku}
+              </Link>
+            </td>
+            <td className="px-4 py-3">{row.itemName}</td>
+            <td className="px-4 py-3 font-mono">{row.qty}</td>
+          </tr>
+        ))}
+      </Table>
+      {me.role === "owner" ? (
+        <p className="text-sm text-muted-foreground">Drag this bay on the map to match the real floor.</p>
+      ) : null}
+    </div>
+  );
+}
+
+function LocationList({ me }: { me: Me }) {
   const [locations, setLocations] = useState<Location[]>([]);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -17,7 +81,7 @@ export function LocationsPage({ me }: { me: Me }) {
   const [level, setLevel] = useState("1");
   const [error, setError] = useState<string | null>(null);
   const [labels, setLabels] = useState(false);
-  const warehouseId = me.warehouses[0]?.id;
+  const { warehouseId } = useWarehouse();
 
   async function load() {
     setLocations(await api<Location[]>("/api/locations"));
@@ -80,7 +144,7 @@ export function LocationsPage({ me }: { me: Me }) {
           }
         />
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 print:grid-cols-3">
-          {locations.map((location) => (
+          {locations.filter((location) => !warehouseId || location.warehouseId === warehouseId).map((location) => (
             <div key={location.id} className="break-inside-avoid rounded-xl border border-line bg-card p-3">
               <p className="font-mono text-sm font-semibold">{location.code}</p>
               <p className="text-xs text-muted-foreground">{location.name}</p>
@@ -98,7 +162,7 @@ export function LocationsPage({ me }: { me: Me }) {
   return (
     <div>
       <PageHeader
-        eyebrow="Warehouse"
+        eyebrow="Stock"
         title="Locations"
         description="Each code is a physical bay on the map. Print barcodes, then scan to move slots."
         actions={
@@ -155,10 +219,12 @@ export function LocationsPage({ me }: { me: Me }) {
         </form>
       </Card>
       <Table columns={["Code", "Name", "Bay", "Map", "Barcode", ""]}>
-        {locations.map((location) => (
+        {locations
+          .filter((location) => !warehouseId || location.warehouseId === warehouseId)
+          .map((location) => (
           <tr key={location.id}>
             <td className="px-4 py-3 font-mono">
-              <Link className="underline decoration-line underline-offset-2" to={`/map?location=${location.id}`}>
+              <Link className="underline decoration-line underline-offset-2" to={`/stock/locations/${location.id}`}>
                 {location.code}
               </Link>
             </td>

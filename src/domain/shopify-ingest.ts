@@ -51,6 +51,7 @@ async function resolveItem(db: AppDb, organizationId: string, sku: string, title
     sku,
     name: title,
     type: "finished" as const,
+    barcode: sku,
     createdAt: now,
   };
   await db.insert(schema.items).values(item);
@@ -103,7 +104,7 @@ export async function persistInboundOrder(
       warehouseId: warehouse.id,
       number: inbound.shopifyOrderName,
       customerName: inbound.customerName,
-      status: "draft",
+      status: "open",
       createdAt: now,
       source: "shopify",
       shopifyOrderId: inbound.shopifyOrderId,
@@ -195,7 +196,7 @@ export async function cancelShopifyDraft(
     .from(schema.orders)
     .where(and(eq(schema.orders.organizationId, organizationId), eq(schema.orders.shopifyOrderId, shopifyOrderId)))
     .limit(1);
-  if (!order || order.status !== "draft") return false;
+  if (!order || (order.status !== "open" && order.status !== "draft" && order.status !== "picking")) return false;
   await db
     .update(schema.orders)
     .set({ status: "cancelled", shopifySyncStatus: "inbound" })

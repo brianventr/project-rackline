@@ -1,5 +1,6 @@
 import {
   cloneElement,
+  forwardRef,
   isValidElement,
   useId,
   type FormEvent,
@@ -105,9 +106,9 @@ export function Field({
   );
 }
 
-export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <UiInput {...props} />;
-}
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(props, ref) {
+  return <UiInput ref={ref} {...props} />;
+});
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
@@ -127,6 +128,7 @@ export function StatusBadge({ status }: { status: string }) {
     status === "shipped" ||
     status === "completed" ||
     status === "posted" ||
+    status === "packed" ||
     status === "synced" ||
     status === "ok" ||
     status === "demo"

@@ -7,6 +7,7 @@ import { getOrgItem, getOrgLocation } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
 import { chainPlans, planReceive } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
+import { canReceive } from "../domain/status";
 
 export const receiptsRoute = new Hono<AppEnv>();
 
@@ -110,6 +111,15 @@ receiptsRoute.post("/receipts", async (c) => {
   return c.json(await receiptWithLines(db, organizationId, id), 201);
 });
 
+receiptsRoute.post("/receipts/:id/start", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const receipt = await receiptWithLines(db, organizationId, c.req.param("id"));
+  if (receipt.status !== "draft") conflict("Receipt is not a draft");
+  await db.update(schema.receipts).set({ status: "receiving" }).where(eq(schema.receipts.id, receipt.id));
+  return c.json(await receiptWithLines(db, organizationId, receipt.id));
+});
+
 receiptsRoute.post("/receipts/:id/receive", async (c) => {
   const body = await c.req.json<{ locationId?: string }>();
   const locationId = requireString(body.locationId, "locationId");
@@ -117,7 +127,7 @@ receiptsRoute.post("/receipts/:id/receive", async (c) => {
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
   const receipt = await receiptWithLines(db, organizationId, c.req.param("id"));
-  if (receipt.status !== "draft") conflict("Receipt already posted");
+  if (!canReceive(receipt.status)) conflict("Receipt already posted");
   await getOrgLocation(db, organizationId, locationId);
 
   const pairs = receipt.lines.map((line) => ({ locationId, itemId: line.itemId }));

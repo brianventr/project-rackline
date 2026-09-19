@@ -51,7 +51,9 @@ export type Item = {
   sku: string;
   name: string;
   type: string;
+  barcode: string;
   reorderPoint: number;
+  onHand?: { locationId: string; locationCode: string; locationName: string; barcode: string; qty: number }[];
 };
 
 export type Location = {
@@ -115,7 +117,20 @@ export type ScanItemHit = {
   onHand: { locationId: string; locationCode: string; locationName: string; barcode: string; qty: number }[];
 };
 
-export type ScanHit = ScanLocationHit | ScanItemHit;
+export type ScanOrderHit = { kind: "order"; order: Order };
+export type ScanReceiptHit = { kind: "receipt"; receipt: Receipt };
+export type ScanTransferHit = { kind: "transfer"; transfer: Transfer };
+export type ScanWorkOrderHit = { kind: "workOrder"; workOrder: WorkOrder };
+export type ScanCycleCountHit = { kind: "cycleCount"; cycleCount: CycleCount };
+
+export type ScanHit =
+  | ScanLocationHit
+  | ScanItemHit
+  | ScanOrderHit
+  | ScanReceiptHit
+  | ScanTransferHit
+  | ScanWorkOrderHit
+  | ScanCycleCountHit;
 
 export type MoveResult = {
   ok: true;
@@ -135,6 +150,7 @@ export type InventoryRow = {
   locationId: string;
   locationCode: string;
   locationName: string;
+  warehouseId?: string;
 };
 
 export type Receipt = {
@@ -144,6 +160,7 @@ export type Receipt = {
   notes: string | null;
   createdAt: number;
   locationId: string | null;
+  warehouseId?: string;
   lines?: { id: string; itemId: string; qty: number; sku: string; itemName: string }[];
 };
 
@@ -154,6 +171,7 @@ export type Order = {
   status: string;
   createdAt: number;
   pickLocationId: string | null;
+  warehouseId?: string;
   source?: string;
   shopifyOrderId?: string | null;
   shopifyOrderName?: string | null;
@@ -163,6 +181,7 @@ export type Order = {
   trackingNumber?: string | null;
   trackingCompany?: string | null;
   trackingUrl?: string | null;
+  packedAt?: number | null;
   shopify?: { status?: string; fulfillmentId?: string | null; error?: string | null };
   lines?: {
     id: string;
@@ -216,6 +235,7 @@ export type WorkOrder = {
   sourceLocationId: string;
   outputLocationId: string;
   createdAt: number;
+  warehouseId?: string;
 };
 
 export type Dashboard = {
@@ -230,6 +250,34 @@ export type Dashboard = {
   openCycleCounts: number;
   lowStock: { itemId: string; sku: string; name: string; onHand: number; reorderPoint: number }[];
   recent: { id: string; type: string; qty: number; createdAt: number; sku: string }[];
+  hotBays: { locationId: string; locationCode: string; locationName: string; units: number }[];
+  queues: {
+    receipts: Receipt[];
+    orders: Order[];
+    workOrders: WorkOrder[];
+    putaways: Transfer[];
+    counts: CycleCount[];
+    shopifyExceptions: Order[];
+  };
+};
+
+export type SearchResults = {
+  q: string;
+  items: Pick<Item, "id" | "sku" | "name" | "barcode" | "type">[];
+  locations: Pick<Location, "id" | "code" | "name" | "barcode" | "type">[];
+  orders: Pick<Order, "id" | "number" | "customerName" | "status" | "source">[];
+  receipts: Pick<Receipt, "id" | "number" | "status" | "notes">[];
+  transfers: Pick<Transfer, "id" | "number" | "status">[];
+  workOrders: Pick<WorkOrder, "id" | "number" | "status">[];
+  counts: Pick<CycleCount, "id" | "number" | "status">[];
+};
+
+export type TeamMember = {
+  id: string;
+  role: string;
+  userId: string;
+  name: string;
+  email: string;
 };
 
 export type Transfer = {
@@ -240,6 +288,7 @@ export type Transfer = {
   toLocationId: string;
   fromCode?: string;
   toCode?: string;
+  warehouseId?: string;
   notes: string | null;
   lines?: { id: string; itemId: string; qty: number; sku: string; itemName: string }[];
 };
@@ -250,6 +299,7 @@ export type CycleCount = {
   status: string;
   locationId: string;
   locationCode?: string;
+  warehouseId?: string;
   notes: string | null;
   lines?: {
     id: string;
