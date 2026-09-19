@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Location, type Order, type ScanHit } from "../../api";
+import { api, type Item, type Location, type Order, type ScanHit } from "../../api";
 import { Button, Card, Field, Select, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { canPickOrder } from "@/domain/status";
@@ -23,7 +23,12 @@ export function FloorPickPage() {
     const storage = nextLocations.find((row) => row.type === "storage") ?? nextLocations[0];
     if (storage) setLocationId(storage.id);
     const wanted = params.get("id");
-    if (wanted) setActive(nextOrders.find((row) => row.id === wanted) ?? (await api<Order>(`/api/orders/${wanted}`)));
+    if (wanted) {
+      const match = nextOrders.find((row) => row.id === wanted) ?? (await api<Order>(`/api/orders/${wanted}`));
+      setActive(match);
+      const stocked = await locationWithStock(match, nextLocations);
+      if (stocked) setLocationId(stocked);
+    }
   }
 
   useEffect(() => {
@@ -35,7 +40,11 @@ export function FloorPickPage() {
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
       .then((hit) => {
         if (hit.kind === "order") {
-          void api<Order>(`/api/orders/${hit.order.id}`).then(setActive);
+          void api<Order>(`/api/orders/${hit.order.id}`).then(async (order) => {
+            setActive(order);
+            const stocked = await locationWithStock(order, locations);
+            if (stocked) setLocationId(stocked);
+          });
           return;
         }
         if (hit.kind === "location") {
@@ -45,7 +54,7 @@ export function FloorPickPage() {
         setError("Scan an order or a pick bay.");
       })
       .catch((err: Error) => setError(err.message));
-  }, []);
+  }, [locations]);
 
   async function pick() {
     if (!active) return;
@@ -74,7 +83,15 @@ export function FloorPickPage() {
           <ul className="space-y-2 text-sm">
             {orders.map((row) => (
               <li key={row.id}>
-                <button className="w-full text-left" onClick={() => setActive(row)}>
+                <button
+                  className="w-full text-left"
+                  onClick={() => {
+                    setActive(row);
+                    void locationWithStock(row, locations).then((id) => {
+                      if (id) setLocationId(id);
+                    });
+                  }}
+                >
                   <span className="font-mono">{row.number}</span> {row.customerName} <StatusBadge status={row.status} />
                 </button>
               </li>
@@ -116,4 +133,21 @@ export function FloorPickPage() {
       )}
     </FloorFrame>
   );
+}
+
+async function locationWithStock(
+  order: { lines?: { itemId: string; qty: number }[] },
+  locations: Location[],
+): Promise<string | null> {
+  for (const line of order.lines ?? []) {
+    try {
+      const item = await api<Item>(`/api/items/${line.itemId}`);
+      const bay =
+        (item.onHand ?? []).find((row) => row.qty >= line.qty) ?? (item.onHand ?? []).find((row) => row.qty > 0);
+      if (bay) return bay.locationId;
+    } catch {
+      /* try the next line */
+    }
+  }
+  return locations.find((row) => row.type === "storage")?.id ?? locations[0]?.id ?? null;
 }

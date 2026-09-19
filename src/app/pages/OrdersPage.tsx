@@ -107,7 +107,8 @@ function OrderDetail({ id }: { id: string }) {
     setOrder(next);
     setLocations(nextLocations);
     const storage = nextLocations.find((row) => row.type === "storage") ?? nextLocations[0];
-    if (storage) setPickLocation(next.pickLocationId || storage.id);
+    const stocked = await locationWithStock(next, nextLocations);
+    setPickLocation(next.pickLocationId || stocked || storage?.id || "");
     setTrackingNumber(next.trackingNumber || "");
     setTrackingCompany(next.trackingCompany || "");
   }
@@ -236,4 +237,18 @@ function floorActionForOrder(status: string, id: string): string {
   if (status === "picked" || status === "packing") return `/floor/pack?id=${id}`;
   if (status === "packed") return `/floor/ship?id=${id}`;
   return `/floor/pick?id=${id}`;
+}
+
+async function locationWithStock(order: Order, locations: Location[]): Promise<string | null> {
+  for (const line of order.lines ?? []) {
+    try {
+      const item = await api<Item>(`/api/items/${line.itemId}`);
+      const bay =
+        (item.onHand ?? []).find((row) => row.qty >= line.qty) ?? (item.onHand ?? []).find((row) => row.qty > 0);
+      if (bay) return bay.locationId;
+    } catch {
+      /* try the next line */
+    }
+  }
+  return locations.find((row) => row.type === "storage")?.id ?? locations[0]?.id ?? null;
 }
