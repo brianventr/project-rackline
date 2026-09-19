@@ -61,6 +61,7 @@ export type LocationDraft = Box3 & {
   rack: string | null;
   bay: string | null;
   level: number;
+  unitsOnHand?: number;
 };
 
 export type RackObject = {

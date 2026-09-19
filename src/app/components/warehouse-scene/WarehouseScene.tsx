@@ -16,6 +16,7 @@ import {
   type RackSpec,
 } from "@/domain/rack-builder";
 import { readSceneTheme, type SceneTheme } from "./theme";
+import { cartonGeometry, RackFrames, RackPallets } from "./rack-meshes";
 
 export type CameraMode = "top" | "orbit";
 export type Ghost =
@@ -78,97 +79,6 @@ function binColor(
   return theme.empty;
 }
 
-function alongAcrossToWorld(spec: RackSpec, along: number, across: number) {
-  if (spec.rotation === 90) return { x: spec.posX + along, z: spec.posY + across };
-  if (spec.rotation === 180) return { x: spec.posX + spec.bayDepth - across, z: spec.posY - along };
-  if (spec.rotation === 270) return { x: spec.posX - along, z: spec.posY + spec.bayDepth - across };
-  return { x: spec.posX + across, z: spec.posY + along };
-}
-
-type SteelBox = [number, number, number, number, number, number];
-
-function steelBoxes(spec: RackSpec, explode: boolean) {
-  const extra = explode ? spec.levelHeight * 0.55 : 0;
-  const height = spec.levels * spec.levelHeight + (spec.levels - 1) * extra;
-  const uprights: SteelBox[] = [];
-  const beams: SteelBox[] = [];
-  const post = 0.16;
-  for (let i = 0; i <= spec.bays; i += 1) {
-    const along = i * spec.bayPitch;
-    for (const across of [post / 2, spec.bayDepth - post / 2]) {
-      const p = alongAcrossToWorld(spec, along, across);
-      uprights.push([p.x, height / 2, p.z, post, height, post]);
-    }
-  }
-  for (let level = 1; level <= spec.levels; level += 1) {
-    const y = (level - 1) * spec.levelHeight + extra * (level - 1) + 0.12;
-    for (let i = 0; i < spec.bays; i += 1) {
-      const along = i * spec.bayPitch + spec.bayWidth / 2;
-      for (const across of [post / 2, spec.bayDepth - post / 2]) {
-        const p = alongAcrossToWorld(spec, along, across);
-        const alongX = spec.rotation === 90 || spec.rotation === 270;
-        beams.push(
-          alongX
-            ? [p.x, y, p.z, spec.bayWidth - 0.08, 0.12, post]
-            : [p.x, y, p.z, post, 0.12, spec.bayWidth - 0.08],
-        );
-      }
-    }
-  }
-  return { uprights, beams };
-}
-
-function InstancedBoxes({
-  boxes,
-  color,
-  metalness,
-  roughness,
-  ghost,
-}: {
-  boxes: SteelBox[];
-  color: string;
-  metalness: number;
-  roughness: number;
-  ghost?: boolean;
-}) {
-  const mesh = useRef<THREE.InstancedMesh>(null);
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  useEffect(() => {
-    const inst = mesh.current;
-    if (!inst) return;
-    boxes.forEach(([x, y, z, sx, sy, sz], i) => {
-      dummy.position.set(x, y, z);
-      dummy.scale.set(sx, sy, sz);
-      dummy.updateMatrix();
-      inst.setMatrixAt(i, dummy.matrix);
-    });
-    inst.instanceMatrix.needsUpdate = true;
-  }, [boxes, dummy]);
-  if (boxes.length === 0) return null;
-  return (
-    <instancedMesh ref={mesh} args={[undefined, undefined, boxes.length]} raycast={() => undefined}>
-      <boxGeometry args={[1, 1, 1]} />
-      <meshStandardMaterial
-        color={color}
-        metalness={metalness}
-        roughness={roughness}
-        transparent={ghost}
-        opacity={ghost ? 0.38 : 1}
-      />
-    </instancedMesh>
-  );
-}
-
-function RackFrames({ spec, theme, ghost, explode }: { spec: RackSpec; theme: SceneTheme; ghost?: boolean; explode: boolean }) {
-  const { uprights, beams } = useMemo(() => steelBoxes(spec, explode), [spec, explode]);
-  return (
-    <group>
-      <InstancedBoxes boxes={uprights} color={theme.steel} metalness={0.72} roughness={0.32} ghost={ghost} />
-      <InstancedBoxes boxes={beams} color={theme.beam} metalness={0.55} roughness={0.4} ghost={ghost} />
-    </group>
-  );
-}
-
 function InstancedBins({
   drafts,
   locations,
@@ -202,10 +112,20 @@ function InstancedBins({
 }) {
   const mesh = useRef<THREE.InstancedMesh>(null);
   const source = locations ?? drafts ?? EMPTY_ROWS;
-  const rows = useMemo(
-    () => (levelFilter === "all" ? source : source.filter((row) => (row.level ?? 1) === levelFilter)),
-    [source, levelFilter],
-  );
+  const rows = useMemo(() => {
+    const list = levelFilter === "all" ? source : source.filter((row) => (row.level ?? 1) === levelFilter);
+    if (ghost) return list;
+    return list.filter((row) => {
+      if ((row.unitsOnHand ?? 0) > 0) return true;
+      return (
+        row.id === selectedLocationId ||
+        row.id === hoveredId ||
+        row.id === fromId ||
+        row.id === toId ||
+        Boolean(highlightBay && row.bay === highlightBay)
+      );
+    });
+  }, [source, levelFilter, ghost, selectedLocationId, hoveredId, fromId, toId, highlightBay]);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const color = useMemo(() => new THREE.Color(), []);
 
@@ -215,8 +135,19 @@ function InstancedBins({
     rows.forEach((row, i) => {
       const center = worldCenter(row);
       const lift = explodeLift(row.level ?? 1, { levelHeight: Math.max(1, row.sizeZ) }, explode);
-      dummy.position.set(center.x, center.y + 0.04 + lift, center.z);
-      dummy.scale.set(Math.max(0.2, row.sizeX - 0.28), Math.max(0.2, row.sizeZ - 0.28), Math.max(0.2, row.sizeY - 0.28));
+      const occupied = (row.unitsOnHand ?? 0) > 0;
+      const cartonH = ghost ? Math.max(0.25, row.sizeZ - 0.28) : occupied ? Math.max(0.35, row.sizeZ - 0.55) : Math.max(0.22, row.sizeZ - 0.45);
+      const cartonY = ghost
+        ? center.y + 0.04 + lift
+        : occupied
+          ? row.posZ + 0.13 + lift + 0.14 + cartonH / 2
+          : center.y + 0.02 + lift;
+      dummy.position.set(center.x, cartonY, center.z);
+      dummy.scale.set(
+        Math.max(0.25, row.sizeX - (occupied || ghost ? 0.5 : 0.36)),
+        cartonH,
+        Math.max(0.25, row.sizeY - (occupied || ghost ? 0.5 : 0.36)),
+      );
       dummy.updateMatrix();
       inst.setMatrixAt(i, dummy.matrix);
       if (ghost) {
@@ -244,7 +175,7 @@ function InstancedBins({
   return (
     <instancedMesh
       ref={mesh}
-      args={[undefined, undefined, rows.length]}
+      args={[cartonGeometry, undefined, rows.length]}
       raycast={pickable ? undefined : () => undefined}
       onPointerMove={
         pickable && locations
@@ -266,10 +197,9 @@ function InstancedBins({
           : undefined
       }
     >
-      <boxGeometry args={[1, 1, 1]} />
       <meshStandardMaterial
-        metalness={0.08}
-        roughness={0.46}
+        metalness={0.06}
+        roughness={0.58}
         transparent={Boolean(ghost)}
         opacity={ghost ? 0.42 : 1}
         emissive={ghost ? (ghost.valid ? theme.ghost : theme.invalid) : "#000000"}
@@ -519,9 +449,10 @@ function SceneContents(
 
   return (
     <>
-      <hemisphereLight args={[props.theme.dark ? "#6b7c93" : "#f3f6f8", props.theme.dark ? "#1a1a1a" : "#8b939c", 0.85]} />
-      <directionalLight position={[w * 0.35, 52, d * 0.15]} intensity={props.theme.dark ? 1.05 : 1.2} />
-      <directionalLight position={[-10, 16, d + 4]} intensity={0.32} />
+      <hemisphereLight args={[props.theme.dark ? "#7f90a8" : "#f6f8fa", props.theme.dark ? "#161616" : "#8a9198", 0.72]} />
+      <directionalLight position={[w * 0.28, 56, d * 0.08]} intensity={props.theme.dark ? 1.2 : 1.42} />
+      <directionalLight position={[-14, 22, d + 6]} intensity={0.42} />
+      <directionalLight position={[w + 8, 10, -6]} intensity={0.22} />
       <Ground warehouse={props.warehouse} theme={props.theme} onMove={props.onFloorMove} onClick={props.onFloorClick} />
       <DragPlane warehouse={props.warehouse} enabled={Boolean(props.translating)} onMove={props.onTranslateMove} />
       {props.objects.map((object) => {
@@ -532,6 +463,7 @@ function SceneContents(
           return (
             <group key={object.id}>
               <RackFrames spec={object.spec} theme={props.theme} explode={explode} />
+              <RackPallets locations={locs} explode={explode} theme={props.theme} />
               <InstancedBins
                 locations={locs}
                 theme={props.theme}
@@ -712,7 +644,7 @@ export function WarehouseScene(props: Props) {
     >
       <WebGLBoundary>
         <Canvas
-          dpr={[1, 1.5]}
+          dpr={[1, 1.75]}
           gl={{
             antialias: true,
             alpha: false,

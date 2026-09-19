@@ -6,6 +6,11 @@ export type SceneTheme = {
   gridSection: string;
   steel: string;
   beam: string;
+  galvanized: string;
+  punch: string;
+  wood: string;
+  woodDark: string;
+  strap: string;
   empty: string;
   occupied: string;
   selected: string;
@@ -29,7 +34,12 @@ const light: SceneTheme = {
   grid: "#b7c0c8",
   gridSection: "#8b9aa8",
   steel: "#2f4b79",
-  beam: "#3c4c76",
+  beam: "#3a4a6e",
+  galvanized: "#8b96a3",
+  punch: "#1b2433",
+  wood: "#c4a06a",
+  woodDark: "#8a6238",
+  strap: "#5c4630",
   empty: "#f4f0ea",
   occupied: "#df6035",
   selected: "#e05d38",
@@ -52,8 +62,13 @@ const dark: SceneTheme = {
   floor: "#1f1f1f",
   grid: "#353535",
   gridSection: "#4a4a4a",
-  steel: "#85a6c7",
-  beam: "#5b6d92",
+  steel: "#8eadd0",
+  beam: "#6a7ea8",
+  galvanized: "#9aa6b4",
+  punch: "#0f141c",
+  wood: "#c4a06a",
+  woodDark: "#8a6238",
+  strap: "#6b5340",
   empty: "#2a2a2a",
   occupied: "#df6035",
   selected: "#e05d38",
