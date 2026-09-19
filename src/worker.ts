@@ -19,6 +19,7 @@ import { ShopifyIngestError } from "./domain/shopify-ingest";
 import { floorRoute } from "./routes/floor";
 import { searchRoute } from "./routes/search";
 import { teamRoute } from "./routes/team";
+import { layoutRoute } from "./routes/layout";
 
 const app = new Hono<AppEnv>();
 
@@ -100,5 +101,6 @@ app.route("/api", shopifyRoute);
 app.route("/api", floorRoute);
 app.route("/api", searchRoute);
 app.route("/api", teamRoute);
+app.route("/api", layoutRoute);
 
 export default app;
