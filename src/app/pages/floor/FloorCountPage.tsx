@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { api, type CycleCount, type Location, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { useWarehouse } from "../../warehouse";
 import { canPostCount } from "@/domain/status";
 import { allLinesEntered, countVariance, formatCountVariance, isBlindCount } from "@/domain/blind-count";
@@ -14,6 +15,7 @@ export function FloorCountPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [active, setActive] = useState<CycleCount | null>(null);
   const [locationId, setLocationId] = useState("");
+  const [weights, setWeights] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -90,7 +92,11 @@ export function FloorCountPage() {
         body: JSON.stringify({
           lines: (active.lines ?? [])
             .filter((line) => line.entered)
-            .map((line) => ({ id: line.id, countedQty: line.countedQty })),
+            .map((line) => ({
+              id: line.id,
+              countedQty: line.countedQty,
+              weightGrams: parseWeightGrams(weights[line.id]),
+            })),
         }),
       });
       setActive(posted);
@@ -148,8 +154,8 @@ export function FloorCountPage() {
             <p className="text-sm">Nothing on the snapshot. Confirm the bay is empty, or scan a SKU you found.</p>
           ) : (
             lines.map((line) => (
+              <div key={line.id} className="space-y-2">
               <Field
-                key={line.id}
                 label={
                   isBlindCount(active.status) || line.systemQty === null
                     ? line.sku
@@ -180,6 +186,12 @@ export function FloorCountPage() {
                   }}
                 />
               </Field>
+              <CatchWeightInput
+                show={line.catchWeight}
+                value={weights[line.id] ?? (line.weightGrams != null ? String(line.weightGrams) : "")}
+                onChange={(value) => setWeights((current) => ({ ...current, [line.id]: value }))}
+              />
+              </div>
             ))
           )}
           {canPostCount(active.status) ? (

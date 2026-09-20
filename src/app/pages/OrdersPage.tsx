@@ -7,6 +7,7 @@ import { ORDER_STEPS, canPackOrder, canPickOrder, canShipOrder, canStartPick } f
 import { hasUnpicked } from "@/domain/partial-pick";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { LineFields } from "./ReceiptsPage";
+import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 
 type Line = { itemId: string; qty: string };
 
@@ -103,6 +104,7 @@ function OrderDetail({ id }: { id: string }) {
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [lots, setLots] = useState<Record<string, string>>({});
   const [serials, setSerials] = useState<Record<string, string>>({});
+  const [weights, setWeights] = useState<Record<string, string>>({});
   const [trackingNumber, setTrackingNumber] = useState("");
   const [trackingCompany, setTrackingCompany] = useState("");
   const [carrierService, setCarrierService] = useState("rackline_ground");
@@ -145,6 +147,7 @@ function OrderDetail({ id }: { id: string }) {
           qty: Number(qtys[line.id] || 0),
           lotCode: lots[line.id] || undefined,
           serials: serials[line.id] || undefined,
+          weightGrams: parseWeightGrams(weights[line.id]),
         }))
         .filter((line) => line.qty > 0);
       const next = await api<Order>(`/api/orders/${id}/pick`, {
@@ -361,6 +364,12 @@ function OrderDetail({ id }: { id: string }) {
                     onChange={(e) => setSerials((current) => ({ ...current, [line.id]: e.target.value }))}
                   />
                 ) : null}
+                <CatchWeightInput
+                  className="mt-1"
+                  show={line.catchWeight}
+                  value={weights[line.id] ?? ""}
+                  onChange={(value) => setWeights((current) => ({ ...current, [line.id]: value }))}
+                />
               </td>
             </tr>
           ))}

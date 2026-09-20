@@ -124,6 +124,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     base: newId(),
     cord: newId(),
     lamp: newId(),
+    resin: newId(),
   };
   await db.batch([
     db.insert(schema.items).values({
@@ -180,6 +181,17 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       pickMin: 12,
       trackSerial: true,
     }),
+    db.insert(schema.items).values({
+      id: item.resin,
+      organizationId,
+      sku: "RESIN",
+      name: "Casting resin",
+      type: "raw",
+      barcode: "RESIN",
+      createdAt: now,
+      reorderPoint: 4,
+      catchWeight: true,
+    }),
   ]);
 
   const starting = [
@@ -192,6 +204,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     { itemId: item.lamp, locationId: locIds.b0101l2!, qty: 6, serials: lampSerials(1009, 6) },
     { itemId: item.bulb, locationId: locIds.a0102!, qty: 6, lotCode: "LOT-2026-A" },
     { itemId: item.shade, locationId: locIds.a0201!, qty: 4 },
+    { itemId: item.resin, locationId: locIds.a0101!, qty: 6, weightGrams: 3000 },
   ];
   const seedRef = "seed";
   const plan = chainPlans(
@@ -205,6 +218,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
         balances,
         lotCode: line.lotCode,
         serials: line.serials,
+        weightGrams: line.weightGrams,
       }),
     ),
   );

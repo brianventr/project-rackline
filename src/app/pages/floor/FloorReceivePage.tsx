@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, type Location, type Purchase, type Receipt, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { canReceive, canReceivePurchase } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
 
@@ -17,6 +18,7 @@ export function FloorReceivePage() {
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [lots, setLots] = useState<Record<string, string>>({});
   const [serials, setSerials] = useState<Record<string, string>>({});
+  const [weights, setWeights] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
@@ -115,6 +117,7 @@ export function FloorReceivePage() {
           qty: Number(qtys[line.itemId] || 0),
           lotCode: lots[line.itemId] || undefined,
           serials: serials[line.itemId] || undefined,
+          weightGrams: parseWeightGrams(weights[line.itemId]),
         }))
         .filter((line) => line.qty > 0);
       const posted = await api<Receipt>(`/api/receipts/${activeReceipt.id}/receive`, {
@@ -140,6 +143,7 @@ export function FloorReceivePage() {
           qty: Number(qtys[line.itemId] || 0),
           lotCode: lots[line.itemId] || undefined,
           serials: serials[line.itemId] || undefined,
+          weightGrams: parseWeightGrams(weights[line.itemId]),
         }))
         .filter((line) => line.qty > 0);
       const posted = await api<Purchase>(`/api/purchases/${activePurchase.id}/receive`, {
@@ -256,6 +260,11 @@ export function FloorReceivePage() {
                     onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
                   />
                 ) : null}
+                <CatchWeightInput
+                  show={line.catchWeight}
+                  value={weights[line.itemId] ?? ""}
+                  onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
+                />
               </li>
             ))}
           </ul>
@@ -334,6 +343,11 @@ export function FloorReceivePage() {
                     onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
                   />
                 ) : null}
+                <CatchWeightInput
+                  show={line.catchWeight}
+                  value={weights[line.itemId] ?? ""}
+                  onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
+                />
               </li>
             ))}
           </ul>

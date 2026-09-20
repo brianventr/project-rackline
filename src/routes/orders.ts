@@ -11,6 +11,7 @@ import { fulfillShopifyOrder } from "../domain/shopify-fulfill";
 import { canPackOrder, canPickOrder, canShipOrder, canStartPack, canStartPick } from "../domain/status";
 import { buildShippingLabel, isCarrierService, resolveCarrier } from "../domain/shipping-label";
 import { parseSerialList } from "../domain/lots";
+import { lineCatchWeight } from "../lib/catch-weight";
 import {
   applyPartialPick,
   hasUnpicked,
@@ -38,6 +39,7 @@ type IncomingPick = {
   qty?: number;
   lotCode?: string;
   serials?: string | string[];
+  weightGrams?: number;
 };
 
 function asPickLine(line: { id: string; sku: string; qty: number; qtyPicked: number }): PickLine {
@@ -121,6 +123,7 @@ const orderLineSelect = {
   itemName: schema.items.name,
   trackLot: schema.items.trackLot,
   trackSerial: schema.items.trackSerial,
+  catchWeight: schema.items.catchWeight,
   shopifyLineItemId: schema.orderLines.shopifyLineItemId,
   shopifyFulfillmentLineItemId: schema.orderLines.shopifyFulfillmentLineItemId,
 };
@@ -155,9 +158,9 @@ async function orderWithLines(
 }
 
 function resolveIncoming(
-  lines: { id: string; itemId: string; remaining: number }[],
+  lines: { id: string; itemId: string; remaining: number; sku: string; catchWeight?: boolean }[],
   bodyLines?: IncomingPick[],
-): { lineId: string; qty: number; lotCode: string | null; serials: string[] }[] {
+): { lineId: string; qty: number; lotCode: string | null; serials: string[]; weightGrams: number | null }[] {
   if (Array.isArray(bodyLines) && bodyLines.length > 0) {
     const byId = new Map(lines.map((line) => [line.id, line]));
     const byItem = new Map(lines.map((line) => [line.itemId, line]));
@@ -171,12 +174,19 @@ function resolveIncoming(
         qty,
         lotCode: row.lotCode?.trim() || null,
         serials: parseSerialList(row.serials),
+        weightGrams: lineCatchWeight(line.catchWeight, line.sku, row.weightGrams),
       };
     });
   }
   return lines
     .filter((line) => line.remaining > 0)
-    .map((line) => ({ lineId: line.id, qty: line.remaining, lotCode: null, serials: [] as string[] }));
+    .map((line) => ({
+      lineId: line.id,
+      qty: line.remaining,
+      lotCode: null,
+      serials: [] as string[],
+      weightGrams: lineCatchWeight(line.catchWeight, line.sku, undefined),
+    }));
 }
 
 ordersRoute.get("/orders", async (c) => {
@@ -199,6 +209,7 @@ ordersRoute.get("/orders", async (c) => {
       itemName: schema.items.name,
       trackLot: schema.items.trackLot,
       trackSerial: schema.items.trackSerial,
+      catchWeight: schema.items.catchWeight,
     })
     .from(schema.orderLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.orderLines.itemId))
@@ -350,6 +361,7 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
         qty: postedByLine.get(line.id)!,
         lotCode: trace?.lotCode,
         serials: trace?.serials.length ? trace.serials : null,
+        weightGrams: trace?.weightGrams ?? null,
       };
     });
 
@@ -371,6 +383,7 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
           balances,
           lotCode: line.lotCode,
           serials: line.serials,
+          weightGrams: line.weightGrams,
         }),
     ),
   );
@@ -508,14 +521,37 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   const locationId = order.pickLocationId;
   if (!locationId) conflict("Pick location missing");
 
-  const movements: MovementDraft[] = order.lines.map((line) => ({
-    type: "ship",
-    itemId: line.itemId,
-    qty: line.qty,
-    fromLocationId: locationId,
-    refType: "order",
-    refId: order.id,
-  }));
+  const pickWeights = await db
+    .select({
+      itemId: schema.inventoryMovements.itemId,
+      weightGrams: schema.inventoryMovements.weightGrams,
+    })
+    .from(schema.inventoryMovements)
+    .where(
+      and(
+        eq(schema.inventoryMovements.organizationId, organizationId),
+        eq(schema.inventoryMovements.refId, order.id),
+        eq(schema.inventoryMovements.type, "pick"),
+      ),
+    );
+  const weightByItem = new Map<string, number>();
+  for (const row of pickWeights) {
+    if (row.weightGrams == null) continue;
+    weightByItem.set(row.itemId, (weightByItem.get(row.itemId) ?? 0) + row.weightGrams);
+  }
+
+  const movements: MovementDraft[] = order.lines.map((line) => {
+    const weightGrams = line.catchWeight ? lineCatchWeight(true, line.sku, weightByItem.get(line.itemId)) : null;
+    return {
+      type: "ship",
+      itemId: line.itemId,
+      qty: line.qty,
+      fromLocationId: locationId,
+      refType: "order",
+      refId: order.id,
+      weightGrams,
+    };
+  });
   const plan: StockPlan = { balances: new Map(), movements };
   const now = Date.now();
   const carrierService = body.carrierService?.trim() || order.carrierService || "rackline_ground";

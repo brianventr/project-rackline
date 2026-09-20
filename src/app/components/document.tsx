@@ -5,6 +5,7 @@ import { statusLabel } from "@/domain/status";
 import { useEffect, useState, type ReactNode } from "react";
 import { PageHeader } from "./ui";
 import { api, type Movement } from "../api";
+import { formatCatchWeight } from "@/domain/catch-weight";
 
 export function StatusStepper({
   steps,
@@ -105,7 +106,10 @@ export function DocumentActivity({ refId, refreshKey }: { refId: string; refresh
               <span>
                 <span className="font-mono text-xs uppercase text-muted-foreground">{row.type}</span> {row.sku}
               </span>
-              <span className="font-mono tabular-nums">{row.qty}</span>
+              <span className="font-mono tabular-nums">
+                {row.qty}
+                {row.weightGrams ? ` · ${formatCatchWeight(row.weightGrams)}` : ""}
+              </span>
             </li>
           ))}
         </ul>

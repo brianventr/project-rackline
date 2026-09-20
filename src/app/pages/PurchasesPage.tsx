@@ -7,6 +7,7 @@ import { PURCHASE_STEPS, canReceivePurchase, canStartPurchase } from "@/domain/s
 import { hasRemaining } from "@/domain/partial-receive";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { LineFields } from "./ReceiptsPage";
+import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 
 type Line = { itemId: string; qty: string };
 
@@ -110,6 +111,7 @@ function PurchaseDetail({ id }: { id: string }) {
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [lots, setLots] = useState<Record<string, string>>({});
   const [serials, setSerials] = useState<Record<string, string>>({});
+  const [weights, setWeights] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -147,6 +149,7 @@ function PurchaseDetail({ id }: { id: string }) {
           qty: Number(qtys[line.itemId] || 0),
           lotCode: lots[line.itemId] || undefined,
           serials: serials[line.itemId] || undefined,
+          weightGrams: parseWeightGrams(weights[line.itemId]),
         }))
         .filter((line) => line.qty > 0);
       const next = await api<Purchase>(`/api/purchases/${id}/receive`, {
@@ -247,6 +250,12 @@ function PurchaseDetail({ id }: { id: string }) {
                     onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
                   />
                 ) : null}
+                <CatchWeightInput
+                  className="mt-1"
+                  show={line.catchWeight}
+                  value={weights[line.itemId] ?? ""}
+                  onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
+                />
               </td>
             </tr>
           ))}

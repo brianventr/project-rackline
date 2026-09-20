@@ -56,6 +56,7 @@ export type Item = {
   pickMin?: number;
   trackLot?: boolean;
   trackSerial?: boolean;
+  catchWeight?: boolean;
   onHand?: {
     locationId: string;
     locationCode: string;
@@ -207,6 +208,7 @@ export type ReceiptLine = {
   itemName: string;
   trackLot?: boolean;
   trackSerial?: boolean;
+  catchWeight?: boolean;
 };
 
 export type Receipt = {
@@ -251,6 +253,7 @@ export type OrderLine = {
   shopifyLineItemId?: string | null;
   trackLot?: boolean;
   trackSerial?: boolean;
+  catchWeight?: boolean;
   suggestedLocation?: SuggestedLocation | null;
 };
 
@@ -339,6 +342,7 @@ export type KitBuild = {
   warehouseId?: string;
   trackLot?: boolean;
   trackSerial?: boolean;
+  catchWeight?: boolean;
   components?: { itemId: string; qty: number; sku: string; itemName: string }[];
 };
 
@@ -511,6 +515,8 @@ export type CycleCount = {
     entered?: boolean;
     sku: string;
     itemName: string;
+    catchWeight?: boolean;
+    weightGrams?: number | null;
   }[];
 };
 
@@ -544,6 +550,7 @@ export type Movement = {
   toLocationCode: string | null;
   lotCode?: string | null;
   serialsJson?: string | null;
+  weightGrams?: number | null;
 };
 
 export type PurchaseLine = {
@@ -556,6 +563,7 @@ export type PurchaseLine = {
   itemName: string;
   trackLot?: boolean;
   trackSerial?: boolean;
+  catchWeight?: boolean;
 };
 
 export type Purchase = {
@@ -580,6 +588,7 @@ export type RmaLine = {
   itemName: string;
   trackLot?: boolean;
   trackSerial?: boolean;
+  catchWeight?: boolean;
 };
 
 export type Rma = {

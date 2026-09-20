@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, type Location, type Order, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { canPickOrder } from "@/domain/status";
 import { hasUnpicked } from "@/domain/partial-pick";
 
@@ -15,6 +16,7 @@ export function FloorPickPage() {
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [lots, setLots] = useState<Record<string, string>>({});
   const [serials, setSerials] = useState<Record<string, string>>({});
+  const [weights, setWeights] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   function applyOrder(order: Order, nextLocations: Location[]) {
@@ -97,6 +99,7 @@ export function FloorPickPage() {
           qty: Number(qtys[line.id] || 0),
           lotCode: lots[line.id] || undefined,
           serials: serials[line.id] || undefined,
+          weightGrams: parseWeightGrams(weights[line.id]),
         }))
         .filter((line) => line.qty > 0);
       const picked = await api<Order>(`/api/orders/${active.id}/pick`, {
@@ -201,6 +204,11 @@ export function FloorPickPage() {
                     onChange={(e) => setSerials((current) => ({ ...current, [line.id]: e.target.value }))}
                   />
                 ) : null}
+                <CatchWeightInput
+                  show={line.catchWeight}
+                  value={weights[line.id] ?? ""}
+                  onChange={(value) => setWeights((current) => ({ ...current, [line.id]: value }))}
+                />
               </li>
             ))}
           </ul>

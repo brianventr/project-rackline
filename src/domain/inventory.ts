@@ -20,6 +20,7 @@ export type MovementDraft = {
   reason?: string | null;
   lotCode?: string | null;
   serials?: string[] | null;
+  weightGrams?: number | null;
 };
 
 export type StockPlan = {
@@ -78,6 +79,7 @@ export function planReceive(input: {
   refType?: string;
   lotCode?: string | null;
   serials?: string[] | null;
+  weightGrams?: number | null;
 }): StockPlan {
   requirePositiveQty(input.qty);
   const balances = new Map(input.balances);
@@ -94,6 +96,7 @@ export function planReceive(input: {
         refId: input.refId,
         lotCode: input.lotCode ?? null,
         serials: input.serials ?? null,
+        weightGrams: input.weightGrams ?? null,
       },
     ],
   };
@@ -108,6 +111,7 @@ export function planPick(input: {
   balances: Map<string, number>;
   lotCode?: string | null;
   serials?: string[] | null;
+  weightGrams?: number | null;
 }): StockPlan {
   requirePositiveQty(input.qty);
   const balances = new Map(input.balances);
@@ -124,6 +128,7 @@ export function planPick(input: {
         refId: input.refId,
         lotCode: input.lotCode ?? null,
         serials: input.serials ?? null,
+        weightGrams: input.weightGrams ?? null,
       },
     ],
   };
@@ -134,6 +139,7 @@ export function planShip(input: {
   locationId: string;
   qty: number;
   refId: string;
+  weightGrams?: number | null;
 }): StockPlan {
   requirePositiveQty(input.qty);
   return {
@@ -146,6 +152,7 @@ export function planShip(input: {
         fromLocationId: input.locationId,
         refType: "order",
         refId: input.refId,
+        weightGrams: input.weightGrams ?? null,
       },
     ],
   };
@@ -159,6 +166,7 @@ export function planAdjust(input: {
   reason: string;
   refId: string;
   balances: Map<string, number>;
+  weightGrams?: number | null;
 }): StockPlan {
   if (!Number.isInteger(input.qtyDelta) || input.qtyDelta === 0) {
     throw new Error("Adjustment quantity must be a non-zero integer");
@@ -180,6 +188,7 @@ export function planAdjust(input: {
         refType: "adjustment",
         refId: input.refId,
         reason: input.reason.trim(),
+        weightGrams: input.weightGrams ?? null,
       },
     ],
   };
@@ -225,7 +234,7 @@ export function planMove(input: {
 export function planCycleCount(input: {
   refId: string;
   locationId: string;
-  lines: { itemId: string; sku: string; systemQty: number; countedQty: number }[];
+  lines: { itemId: string; sku: string; systemQty: number; countedQty: number; weightGrams?: number | null }[];
   balances: Map<string, number>;
 }): StockPlan {
   const steps: Array<(balances: Map<string, number>) => StockPlan> = [];
@@ -244,6 +253,7 @@ export function planCycleCount(input: {
         reason: `Cycle count variance (${line.systemQty} → ${line.countedQty})`,
         refId: input.refId,
         balances,
+        weightGrams: line.weightGrams ?? null,
       }),
     );
   }
