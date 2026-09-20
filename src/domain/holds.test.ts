@@ -130,6 +130,7 @@ describe("isHoldRestrictedType", () => {
     expect(isHoldRestrictedType("move")).toBe(true);
     expect(isHoldRestrictedType("kit_consume")).toBe(true);
     expect(isHoldRestrictedType("wo_consume")).toBe(true);
+    expect(isHoldRestrictedType("rtv")).toBe(true);
     expect(isHoldRestrictedType("receive")).toBe(false);
     expect(isHoldRestrictedType("adjust")).toBe(false);
     expect(isHoldRestrictedType("ship")).toBe(false);

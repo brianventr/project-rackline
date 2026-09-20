@@ -923,6 +923,36 @@ floorRoute.get("/scan", async (c) => {
     if (parsed.kind === "rma") notFound("No return matches that barcode");
   }
 
+  if (parsed.kind === "vendorReturn" || parsed.kind === "unknown") {
+    const rows = await db.select().from(schema.vendorReturns).where(eq(schema.vendorReturns.organizationId, organizationId));
+    const vendorReturn = await findByNumber(rows, parsed.value);
+    if (vendorReturn) {
+      const lines = await db
+        .select({
+          id: schema.vendorReturnLines.id,
+          itemId: schema.vendorReturnLines.itemId,
+          qtyExpected: schema.vendorReturnLines.qtyExpected,
+          qtyReturned: schema.vendorReturnLines.qtyReturned,
+          sku: schema.items.sku,
+          itemName: schema.items.name,
+        })
+        .from(schema.vendorReturnLines)
+        .innerJoin(schema.items, eq(schema.items.id, schema.vendorReturnLines.itemId))
+        .where(eq(schema.vendorReturnLines.vendorReturnId, vendorReturn.id));
+      return c.json({
+        kind: "vendorReturn" as const,
+        vendorReturn: {
+          ...vendorReturn,
+          lines: lines.map((line) => ({
+            ...line,
+            remaining: line.qtyExpected - line.qtyReturned,
+          })),
+        },
+      });
+    }
+    if (parsed.kind === "vendorReturn") notFound("No vendor return matches that barcode");
+  }
+
   if (parsed.kind === "replenishment" || parsed.kind === "unknown") {
     const rows = await db.select().from(schema.replenishments).where(eq(schema.replenishments.organizationId, organizationId));
     const replenishment = await findByNumber(rows, parsed.value);

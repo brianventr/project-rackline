@@ -111,7 +111,7 @@ function WorkOrderList() {
           </form>
         </Card>
       ) : null}
-      <Table columns={["Number", "Item", "Qty", "Status"]}>
+      <Table columns={["Number", "Item", "Qty", "Completed", "Status"]}>
         {inWarehouse(orders, warehouseId).map((order) => (
           <tr key={order.id}>
             <td className="px-4 py-3 font-mono">
@@ -123,6 +123,7 @@ function WorkOrderList() {
               {order.sku} — {order.itemName}
             </td>
             <td className="px-4 py-3 font-mono">{order.qty}</td>
+            <td className="px-4 py-3 font-mono">{order.qtyCompleted ?? 0}</td>
             <td className="px-4 py-3">
               <StatusBadge status={order.status} />
             </td>
@@ -136,11 +137,15 @@ function WorkOrderList() {
 function WorkOrderDetail({ id }: { id: string }) {
   const navigate = useNavigate();
   const [order, setOrder] = useState<WorkOrder | null>(null);
+  const [thisQty, setThisQty] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api<WorkOrder>(`/api/work-orders/${id}`)
-      .then(setOrder)
+      .then((next) => {
+        setOrder(next);
+        setThisQty(String(next.remaining ?? next.qty));
+      })
       .catch((err: Error) => setError(err.message));
   }, [id]);
 
@@ -156,20 +161,26 @@ function WorkOrderDetail({ id }: { id: string }) {
   async function complete() {
     setError(null);
     try {
-      setOrder(await api<WorkOrder>(`/api/work-orders/${id}/complete`, { method: "POST" }));
+      const next = await api<WorkOrder>(`/api/work-orders/${id}/complete`, {
+        method: "POST",
+        body: JSON.stringify({ qty: Number(thisQty) }),
+      });
+      setOrder(next);
+      setThisQty(String(next.remaining ?? 0));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Complete failed");
     }
   }
 
   if (!order) return <ErrorBanner error={error} />;
+  const remaining = order.remaining ?? Math.max(0, order.qty - (order.qtyCompleted ?? 0));
 
   return (
     <div className="space-y-6">
       <DocumentHeader
         eyebrow="Make"
         title={order.number}
-        description={`Build ${order.sku} × ${order.qty}`}
+        description={`Build ${order.sku} · completed ${order.qtyCompleted ?? 0}/${order.qty}`}
         status={order.status}
         steps={WORK_ORDER_STEPS}
         actions={
@@ -178,7 +189,7 @@ function WorkOrderDetail({ id }: { id: string }) {
               All work orders
             </Button>
             {order.status === "draft" ? <Button onClick={() => void start()}>Start</Button> : null}
-            {canCompleteWorkOrder(order.status) ? <Button onClick={() => void complete()}>Complete</Button> : null}
+            {canCompleteWorkOrder(order.status) && remaining > 0 ? <Button onClick={() => void complete()}>Complete</Button> : null}
             <Button variant="secondary">
               <Link to={`/floor/assemble?id=${order.id}`}>Floor</Link>
             </Button>
@@ -186,10 +197,15 @@ function WorkOrderDetail({ id }: { id: string }) {
         }
       />
       <ErrorBanner error={error} />
+      {canCompleteWorkOrder(order.status) && remaining > 0 ? (
+        <Field label={`This complete (remaining ${remaining})`}>
+          <Input type="number" min={1} max={remaining} value={thisQty} onChange={(e) => setThisQty(e.target.value)} />
+        </Field>
+      ) : null}
       {(order.asBuilt ?? []).length ? (
         <AsBuiltList title="As-built" empty="No component lots were recorded." rows={order.asBuilt ?? []} mode="from" />
       ) : null}
-      <DocumentActivity refId={order.id} />
+      <DocumentActivity refId={order.id} refreshKey={`${order.status}:${order.qtyCompleted ?? 0}`} />
     </div>
   );
 }

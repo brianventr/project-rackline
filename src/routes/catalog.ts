@@ -647,8 +647,13 @@ catalogRoute.get("/dashboard", async (c) => {
   );
   const kitWhere = and(
     eq(schema.kitBuilds.organizationId, organizationId),
-    eq(schema.kitBuilds.status, "draft"),
+    inArray(schema.kitBuilds.status, ["draft", "in_progress"]),
     warehouseId ? eq(schema.kitBuilds.warehouseId, warehouseId) : undefined,
+  );
+  const vendorReturnWhere = and(
+    eq(schema.vendorReturns.organizationId, organizationId),
+    inArray(schema.vendorReturns.status, ["open", "returning"]),
+    warehouseId ? eq(schema.vendorReturns.warehouseId, warehouseId) : undefined,
   );
 
   const openReceiptRows = await db.select().from(schema.receipts).where(receiptWhere).orderBy(desc(schema.receipts.createdAt));
@@ -659,6 +664,7 @@ catalogRoute.get("/dashboard", async (c) => {
       number: schema.workOrders.number,
       itemId: schema.workOrders.itemId,
       qty: schema.workOrders.qty,
+      qtyCompleted: schema.workOrders.qtyCompleted,
       status: schema.workOrders.status,
       sku: schema.items.sku,
       itemName: schema.items.name,
@@ -743,6 +749,19 @@ catalogRoute.get("/dashboard", async (c) => {
 
   const openPurchaseRows = await db.select().from(schema.purchases).where(purchaseWhere).orderBy(desc(schema.purchases.createdAt));
   const openReturnRows = await db.select().from(schema.rmas).where(returnWhere).orderBy(desc(schema.rmas.createdAt));
+  const openVendorReturnRows = await db
+    .select({
+      id: schema.vendorReturns.id,
+      number: schema.vendorReturns.number,
+      vendorName: schema.vendorReturns.vendorName,
+      status: schema.vendorReturns.status,
+      purchaseId: schema.vendorReturns.purchaseId,
+      warehouseId: schema.vendorReturns.warehouseId,
+      createdAt: schema.vendorReturns.createdAt,
+    })
+    .from(schema.vendorReturns)
+    .where(vendorReturnWhere)
+    .orderBy(desc(schema.vendorReturns.createdAt));
 
   const rplFrom = alias(schema.locations, "rpl_from");
   const rplTo = alias(schema.locations, "rpl_to");
@@ -775,6 +794,7 @@ catalogRoute.get("/dashboard", async (c) => {
       number: schema.kitBuilds.number,
       itemId: schema.kitBuilds.itemId,
       qty: schema.kitBuilds.qty,
+      qtyCompleted: schema.kitBuilds.qtyCompleted,
       status: schema.kitBuilds.status,
       sku: schema.items.sku,
       itemName: schema.items.name,
@@ -1085,6 +1105,7 @@ catalogRoute.get("/dashboard", async (c) => {
     openHolds: openHoldRows.length,
     openPurchases: openPurchaseRows.length,
     openReturns: openReturnRows.length,
+    openVendorReturns: openVendorReturnRows.length,
     openReplenishments: openReplenishRows.length,
     openKits: openKitRows.length,
     replenishDue: replenishSuggestions.length,
@@ -1102,6 +1123,7 @@ catalogRoute.get("/dashboard", async (c) => {
       holds: openHoldRows,
       purchases: openPurchaseRows,
       returns: openReturnRows,
+      vendorReturns: openVendorReturnRows,
       replenishments: openReplenishRows,
       kits: openKitRows,
       shopifyExceptions,

@@ -9,6 +9,7 @@ import {
   planMove,
   planPick,
   planReceive,
+  planRtv,
   planScrap,
 } from "./inventory";
 import { explodeBom, planCompleteKit, planCompleteWorkOrder } from "./manufacturing";
@@ -289,6 +290,29 @@ describe("work orders", () => {
         balances,
       }),
     ).toThrow(InsufficientStockError);
+  });
+});
+
+describe("vendor RTV", () => {
+  it("decrements the from bay like a pick", () => {
+    const start = planReceive({
+      itemId: "bulb",
+      locationId: "A-01-01",
+      qty: 6,
+      refId: "seed",
+      balances: new Map(),
+    });
+    const posted = planRtv({
+      itemId: "bulb",
+      sku: "LED-BULB",
+      locationId: "A-01-01",
+      qty: 2,
+      refId: "rtv-1",
+      balances: start.balances,
+    });
+    expect(posted.balances.get(balanceKey("A-01-01", "bulb"))).toBe(4);
+    expect(posted.movements[0]?.type).toBe("rtv");
+    expect(posted.movements[0]?.refType).toBe("vendor_return");
   });
 });
 

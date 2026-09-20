@@ -269,6 +269,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
   const receiptId = newId();
   const purchaseId = newId();
   const rmaId = newId();
+  const rtvId = newId();
   const orderId = newId();
   const woId = newId();
   const kitId = newId();
@@ -343,6 +344,24 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       qtyReceived: 0,
       disposition: "restock",
     }),
+    db.insert(schema.vendorReturns).values({
+      id: rtvId,
+      organizationId,
+      warehouseId,
+      number: "RTV-DEMO1",
+      vendorName: "Harbor Components",
+      status: "open",
+      purchaseId,
+      notes: "Wrong lot on bulbs — ship back from A-01-01",
+      createdAt: now,
+    }),
+    db.insert(schema.vendorReturnLines).values({
+      id: newId(),
+      vendorReturnId: rtvId,
+      itemId: item.bulb,
+      qtyExpected: 2,
+      qtyReturned: 0,
+    }),
     db.insert(schema.workOrders).values({
       id: woId,
       organizationId,
@@ -350,6 +369,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       number: "WO-DEMO1",
       itemId: item.lamp,
       qty: 4,
+      qtyCompleted: 0,
       status: "draft",
       sourceLocationId: locIds.a0101!,
       outputLocationId: locIds.prod!,
@@ -361,7 +381,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       warehouseId,
       number: "KIT-DEMO1",
       itemId: item.lamp,
-      qty: 1,
+      qty: 2,
+      qtyCompleted: 0,
       status: "draft",
       sourceLocationId: locIds.a0101!,
       outputLocationId: locIds.b0101!,

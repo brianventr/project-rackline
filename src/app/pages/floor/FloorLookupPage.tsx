@@ -182,6 +182,8 @@ function LookupResult({ hit }: { hit: ScanHit }) {
           ? { title: hit.purchase.number, status: hit.purchase.status, to: documentPath("purchase", hit.purchase.id), floor: `/floor/receive?purchase=${hit.purchase.id}` }
           : hit.kind === "rma"
             ? { title: hit.rma.number, status: hit.rma.status, to: documentPath("rma", hit.rma.id), floor: `/floor/return?id=${hit.rma.id}` }
+            : hit.kind === "vendorReturn"
+              ? { title: hit.vendorReturn.number, status: hit.vendorReturn.status, to: documentPath("vendorReturn", hit.vendorReturn.id), floor: `/floor/rtv?id=${hit.vendorReturn.id}` }
         : hit.kind === "transfer"
           ? { title: hit.transfer.number, status: hit.transfer.status, to: documentPath("transfer", hit.transfer.id), floor: `/floor/putaway?id=${hit.transfer.id}` }
           : hit.kind === "workOrder"

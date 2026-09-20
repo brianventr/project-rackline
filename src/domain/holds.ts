@@ -14,7 +14,7 @@ export type OpenHold = HoldKey & {
 
 export const HOLD_REASONS = ["QC", "Damaged", "Count variance", "Recall"] as const;
 
-export const HOLD_RESTRICTED_TYPES = ["pick", "move", "kit_consume", "wo_consume"] as const;
+export const HOLD_RESTRICTED_TYPES = ["pick", "move", "kit_consume", "wo_consume", "rtv"] as const;
 
 export class HeldStockError extends Error {
   constructor(

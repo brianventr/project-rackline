@@ -26,7 +26,7 @@ export type AllocationDraft = AllocationKey & {
   sku: string;
 };
 
-export const ATP_RESTRICTED_TYPES = ["pick", "move", "kit_consume", "wo_consume"] as const;
+export const ATP_RESTRICTED_TYPES = ["pick", "move", "kit_consume", "wo_consume", "rtv"] as const;
 
 export class InsufficientAtpError extends Error {
   constructor(

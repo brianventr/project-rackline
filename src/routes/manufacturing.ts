@@ -9,6 +9,7 @@ import { planCompleteWorkOrder } from "../domain/manufacturing";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { canCompleteWorkOrder } from "../domain/status";
 import { loadAsBuiltForRef } from "../db/as-built";
+import { applyPartialComplete, isFullyCompleted, remainingToComplete, OverCompleteError } from "../domain/partial-complete";
 
 export const manufacturingRoute = new Hono<AppEnv>();
 
@@ -124,6 +125,7 @@ async function workOrderWithItem(db: AppEnv["Variables"]["db"], organizationId: 
       number: schema.workOrders.number,
       itemId: schema.workOrders.itemId,
       qty: schema.workOrders.qty,
+      qtyCompleted: schema.workOrders.qtyCompleted,
       status: schema.workOrders.status,
       warehouseId: schema.workOrders.warehouseId,
       sourceLocationId: schema.workOrders.sourceLocationId,
@@ -139,7 +141,7 @@ async function workOrderWithItem(db: AppEnv["Variables"]["db"], organizationId: 
     .limit(1);
   if (!row) notFound("Work order not found");
   const asBuilt = await loadAsBuiltForRef(db, organizationId, row.id);
-  return { ...row, asBuilt };
+  return { ...row, remaining: remainingToComplete(row.qty, row.qtyCompleted), asBuilt };
 }
 
 manufacturingRoute.get("/work-orders", async (c) => {
@@ -151,6 +153,7 @@ manufacturingRoute.get("/work-orders", async (c) => {
       number: schema.workOrders.number,
       itemId: schema.workOrders.itemId,
       qty: schema.workOrders.qty,
+      qtyCompleted: schema.workOrders.qtyCompleted,
       status: schema.workOrders.status,
       warehouseId: schema.workOrders.warehouseId,
       sourceLocationId: schema.workOrders.sourceLocationId,
@@ -164,7 +167,7 @@ manufacturingRoute.get("/work-orders", async (c) => {
     .innerJoin(schema.items, eq(schema.items.id, schema.workOrders.itemId))
     .where(eq(schema.workOrders.organizationId, organizationId))
     .orderBy(desc(schema.workOrders.createdAt));
-  return c.json(rows);
+  return c.json(rows.map((row) => ({ ...row, remaining: remainingToComplete(row.qty, row.qtyCompleted) })));
 });
 
 manufacturingRoute.get("/work-orders/:id", async (c) => {
@@ -208,6 +211,7 @@ manufacturingRoute.post("/work-orders", async (c) => {
       number: docNumber("WO"),
       itemId,
       qty,
+      qtyCompleted: 0,
       status: "draft",
       sourceLocationId,
       outputLocationId,
@@ -228,11 +232,28 @@ manufacturingRoute.post("/work-orders/:id/start", async (c) => {
 });
 
 manufacturingRoute.post("/work-orders/:id/complete", async (c) => {
+  const body = await c.req
+    .json<{ qty?: number }>()
+    .catch(() => ({}) as { qty?: number });
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
   const wo = await workOrderWithItem(db, organizationId, c.req.param("id"));
   if (!canCompleteWorkOrder(wo.status)) conflict("Work order already completed");
+
+  const remaining = remainingToComplete(wo.qty, wo.qtyCompleted);
+  if (remaining <= 0) conflict("Work order has nothing remaining");
+  let thisQty = remaining;
+  if (body.qty !== undefined && body.qty !== null) {
+    thisQty = requireInt(body.qty, "qty");
+  }
+  let applied;
+  try {
+    applied = applyPartialComplete({ sku: wo.sku, qty: wo.qty, qtyCompleted: wo.qtyCompleted }, thisQty);
+  } catch (err) {
+    if (err instanceof OverCompleteError) throw err;
+    badRequest(err instanceof Error ? err.message : "Invalid complete qty");
+  }
 
   const [bom] = await db
     .select()
@@ -260,7 +281,7 @@ manufacturingRoute.post("/work-orders/:id/complete", async (c) => {
     workOrderId: wo.id,
     finishedItemId: wo.itemId,
     finishedSku: wo.sku,
-    qty: wo.qty,
+    qty: applied.postedQty,
     sourceLocationId: wo.sourceLocationId,
     outputLocationId: wo.outputLocationId,
     bomLines: components,
@@ -268,6 +289,7 @@ manufacturingRoute.post("/work-orders/:id/complete", async (c) => {
   });
 
   const now = Date.now();
+  const nextStatus = isFullyCompleted(wo.qty, applied.qtyCompleted) ? "completed" : "in_progress";
   await persistStockPlan(db, {
     organizationId,
     createdBy: user.id,
@@ -277,7 +299,11 @@ manufacturingRoute.post("/work-orders/:id/complete", async (c) => {
     extra: [
       db
         .update(schema.workOrders)
-        .set({ status: "completed", completedAt: now })
+        .set({
+          status: nextStatus,
+          qtyCompleted: applied.qtyCompleted,
+          completedAt: nextStatus === "completed" ? now : wo.completedAt,
+        })
         .where(eq(schema.workOrders.id, wo.id)),
     ],
   });

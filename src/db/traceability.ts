@@ -105,7 +105,7 @@ async function expandOne(
     }
   }
 
-  if (item.catchWeight && (movement.type === "receive" || movement.type === "pick")) {
+  if (item.catchWeight && (movement.type === "receive" || movement.type === "pick" || movement.type === "rtv")) {
     if (movement.weightGrams == null || movement.weightGrams <= 0) {
       badRequest(`${item.sku} is catch-weight; enter weight in grams`);
     }
@@ -419,7 +419,7 @@ export async function appendTraceabilityStatements(
         if (!existing || existing.status !== "on_hand") {
           badRequest(`Serial ${serialCode} is not on hand`);
         }
-        const status = movement.type === "pick" ? "shipped" : "consumed";
+        const status = movement.type === "pick" || movement.type === "rtv" ? "shipped" : "consumed";
         input.statements.push(
           db
             .update(schema.serials)

@@ -12,7 +12,7 @@ searchRoute.get("/search", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
 
-  const [items, locations, orders, receipts, transfers, workOrders, counts, purchases, returns, replenishments, kits, holds, serials] = await Promise.all([
+  const [items, locations, orders, receipts, transfers, workOrders, counts, purchases, returns, vendorReturns, replenishments, kits, holds, serials] = await Promise.all([
     db
       .select({
         id: schema.items.id,
@@ -143,6 +143,21 @@ searchRoute.get("/search", async (c) => {
       .limit(8),
     db
       .select({
+        id: schema.vendorReturns.id,
+        number: schema.vendorReturns.number,
+        vendorName: schema.vendorReturns.vendorName,
+        status: schema.vendorReturns.status,
+      })
+      .from(schema.vendorReturns)
+      .where(
+        and(
+          eq(schema.vendorReturns.organizationId, organizationId),
+          or(like(schema.vendorReturns.number, needle), like(schema.vendorReturns.vendorName, needle)),
+        ),
+      )
+      .limit(8),
+    db
+      .select({
         id: schema.replenishments.id,
         number: schema.replenishments.number,
         status: schema.replenishments.status,
@@ -192,6 +207,7 @@ searchRoute.get("/search", async (c) => {
     counts,
     purchases,
     returns,
+    vendorReturns,
     replenishments,
     kits,
     holds,

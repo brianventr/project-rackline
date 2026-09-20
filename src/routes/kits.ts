@@ -6,10 +6,12 @@ import { badRequest, conflict, notFound, requireInt, requireString } from "../li
 import { getOrgItem, getOrgLocation } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
 import { planCompleteKit } from "../domain/manufacturing";
+import { planDekit } from "../domain/dekit";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
-import { canCompleteKit } from "../domain/status";
+import { canCompleteKit, canDekit } from "../domain/status";
 import { parseSerialList } from "../domain/lots";
 import { loadAsBuiltForRef } from "../db/as-built";
+import { applyPartialComplete, isFullyCompleted, remainingToComplete, OverCompleteError } from "../domain/partial-complete";
 
 export const kitsRoute = new Hono<AppEnv>();
 
@@ -20,6 +22,7 @@ async function kitWithItem(db: AppEnv["Variables"]["db"], organizationId: string
       number: schema.kitBuilds.number,
       itemId: schema.kitBuilds.itemId,
       qty: schema.kitBuilds.qty,
+      qtyCompleted: schema.kitBuilds.qtyCompleted,
       status: schema.kitBuilds.status,
       warehouseId: schema.kitBuilds.warehouseId,
       sourceLocationId: schema.kitBuilds.sourceLocationId,
@@ -54,7 +57,7 @@ async function kitWithItem(db: AppEnv["Variables"]["db"], organizationId: string
         .where(eq(schema.bomLines.bomId, bom.id))
     : [];
   const asBuilt = await loadAsBuiltForRef(db, organizationId, row.id);
-  return { ...row, components, asBuilt };
+  return { ...row, remaining: remainingToComplete(row.qty, row.qtyCompleted), components, asBuilt };
 }
 
 kitsRoute.get("/kits", async (c) => {
@@ -66,6 +69,7 @@ kitsRoute.get("/kits", async (c) => {
       number: schema.kitBuilds.number,
       itemId: schema.kitBuilds.itemId,
       qty: schema.kitBuilds.qty,
+      qtyCompleted: schema.kitBuilds.qtyCompleted,
       status: schema.kitBuilds.status,
       warehouseId: schema.kitBuilds.warehouseId,
       sourceLocationId: schema.kitBuilds.sourceLocationId,
@@ -79,7 +83,7 @@ kitsRoute.get("/kits", async (c) => {
     .innerJoin(schema.items, eq(schema.items.id, schema.kitBuilds.itemId))
     .where(eq(schema.kitBuilds.organizationId, organizationId))
     .orderBy(desc(schema.kitBuilds.createdAt));
-  return c.json(rows);
+  return c.json(rows.map((row) => ({ ...row, remaining: remainingToComplete(row.qty, row.qtyCompleted) })));
 });
 
 kitsRoute.get("/kits/:id", async (c) => {
@@ -123,6 +127,7 @@ kitsRoute.post("/kits", async (c) => {
       number: docNumber("KIT"),
       itemId,
       qty,
+      qtyCompleted: 0,
       status: "draft",
       sourceLocationId,
       outputLocationId,
@@ -135,14 +140,28 @@ kitsRoute.post("/kits", async (c) => {
 
 kitsRoute.post("/kits/:id/complete", async (c) => {
   const body = await c.req
-    .json<{ lotCode?: string; serials?: string | string[] }>()
-    .catch(() => ({}) as { lotCode?: string; serials?: string | string[] });
+    .json<{ qty?: number; lotCode?: string; serials?: string | string[] }>()
+    .catch(() => ({}) as { qty?: number; lotCode?: string; serials?: string | string[] });
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
   const kit = await kitWithItem(db, organizationId, c.req.param("id"));
   if (!canCompleteKit(kit.status)) conflict("Kit already completed");
   if (kit.components.length === 0) badRequest("BOM is missing");
+
+  const remaining = remainingToComplete(kit.qty, kit.qtyCompleted);
+  if (remaining <= 0) conflict("Kit has nothing remaining");
+  let thisQty = remaining;
+  if (body.qty !== undefined && body.qty !== null) {
+    thisQty = requireInt(body.qty, "qty");
+  }
+  let applied;
+  try {
+    applied = applyPartialComplete({ sku: kit.sku, qty: kit.qty, qtyCompleted: kit.qtyCompleted }, thisQty);
+  } catch (err) {
+    if (err instanceof OverCompleteError) throw err;
+    badRequest(err instanceof Error ? err.message : "Invalid complete qty");
+  }
 
   const pairs = [
     ...kit.components.map((line) => ({ locationId: kit.sourceLocationId, itemId: line.itemId })),
@@ -154,13 +173,60 @@ kitsRoute.post("/kits/:id/complete", async (c) => {
     kitId: kit.id,
     finishedItemId: kit.itemId,
     finishedSku: kit.sku,
-    qty: kit.qty,
+    qty: applied.postedQty,
     sourceLocationId: kit.sourceLocationId,
     outputLocationId: kit.outputLocationId,
     bomLines: kit.components,
     balances: qtyMap(loaded),
     outputLotCode: body.lotCode?.trim() || null,
     outputSerials: serials.length ? serials : null,
+  });
+
+  const now = Date.now();
+  const nextStatus = isFullyCompleted(kit.qty, applied.qtyCompleted) ? "completed" : "in_progress";
+  await persistStockPlan(db, {
+    organizationId,
+    createdBy: user.id,
+    now,
+    loaded,
+    plan,
+    extra: [
+      db
+        .update(schema.kitBuilds)
+        .set({
+          status: nextStatus,
+          qtyCompleted: applied.qtyCompleted,
+          completedAt: nextStatus === "completed" ? now : kit.completedAt,
+        })
+        .where(eq(schema.kitBuilds.id, kit.id)),
+    ],
+  });
+
+  return c.json(await kitWithItem(db, organizationId, kit.id));
+});
+
+kitsRoute.post("/kits/:id/dekit", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const user = c.get("user")!;
+  const kit = await kitWithItem(db, organizationId, c.req.param("id"));
+  if (!canDekit(kit.status)) conflict("Dekit is only for a fully completed kit");
+  if (kit.asBuilt.length === 0) badRequest("Kit has no as-built to reverse");
+
+  const pairs = [
+    { locationId: kit.outputLocationId, itemId: kit.itemId },
+    ...kit.asBuilt.map((row) => ({ locationId: kit.sourceLocationId, itemId: row.componentItemId })),
+  ];
+  const loaded = await loadBalanceMap(db, organizationId, pairs);
+  const plan = planDekit({
+    kitId: kit.id,
+    finishedItemId: kit.itemId,
+    finishedSku: kit.sku,
+    qty: kit.qtyCompleted || kit.qty,
+    sourceLocationId: kit.sourceLocationId,
+    outputLocationId: kit.outputLocationId,
+    asBuilt: kit.asBuilt,
+    balances: qtyMap(loaded),
   });
 
   const now = Date.now();
@@ -173,10 +239,11 @@ kitsRoute.post("/kits/:id/complete", async (c) => {
     extra: [
       db
         .update(schema.kitBuilds)
-        .set({ status: "completed", completedAt: now })
+        .set({ status: "dekitted", completedAt: now })
         .where(eq(schema.kitBuilds.id, kit.id)),
     ],
   });
 
   return c.json(await kitWithItem(db, organizationId, kit.id));
 });
+

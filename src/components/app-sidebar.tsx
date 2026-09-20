@@ -23,6 +23,7 @@ import {
   Tag,
   BoxSelect,
   ArrowDownToLine,
+  ArrowUpFromLine,
   Layers,
   ShieldAlert,
 } from "lucide-react";
@@ -62,6 +63,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
         { title: "Receipts", url: "/inbound/receipts", icon: Truck },
         { title: "Putaway", url: "/inbound/putaway", icon: Repeat },
         { title: "Purchases", url: "/inbound/purchases", icon: ShoppingCart },
+        { title: "Vendor returns", url: "/inbound/vendor-returns", icon: ArrowUpFromLine },
       ],
     },
     {
