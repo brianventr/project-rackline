@@ -106,6 +106,23 @@ export function App() {
       <Route path="/signup" element={me ? <Navigate to={signedInHome} replace /> : <AuthPage mode="signup" />} />
       <Route element={<Guard me={me} />}>
         <Route path="/today" element={<TodayPage />} />
+        <Route
+          path="/labor"
+          element={
+            <OwnerOnly>
+              <LaborPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
+          path="/labor/staff/:userId"
+          element={
+            <OwnerOnly>
+              <LaborPage />
+            </OwnerOnly>
+          }
+        />
+        <Route path="/setup/labor" element={<Navigate to="/labor" replace />} />
         <Route path="/analytics/traffic" element={<TrafficPage />} />
         <Route path="/dashboard" element={<Navigate to="/today" replace />} />
         <Route path="/floor" element={<FloorLauncherPage />} />
@@ -223,14 +240,6 @@ export function App() {
           element={
             <OwnerOnly>
               <ZonesPage />
-            </OwnerOnly>
-          }
-        />
-        <Route
-          path="/setup/labor"
-          element={
-            <OwnerOnly>
-              <LaborPage />
             </OwnerOnly>
           }
         />

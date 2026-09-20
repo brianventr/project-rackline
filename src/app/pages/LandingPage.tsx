@@ -4,6 +4,7 @@ import {
   Boxes,
   ClipboardList,
   Factory,
+  Gauge,
   Map,
   Radar,
   ScanLine,
@@ -57,6 +58,11 @@ const features = [
     title: "Shipment traffic control",
     body: "A live country/state radar of packed and in-flight orders, filtered by SKU — lane estimates from the warehouse, not fake GPS.",
     icon: Radar,
+  },
+  {
+    title: "Staff and SKU pace",
+    body: "Score the floor against expected time from lot, serial, catch-weight, expiry, and walk — not raw units per hour. See who handles which SKU, and which SKUs are hard for everyone.",
+    icon: Gauge,
   },
 ];
 

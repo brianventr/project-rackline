@@ -628,6 +628,8 @@ catalogRoute.get("/movements", async (c) => {
       refId: schema.inventoryMovements.refId,
       reason: schema.inventoryMovements.reason,
       createdAt: schema.inventoryMovements.createdAt,
+      createdBy: schema.inventoryMovements.createdBy,
+      createdByName: schema.user.name,
       sku: schema.items.sku,
       itemName: schema.items.name,
       fromLocationId: schema.inventoryMovements.fromLocationId,
@@ -644,6 +646,7 @@ catalogRoute.get("/movements", async (c) => {
     })
     .from(schema.inventoryMovements)
     .innerJoin(schema.items, eq(schema.items.id, schema.inventoryMovements.itemId))
+    .leftJoin(schema.user, eq(schema.user.id, schema.inventoryMovements.createdBy))
     .leftJoin(fromLoc, eq(fromLoc.id, schema.inventoryMovements.fromLocationId))
     .leftJoin(toLoc, eq(toLoc.id, schema.inventoryMovements.toLocationId))
     .leftJoin(schema.equipment, eq(schema.equipment.id, schema.inventoryMovements.equipmentId))

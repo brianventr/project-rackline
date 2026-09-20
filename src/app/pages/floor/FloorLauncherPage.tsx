@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { PageHeader } from "../../components/ui";
 import { useSession } from "../../session";
+import { MyDayCard } from "../LaborPage";
 import { useWarehouse } from "../../warehouse";
 import { api, type FloorJob } from "../../api";
 import { VERB_LABELS, type FloorVerb, isFloorVerb } from "@/domain/jobs";
@@ -73,6 +74,7 @@ export function FloorLauncherPage() {
         title="What are you doing?"
         description="Next job is ranked from the same ledger. Unassigned work stays pickable — scan first, or pick a verb."
       />
+      <MyDayCard />
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {next ? (
         <button

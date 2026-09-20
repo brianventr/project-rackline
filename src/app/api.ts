@@ -752,6 +752,8 @@ export type Movement = {
   itemName: string;
   reason: string | null;
   createdAt: number;
+  createdBy?: string | null;
+  createdByName?: string | null;
   fromLocationCode: string | null;
   toLocationCode: string | null;
   lotCode?: string | null;
@@ -1097,9 +1099,37 @@ export type LaborRollup = {
   durationSec: number;
 };
 
-export type LaborBoard = {
+export type {
+  LaborDailyPoint,
+  LaborDocumentRow,
+  LaborKpiBoard,
+  LaborMatrixCell,
+  LaborSkuDetail,
+  LaborSkuRow,
+  LaborStaffDetail,
+  LaborStaffRow,
+  LaborVerbMix,
+} from "@/domain/labor-kpis";
+
+export type LaborClock = {
+  id: string;
+  organizationId: string;
+  warehouseId: string;
+  userId: string;
+  verb: string;
+  refType: string;
+  refId: string;
+  startedAt: number;
+  endedAt: number | null;
+  durationSec: number | null;
+  elapsedSec?: number;
+};
+
+export type LaborBoard = import("@/domain/labor-kpis").LaborKpiBoard & {
+  range: { from: number; to: number; preset: string };
   events: LaborEvent[];
   rollup: LaborRollup[];
+  openClocks: LaborClock[];
 };
 
 export type Printer = {

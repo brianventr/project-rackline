@@ -53,6 +53,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-hook-form": "^7.69.0",
+    "react-is": "^19.3.0",
     "react-resizable-panels": "^3.0.4",
     "react-router-dom": "^7.18.4",
     "recharts": "3.6.0",

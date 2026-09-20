@@ -3,8 +3,8 @@ import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { newId } from "../lib/ids";
-import { chainPlans, planReceive } from "../domain/inventory";
-import { persistStockPlan } from "./stock";
+import { chainPlans, planMove, planPick, planReceive, planShip, planUnpick } from "../domain/inventory";
+import { loadBalanceMap, persistStockPlan, qtyMap } from "./stock";
 import { seedAssignedJobs } from "./jobs";
 import { provisionOrganization } from "../lib/org";
 import { demoFulfillmentOrderId } from "../domain/shopify";
@@ -1092,9 +1092,236 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     ...(trafficInserts as typeof trafficInserts),
   ] as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
 
+  await seedLaborHistory(db, {
+    organizationId,
+    warehouseId,
+    locIds,
+    item,
+    now,
+    ownerUserId: userId,
+  });
   await seedAssignedJobs(db, organizationId, userId, orderId, woId);
 
   return { organizationId };
+}
+
+async function applyLabor(
+  db: AppDb,
+  organizationId: string,
+  userId: string,
+  when: number,
+  pairs: { locationId: string; itemId: string }[],
+  build: (balances: Map<string, number>) => ReturnType<typeof planReceive> | ReturnType<typeof planShip>,
+) {
+  const loaded = await loadBalanceMap(db, organizationId, pairs);
+  const plan = build(qtyMap(loaded));
+  await persistStockPlan(db, { organizationId, createdBy: userId, now: when, loaded, plan });
+}
+
+async function seedLaborHistory(
+  db: AppDb,
+  input: {
+    organizationId: string;
+    warehouseId: string;
+    locIds: Record<string, string>;
+    item: Record<string, string>;
+    now: number;
+    ownerUserId: string;
+  },
+) {
+  const { organizationId, warehouseId, locIds, item, now, ownerUserId } = input;
+  const mayaId = newId();
+  const jordanId = newId();
+  const createdAt = new Date(now);
+  await db.insert(schema.user).values([
+    {
+      id: mayaId,
+      name: "Maya Chen",
+      email: "maya@northwind.makers",
+      emailVerified: true,
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: jordanId,
+      name: "Jordan Dock",
+      email: "jordan@northwind.makers",
+      emailVerified: true,
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ]);
+  await db.insert(schema.memberships).values([
+    { id: newId(), organizationId, userId: mayaId, role: "operator" },
+    { id: newId(), organizationId, userId: jordanId, role: "operator" },
+  ]);
+  const [ownerAccount] = await db.select().from(schema.account).where(eq(schema.account.userId, ownerUserId)).limit(1);
+  if (ownerAccount?.password) {
+    await db.insert(schema.account).values([
+      {
+        id: newId(),
+        accountId: mayaId,
+        providerId: "credential",
+        userId: mayaId,
+        password: ownerAccount.password,
+        createdAt,
+        updatedAt: createdAt,
+      },
+      {
+        id: newId(),
+        accountId: jordanId,
+        providerId: "credential",
+        userId: jordanId,
+        password: ownerAccount.password,
+        createdAt,
+        updatedAt: createdAt,
+      },
+    ]);
+  }
+
+  const twoDays = now - 2 * 24 * 60 * 60 * 1000;
+  const yesterday = now - 20 * 60 * 60 * 1000;
+  const recv = locIds.recv!;
+  const a0101 = locIds.a0101!;
+  const a0203 = locIds.a0203!;
+  const b0101 = locIds.b0101!;
+
+  await applyLabor(db, organizationId, jordanId, twoDays, [{ locationId: recv, itemId: item.base }], (balances) =>
+    planReceive({ itemId: item.base, locationId: recv, qty: 10, refId: "rcp-labor-base", refType: "receipt", balances }),
+  );
+  await applyLabor(
+    db,
+    organizationId,
+    jordanId,
+    twoDays + 45_000,
+    [
+      { locationId: recv, itemId: item.base },
+      { locationId: a0203, itemId: item.base },
+    ],
+    (balances) =>
+      planMove({
+        itemId: item.base,
+        sku: "BASE",
+        fromLocationId: recv,
+        toLocationId: a0203,
+        qty: 10,
+        refId: "xfr-labor-base",
+        refType: "transfer",
+        balances,
+      }),
+  );
+  await applyLabor(db, organizationId, jordanId, now - 6 * 60 * 60 * 1000, [{ locationId: recv, itemId: item.resin }], (balances) =>
+    planReceive({
+      itemId: item.resin,
+      locationId: recv,
+      qty: 3,
+      refId: "rcp-labor-resin",
+      refType: "receipt",
+      balances,
+      weightGrams: 1500,
+    }),
+  );
+
+  const kpiOrder = newId();
+  await db.insert(schema.orders).values({
+    id: kpiOrder,
+    organizationId,
+    warehouseId,
+    number: "ORD-KPI1",
+    customerName: "KPI studio",
+    status: "shipped",
+    createdAt: yesterday,
+    pickedAt: yesterday + 90_000,
+    packedAt: yesterday + 150_000,
+    shippedAt: yesterday + 180_000,
+    source: "manual",
+  });
+  await db.insert(schema.orderLines).values([
+    { id: newId(), orderId: kpiOrder, itemId: item.base, qty: 4, qtyPicked: 4, qtyPacked: 4 },
+    { id: newId(), orderId: kpiOrder, itemId: item.glue, qty: 2, qtyPicked: 1, qtyPacked: 1 },
+    { id: newId(), orderId: kpiOrder, itemId: item.lamp, qty: 1, qtyPicked: 1, qtyPacked: 1 },
+  ]);
+
+  const glueExpiry = addUtcDays(utcYyyymmdd(), 180);
+  await applyLabor(db, organizationId, mayaId, yesterday, [{ locationId: a0101, itemId: item.base }], (balances) =>
+    planPick({ itemId: item.base, sku: "BASE", locationId: a0101, qty: 4, refId: kpiOrder, balances }),
+  );
+  await applyLabor(db, organizationId, mayaId, yesterday + 45_000, [{ locationId: a0101, itemId: item.glue }], (balances) =>
+    planPick({
+      itemId: item.glue,
+      sku: "GLUE",
+      locationId: a0101,
+      qty: 2,
+      refId: kpiOrder,
+      balances,
+      lotCode: "LOT-NEW",
+      expiresOn: glueExpiry,
+    }),
+  );
+  await applyLabor(db, organizationId, mayaId, yesterday + 90_000, [{ locationId: b0101, itemId: item.lamp }], (balances) =>
+    planPick({
+      itemId: item.lamp,
+      sku: "LAMP",
+      locationId: b0101,
+      qty: 1,
+      refId: kpiOrder,
+      balances,
+      serials: ["LAMP-1008"],
+    }),
+  );
+  await applyLabor(db, organizationId, mayaId, yesterday + 110_000, [{ locationId: a0101, itemId: item.glue }], (balances) =>
+    planUnpick({
+      itemId: item.glue,
+      sku: "GLUE",
+      locationId: a0101,
+      qty: 1,
+      refId: kpiOrder,
+      balances,
+      lotCode: "LOT-NEW",
+      expiresOn: glueExpiry,
+    }),
+  );
+  await db.insert(schema.packEvents).values([
+    {
+      id: newId(),
+      organizationId,
+      warehouseId,
+      userId: mayaId,
+      orderId: kpiOrder,
+      itemId: item.base,
+      qty: 4,
+      createdAt: yesterday + 150_000,
+    },
+    {
+      id: newId(),
+      organizationId,
+      warehouseId,
+      userId: mayaId,
+      orderId: kpiOrder,
+      itemId: item.glue,
+      qty: 1,
+      createdAt: yesterday + 150_000,
+    },
+    {
+      id: newId(),
+      organizationId,
+      warehouseId,
+      userId: mayaId,
+      orderId: kpiOrder,
+      itemId: item.lamp,
+      qty: 1,
+      createdAt: yesterday + 155_000,
+    },
+  ]);
+  await applyLabor(db, organizationId, mayaId, yesterday + 180_000, [{ locationId: b0101, itemId: item.lamp }], () =>
+    planShip({ itemId: item.lamp, locationId: b0101, qty: 1, refId: kpiOrder }),
+  );
+  await applyLabor(db, organizationId, mayaId, yesterday + 180_000, [{ locationId: a0101, itemId: item.base }], () =>
+    planShip({ itemId: item.base, locationId: a0101, qty: 4, refId: kpiOrder }),
+  );
+  await applyLabor(db, organizationId, mayaId, yesterday + 180_000, [{ locationId: a0101, itemId: item.glue }], () =>
+    planShip({ itemId: item.glue, locationId: a0101, qty: 1, refId: kpiOrder }),
+  );
 }
 
 export async function demoUserExists(db: AppDb): Promise<boolean> {

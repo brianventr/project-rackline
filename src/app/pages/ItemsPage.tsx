@@ -5,6 +5,7 @@ import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
 import { formatExpiresOn } from "@/domain/expiry";
 import { formatAsBuiltPart } from "@/domain/as-built";
+import { SkuHandlers } from "./LaborPage";
 import { usePrint } from "../print/PrintProvider";
 
 const types = ["raw", "wip", "finished", "packaging"];
@@ -388,6 +389,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
           ))}
         </Table>
       ) : null}
+      <SkuHandlers itemId={item.id} linkStaff={me.role === "owner"} />
     </div>
   );
 }
