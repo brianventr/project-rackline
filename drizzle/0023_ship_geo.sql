@@ -1,4 +1,4 @@
--- Migration number: 0022 	 2026-09-20T18:40:00.000Z
+-- Migration number: 0023 	 2026-09-20T18:40:00.000Z
 -- Warehouse origin + order destination geo for Analytics traffic.
 
 ALTER TABLE `warehouses` ADD `city` text;
