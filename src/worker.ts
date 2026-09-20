@@ -11,6 +11,7 @@ import { OverMoveError } from "./domain/partial-transfer";
 import { OverReturnError } from "./domain/partial-rtv";
 import { OverCompleteError } from "./domain/partial-complete";
 import { OverUnpickError } from "./domain/partial-unpick";
+import { OverBatchPickError } from "./domain/waves";
 import { HeldStockError } from "./domain/holds";
 import { ExpiredLotError } from "./domain/expiry";
 import { InsufficientAtpError } from "./domain/allocations";
@@ -37,6 +38,14 @@ import { kitsRoute } from "./routes/kits";
 import { holdsRoute } from "./routes/holds";
 import { vendorReturnsRoute } from "./routes/vendor-returns";
 import { jobsRoute } from "./routes/jobs";
+import { carriersRoute } from "./routes/carriers";
+import { wavesRoute } from "./routes/waves";
+import { asnsRoute } from "./routes/asns";
+import { zonesRoute } from "./routes/zones";
+import { clientsRoute } from "./routes/clients";
+import { yardRoute } from "./routes/yard";
+import { laborRoute } from "./routes/labor";
+import { analyticsRoute } from "./routes/analytics";
 
 const app = new Hono<AppEnv>();
 
@@ -130,6 +139,18 @@ app.onError((err, c) => {
       {
         error: err.message,
         code: "OVER_UNPICK",
+        sku: err.sku,
+        remaining: err.remaining,
+        qty: err.qty,
+      },
+      409,
+    );
+  }
+  if (err instanceof OverBatchPickError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "OVER_BATCH_PICK",
         sku: err.sku,
         remaining: err.remaining,
         qty: err.qty,
@@ -265,5 +286,13 @@ app.route("/api", kitsRoute);
 app.route("/api", holdsRoute);
 app.route("/api", vendorReturnsRoute);
 app.route("/api", jobsRoute);
+app.route("/api", carriersRoute);
+app.route("/api", wavesRoute);
+app.route("/api", asnsRoute);
+app.route("/api", zonesRoute);
+app.route("/api", clientsRoute);
+app.route("/api", yardRoute);
+app.route("/api", laborRoute);
+app.route("/api", analyticsRoute);
 
 export default app;

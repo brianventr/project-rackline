@@ -16,6 +16,7 @@ import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
 import { annotateAtp, atpOnHand, loadOpenAllocations } from "../db/allocations";
 import { addUtcDays, EXPIRING_WITHIN_DAYS, utcYyyymmdd } from "../domain/expiry";
 import { loadAsBuiltForItem } from "../db/as-built";
+import { originColumns, resolveOrigin } from "../domain/geo";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -53,6 +54,10 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     mapWidth?: number;
     mapDepth?: number;
     mapHeight?: number;
+    shipFromAddress?: string | null;
+    city?: string | null;
+    region?: string | null;
+    country?: string | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -64,9 +69,24 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     .limit(1);
   if (!warehouse) badRequest("Warehouse not found");
 
-  const patch: { name?: string; mapWidth?: number; mapDepth?: number; mapHeight?: number } = {};
+  const patch: {
+    name?: string;
+    mapWidth?: number;
+    mapDepth?: number;
+    mapHeight?: number;
+    shipFromAddress?: string | null;
+    city?: string | null;
+    region?: string | null;
+    country?: string | null;
+    lat?: number | null;
+    lng?: number | null;
+  } = {};
   const name = optionalString(body.name);
   if (name) patch.name = name;
+  if ("shipFromAddress" in body) {
+    patch.shipFromAddress =
+      typeof body.shipFromAddress === "string" ? body.shipFromAddress.trim() || null : null;
+  }
   const mapWidth = optionalInt(body.mapWidth, "mapWidth");
   if (mapWidth !== undefined) {
     if (mapWidth <= 0) badRequest("mapWidth must be positive");
@@ -81,6 +101,17 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
   if (mapHeight !== undefined) {
     if (mapHeight <= 0) badRequest("mapHeight must be positive");
     patch.mapHeight = mapHeight;
+  }
+  if ("city" in body) patch.city = optionalString(body.city) ?? null;
+  if ("region" in body) patch.region = optionalString(body.region) ?? null;
+  if ("country" in body) patch.country = optionalString(body.country) ?? null;
+  if ("city" in body || "region" in body || "country" in body) {
+    const next = {
+      city: patch.city !== undefined ? patch.city : warehouse.city,
+      region: patch.region !== undefined ? patch.region : warehouse.region,
+      country: patch.country !== undefined ? patch.country : warehouse.country,
+    };
+    Object.assign(patch, originColumns(resolveOrigin(next)));
   }
   if (Object.keys(patch).length === 0) badRequest("No warehouse fields to update");
 
@@ -114,6 +145,7 @@ catalogRoute.get("/locations", async (c) => {
       sizeY: schema.locations.sizeY,
       sizeZ: schema.locations.sizeZ,
       slotRole: schema.locations.slotRole,
+      zoneId: schema.locations.zoneId,
       warehouseId: schema.locations.warehouseId,
       warehouseName: schema.warehouses.name,
     })
@@ -655,6 +687,21 @@ catalogRoute.get("/dashboard", async (c) => {
     inArray(schema.vendorReturns.status, ["open", "returning"]),
     warehouseId ? eq(schema.vendorReturns.warehouseId, warehouseId) : undefined,
   );
+  const waveWhere = and(
+    eq(schema.waves.organizationId, organizationId),
+    inArray(schema.waves.status, ["draft", "released", "picking"]),
+    warehouseId ? eq(schema.waves.warehouseId, warehouseId) : undefined,
+  );
+  const asnWhere = and(
+    eq(schema.asns.organizationId, organizationId),
+    inArray(schema.asns.status, ["draft", "expected", "receiving"]),
+    warehouseId ? eq(schema.asns.warehouseId, warehouseId) : undefined,
+  );
+  const yardWhere = and(
+    eq(schema.yardVisits.organizationId, organizationId),
+    inArray(schema.yardVisits.status, ["expected", "checked_in", "at_dock"]),
+    warehouseId ? eq(schema.yardVisits.warehouseId, warehouseId) : undefined,
+  );
 
   const openReceiptRows = await db.select().from(schema.receipts).where(receiptWhere).orderBy(desc(schema.receipts.createdAt));
   const openOrderRows = await db.select().from(schema.orders).where(orderWhere).orderBy(desc(schema.orders.createdAt));
@@ -837,6 +884,14 @@ catalogRoute.get("/dashboard", async (c) => {
     .leftJoin(schema.items, eq(schema.items.id, schema.inventoryHolds.itemId))
     .where(holdWhere)
     .orderBy(desc(schema.inventoryHolds.createdAt));
+
+  const openWaveRows = await db.select().from(schema.waves).where(waveWhere).orderBy(desc(schema.waves.createdAt));
+  const openAsnRows = await db.select().from(schema.asns).where(asnWhere).orderBy(desc(schema.asns.createdAt));
+  const openYardRows = await db
+    .select()
+    .from(schema.yardVisits)
+    .where(yardWhere)
+    .orderBy(desc(schema.yardVisits.createdAt));
 
   const slotLocations = await db
     .select({
@@ -1109,6 +1164,9 @@ catalogRoute.get("/dashboard", async (c) => {
     openVendorReturns: openVendorReturnRows.length,
     openReplenishments: openReplenishRows.length,
     openKits: openKitRows.length,
+    openWaves: openWaveRows.length,
+    openAsns: openAsnRows.length,
+    openYard: openYardRows.length,
     replenishDue: replenishSuggestions.length,
     expiringLots: expiringLots.length,
     lowStock,
@@ -1127,6 +1185,9 @@ catalogRoute.get("/dashboard", async (c) => {
       vendorReturns: openVendorReturnRows,
       replenishments: openReplenishRows,
       kits: openKitRows,
+      waves: openWaveRows,
+      asns: openAsnRows,
+      yard: openYardRows,
       shopifyExceptions,
       expiringLots,
     },

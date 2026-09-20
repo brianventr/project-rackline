@@ -1,4 +1,4 @@
--- Migration number: 0021 	 2026-09-20T18:50:00.000Z
+-- Migration number: 0024 	 2026-09-20T18:50:00.000Z
 
 ALTER TABLE `memberships` ADD `floor_verbs` text;
 --> statement-breakpoint

@@ -3,7 +3,17 @@ import { buildShippingLabel, generateTrackingNumber, isCarrierService } from "./
 
 describe("shipping labels", () => {
   it("mints RL tracking numbers", () => {
-    expect(generateTrackingNumber(() => "aaaaaaaa-bbbb-cccc-dddd-eeeeffffffff")).toBe("RL-AAAAAAAABB");
+    expect(generateTrackingNumber("rackline_ground", () => "aaaaaaaa-bbbb-cccc-dddd-eeeeffffffff")).toBe(
+      "RL-AAAAAAAABB",
+    );
+  });
+
+  it("mints carrier-prefixed tracking", () => {
+    const random = () => "aaaaaaaa-bbbb-cccc-dddd-eeeeffffffff";
+    expect(generateTrackingNumber("ups_ground", random)).toBe("1ZAAAAAAAABB");
+    expect(generateTrackingNumber("usps_priority", random)).toBe("9400AAAAAAAABB");
+    expect(generateTrackingNumber("fedex_ground", random)).toBe("FE-AAAAAAAABB");
+    expect(generateTrackingNumber("dhl_express", random)).toBe("DHL-AAAAAAAABB");
   });
 
   it("fills carrier and ship-to from the order", () => {
@@ -17,9 +27,11 @@ describe("shipping labels", () => {
     expect(label.carrierCompany).toBe("UPS");
     expect(label.carrierService).toBe("Ground");
     expect(label.shipToAddress).toBe("14 Dock St, Portland");
-    expect(label.trackingNumber.startsWith("RL-")).toBe(true);
+    expect(label.trackingNumber.startsWith("1Z")).toBe(true);
+    expect(label.trackingUrl).toContain("ups.com/track");
     expect(isCarrierService("usps_priority")).toBe(true);
     expect(isCarrierService("fedex")).toBe(false);
+    expect(isCarrierService("fedex_ground")).toBe(true);
   });
 
   it("keeps an existing tracking number", () => {

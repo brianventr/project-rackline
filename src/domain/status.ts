@@ -9,6 +9,9 @@ export const VENDOR_RETURN_STEPS = ["open", "returning", "returned"] as const;
 export const REPLENISH_STEPS = ["draft", "in_progress", "posted"] as const;
 export const KIT_STEPS = ["draft", "in_progress", "completed"] as const;
 export const HOLD_STEPS = ["open", "released"] as const;
+export const WAVE_STEPS = ["draft", "released", "picking", "completed"] as const;
+export const ASN_STEPS = ["draft", "expected", "receiving", "received"] as const;
+export const YARD_STEPS = ["expected", "checked_in", "at_dock", "checked_out"] as const;
 
 export type OrderStep = (typeof ORDER_STEPS)[number];
 export type ReceiptStep = (typeof RECEIPT_STEPS)[number];
@@ -144,7 +147,54 @@ export function isOpenHoldStatus(status: string): boolean {
   return canReleaseHold(status);
 }
 
+export function canReleaseWave(status: string): boolean {
+  return status === "draft";
+}
+
+export function canPickWave(status: string): boolean {
+  return status === "released" || status === "picking";
+}
+
+export function canCompleteWave(status: string): boolean {
+  return status === "released" || status === "picking";
+}
+
+export function isOpenWave(status: string): boolean {
+  return status === "draft" || status === "released" || status === "picking";
+}
+
+export function canExpectAsn(status: string): boolean {
+  return status === "draft";
+}
+
+export function canReceiveAsn(status: string): boolean {
+  return status === "draft" || status === "expected" || status === "receiving";
+}
+
+export function isOpenAsn(status: string): boolean {
+  return canReceiveAsn(status);
+}
+
+export function canCheckInYard(status: string): boolean {
+  return status === "expected";
+}
+
+export function canAssignDock(status: string): boolean {
+  return status === "checked_in" || status === "at_dock";
+}
+
+export function canCheckOutYard(status: string): boolean {
+  return status === "checked_in" || status === "at_dock";
+}
+
+export function isOpenYard(status: string): boolean {
+  return status === "expected" || status === "checked_in" || status === "at_dock";
+}
+
 export function statusLabel(status: string): string {
   if (status === "in_progress") return "In progress";
+  if (status === "checked_in") return "Checked in";
+  if (status === "at_dock") return "At dock";
+  if (status === "checked_out") return "Checked out";
   return status.replaceAll("_", " ");
 }

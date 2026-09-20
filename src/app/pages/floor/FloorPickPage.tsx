@@ -4,6 +4,7 @@ import { api, type Location, type Order, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
+import { PickMap } from "../../components/PickMap";
 import { canPickOrder, canStartPick, canCancelOrder, canUnpickOrder } from "@/domain/status";
 import { hasUnpicked } from "@/domain/partial-pick";
 import { remainingToUnpick } from "@/domain/partial-unpick";
@@ -184,7 +185,7 @@ export function FloorPickPage() {
   const unpickable = (active?.lines ?? []).some((line) => (line.unpickRemaining ?? 0) > 0);
 
   return (
-    <FloorFrame title="Pick" description="Scan the order, go to the suggested bay, pick remaining qty, or unpick back onto the bay." error={error}>
+    <FloorFrame title="Pick" description="Scan the order, open the pick map if you want the floor plan, then pick remaining qty or unpick back onto the bay." error={error}>
       <FloorScanBox label="Scan order, bay, or SKU" placeholder="ORD-DEMO1, B-01-01, or LAMP" onScan={onScan} />
       {!active ? (
         <ClaimList
@@ -205,6 +206,7 @@ export function FloorPickPage() {
           )}
         />
       ) : (
+        <>
         <Card className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">{active.number}</h2>
@@ -317,6 +319,13 @@ export function FloorPickPage() {
             ) : null}
           </div>
         </Card>
+        <PickMap
+          lines={active.lines ?? []}
+          locations={locations}
+          selectedLocationId={locationId}
+          onSelectLocation={setLocationId}
+        />
+        </>
       )}
     </FloorFrame>
   );

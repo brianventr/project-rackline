@@ -1,6 +1,8 @@
 import { lazy, Suspense, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { MapLocation, WarehouseMapInfo } from "../api";
 import { groupFloorObjects } from "@/domain/rack-builder";
+import type { PickMapMarker } from "@/domain/pick-map";
+import { cn } from "@/lib/utils";
 
 const WarehouseScene = lazy(() =>
   import("./warehouse-scene/WarehouseScene").then((mod) => ({ default: mod.WarehouseScene })),
@@ -14,9 +16,12 @@ type Props = {
   selectedId?: string | null;
   fromId?: string | null;
   toId?: string | null;
+  pickIds?: string[];
+  pickMarkers?: PickMapMarker[];
   view: MapView;
   levelFilter: "all" | number;
   canDrag?: boolean;
+  className?: string;
   onSelect: (location: MapLocation) => void;
   onReposition?: (locationId: string, posX: number, posY: number) => void;
 };
@@ -49,10 +54,17 @@ function floorCells(locations: MapLocation[]) {
   });
 }
 
-function locationFill(location: Pick<MapLocation, "type" | "unitsOnHand">, selected: boolean, from: boolean, to: boolean) {
+function locationFill(
+  location: Pick<MapLocation, "type" | "unitsOnHand">,
+  selected: boolean,
+  from: boolean,
+  to: boolean,
+  pick = false,
+) {
   if (from) return "#2d6a4f";
   if (to) return "#e2b146";
   if (selected) return "#df6035";
+  if (pick) return "#3d8b6e";
   if (location.unitsOnHand > 0) return "#e16f41";
   if (location.type === "receiving") return "#d6e4f0";
   if (location.type === "production") return "#cfe0d2";
@@ -66,9 +78,12 @@ export function WarehouseMap({
   selectedId,
   fromId,
   toId,
+  pickIds,
+  pickMarkers,
   view,
   levelFilter,
   canDrag,
+  className,
   onSelect,
   onReposition,
 }: Props) {
@@ -134,8 +149,15 @@ export function WarehouseMap({
 
   if (view === "iso") {
     const objects = groupFloorObjects(visible);
+    const frameClass = cn("h-[min(72vh,760px)] w-full", className);
     return (
-      <Suspense fallback={<div className="grid h-[min(72vh,760px)] place-items-center rounded-xl border bg-muted text-sm text-muted-foreground">Loading 3D floor…</div>}>
+      <Suspense
+        fallback={
+          <div className={cn("grid place-items-center rounded-xl border bg-muted text-sm text-muted-foreground", frameClass)}>
+            Loading 3D floor…
+          </div>
+        }
+      >
         <WarehouseScene
           warehouse={warehouse}
           locations={visible}
@@ -143,6 +165,9 @@ export function WarehouseMap({
           selectedLocationId={selectedId}
           fromId={fromId}
           toId={toId}
+          pickIds={pickIds}
+          pickMarkers={pickMarkers}
+          className={frameClass}
           mode="view"
           cameraMode="orbit"
           onSelectLocation={(location) => {
@@ -159,7 +184,7 @@ export function WarehouseMap({
     <svg
       ref={svgRef}
       viewBox={`${-pad} ${-pad} ${warehouse.mapWidth + pad * 2} ${warehouse.mapDepth + pad * 2}`}
-      className="h-[min(72vh,760px)] w-full touch-none rounded-xl bg-muted"
+      className={cn("h-[min(72vh,760px)] w-full touch-none rounded-xl bg-muted", className)}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={onPointerUp}
@@ -195,12 +220,18 @@ export function WarehouseMap({
           const selected = cell.locations.some((location) => location.id === selectedId);
           const from = cell.locations.some((location) => location.id === fromId);
           const to = cell.locations.some((location) => location.id === toId);
+          const cellMarkers = (pickMarkers ?? []).filter((marker) =>
+            cell.locations.some((location) => location.id === marker.locationId),
+          );
+          const pick = cell.locations.some((location) => pickIds?.includes(location.id));
           const x = ghost?.id && cell.locations.some((l) => l.id === ghost.id) ? ghost.x : cell.posX;
           const y = ghost?.id && cell.locations.some((l) => l.id === ghost.id) ? ghost.y : cell.posY;
           const primary =
             cell.locations.find((location) => location.id === selectedId) ??
+            (cellMarkers[0] ? cell.locations.find((location) => location.id === cellMarkers[0]!.locationId) : undefined) ??
             cell.locations.find((location) => location.unitsOnHand > 0) ??
             cell.locations[0]!;
+          const emphasized = selected || from || to || pick;
           return (
             <g key={cell.key} className="cursor-pointer" onClick={() => onSelect(primary)}>
               <rect
@@ -209,14 +240,14 @@ export function WarehouseMap({
                 width={cell.sizeX}
                 height={cell.sizeY}
                 rx="0.18"
-                fill={locationFill({ ...primary, unitsOnHand: cell.units }, selected, from, to)}
-                stroke={selected || from || to ? "#1b1712" : "#6b542e"}
-                strokeWidth={selected || from || to ? 0.18 : 0.08}
+                fill={locationFill({ ...primary, unitsOnHand: cell.units }, selected, from, to, pick)}
+                stroke={emphasized ? "#1b1712" : "#6b542e"}
+                strokeWidth={emphasized ? 0.18 : 0.08}
                 onPointerDown={(event) => onPointerDown(event, primary)}
               />
               <text
                 x={x + cell.sizeX / 2}
-                y={y + cell.sizeY / 2 - (cell.levels.length > 1 ? 0.35 : 0.15)}
+                y={y + cell.sizeY / 2 - (cellMarkers.length || cell.levels.length > 1 ? 0.35 : 0.15)}
                 textAnchor="middle"
                 fontSize={Math.min(0.85, cell.sizeX / 5)}
                 fontFamily="ui-monospace, monospace"
@@ -225,17 +256,45 @@ export function WarehouseMap({
               >
                 {cell.label}
               </text>
-              <text
-                x={x + cell.sizeX / 2}
-                y={y + cell.sizeY / 2 + 0.55}
-                textAnchor="middle"
-                fontSize="0.5"
-                fill="#3f3426"
-                pointerEvents="none"
-              >
-                {cell.levels.length > 1 ? `L${cell.levels[0]}–${cell.levels[cell.levels.length - 1]} · ` : ""}
-                {cell.units > 0 ? `${cell.units} u` : "empty"}
-              </text>
+              {cellMarkers.length ? (
+                <text
+                  x={x + cell.sizeX / 2}
+                  y={y + cell.sizeY / 2 + 0.55}
+                  textAnchor="middle"
+                  fontSize="0.48"
+                  fill="#1b1712"
+                  pointerEvents="none"
+                >
+                  {cellMarkers.map((marker) => `${marker.step} ${marker.label}`).join(" · ")}
+                </text>
+              ) : (
+                <text
+                  x={x + cell.sizeX / 2}
+                  y={y + cell.sizeY / 2 + 0.55}
+                  textAnchor="middle"
+                  fontSize="0.5"
+                  fill="#3f3426"
+                  pointerEvents="none"
+                >
+                  {cell.levels.length > 1 ? `L${cell.levels[0]}–${cell.levels[cell.levels.length - 1]} · ` : ""}
+                  {cell.units > 0 ? `${cell.units} u` : "empty"}
+                </text>
+              )}
+              {cellMarkers.map((marker, index) => (
+                <g key={marker.locationId} pointerEvents="none">
+                  <circle cx={x + 0.42} cy={y + 0.42 + index * 0.72} r="0.3" fill="#1b1712" />
+                  <text
+                    x={x + 0.42}
+                    y={y + 0.55 + index * 0.72}
+                    textAnchor="middle"
+                    fontSize="0.38"
+                    fill="#f4f0ea"
+                    fontFamily="ui-monospace, monospace"
+                  >
+                    {marker.step}
+                  </text>
+                </g>
+              ))}
             </g>
           );
         })}

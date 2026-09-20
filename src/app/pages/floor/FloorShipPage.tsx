@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Order, type ScanHit, type ShippingLabel } from "../../api";
+import {
+  api,
+  type CarrierHub,
+  type CarrierRate,
+  type CarrierServiceOption,
+  type Order,
+  type ScanHit,
+  type ShippingLabel,
+} from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { canShipOrder } from "@/domain/status";
@@ -16,17 +24,27 @@ export function FloorShipPage() {
   const [trackingNumber, setTrackingNumber] = useState("");
   const [trackingCompany, setTrackingCompany] = useState("");
   const [carrierService, setCarrierService] = useState("rackline_ground");
+  const [services, setServices] = useState<CarrierServiceOption[]>([]);
+  const [rates, setRates] = useState<CarrierRate[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
   async function load() {
-    const next = await api<Order[]>("/api/orders");
+    const [next, hub] = await Promise.all([api<Order[]>("/api/orders"), api<CarrierHub>("/api/carriers")]);
     setOrders(next.filter((row) => canShipOrder(row.status)));
+    setServices(hub.enabledServices);
     const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
-      const match = next.find((row) => row.id === wanted) ?? (await api<Order>(`/api/orders/${wanted}`));
-      openFloorRow(match, me.user.id, jobForRef(nextJobs, "order", match.id, "ship"), setActive, setError);
+      const found = next.find((row) => row.id === wanted) ?? (await api<Order>(`/api/orders/${wanted}`));
+      openFloorRow(found, me.user.id, jobForRef(nextJobs, "order", found.id, "ship"), (order) => {
+        setActive(order);
+        setTrackingNumber(order.trackingNumber || "");
+        setTrackingCompany(order.trackingCompany || "");
+        setCarrierService(
+          order.carrierService || hub.enabledServices.find((row) => row.isDefault)?.id || "rackline_ground",
+        );
+      }, setError);
     }
   }
 
@@ -40,12 +58,17 @@ export function FloorShipPage() {
       .then((hit) => {
         if (hit.kind === "order") {
           void api<Order>(`/api/orders/${hit.order.id}`).then((order) =>
-            openFloorRow(order, me.user.id, jobForRef(jobs, "order", order.id, "ship"), setActive, setError),
+            openFloorRow(order, me.user.id, jobForRef(jobs, "order", order.id, "ship"), (next) => {
+              setActive(next);
+              setTrackingNumber(next.trackingNumber || "");
+              setTrackingCompany(next.trackingCompany || "");
+              setCarrierService(next.carrierService || services.find((row) => row.isDefault)?.id || "rackline_ground");
+            }, setError),
           );
         } else setError("Scan a packed order.");
       })
       .catch((err: Error) => setError(err.message));
-  }, [jobs, me.user.id]);
+  }, [jobs, me.user.id, services]);
 
   async function ship() {
     if (!active) return;
@@ -67,8 +90,12 @@ export function FloorShipPage() {
     }
   }
 
+  const serviceOptions = services.length
+    ? services
+    : [{ id: "rackline_ground", company: "Rackline", service: "Ground", connectionId: null, provider: "rackline" }];
+
   return (
-    <FloorFrame title="Ship" description="Scan a packed order, add tracking, close it out." error={error}>
+    <FloorFrame title="Ship" description="Scan a packed order, shop rates, buy a label, close it out." error={error}>
       <FloorScanBox label="Scan packed order" placeholder="ORD-…" onScan={onScan} />
       {done ? <p className="text-sm text-emerald-700">{done}</p> : null}
       {!active ? (
@@ -78,7 +105,20 @@ export function FloorShipPage() {
           rows={orders}
           userId={me.user.id}
           jobFor={(row) => jobForRef(jobs, "order", row.id, "ship")}
-          onOpen={(row) => openFloorRow(row, me.user.id, jobForRef(jobs, "order", row.id, "ship"), setActive, setError)}
+          onOpen={(row) =>
+            openFloorRow(
+              row,
+              me.user.id,
+              jobForRef(jobs, "order", row.id, "ship"),
+              (order) => {
+                setActive(order);
+                setTrackingNumber(order.trackingNumber || "");
+                setTrackingCompany(order.trackingCompany || "");
+                setCarrierService(order.carrierService || services.find((s) => s.isDefault)?.id || "rackline_ground");
+              },
+              setError,
+            )
+          }
           render={(row) => (
             <>
               <span className="font-mono">{row.number}</span> {row.customerName} <StatusBadge status={row.status} />
@@ -94,9 +134,11 @@ export function FloorShipPage() {
           <p>{active.customerName}</p>
           <Field label="Carrier service">
             <Select value={carrierService} onChange={(e) => setCarrierService(e.target.value)}>
-              <option value="rackline_ground">Rackline Ground</option>
-              <option value="ups_ground">UPS Ground</option>
-              <option value="usps_priority">USPS Priority</option>
+              {serviceOptions.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.company} {row.service}
+                </option>
+              ))}
             </Select>
           </Field>
           <Field label="Tracking number">
@@ -105,28 +147,77 @@ export function FloorShipPage() {
           <Field label="Carrier">
             <Input value={trackingCompany} onChange={(e) => setTrackingCompany(e.target.value)} placeholder="UPS, USPS…" />
           </Field>
+          {rates.length > 0 ? (
+            <ul className="space-y-1 text-sm">
+              {rates.map((rate) => (
+                <li key={rate.id}>
+                  <button
+                    type="button"
+                    className="underline-offset-4 hover:underline"
+                    onClick={() => {
+                      setCarrierService(rate.id);
+                      setTrackingCompany(rate.company);
+                    }}
+                  >
+                    {rate.company} {rate.service}
+                  </button>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · ${(rate.amountCents / 100).toFixed(2)} · {rate.transitDays}d
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {canShipOrder(active.status) ? (
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="secondary"
+                onClick={() =>
+                  void api<{ rates: CarrierRate[] }>(`/api/orders/${active.id}/rates`, { method: "POST" })
+                    .then((result) => setRates(result.rates))
+                    .catch((err: Error) => setError(err.message))
+                }
+              >
+                Shop rates
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={() => {
-                  if (!active) return;
-                  api<ShippingLabel>(`/api/orders/${active.id}/label`, {
+                  void api<ShippingLabel>(`/api/orders/${active.id}/label`, {
                     method: "POST",
                     body: JSON.stringify({ carrierService, trackingNumber: trackingNumber || undefined }),
                   })
-                    .then((label) => {
+                    .then(async (label) => {
                       setTrackingNumber(label.trackingNumber);
                       setTrackingCompany(label.carrierCompany);
                       setDone(`${label.trackingNumber} bought.`);
+                      const next = await api<Order>(`/api/orders/${active.id}`);
+                      setActive(next);
                     })
                     .catch((err: Error) => setError(err.message));
                 }}
               >
                 Buy label
               </Button>
+              {active.labelStatus === "purchased" && active.status !== "shipped" ? (
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    void api<Order>(`/api/orders/${active.id}/label/void`, { method: "POST" })
+                      .then((next) => {
+                        setActive(next);
+                        setTrackingNumber("");
+                        setDone("Label voided.");
+                      })
+                      .catch((err: Error) => setError(err.message))
+                  }
+                >
+                  Void
+                </Button>
+              ) : null}
               {trackingNumber || active.trackingNumber ? (
-                <Button variant="secondary">
+                <Button variant="secondary" asChild>
                   <Link to={`/outbound/orders/${active.id}/shipping-label`}>Print label</Link>
                 </Button>
               ) : null}

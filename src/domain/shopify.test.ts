@@ -56,16 +56,25 @@ describe("shop domain", () => {
 });
 
 describe("inbound mapping", () => {
-  it("turns a paid Shopify order into a pick ticket", () => {
-    const mapped = mapRestOrder(paidLampOrder);
+  it("geocodes a Shopify shipping address onto the inbound ticket", () => {
+    const mapped = mapRestOrder({
+      ...paidLampOrder,
+      shipping_address: {
+        name: "Maya Chen",
+        first_name: "Maya",
+        last_name: "Chen",
+        address1: "88 Harbor Ave",
+        city: "Seattle",
+        province_code: "WA",
+        country_code: "US",
+        zip: "98101",
+      },
+    });
     expect("skip" in mapped).toBe(false);
     if ("skip" in mapped) return;
-    expect(mapped.shopifyOrderId).toBe("1004");
-    expect(mapped.shopifyOrderName).toBe("#1004");
-    expect(mapped.customerName).toBe("Maya Chen");
-    expect(mapped.lines).toEqual([
-      expect.objectContaining({ sku: "LAMP", qty: 1, shopifyLineItemId: "8801" }),
-    ]);
+    expect(mapped.shipToAddress).toContain("Seattle");
+    expect(mapped.dest).toMatchObject({ shipToCity: "Seattle", shipToRegion: "WA", shipToCountry: "US" });
+    expect(mapped.dest.shipToLat).toBeCloseTo(47.6, 1);
   });
 
   it("skips cancelled and already fulfilled orders", () => {

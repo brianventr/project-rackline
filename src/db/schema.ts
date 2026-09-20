@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -82,6 +82,12 @@ export const warehouses = sqliteTable("warehouses", {
   mapWidth: integer("map_width").notNull().default(42),
   mapDepth: integer("map_depth").notNull().default(28),
   mapHeight: integer("map_height").notNull().default(8),
+  shipFromAddress: text("ship_from_address"),
+  city: text("city"),
+  region: text("region"),
+  country: text("country"),
+  lat: real("lat"),
+  lng: real("lng"),
 });
 
 export const locations = sqliteTable(
@@ -110,6 +116,7 @@ export const locations = sqliteTable(
     sizeY: integer("size_y").notNull().default(3),
     sizeZ: integer("size_z").notNull().default(2),
     slotRole: text("slot_role").notNull().default("none"),
+    zoneId: text("zone_id"),
   },
   (t) => [
     uniqueIndex("locations_org_wh_code").on(t.organizationId, t.warehouseId, t.code),
@@ -198,6 +205,7 @@ export const receipts = sqliteTable("receipts", {
   notes: text("notes"),
   createdAt: integer("created_at").notNull(),
   receivedAt: integer("received_at"),
+  clientId: text("client_id"),
 });
 
 export const receiptLines = sqliteTable(
@@ -249,8 +257,20 @@ export const orders = sqliteTable(
     trackingUrl: text("tracking_url"),
     shipToAddress: text("ship_to_address"),
     carrierService: text("carrier_service"),
+    carrierConnectionId: text("carrier_connection_id"),
+    labelStatus: text("label_status").notNull().default("none"),
+    waveId: text("wave_id"),
+    clientId: text("client_id"),
+    shipToCity: text("ship_to_city"),
+    shipToRegion: text("ship_to_region"),
+    shipToCountry: text("ship_to_country"),
+    shipToLat: real("ship_to_lat"),
+    shipToLng: real("ship_to_lng"),
   },
-  (t) => [uniqueIndex("shopify_orders_org_order").on(t.organizationId, t.shopifyOrderId)],
+  (t) => [
+    uniqueIndex("shopify_orders_org_order").on(t.organizationId, t.shopifyOrderId),
+    index("orders_org_status_shipped").on(t.organizationId, t.status, t.shippedAt),
+  ],
 );
 
 export const orderLines = sqliteTable("order_lines", {
@@ -305,6 +325,46 @@ export const shopifyOutboundEvents = sqliteTable("shopify_outbound_events", {
   organizationId: text("organization_id")
     .notNull()
     .references(() => organizations.id, { onDelete: "cascade" }),
+  orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  status: text("status").notNull(),
+  requestJson: text("request_json").notNull(),
+  responseJson: text("response_json"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const carrierConnections = sqliteTable(
+  "carrier_connections",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    nickname: text("nickname").notNull(),
+    accountNumber: text("account_number"),
+    mode: text("mode").notNull().default("demo"),
+    status: text("status").notNull().default("connected"),
+    apiKey: text("api_key"),
+    apiSecret: text("api_secret"),
+    meterNumber: text("meter_number"),
+    enabledServicesJson: text("enabled_services_json").notNull().default("[]"),
+    isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
+    lastTestedAt: integer("last_tested_at"),
+    lastTestStatus: text("last_test_status"),
+    lastTestError: text("last_test_error"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("carrier_connections_org_provider").on(t.organizationId, t.provider)],
+);
+
+export const carrierOutboundEvents = sqliteTable("carrier_outbound_events", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  connectionId: text("connection_id").references(() => carrierConnections.id, { onDelete: "set null" }),
   orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
   kind: text("kind").notNull(),
   status: text("status").notNull(),
@@ -384,6 +444,7 @@ export const transfers = sqliteTable("transfers", {
   toLocationId: text("to_location_id")
     .notNull()
     .references(() => locations.id),
+  toWarehouseId: text("to_warehouse_id").references(() => warehouses.id),
   notes: text("notes"),
   createdAt: integer("created_at").notNull(),
   postedAt: integer("posted_at"),
@@ -449,6 +510,7 @@ export const purchases = sqliteTable("purchases", {
   createdAt: integer("created_at").notNull(),
   orderedAt: integer("ordered_at"),
   receivedAt: integer("received_at"),
+  clientId: text("client_id"),
 });
 
 export const purchaseLines = sqliteTable(
@@ -736,6 +798,216 @@ export type MovementType =
   | "rtv"
   | "unpick";
 export type ReturnDisposition = "restock" | "scrap" | "hold";
+
+export const clients = sqliteTable(
+  "clients",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("clients_org_code").on(t.organizationId, t.code)],
+);
+
+export const zones = sqliteTable(
+  "zones",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("zones_org_wh_code").on(t.organizationId, t.warehouseId, t.code)],
+);
+
+export const waves = sqliteTable(
+  "waves",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    number: text("number").notNull(),
+    status: text("status").notNull(),
+    mode: text("mode").notNull().default("wave"),
+    zoneId: text("zone_id").references(() => zones.id, { onDelete: "set null" }),
+    clientId: text("client_id").references(() => clients.id, { onDelete: "set null" }),
+    notes: text("notes"),
+    createdAt: integer("created_at").notNull(),
+    releasedAt: integer("released_at"),
+    completedAt: integer("completed_at"),
+  },
+  (t) => [uniqueIndex("waves_org_number").on(t.organizationId, t.number)],
+);
+
+export const waveOrders = sqliteTable(
+  "wave_orders",
+  {
+    id: text("id").primaryKey(),
+    waveId: text("wave_id")
+      .notNull()
+      .references(() => waves.id, { onDelete: "cascade" }),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+  },
+  (t) => [uniqueIndex("wave_orders_wave_order").on(t.waveId, t.orderId)],
+);
+
+export const waveBatchLines = sqliteTable(
+  "wave_batch_lines",
+  {
+    id: text("id").primaryKey(),
+    waveId: text("wave_id")
+      .notNull()
+      .references(() => waves.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id),
+    qty: integer("qty").notNull(),
+    qtyPicked: integer("qty_picked").notNull().default(0),
+  },
+  (t) => [uniqueIndex("wave_batch_lines_wave_item").on(t.waveId, t.itemId)],
+);
+
+export const asns = sqliteTable(
+  "asns",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    number: text("number").notNull(),
+    vendorName: text("vendor_name").notNull(),
+    status: text("status").notNull(),
+    purchaseId: text("purchase_id").references(() => purchases.id, { onDelete: "set null" }),
+    clientId: text("client_id").references(() => clients.id, { onDelete: "set null" }),
+    locationId: text("location_id").references(() => locations.id),
+    eta: integer("eta"),
+    notes: text("notes"),
+    createdAt: integer("created_at").notNull(),
+    expectedAt: integer("expected_at"),
+    receivedAt: integer("received_at"),
+  },
+  (t) => [uniqueIndex("asns_org_number").on(t.organizationId, t.number)],
+);
+
+export const asnLines = sqliteTable(
+  "asn_lines",
+  {
+    id: text("id").primaryKey(),
+    asnId: text("asn_id")
+      .notNull()
+      .references(() => asns.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id),
+    qtyExpected: integer("qty_expected").notNull(),
+    qtyReceived: integer("qty_received").notNull().default(0),
+  },
+  (t) => [uniqueIndex("asn_lines_asn_item").on(t.asnId, t.itemId)],
+);
+
+export const yardVisits = sqliteTable(
+  "yard_visits",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    number: text("number").notNull(),
+    status: text("status").notNull(),
+    carrierName: text("carrier_name").notNull(),
+    trailerNumber: text("trailer_number"),
+    dockLocationId: text("dock_location_id").references(() => locations.id, { onDelete: "set null" }),
+    asnId: text("asn_id").references(() => asns.id, { onDelete: "set null" }),
+    purchaseId: text("purchase_id").references(() => purchases.id, { onDelete: "set null" }),
+    eta: integer("eta"),
+    notes: text("notes"),
+    createdAt: integer("created_at").notNull(),
+    checkedInAt: integer("checked_in_at"),
+    checkedOutAt: integer("checked_out_at"),
+  },
+  (t) => [uniqueIndex("yard_visits_org_number").on(t.organizationId, t.number)],
+);
+
+export const laborEvents = sqliteTable(
+  "labor_events",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    verb: text("verb").notNull(),
+    refType: text("ref_type").notNull(),
+    refId: text("ref_id").notNull(),
+    qty: integer("qty"),
+    durationSec: integer("duration_sec"),
+    notes: text("notes"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("labor_events_org_created").on(t.organizationId, t.createdAt),
+    index("labor_events_org_user").on(t.organizationId, t.userId),
+  ],
+);
+
+export type WaveStatus = "draft" | "released" | "picking" | "completed" | "cancelled";
+export type WaveMode = "wave" | "batch";
+export type AsnStatus = "draft" | "expected" | "receiving" | "received" | "cancelled";
+export type YardStatus = "expected" | "checked_in" | "at_dock" | "checked_out" | "cancelled";
+export type LaborVerb =
+  | "receive"
+  | "pick"
+  | "pack"
+  | "ship"
+  | "count"
+  | "move"
+  | "putaway"
+  | "replenish"
+  | "hold"
+  | "kit"
+  | "assemble"
+  | "yard"
+  | "batch_pick";
+export type CarrierProvider =
+  | "rackline"
+  | "ups"
+  | "fedex"
+  | "usps"
+  | "dhl"
+  | "easypost"
+  | "shipengine";
+export type CarrierMode = "live" | "demo";
+export type CarrierConnectionStatus = "connected" | "error";
+export type CarrierLabelStatus = "none" | "purchased" | "voided";
+export type CarrierOutboundKind = "test" | "rates" | "buy" | "void";
+
 export type FloorVerb =
   | "receive"
   | "putaway"

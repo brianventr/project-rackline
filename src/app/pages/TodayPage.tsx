@@ -68,10 +68,12 @@ export function TodayPage() {
       <ErrorBanner error={error} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "To receive", value: data ? data.openReceipts + data.openPurchases : "—", to: "/inbound/purchases" },
+          { label: "To receive", value: data ? data.openReceipts + data.openPurchases + (data.openAsns ?? 0) : "—", to: "/inbound/purchases" },
+          { label: "Yard", value: data?.openYard ?? "—", to: "/inbound/yard" },
           { label: "Vendor RTV", value: data?.openVendorReturns ?? "—", to: "/inbound/vendor-returns" },
           { label: "To put away", value: data ? data.openTransfers + (data.putawayDue ?? 0) : "—", to: "/floor/putaway" },
           { label: "To fulfill", value: data?.openOrders ?? "—", to: "/outbound/orders" },
+          { label: "Waves", value: data?.openWaves ?? "—", to: "/outbound/waves" },
           { label: "To replenish", value: data ? (data.replenishDue ?? 0) + (data.openReplenishments ?? 0) : "—", to: "/stock/replenish" },
           { label: "Count variance", value: data?.countVariances ?? "—", to: "/stock/counts" },
           { label: "On hold", value: data?.openHolds ?? "—", to: "/stock/holds" },
@@ -159,6 +161,45 @@ export function TodayPage() {
             actionTo: floorActionForOrder(row.status, row.id),
             action: floorLabelForOrder(row.status),
             job: jobForRef(jobs, "order", row.id, desiredVerb("order", row.status) ?? undefined),
+          }))}
+        />
+        <QueueCard
+          title="Waves"
+          empty="No open waves."
+          rows={(queues?.waves ?? []).map((row) => ({
+            id: row.id,
+            to: `/outbound/waves/${row.id}`,
+            title: row.number,
+            meta: `${row.mode} · ${row.orderCount ?? 0} orders`,
+            status: row.status,
+            actionTo: `/floor/wave?id=${row.id}`,
+            action: "Wave",
+          }))}
+        />
+        <QueueCard
+          title="ASNs"
+          empty="No open ASNs."
+          rows={(queues?.asns ?? []).map((row) => ({
+            id: row.id,
+            to: `/inbound/asns/${row.id}`,
+            title: row.number,
+            meta: row.vendorName,
+            status: row.status,
+            actionTo: `/floor/asn?id=${row.id}`,
+            action: "Receive",
+          }))}
+        />
+        <QueueCard
+          title="Yard"
+          empty="No open yard visits."
+          rows={(queues?.yard ?? []).map((row) => ({
+            id: row.id,
+            to: `/inbound/yard/${row.id}`,
+            title: row.number,
+            meta: `${row.carrierName}${row.trailerNumber ? ` · ${row.trailerNumber}` : ""}`,
+            status: row.status,
+            actionTo: `/floor/yard?id=${row.id}`,
+            action: "Yard",
           }))}
         />
         <QueueCard
