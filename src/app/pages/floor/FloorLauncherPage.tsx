@@ -12,6 +12,7 @@ const verbs: { to: string; title: string; body: string; verb?: FloorVerb }[] = [
   { to: "/floor/receive", title: "Receive", body: "Post a receipt or purchase onto the dock, including partials.", verb: "receive" },
   { to: "/floor/asn", title: "ASN", body: "Scan an ASN- notice and receive onto the dock." },
   { to: "/floor/yard", title: "Yard", body: "Scan a YRD- visit to check in, dock, or check out." },
+  { to: "/floor/checkout", title: "Check out", body: "Scan a truck, inspect it, bind a shift or ticket." },
   { to: "/floor/putaway", title: "Put away", body: "Post remaining on a putaway ticket, or scan the dock to a bulk bay.", verb: "putaway" },
   { to: "/floor/replenish", title: "Replenish", body: "Move remaining qty from bulk onto a pick face below min.", verb: "replenish" },
   { to: "/floor/pick", title: "Pick", body: "Go to the suggested bay, open a pick map, pick remaining qty, or unpick / cancel.", verb: "pick" },

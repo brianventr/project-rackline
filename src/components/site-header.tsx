@@ -154,6 +154,8 @@ function pathForScan(hit: ScanHit): string | null {
       return documentPath("asn", hit.asn.id);
     case "yard":
       return documentPath("yard", hit.yard.id);
+    case "equipment":
+      return documentPath("equipment", hit.equipment.id);
     case "serial":
       return `/stock/items/${hit.item.id}`;
     case "lot":
@@ -308,6 +310,11 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               Yard {row.number} · {row.carrierName}
             </button>
           ))}
+          {results?.equipment?.map((row) => (
+            <button key={row.id} className="block w-full text-left" onClick={() => go(`/equipment/${row.id}`)}>
+              {row.code} · {row.name}
+            </button>
+          ))}
           {results?.serials?.map((row) => (
             <button
               key={`${row.itemId}:${row.serialCode}`}
@@ -334,6 +341,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           !results.waves?.length &&
           !results.asns?.length &&
           !results.yard?.length &&
+          !results.equipment?.length &&
           !results.serials?.length ? (
             <p className="text-muted-foreground">Nothing matches that search.</p>
           ) : null}

@@ -79,6 +79,9 @@ export function TodayPage() {
           { label: "On hold", value: data?.openHolds ?? "—", to: "/stock/holds" },
           { label: "Allocated", value: data?.allocatedUnits ?? "—", to: "/outbound/orders" },
           { label: "Expiring", value: data?.expiringLots ?? "—", to: "/stock" },
+          { label: "Checked out", value: data?.openCheckouts ?? "—", to: "/equipment" },
+          { label: "Out of service", value: data?.outOfService ?? "—", to: "/equipment" },
+          { label: "Certs due", value: data?.expiringCerts ?? "—", to: "/setup/team" },
         ].map((stat) => (
           <Link key={stat.label} to={stat.to}>
             <Card className="from-primary/5 to-card bg-gradient-to-t shadow-xs">
@@ -304,6 +307,45 @@ export function TodayPage() {
             actionTo: `/floor/hold?id=${row.id}`,
             action: "Release",
             job: jobForRef(jobs, "hold", row.id, "hold"),
+          }))}
+        />
+        <QueueCard
+          title="Checked out"
+          empty="No trucks checked out."
+          rows={(queues?.checkouts ?? []).map((row) => ({
+            id: row.id,
+            to: `/equipment/${row.equipmentId}`,
+            title: row.equipmentCode,
+            meta: `${row.operatorName}${row.shift ? ` · ${row.shift}` : ""}${row.taskNumber || row.refType ? ` · ${row.taskNumber || row.refType}` : ""}`,
+            status: row.status,
+            actionTo: `/floor/checkout?id=${row.equipmentId}`,
+            action: "Check in",
+          }))}
+        />
+        <QueueCard
+          title="Out of service"
+          empty="Fleet is in service."
+          rows={(queues?.outOfService ?? []).map((row) => ({
+            id: row.id,
+            to: `/equipment/${row.id}`,
+            title: row.code,
+            meta: row.name,
+            status: row.status,
+            actionTo: `/equipment/${row.id}`,
+            action: "Open",
+          }))}
+        />
+        <QueueCard
+          title="Certs due"
+          empty="No certifications expiring in 30 days."
+          rows={(queues?.expiringCerts ?? []).map((row) => ({
+            id: row.id,
+            to: "/setup/team",
+            title: row.userName || row.userId,
+            meta: `${row.class} · ${formatExpiresOn(row.expiresOn)}`,
+            status: "expiring",
+            actionTo: "/setup/team",
+            action: "Team",
           }))}
         />
         <QueueCard

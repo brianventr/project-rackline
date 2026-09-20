@@ -16,6 +16,7 @@ import { HeldStockError } from "./domain/holds";
 import { ExpiredLotError } from "./domain/expiry";
 import { InsufficientAtpError } from "./domain/allocations";
 import { JobClaimedError, JobNotReadyError, JobVerbDeniedError } from "./domain/jobs";
+import { EquipmentCustodyError } from "./domain/equipment";
 import { originFrom, type AppEnv } from "./lib/types";
 import { registerRoute } from "./routes/register";
 import { demoRoute } from "./routes/demo";
@@ -45,6 +46,7 @@ import { zonesRoute } from "./routes/zones";
 import { clientsRoute } from "./routes/clients";
 import { yardRoute } from "./routes/yard";
 import { laborRoute } from "./routes/labor";
+import { equipmentRoute } from "./routes/equipment";
 import { analyticsRoute } from "./routes/analytics";
 
 const app = new Hono<AppEnv>();
@@ -207,6 +209,16 @@ app.onError((err, c) => {
       409,
     );
   }
+  if (err instanceof EquipmentCustodyError) {
+    return c.json(
+      {
+        error: err.message,
+        code: err.code,
+        ...err.extras,
+      },
+      409,
+    );
+  }
   if (err instanceof JobNotReadyError) {
     return c.json({ error: err.message, code: "JOB_NOT_READY", notBefore: err.notBefore }, 409);
   }
@@ -293,6 +305,7 @@ app.route("/api", zonesRoute);
 app.route("/api", clientsRoute);
 app.route("/api", yardRoute);
 app.route("/api", laborRoute);
+app.route("/api", equipmentRoute);
 app.route("/api", analyticsRoute);
 
 export default app;

@@ -21,6 +21,7 @@ describe("barcodes", () => {
     expect(parseScan("WAV:DEMO1")).toEqual({ kind: "wave", value: "DEMO1", raw: "WAV:DEMO1" });
     expect(parseScan("ASN:DEMO1")).toEqual({ kind: "asn", value: "DEMO1", raw: "ASN:DEMO1" });
     expect(parseScan("YRD:DEMO1")).toEqual({ kind: "yard", value: "DEMO1", raw: "YRD:DEMO1" });
+    expect(parseScan("EQ:FL-01")).toEqual({ kind: "equipment", value: "FL-01", raw: "EQ:FL-01" });
     expect(parseScan("SN:LAMP-1001")).toEqual({ kind: "serial", value: "LAMP-1001", raw: "SN:LAMP-1001" });
     expect(parseScan("LOT:2026-A")).toEqual({ kind: "lot", value: "2026-A", raw: "LOT:2026-A" });
     expect(parseScan("RCP-DEMO1")).toEqual({ kind: "unknown", value: "RCP-DEMO1", raw: "RCP-DEMO1" });
@@ -42,5 +43,6 @@ describe("barcodes", () => {
     expect(documentPath("wave", "abc")).toBe("/outbound/waves/abc");
     expect(documentPath("asn", "abc")).toBe("/inbound/asns/abc");
     expect(documentPath("yard", "abc")).toBe("/inbound/yard/abc");
+    expect(documentPath("equipment", "abc")).toBe("/equipment/abc");
   });
 });

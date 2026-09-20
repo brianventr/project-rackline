@@ -34,6 +34,7 @@ import {
   loadAsBuiltForParentSerial,
 } from "../db/as-built";
 import { completeMatchingSuggestionJobs, guardFloorJob, guardMatchingSuggestionJobs, syncDocumentJob } from "../db/jobs";
+import { loadDocumentNumber, loadOpenAssignmentForEquipment } from "../db/equipment";
 
 export const floorRoute = new Hono<AppEnv>();
 
@@ -1171,6 +1172,43 @@ floorRoute.get("/scan", async (c) => {
     if (parsed.kind === "yard") notFound("No yard visit matches that barcode");
   }
 
+  if (parsed.kind === "equipment" || parsed.kind === "unknown") {
+    const needle = parsed.value.trim().toUpperCase();
+    const rows = await db.select().from(schema.equipment).where(eq(schema.equipment.organizationId, organizationId));
+    const match = rows.find(
+      (row) =>
+        row.barcode.toUpperCase() === needle ||
+        row.barcode.toUpperCase() === `EQ:${needle}` ||
+        row.code.toUpperCase() === needle ||
+        row.code.toUpperCase() === needle.replace(/^EQ:/, ""),
+    );
+    if (match) {
+      const open = await loadOpenAssignmentForEquipment(db, organizationId, match.id);
+      let currentAssignment = null;
+      if (open) {
+        const [operator] = await db
+          .select({ name: schema.user.name })
+          .from(schema.user)
+          .where(eq(schema.user.id, open.operatorUserId))
+          .limit(1);
+        currentAssignment = {
+          id: open.id,
+          number: open.number,
+          operatorUserId: open.operatorUserId,
+          operatorName: operator?.name ?? null,
+          status: open.status,
+          shift: open.shift,
+          refType: open.refType,
+          refId: open.refId,
+          taskNumber: await loadDocumentNumber(db, organizationId, open.refType, open.refId),
+          startedAt: open.startedAt,
+        };
+      }
+      return c.json({ kind: "equipment" as const, equipment: { ...match, currentAssignment } });
+    }
+    if (parsed.kind === "equipment") notFound("No equipment matches that barcode");
+  }
+
   if (parsed.kind === "serial" || parsed.kind === "unknown") {
     const serial = await findSerialRow(db, organizationId, parsed.value);
     if (serial) {
@@ -1214,7 +1252,7 @@ floorRoute.get("/scan", async (c) => {
     if (parsed.kind === "lot") notFound("No lot matches that barcode");
   }
 
-  notFound("No location, item, document, serial, or lot matches that barcode");
+  notFound("No location, item, document, serial, lot, or equipment matches that barcode");
 });
 
 floorRoute.post("/moves", async (c) => {

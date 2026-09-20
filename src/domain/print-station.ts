@@ -1,6 +1,6 @@
 import { normalizeOrderStatus } from "./status";
 
-export type PrintKind = "bay" | "item" | "pack-slip" | "shipping-label";
+export type PrintKind = "bay" | "item" | "pack-slip" | "shipping-label" | "equipment";
 
 export type PrintJob = {
   kind: PrintKind;
@@ -58,6 +58,7 @@ export type ScanPrintInput = {
   location?: { id: string; code: string; name: string };
   item?: { id: string; sku: string; name: string };
   order?: { id: string; number: string; customerName: string; status: string };
+  equipment?: { id: string; code: string; name: string };
 };
 
 export function jobsForScan(hit: ScanPrintInput): PrintJob[] {
@@ -100,6 +101,16 @@ export function jobsForScan(hit: ScanPrintInput): PrintJob[] {
       });
     }
     return jobs;
+  }
+  if (hit.kind === "equipment" && hit.equipment) {
+    return [
+      {
+        kind: "equipment",
+        href: `/equipment/${hit.equipment.id}`,
+        title: hit.equipment.code,
+        subtitle: hit.equipment.name,
+      },
+    ];
   }
   return [];
 }

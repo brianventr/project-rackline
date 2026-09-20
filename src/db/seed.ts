@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "./schema";
 import type { AppDb } from "./stock";
@@ -10,6 +10,7 @@ import { provisionOrganization } from "../lib/org";
 import { demoFulfillmentOrderId } from "../domain/shopify";
 import { areaForType, gridPosition } from "../domain/map-layout";
 import { addUtcDays, utcYyyymmdd } from "../domain/expiry";
+import { checklistForClass, equipmentBarcode } from "../domain/equipment";
 import { destPatchFromAddress, originColumns, resolveOrigin } from "../domain/geo";
 
 export const DEMO_EMAIL = "demo@northwind.makers";
@@ -767,6 +768,177 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       qtyMoved: 0,
     }),
   ]);
+
+  const fl01 = newId();
+  const fl02 = newId();
+  const pj01 = newId();
+  const openAsnId = newId();
+  const closedAsnId = newId();
+  const yesterdayStart = now - 26 * 60 * 60 * 1000;
+  const yesterdayEnd = now - 2 * 60 * 60 * 1000;
+  const sitDownItems = checklistForClass("sit_down").map((item) => ({
+    code: item.code,
+    result: item.code === "horn" || item.code === "hydraulics" ? "fail" : "pass",
+  }));
+  const sitDownPass = checklistForClass("sit_down").map((item) => ({ code: item.code, result: "pass" }));
+  const jackPass = checklistForClass("pallet_jack").map((item) => ({ code: item.code, result: "pass" }));
+
+  await db.batch([
+    db.insert(schema.equipment).values({
+      id: fl01,
+      organizationId,
+      warehouseId,
+      code: "FL-01",
+      name: "Crown sit-down",
+      class: "sit_down",
+      barcode: equipmentBarcode("FL-01"),
+      status: "checked_out",
+      notes: "Main aisle truck",
+      createdAt: now,
+    }),
+    db.insert(schema.equipment).values({
+      id: pj01,
+      organizationId,
+      warehouseId,
+      code: "PJ-01",
+      name: "Electric pallet jack",
+      class: "pallet_jack",
+      barcode: equipmentBarcode("PJ-01"),
+      status: "available",
+      createdAt: now,
+    }),
+    db.insert(schema.equipment).values({
+      id: fl02,
+      organizationId,
+      warehouseId,
+      code: "FL-02",
+      name: "Toyota sit-down",
+      class: "sit_down",
+      barcode: equipmentBarcode("FL-02"),
+      status: "out_of_service",
+      notes: "Horn and leak on last pre-use",
+      createdAt: now,
+    }),
+    db.insert(schema.operatorCertifications).values({
+      id: newId(),
+      organizationId,
+      userId,
+      class: "sit_down",
+      expiresOn: addUtcDays(utcYyyymmdd(), 365),
+      createdAt: now,
+    }),
+    db.insert(schema.operatorCertifications).values({
+      id: newId(),
+      organizationId,
+      userId,
+      class: "pallet_jack",
+      expiresOn: addUtcDays(utcYyyymmdd(), 20),
+      createdAt: now,
+    }),
+    db.insert(schema.equipmentAssignments).values({
+      id: closedAsnId,
+      organizationId,
+      warehouseId,
+      number: "CST-DEMO0",
+      equipmentId: pj01,
+      operatorUserId: userId,
+      status: "closed",
+      shift: "days",
+      startedAt: yesterdayStart,
+      endedAt: yesterdayEnd,
+      startedBy: userId,
+      endedBy: userId,
+    }),
+    db.insert(schema.equipmentAssignments).values({
+      id: openAsnId,
+      organizationId,
+      warehouseId,
+      number: "CST-DEMO1",
+      equipmentId: fl01,
+      operatorUserId: userId,
+      status: "open",
+      shift: "days",
+      refType: "transfer",
+      refId: transferId,
+      startedAt: now,
+      startedBy: userId,
+    }),
+    db.insert(schema.equipmentInspections).values({
+      id: newId(),
+      organizationId,
+      equipmentId: pj01,
+      assignmentId: closedAsnId,
+      result: "pass",
+      itemsJson: JSON.stringify(jackPass),
+      createdBy: userId,
+      createdAt: yesterdayStart,
+    }),
+    db.insert(schema.equipmentInspections).values({
+      id: newId(),
+      organizationId,
+      equipmentId: fl01,
+      assignmentId: openAsnId,
+      result: "pass",
+      itemsJson: JSON.stringify(sitDownPass),
+      createdBy: userId,
+      createdAt: now,
+    }),
+    db.insert(schema.equipmentInspections).values({
+      id: newId(),
+      organizationId,
+      equipmentId: fl02,
+      assignmentId: null,
+      result: "fail",
+      itemsJson: JSON.stringify(sitDownItems),
+      createdBy: userId,
+      createdAt: now,
+    }),
+    db.insert(schema.equipmentEvents).values({
+      id: newId(),
+      organizationId,
+      equipmentId: pj01,
+      assignmentId: closedAsnId,
+      type: "checked_out",
+      actorUserId: userId,
+      payloadJson: JSON.stringify({ shift: "days" }),
+      createdAt: yesterdayStart,
+    }),
+    db.insert(schema.equipmentEvents).values({
+      id: newId(),
+      organizationId,
+      equipmentId: pj01,
+      assignmentId: closedAsnId,
+      type: "checked_in",
+      actorUserId: userId,
+      createdAt: yesterdayEnd,
+    }),
+    db.insert(schema.equipmentEvents).values({
+      id: newId(),
+      organizationId,
+      equipmentId: fl01,
+      assignmentId: openAsnId,
+      type: "checked_out",
+      actorUserId: userId,
+      payloadJson: JSON.stringify({ shift: "days", refType: "transfer", refId: transferId, taskNumber: "XFR-DEMO1" }),
+      createdAt: now,
+    }),
+    db.insert(schema.equipmentEvents).values({
+      id: newId(),
+      organizationId,
+      equipmentId: fl02,
+      type: "out_of_service",
+      actorUserId: userId,
+      payloadJson: JSON.stringify({ failed: ["horn", "hydraulics"] }),
+      createdAt: now,
+    }),
+  ]);
+
+  await db
+    .update(schema.inventoryMovements)
+    .set({ equipmentId: fl01, assignmentId: openAsnId })
+    .where(
+      and(eq(schema.inventoryMovements.organizationId, organizationId), eq(schema.inventoryMovements.createdBy, userId)),
+    );
 
   const hour = 3_600_000;
   const sku = { lamp: item.lamp, bulb: item.bulb, shade: item.shade };

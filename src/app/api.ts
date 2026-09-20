@@ -201,6 +201,7 @@ export type ScanHoldHit = { kind: "hold"; hold: Hold };
 export type ScanWaveHit = { kind: "wave"; wave: Wave };
 export type ScanAsnHit = { kind: "asn"; asn: Asn };
 export type ScanYardHit = { kind: "yard"; yard: YardVisit };
+export type ScanEquipmentHit = { kind: "equipment"; equipment: Equipment };
 export type ScanSerialHit = {
   kind: "serial";
   serial: {
@@ -253,6 +254,7 @@ export type ScanHit =
   | ScanWaveHit
   | ScanAsnHit
   | ScanYardHit
+  | ScanEquipmentHit
   | ScanSerialHit
   | ScanLotHit;
 
@@ -596,6 +598,9 @@ export type Dashboard = {
   openWaves?: number;
   openAsns?: number;
   openYard?: number;
+  openCheckouts?: number;
+  outOfService?: number;
+  expiringCerts?: number;
   replenishDue?: number;
   expiringLots?: number;
   lowStock: { itemId: string; sku: string; name: string; onHand: number; reorderPoint: number }[];
@@ -619,6 +624,9 @@ export type Dashboard = {
     waves?: Wave[];
     asns?: Asn[];
     yard?: YardVisit[];
+    checkouts?: EquipmentCheckout[];
+    outOfService?: Equipment[];
+    expiringCerts?: OperatorCertification[];
     shopifyExceptions: Order[];
     expiringLots?: {
       locationId: string;
@@ -651,6 +659,7 @@ export type SearchResults = {
   waves?: Pick<Wave, "id" | "number" | "status">[];
   asns?: Pick<Asn, "id" | "number" | "status" | "vendorName">[];
   yard?: Pick<YardVisit, "id" | "number" | "status" | "carrierName">[];
+  equipment?: Pick<Equipment, "id" | "code" | "name" | "barcode" | "status" | "class">[];
   serials?: { serialCode: string; itemId: string; sku: string; status: string }[];
 };
 
@@ -749,6 +758,9 @@ export type Movement = {
   serialsJson?: string | null;
   weightGrams?: number | null;
   expiresOn?: number | null;
+  equipmentId?: string | null;
+  assignmentId?: string | null;
+  equipmentCode?: string | null;
 };
 
 export type PurchaseLine = {
@@ -984,6 +996,83 @@ export type YardVisit = {
   createdAt: number;
   checkedInAt?: number | null;
   checkedOutAt?: number | null;
+};
+
+export type EquipmentAssignment = {
+  id: string;
+  number: string;
+  equipmentId: string;
+  operatorUserId: string;
+  operatorName?: string | null;
+  status: string;
+  shift: string | null;
+  refType: string | null;
+  refId: string | null;
+  taskNumber?: string | null;
+  startedAt: number;
+  endedAt?: number | null;
+  startedBy?: string;
+  endedBy?: string | null;
+};
+
+export type EquipmentCheckout = EquipmentAssignment & {
+  equipmentCode: string;
+  equipmentName?: string;
+  warehouseId?: string;
+};
+
+export type EquipmentInspection = {
+  id: string;
+  equipmentId: string;
+  assignmentId: string | null;
+  result: string;
+  itemsJson?: string;
+  items?: { code: string; result: string; notes?: string }[];
+  createdBy: string;
+  createdAt: number;
+};
+
+export type EquipmentEvent = {
+  id: string;
+  equipmentId: string;
+  assignmentId: string | null;
+  type: string;
+  actorUserId: string;
+  payloadJson: string | null;
+  createdAt: number;
+};
+
+export type Equipment = {
+  id: string;
+  warehouseId: string;
+  code: string;
+  name: string;
+  class: string;
+  barcode: string;
+  status: string;
+  notes: string | null;
+  createdAt: number;
+  currentAssignment?: EquipmentAssignment | null;
+  checklist?: { code: string; label: string }[];
+  assignments?: EquipmentAssignment[];
+  events?: EquipmentEvent[];
+  inspections?: EquipmentInspection[];
+};
+
+export type OperatorCertification = {
+  id: string;
+  userId: string;
+  userName?: string;
+  email?: string;
+  class: string;
+  expiresOn: number;
+  createdAt?: number;
+};
+
+export type EquipmentAudit = {
+  at: number | null;
+  assignment: (EquipmentAssignment & { equipmentCode?: string; equipmentName?: string }) | null;
+  assignments: (EquipmentAssignment & { equipmentCode?: string; equipmentName?: string })[];
 };
 
 export type LaborEvent = {
