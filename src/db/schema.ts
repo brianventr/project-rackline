@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -584,6 +584,35 @@ export const kitBuilds = sqliteTable("kit_builds", {
   createdAt: integer("created_at").notNull(),
   completedAt: integer("completed_at"),
 });
+
+export const asBuilt = sqliteTable(
+  "as_built",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    refType: text("ref_type").notNull(),
+    refId: text("ref_id").notNull(),
+    parentItemId: text("parent_item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    parentLotCode: text("parent_lot_code"),
+    parentSerial: text("parent_serial"),
+    componentItemId: text("component_item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    componentLotCode: text("component_lot_code"),
+    componentSerial: text("component_serial"),
+    qty: integer("qty").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("as_built_org_ref").on(t.organizationId, t.refId),
+    index("as_built_org_parent_serial").on(t.organizationId, t.parentSerial),
+    index("as_built_org_component_lot").on(t.organizationId, t.componentItemId, t.componentLotCode),
+  ],
+);
 
 export const inventoryHolds = sqliteTable("inventory_holds", {
   id: text("id").primaryKey(),

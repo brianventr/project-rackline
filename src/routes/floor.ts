@@ -18,6 +18,13 @@ import { applyHoldsToOnHand, HeldStockError, matchingHoldForMove } from "../doma
 import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
 import { allocatedQtyAt, applyAllocationsToOnHand, InsufficientAtpError } from "../domain/allocations";
 import { loadOpenAllocations } from "../db/allocations";
+import {
+  findLotRows,
+  findSerialRow,
+  loadAsBuiltForComponent,
+  loadAsBuiltForLotCode,
+  loadAsBuiltForParentSerial,
+} from "../db/as-built";
 
 export const floorRoute = new Hono<AppEnv>();
 
@@ -884,7 +891,50 @@ floorRoute.get("/scan", async (c) => {
     if (parsed.kind === "hold") notFound("No hold matches that barcode");
   }
 
-  notFound("No location, item, or document matches that barcode");
+  if (parsed.kind === "serial" || parsed.kind === "unknown") {
+    const serial = await findSerialRow(db, organizationId, parsed.value);
+    if (serial) {
+      const [builtFrom, usedIn] = await Promise.all([
+        loadAsBuiltForParentSerial(db, organizationId, serial.serialCode),
+        loadAsBuiltForComponent(db, organizationId, { serial: serial.serialCode }),
+      ]);
+      return c.json({
+        kind: "serial" as const,
+        serial: {
+          serialCode: serial.serialCode,
+          status: serial.status,
+          itemId: serial.itemId,
+          sku: serial.sku,
+          itemName: serial.itemName,
+          locationId: serial.locationId,
+          locationCode: serial.locationCode,
+          locationName: serial.locationName,
+        },
+        item: { id: serial.itemId, sku: serial.sku, name: serial.itemName, barcode: serial.barcode },
+        builtFrom,
+        usedIn,
+      });
+    }
+    if (parsed.kind === "serial") notFound("No serial matches that barcode");
+  }
+
+  if (parsed.kind === "lot" || parsed.kind === "unknown") {
+    const onHand = await findLotRows(db, organizationId, parsed.value);
+    const genealogy = await loadAsBuiltForLotCode(db, organizationId, parsed.value);
+    if (onHand.length || genealogy.length) {
+      const lotCode = onHand[0]?.lotCode ?? parsed.value.trim().toUpperCase();
+      return c.json({
+        kind: "lot" as const,
+        lotCode,
+        onHand,
+        builtFrom: genealogy.filter((row) => row.parentLotCode === lotCode),
+        usedIn: genealogy.filter((row) => row.componentLotCode === lotCode),
+      });
+    }
+    if (parsed.kind === "lot") notFound("No lot matches that barcode");
+  }
+
+  notFound("No location, item, document, serial, or lot matches that barcode");
 });
 
 floorRoute.post("/moves", async (c) => {

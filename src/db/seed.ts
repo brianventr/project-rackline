@@ -403,6 +403,65 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     }),
   ]);
 
+  await db.batch([
+    db.insert(schema.asBuilt).values({
+      id: newId(),
+      organizationId,
+      refType: "seed",
+      refId: seedRef,
+      parentItemId: item.lamp,
+      parentLotCode: null,
+      parentSerial: "LAMP-1001",
+      componentItemId: item.bulb,
+      componentLotCode: "LOT-2026-A",
+      componentSerial: null,
+      qty: 1,
+      createdAt: now,
+    }),
+    db.insert(schema.asBuilt).values({
+      id: newId(),
+      organizationId,
+      refType: "seed",
+      refId: seedRef,
+      parentItemId: item.lamp,
+      parentLotCode: null,
+      parentSerial: "LAMP-1001",
+      componentItemId: item.shade,
+      componentLotCode: null,
+      componentSerial: null,
+      qty: 1,
+      createdAt: now,
+    }),
+    db.insert(schema.asBuilt).values({
+      id: newId(),
+      organizationId,
+      refType: "seed",
+      refId: seedRef,
+      parentItemId: item.lamp,
+      parentLotCode: null,
+      parentSerial: "LAMP-1001",
+      componentItemId: item.base,
+      componentLotCode: null,
+      componentSerial: null,
+      qty: 1,
+      createdAt: now,
+    }),
+    db.insert(schema.asBuilt).values({
+      id: newId(),
+      organizationId,
+      refType: "seed",
+      refId: seedRef,
+      parentItemId: item.lamp,
+      parentLotCode: null,
+      parentSerial: "LAMP-1001",
+      componentItemId: item.cord,
+      componentLotCode: null,
+      componentSerial: null,
+      qty: 1,
+      createdAt: now,
+    }),
+  ]);
+
   return { organizationId };
 }
 

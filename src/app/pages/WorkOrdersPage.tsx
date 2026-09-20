@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Item, type Location, type WorkOrder } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit } from "../components/ui";
 import { DocumentHeader, DocumentActivity } from "../components/document";
+import { AsBuiltList } from "../components/as-built";
 import { WORK_ORDER_STEPS, canCompleteWorkOrder } from "@/domain/status";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
@@ -185,6 +186,9 @@ function WorkOrderDetail({ id }: { id: string }) {
         }
       />
       <ErrorBanner error={error} />
+      {(order.asBuilt ?? []).length ? (
+        <AsBuiltList title="As-built" empty="No component lots were recorded." rows={order.asBuilt ?? []} mode="from" />
+      ) : null}
       <DocumentActivity refId={order.id} />
     </div>
   );

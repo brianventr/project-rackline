@@ -15,6 +15,7 @@ import {
 } from "../domain/inventory";
 import { newId } from "../lib/ids";
 import { appendTraceabilityStatements, expandMovementsForTraceability } from "./traceability";
+import { appendAsBuiltStatements } from "./as-built";
 import { assertOutboundNotHeld, loadOpenHolds } from "./holds";
 import { assertOutboundAtp } from "./allocations";
 
@@ -134,6 +135,12 @@ export async function persistStockPlan(
   }
 
   await appendTraceabilityStatements(db, {
+    organizationId: input.organizationId,
+    now: input.now,
+    movements,
+    statements,
+  });
+  appendAsBuiltStatements(db, {
     organizationId: input.organizationId,
     now: input.now,
     movements,

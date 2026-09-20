@@ -11,6 +11,8 @@ export type ScanKind =
   | "replenishment"
   | "kit"
   | "hold"
+  | "serial"
+  | "lot"
   | "unknown";
 
 export type ParsedScan = {
@@ -40,6 +42,10 @@ const PREFIXES: Array<{ prefix: string; kind: Exclude<ScanKind, "unknown"> }> = 
   { prefix: "RPL:", kind: "replenishment" },
   { prefix: "KIT:", kind: "kit" },
   { prefix: "HLD:", kind: "hold" },
+  { prefix: "SN:", kind: "serial" },
+  { prefix: "SER:", kind: "serial" },
+  { prefix: "SERIAL:", kind: "serial" },
+  { prefix: "LOT:", kind: "lot" },
 ];
 
 export function normalizeBarcode(raw: string): string {
@@ -56,7 +62,7 @@ export function parseScan(raw: string): ParsedScan {
   return { kind: "unknown", value, raw: value };
 }
 
-export function documentPath(kind: Exclude<ScanKind, "unknown" | "location" | "item">, id: string): string {
+export function documentPath(kind: Exclude<ScanKind, "unknown" | "location" | "item" | "serial" | "lot">, id: string): string {
   switch (kind) {
     case "order":
       return `/outbound/orders/${id}`;

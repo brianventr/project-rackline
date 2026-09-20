@@ -15,6 +15,7 @@ import { applyHoldsToOnHand, matchingHoldForMove } from "../domain/holds";
 import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
 import { annotateAtp, atpOnHand, loadOpenAllocations } from "../db/allocations";
 import { addUtcDays, EXPIRING_WITHIN_DAYS, utcYyyymmdd } from "../domain/expiry";
+import { loadAsBuiltForItem } from "../db/as-built";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -348,12 +349,27 @@ catalogRoute.get("/items/:id", async (c) => {
     .from(schema.serials)
     .leftJoin(schema.locations, eq(schema.locations.id, schema.serials.locationId))
     .where(and(eq(schema.serials.organizationId, organizationId), eq(schema.serials.itemId, item.id)));
+  const genealogy = await loadAsBuiltForItem(db, organizationId, item.id);
   const located = onHand.map((row) => ({ ...row, itemId: item.id }));
   const openHolds = await loadOpenHolds(db, organizationId);
   const heldLotQtys = await loadHeldLotQuantities(db, organizationId, openHolds);
   const available = applyHoldsToOnHand(located, openHolds, heldLotQtys);
   const allocations = await loadOpenAllocations(db, organizationId);
-  return c.json({ ...item, onHand: annotateAtp(located, allocations, available), lots, serials: serialRows });
+  return c.json({
+    ...item,
+    onHand: annotateAtp(located, allocations, available),
+    lots: lots.map((row) => ({
+      ...row,
+      usedIn: genealogy.filter(
+        (link) => link.componentItemId === item.id && link.componentLotCode === row.lotCode,
+      ),
+    })),
+    serials: serialRows.map((row) => ({
+      ...row,
+      builtFrom: genealogy.filter((link) => link.parentSerial === row.serialCode),
+      usedIn: genealogy.filter((link) => link.componentSerial === row.serialCode),
+    })),
+  });
 });
 
 catalogRoute.get("/locations/:id", async (c) => {

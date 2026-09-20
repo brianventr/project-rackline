@@ -8,6 +8,7 @@ import { docNumber, newId } from "../lib/ids";
 import { planCompleteWorkOrder } from "../domain/manufacturing";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { canCompleteWorkOrder } from "../domain/status";
+import { loadAsBuiltForRef } from "../db/as-built";
 
 export const manufacturingRoute = new Hono<AppEnv>();
 
@@ -137,7 +138,8 @@ async function workOrderWithItem(db: AppEnv["Variables"]["db"], organizationId: 
     .where(and(eq(schema.workOrders.id, id), eq(schema.workOrders.organizationId, organizationId)))
     .limit(1);
   if (!row) notFound("Work order not found");
-  return row;
+  const asBuilt = await loadAsBuiltForRef(db, organizationId, row.id);
+  return { ...row, asBuilt };
 }
 
 manufacturingRoute.get("/work-orders", async (c) => {
