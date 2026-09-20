@@ -106,6 +106,7 @@ export function DocumentActivity({ refId, refreshKey }: { refId: string; refresh
             <li key={row.id} className="flex justify-between gap-3">
               <span>
                 <span className="font-mono text-xs uppercase text-muted-foreground">{row.type}</span> {row.sku}
+                {row.createdByName ? ` · ${row.createdByName}` : ""}
               </span>
               <span className="font-mono tabular-nums">
                 {row.qty}

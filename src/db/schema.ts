@@ -167,28 +167,36 @@ export const inventoryBalances = sqliteTable(
   (t) => [uniqueIndex("balances_org_loc_item").on(t.organizationId, t.locationId, t.itemId)],
 );
 
-export const inventoryMovements = sqliteTable("inventory_movements", {
-  id: text("id").primaryKey(),
-  organizationId: text("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  type: text("type").notNull(),
-  itemId: text("item_id")
-    .notNull()
-    .references(() => items.id),
-  qty: integer("qty").notNull(),
-  fromLocationId: text("from_location_id"),
-  toLocationId: text("to_location_id"),
-  refType: text("ref_type").notNull(),
-  refId: text("ref_id").notNull(),
-  reason: text("reason"),
-  createdAt: integer("created_at").notNull(),
-  createdBy: text("created_by").notNull(),
-  lotCode: text("lot_code"),
-  serialsJson: text("serials_json"),
-  weightGrams: integer("weight_grams"),
-  expiresOn: integer("expires_on"),
-});
+export const inventoryMovements = sqliteTable(
+  "inventory_movements",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id),
+    qty: integer("qty").notNull(),
+    fromLocationId: text("from_location_id"),
+    toLocationId: text("to_location_id"),
+    refType: text("ref_type").notNull(),
+    refId: text("ref_id").notNull(),
+    reason: text("reason"),
+    createdAt: integer("created_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    lotCode: text("lot_code"),
+    serialsJson: text("serials_json"),
+    weightGrams: integer("weight_grams"),
+    expiresOn: integer("expires_on"),
+  },
+  (t) => [
+    index("movements_org_created").on(t.organizationId, t.createdAt),
+    index("movements_org_user_created").on(t.organizationId, t.createdBy, t.createdAt),
+    index("movements_org_item_created").on(t.organizationId, t.itemId, t.createdAt),
+  ],
+);
 
 export const receipts = sqliteTable("receipts", {
   id: text("id").primaryKey(),
@@ -973,6 +981,35 @@ export const laborEvents = sqliteTable(
   (t) => [
     index("labor_events_org_created").on(t.organizationId, t.createdAt),
     index("labor_events_org_user").on(t.organizationId, t.userId),
+  ],
+);
+
+export const packEvents = sqliteTable(
+  "pack_events",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id),
+    qty: integer("qty").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("pack_events_org_created").on(t.organizationId, t.createdAt),
+    index("pack_events_org_user").on(t.organizationId, t.userId),
+    index("pack_events_org_item").on(t.organizationId, t.itemId, t.createdAt),
   ],
 );
 

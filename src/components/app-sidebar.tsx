@@ -27,6 +27,7 @@ import {
   Layers,
   ShieldAlert,
   Radar,
+  Gauge,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Logo } from "@/components/logo";
@@ -53,6 +54,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
       label: "Today",
       items: [
         { title: "Today", url: "/today", icon: LayoutDashboard },
+        ...(owner ? [{ title: "Performance", url: "/labor", icon: Gauge }] : []),
         { title: "Floor", url: "/floor", icon: ScanLine },
         { title: "Map", url: "/map", icon: Map },
         ...(owner ? [{ title: "Build floor", url: "/map?edit=1", icon: BoxSelect }] : []),
@@ -111,7 +113,6 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
               { title: "Warehouse", url: "/setup/warehouse", icon: Settings2 },
               { title: "Clients", url: "/setup/clients", icon: Users },
               { title: "Zones", url: "/setup/zones", icon: BoxSelect },
-              { title: "Labor", url: "/setup/labor", icon: Calculator },
               { title: "Team", url: "/setup/team", icon: Users },
               { title: "Labels", url: "/setup/labels", icon: Tag },
             ],

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { PageHeader } from "../../components/ui";
 import { useSession } from "../../session";
+import { MyDayCard } from "../LaborPage";
 
 const verbs = [
   { to: "/floor/lookup", title: "Lookup", body: "Scan a SKU, bay, document, serial, or lot." },
@@ -33,6 +34,7 @@ export function FloorLauncherPage() {
         title="What are you doing?"
         description="One job per screen. Scan first. The office menu stays out of the way."
       />
+      <MyDayCard />
       <div className="grid gap-3 sm:grid-cols-2">
         {items.map((item) => (
           <Link

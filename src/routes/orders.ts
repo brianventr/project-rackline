@@ -546,6 +546,13 @@ ordersRoute.post("/orders/:id/pack", async (c) => {
   const now = Date.now();
   const fully = isFullyPacked(applied.next);
   const qtyPackedByLine = new Map(applied.next.map((line) => [line.lineId, line.qtyPacked]));
+  const user = c.get("user")!;
+  const packLines = incoming
+    .map((line) => {
+      const orderLine = order.lines.find((row) => row.id === line.lineId);
+      return { itemId: orderLine?.itemId ?? "", qty: line.qty };
+    })
+    .filter((line) => line.itemId && line.qty > 0);
 
   await db.batch([
     db
@@ -560,6 +567,18 @@ ordersRoute.post("/orders/:id/pack", async (c) => {
         .update(schema.orderLines)
         .set({ qtyPacked: qtyPackedByLine.get(line.id) ?? line.qtyPacked })
         .where(eq(schema.orderLines.id, line.id)),
+    ),
+    ...packLines.map((line) =>
+      db.insert(schema.packEvents).values({
+        id: newId(),
+        organizationId,
+        warehouseId: order.warehouseId,
+        userId: user.id,
+        orderId: order.id,
+        itemId: line.itemId,
+        qty: line.qty,
+        createdAt: now,
+      }),
     ),
   ]);
 

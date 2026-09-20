@@ -741,6 +741,8 @@ export type Movement = {
   itemName: string;
   reason: string | null;
   createdAt: number;
+  createdBy?: string | null;
+  createdByName?: string | null;
   fromLocationCode: string | null;
   toLocationCode: string | null;
   lotCode?: string | null;
@@ -978,9 +980,20 @@ export type LaborRollup = {
   durationSec: number;
 };
 
-export type LaborBoard = {
-  events: LaborEvent[];
-  rollup: LaborRollup[];
+export type {
+  LaborDailyPoint,
+  LaborDocumentRow,
+  LaborKpiBoard,
+  LaborMatrixCell,
+  LaborSkuDetail,
+  LaborSkuRow,
+  LaborStaffDetail,
+  LaborStaffRow,
+  LaborVerbMix,
+} from "@/domain/labor-kpis";
+
+export type LaborBoard = import("@/domain/labor-kpis").LaborKpiBoard & {
+  range: { from: number; to: number; preset: string };
 };
 
 export type {
