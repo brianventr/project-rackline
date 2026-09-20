@@ -55,5 +55,11 @@ describe("jobsForScan", () => {
 
   it("returns nothing for a receipt scan", () => {
     expect(jobsForScan({ kind: "receipt" })).toEqual([]);
+    expect(
+      jobsForScan({
+        kind: "equipment",
+        equipment: { id: "eq1", code: "FL-01", name: "Sit-down" },
+      })[0]?.href,
+    ).toBe("/equipment/eq1");
   });
 });

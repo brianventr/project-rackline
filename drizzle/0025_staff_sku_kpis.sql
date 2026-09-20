@@ -1,4 +1,4 @@
--- Migration number: 0024 	 2026-09-20T20:00:00.000Z
+-- Migration number: 0025 	 2026-09-20T20:00:00.000Z
 -- Staff × SKU labor KPIs: extra movement lookup indexes and pack actor events.
 
 CREATE INDEX `movements_org_user_created` ON `inventory_movements` (`organization_id`, `created_by`, `created_at`);

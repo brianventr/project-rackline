@@ -15,6 +15,7 @@ export type ScanKind =
   | "wave"
   | "asn"
   | "yard"
+  | "equipment"
   | "serial"
   | "lot"
   | "unknown";
@@ -51,6 +52,7 @@ const PREFIXES: Array<{ prefix: string; kind: Exclude<ScanKind, "unknown"> }> = 
   { prefix: "WAV:", kind: "wave" },
   { prefix: "ASN:", kind: "asn" },
   { prefix: "YRD:", kind: "yard" },
+  { prefix: "EQ:", kind: "equipment" },
   { prefix: "SN:", kind: "serial" },
   { prefix: "SER:", kind: "serial" },
   { prefix: "SERIAL:", kind: "serial" },
@@ -101,5 +103,7 @@ export function documentPath(kind: Exclude<ScanKind, "unknown" | "location" | "i
       return `/inbound/asns/${id}`;
     case "yard":
       return `/inbound/yard/${id}`;
+    case "equipment":
+      return `/equipment/${id}`;
   }
 }

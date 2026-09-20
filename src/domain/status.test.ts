@@ -19,6 +19,8 @@ import {
   canReceiveAsn,
   canCheckInYard,
   canCheckOutYard,
+  canCheckInEquipment,
+  canReturnEquipmentToService,
   isOpenOrder,
   isOpenPurchase,
   normalizeOrderStatus,
@@ -118,6 +120,8 @@ describe("order status", () => {
     expect(canReceiveAsn("received")).toBe(false);
     expect(canCheckInYard("expected")).toBe(true);
     expect(canCheckOutYard("at_dock")).toBe(true);
+    expect(canCheckInEquipment("open")).toBe(true);
+    expect(canReturnEquipmentToService("out_of_service")).toBe(true);
     expect(statusLabel("checked_in")).toBe("Checked in");
   });
 });

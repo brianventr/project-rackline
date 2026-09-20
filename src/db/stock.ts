@@ -19,6 +19,7 @@ import { appendTraceabilityStatements, expandMovementsForTraceability } from "./
 import { appendAsBuiltStatements } from "./as-built";
 import { assertOutboundNotHeld, loadOpenHolds } from "./holds";
 import { assertOutboundAtp } from "./allocations";
+import { loadOpenAssignmentForOperator } from "./equipment";
 
 export type AppDb = DrizzleD1Database<typeof import("./schema")>;
 
@@ -87,6 +88,7 @@ export async function persistStockPlan(
   );
   assertOutboundNotHeld(movements, holds);
   await assertOutboundAtp(db, input.organizationId, movements, input.loaded);
+  const custody = await loadOpenAssignmentForOperator(db, input.organizationId, input.createdBy);
 
   for (const [key, qty] of input.plan.balances) {
     const { locationId, itemId } = parseBalanceKey(key);
@@ -131,6 +133,8 @@ export async function persistStockPlan(
         serialsJson: movement.serials?.length ? JSON.stringify(movement.serials) : null,
         weightGrams: movement.weightGrams ?? null,
         expiresOn: movement.expiresOn ?? null,
+        equipmentId: custody?.equipmentId ?? null,
+        assignmentId: custody?.id ?? null,
       }),
     );
   }

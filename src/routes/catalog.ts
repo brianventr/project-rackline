@@ -15,7 +15,9 @@ import { applyHoldsToOnHand, matchingHoldForMove } from "../domain/holds";
 import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
 import { annotateAtp, atpOnHand, loadOpenAllocations } from "../db/allocations";
 import { addUtcDays, EXPIRING_WITHIN_DAYS, utcYyyymmdd } from "../domain/expiry";
+import { CERT_EXPIRING_WITHIN_DAYS, isCertExpiring } from "../domain/equipment";
 import { loadAsBuiltForItem } from "../db/as-built";
+import { loadDocumentNumber } from "../db/equipment";
 import { originColumns, resolveOrigin } from "../domain/geo";
 
 export const catalogRoute = new Hono<AppEnv>();
@@ -599,12 +601,16 @@ catalogRoute.get("/movements", async (c) => {
       serialsJson: schema.inventoryMovements.serialsJson,
       weightGrams: schema.inventoryMovements.weightGrams,
       expiresOn: schema.inventoryMovements.expiresOn,
+      equipmentId: schema.inventoryMovements.equipmentId,
+      assignmentId: schema.inventoryMovements.assignmentId,
+      equipmentCode: schema.equipment.code,
     })
     .from(schema.inventoryMovements)
     .innerJoin(schema.items, eq(schema.items.id, schema.inventoryMovements.itemId))
     .leftJoin(schema.user, eq(schema.user.id, schema.inventoryMovements.createdBy))
     .leftJoin(fromLoc, eq(fromLoc.id, schema.inventoryMovements.fromLocationId))
     .leftJoin(toLoc, eq(toLoc.id, schema.inventoryMovements.toLocationId))
+    .leftJoin(schema.equipment, eq(schema.equipment.id, schema.inventoryMovements.equipmentId))
     .where(
       and(
         eq(schema.inventoryMovements.organizationId, organizationId),
@@ -896,6 +902,63 @@ catalogRoute.get("/dashboard", async (c) => {
     .where(yardWhere)
     .orderBy(desc(schema.yardVisits.createdAt));
 
+  const checkoutWhere = and(
+    eq(schema.equipmentAssignments.organizationId, organizationId),
+    eq(schema.equipmentAssignments.status, "open"),
+    warehouseId ? eq(schema.equipmentAssignments.warehouseId, warehouseId) : undefined,
+  );
+  const openCheckoutRaw = await db
+    .select({
+      id: schema.equipmentAssignments.id,
+      number: schema.equipmentAssignments.number,
+      equipmentId: schema.equipmentAssignments.equipmentId,
+      equipmentCode: schema.equipment.code,
+      equipmentName: schema.equipment.name,
+      operatorUserId: schema.equipmentAssignments.operatorUserId,
+      operatorName: schema.user.name,
+      status: schema.equipmentAssignments.status,
+      shift: schema.equipmentAssignments.shift,
+      refType: schema.equipmentAssignments.refType,
+      refId: schema.equipmentAssignments.refId,
+      startedAt: schema.equipmentAssignments.startedAt,
+      warehouseId: schema.equipmentAssignments.warehouseId,
+    })
+    .from(schema.equipmentAssignments)
+    .innerJoin(schema.equipment, eq(schema.equipment.id, schema.equipmentAssignments.equipmentId))
+    .innerJoin(schema.user, eq(schema.user.id, schema.equipmentAssignments.operatorUserId))
+    .where(checkoutWhere)
+    .orderBy(desc(schema.equipmentAssignments.startedAt));
+  const openCheckoutRows = await Promise.all(
+    openCheckoutRaw.map(async (row) => ({
+      ...row,
+      taskNumber: await loadDocumentNumber(db, organizationId, row.refType, row.refId),
+    })),
+  );
+
+  const outOfServiceRows = await db
+    .select()
+    .from(schema.equipment)
+    .where(
+      and(
+        eq(schema.equipment.organizationId, organizationId),
+        eq(schema.equipment.status, "out_of_service"),
+        warehouseId ? eq(schema.equipment.warehouseId, warehouseId) : undefined,
+      ),
+    );
+  const certRows = await db
+    .select({
+      id: schema.operatorCertifications.id,
+      userId: schema.operatorCertifications.userId,
+      userName: schema.user.name,
+      class: schema.operatorCertifications.class,
+      expiresOn: schema.operatorCertifications.expiresOn,
+    })
+    .from(schema.operatorCertifications)
+    .innerJoin(schema.user, eq(schema.user.id, schema.operatorCertifications.userId))
+    .where(eq(schema.operatorCertifications.organizationId, organizationId));
+  const today = utcYyyymmdd();
+  const expiringCerts = certRows.filter((row) => isCertExpiring(row.expiresOn, today, CERT_EXPIRING_WITHIN_DAYS));
+
   const slotLocations = await db
     .select({
       id: schema.locations.id,
@@ -1170,6 +1233,9 @@ catalogRoute.get("/dashboard", async (c) => {
     openWaves: openWaveRows.length,
     openAsns: openAsnRows.length,
     openYard: openYardRows.length,
+    openCheckouts: openCheckoutRows.length,
+    outOfService: outOfServiceRows.length,
+    expiringCerts: expiringCerts.length,
     replenishDue: replenishSuggestions.length,
     expiringLots: expiringLots.length,
     lowStock,
@@ -1191,6 +1257,9 @@ catalogRoute.get("/dashboard", async (c) => {
       waves: openWaveRows,
       asns: openAsnRows,
       yard: openYardRows,
+      checkouts: openCheckoutRows,
+      outOfService: outOfServiceRows,
+      expiringCerts,
       shopifyExceptions,
       expiringLots,
     },
