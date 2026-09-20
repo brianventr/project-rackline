@@ -99,6 +99,7 @@ export function FloorCheckoutPage() {
       await load(next.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Check-out failed");
+      await load(active.id);
     }
   }
 

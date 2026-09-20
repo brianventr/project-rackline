@@ -263,13 +263,18 @@ equipmentRoute.get("/equipment/audit", async (c) => {
     .limit(200);
 
   const filtered = matchingAssignments(rows, { equipmentId, operatorId, shift, refType, refId });
+  const numbered = await Promise.all(filtered.map((row) => withTaskNumber(db, organizationId, row)));
   const hit =
-    at != null && equipmentId ? assignmentAt(filtered, equipmentId, at) : at != null && filtered.length ? assignmentAt(filtered, filtered[0]!.equipmentId, at) : null;
+    at != null && equipmentId
+      ? assignmentAt(numbered, equipmentId, at)
+      : at != null && numbered.length
+        ? assignmentAt(numbered, numbered[0]!.equipmentId, at)
+        : null;
 
   return c.json({
     at: at ?? null,
     assignment: hit,
-    assignments: filtered,
+    assignments: numbered,
   });
 });
 

@@ -395,7 +395,9 @@ function EquipmentDetail({ id }: { id: string }) {
           <p className="text-sm">
             {audit.assignment.operatorName} on {audit.assignment.number}
             {audit.assignment.shift ? ` · ${audit.assignment.shift}` : ""}
-            {audit.assignment.refType ? ` · ${audit.assignment.refType}` : ""}
+            {audit.assignment.taskNumber || audit.assignment.refType
+              ? ` · ${audit.assignment.taskNumber || audit.assignment.refType}`
+              : ""}
           </p>
         ) : audit ? (
           <p className="text-sm text-muted-foreground">No assignment covered that time.</p>
