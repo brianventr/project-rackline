@@ -117,6 +117,7 @@ export type Location = {
   sizeY: number;
   sizeZ: number;
   slotRole?: string;
+  zoneId?: string | null;
   warehouseId: string;
   warehouseName: string;
 };
@@ -190,6 +191,9 @@ export type ScanVendorReturnHit = { kind: "vendorReturn"; vendorReturn: VendorRe
 export type ScanReplenishmentHit = { kind: "replenishment"; replenishment: Replenishment };
 export type ScanKitHit = { kind: "kit"; kit: KitBuild };
 export type ScanHoldHit = { kind: "hold"; hold: Hold };
+export type ScanWaveHit = { kind: "wave"; wave: Wave };
+export type ScanAsnHit = { kind: "asn"; asn: Asn };
+export type ScanYardHit = { kind: "yard"; yard: YardVisit };
 export type ScanSerialHit = {
   kind: "serial";
   serial: {
@@ -239,6 +243,9 @@ export type ScanHit =
   | ScanReplenishmentHit
   | ScanKitHit
   | ScanHoldHit
+  | ScanWaveHit
+  | ScanAsnHit
+  | ScanYardHit
   | ScanSerialHit
   | ScanLotHit;
 
@@ -504,6 +511,9 @@ export type Dashboard = {
   openVendorReturns?: number;
   openReplenishments?: number;
   openKits?: number;
+  openWaves?: number;
+  openAsns?: number;
+  openYard?: number;
   replenishDue?: number;
   expiringLots?: number;
   lowStock: { itemId: string; sku: string; name: string; onHand: number; reorderPoint: number }[];
@@ -524,6 +534,9 @@ export type Dashboard = {
     vendorReturns?: VendorReturn[];
     replenishments?: Replenishment[];
     kits?: KitBuild[];
+    waves?: Wave[];
+    asns?: Asn[];
+    yard?: YardVisit[];
     shopifyExceptions: Order[];
     expiringLots?: {
       locationId: string;
@@ -553,6 +566,9 @@ export type SearchResults = {
   replenishments?: Pick<Replenishment, "id" | "number" | "status">[];
   kits?: Pick<KitBuild, "id" | "number" | "status">[];
   holds?: Pick<Hold, "id" | "number" | "status">[];
+  waves?: Pick<Wave, "id" | "number" | "status">[];
+  asns?: Pick<Asn, "id" | "number" | "status" | "vendorName">[];
+  yard?: Pick<YardVisit, "id" | "number" | "status" | "carrierName">[];
   serials?: { serialCode: string; itemId: string; sku: string; status: string }[];
 };
 
@@ -575,6 +591,7 @@ export type Transfer = {
   fromBarcode?: string;
   toBarcode?: string;
   warehouseId?: string;
+  toWarehouseId?: string | null;
   notes: string | null;
   lines?: { id: string; itemId: string; qty: number; qtyMoved?: number; remaining?: number; sku: string; itemName: string }[];
 };
@@ -731,4 +748,156 @@ export type VendorReturn = {
   locationId: string | null;
   warehouseId?: string;
   lines?: VendorReturnLine[];
+};
+
+export type Client = {
+  id: string;
+  organizationId?: string;
+  code: string;
+  name: string;
+  createdAt: number;
+};
+
+export type Zone = {
+  id: string;
+  organizationId?: string;
+  warehouseId: string;
+  code: string;
+  name: string;
+  createdAt: number;
+};
+
+export type WaveOrder = {
+  id: string;
+  number: string;
+  status: string;
+  customerName: string;
+  warehouseId: string;
+  waveId?: string | null;
+  clientId?: string | null;
+};
+
+export type WaveOrderLine = {
+  id: string;
+  orderId: string;
+  itemId: string;
+  qty: number;
+  qtyPicked: number;
+  remaining: number;
+  sku: string;
+  itemName: string;
+};
+
+export type WaveBatchLine = {
+  id: string;
+  itemId: string;
+  qty: number;
+  qtyPicked: number;
+  remaining: number;
+  sku: string;
+  itemName: string;
+};
+
+export type Wave = {
+  id: string;
+  number: string;
+  status: string;
+  mode: "wave" | "batch" | string;
+  warehouseId: string;
+  zoneId?: string | null;
+  clientId?: string | null;
+  notes?: string | null;
+  createdAt: number;
+  releasedAt?: number | null;
+  completedAt?: number | null;
+  orderCount?: number;
+  orders?: WaveOrder[];
+  orderLines?: WaveOrderLine[];
+  batchLines?: WaveBatchLine[];
+};
+
+export type WaveOpenOrder = {
+  id: string;
+  number: string;
+  customerName: string;
+  status: string;
+  warehouseId: string;
+  waveId: string | null;
+  clientId: string | null;
+  createdAt: number;
+};
+
+export type AsnLine = {
+  id: string;
+  itemId: string;
+  qtyExpected: number;
+  qtyReceived: number;
+  remaining: number;
+  sku: string;
+  itemName: string;
+  trackLot?: boolean;
+  trackSerial?: boolean;
+  catchWeight?: boolean;
+  trackExpiry?: boolean;
+};
+
+export type Asn = {
+  id: string;
+  number: string;
+  vendorName: string;
+  status: string;
+  notes: string | null;
+  createdAt: number;
+  warehouseId: string;
+  purchaseId?: string | null;
+  clientId?: string | null;
+  locationId?: string | null;
+  eta?: number | null;
+  expectedAt?: number | null;
+  receivedAt?: number | null;
+  lines?: AsnLine[];
+};
+
+export type YardVisit = {
+  id: string;
+  number: string;
+  status: string;
+  warehouseId: string;
+  carrierName: string;
+  trailerNumber?: string | null;
+  dockLocationId?: string | null;
+  asnId?: string | null;
+  purchaseId?: string | null;
+  eta?: number | null;
+  notes?: string | null;
+  createdAt: number;
+  checkedInAt?: number | null;
+  checkedOutAt?: number | null;
+};
+
+export type LaborEvent = {
+  id: string;
+  warehouseId: string;
+  userId: string;
+  userName: string;
+  verb: string;
+  refType: string;
+  refId: string;
+  qty: number | null;
+  durationSec: number | null;
+  notes: string | null;
+  createdAt: number;
+};
+
+export type LaborRollup = {
+  userId: string;
+  userName: string;
+  events: number;
+  qty: number;
+  durationSec: number;
+};
+
+export type LaborBoard = {
+  events: LaborEvent[];
+  rollup: LaborRollup[];
 };

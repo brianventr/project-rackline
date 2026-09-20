@@ -18,6 +18,9 @@ describe("barcodes", () => {
     expect(parseScan("RPL:DEMO1")).toEqual({ kind: "replenishment", value: "DEMO1", raw: "RPL:DEMO1" });
     expect(parseScan("KIT:DEMO1")).toEqual({ kind: "kit", value: "DEMO1", raw: "KIT:DEMO1" });
     expect(parseScan("HLD:DEMO1")).toEqual({ kind: "hold", value: "DEMO1", raw: "HLD:DEMO1" });
+    expect(parseScan("WAV:DEMO1")).toEqual({ kind: "wave", value: "DEMO1", raw: "WAV:DEMO1" });
+    expect(parseScan("ASN:DEMO1")).toEqual({ kind: "asn", value: "DEMO1", raw: "ASN:DEMO1" });
+    expect(parseScan("YRD:DEMO1")).toEqual({ kind: "yard", value: "DEMO1", raw: "YRD:DEMO1" });
     expect(parseScan("SN:LAMP-1001")).toEqual({ kind: "serial", value: "LAMP-1001", raw: "SN:LAMP-1001" });
     expect(parseScan("LOT:2026-A")).toEqual({ kind: "lot", value: "2026-A", raw: "LOT:2026-A" });
     expect(parseScan("RCP-DEMO1")).toEqual({ kind: "unknown", value: "RCP-DEMO1", raw: "RCP-DEMO1" });
@@ -36,5 +39,8 @@ describe("barcodes", () => {
     expect(documentPath("replenishment", "abc")).toBe("/stock/replenish/abc");
     expect(documentPath("kit", "abc")).toBe("/make/kits/abc");
     expect(documentPath("hold", "abc")).toBe("/stock/holds/abc");
+    expect(documentPath("wave", "abc")).toBe("/outbound/waves/abc");
+    expect(documentPath("asn", "abc")).toBe("/inbound/asns/abc");
+    expect(documentPath("yard", "abc")).toBe("/inbound/yard/abc");
   });
 });

@@ -50,6 +50,16 @@ Iteration 22 adds partial replenish: tickets track moved vs expected qty, over-m
 
 Iteration 23 adds unpick and office/floor cancel: unpacked qty returns to the bay (`unpick` movement), leftover ATP is restored, and cancel restores picked (including packed) qty then releases allocations. Shopify `orders/cancelled` uses the same restore.
 
+Iteration 24 opens the parked logistics set on the same location:item ledger:
+
+- **Zones** — aisle/area zones; bays can join a zone for wave scoping
+- **Waves / batch** — group open orders into `WAV-` (`wave` or `batch`). Batch release consolidates SKU qty; floor batch-pick spreads across orders (over-batch 409)
+- **ASN** — vendor advance notices (`ASN-`) receive like a PO (partial qty, over-receive 409)
+- **3PL clients** — client codes tag orders, ASNs, and waves (qty stays on location:item)
+- **Yard** — trailer visits (`YRD-`) check in, take a dock bay, check out
+- **Labor** — floor posts append labor events; Setup → Labor rolls them up by user
+- **Multi-warehouse** — create another building, cross-building transfers stamp `toWarehouseId`
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 ## Stack
@@ -74,7 +84,7 @@ Open [http://localhost:5173](http://localhost:5173). Guests see the landing page
 On the sign-in screen, either:
 
 - Create an organization, or
-- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt `RCP-DEMO1` (12× LED-BULB + 6× SHADE — partial receive is allowed), purchase order `PO-DEMO1` (Harbor Components), vendor return `RTV-DEMO1` (2× LED-BULB from `A-01-01` — partial return is allowed), return `RMA-DEMO1` (Harbor Workshop, restock), putaway ticket `XFR-DEMO1` (8× SHADE + 6× BASE from `A-01-01` to `A-02-02` — partial move is allowed), replenishment `RPL-DEMO1` (14× LED-BULB from `A-01-01` to `A-01-02` — partial move is allowed), a floor order, Shopify order `#1004` (Maya Chen), work order `WO-DEMO1` (qty 4 — partial complete is allowed), and kit `KIT-DEMO1` (qty 2 — partial complete, then dekit). LED-BULB is lot-tracked (`LOT-2026-A` / `LOT-2026-B`) with pick min 20 on `A-01-02`; LAMP is serial-tracked (`LAMP-1001`–`LAMP-1014`) with pick min 12 on `B-01-01`; RESIN is catch-weight (6 bottles / 3000 g on `A-01-01`); GLUE is lot + expiry (`LOT-OLD` / `LOT-NEW` on `A-01-01`, expired `LOT-DEAD` on `A-01-03`). `LAMP-1001` is seeded with as-built component lots. Then open **Map** and **Move**.
+- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt `RCP-DEMO1` (12× LED-BULB + 6× SHADE — partial receive is allowed), purchase order `PO-DEMO1` (Harbor Components), ASN `ASN-DEMO1` (expected Harbor notice), yard visit `YRD-DEMO1` (UPS Freight / TRL-4421), wave `WAV-DEMO1` (batch mode for Acme `ORD-WAVE1` / `ORD-WAVE2`), 3PL client `ACME`, zones A/B on Main, a second warehouse **West shop** with `XFR-WEST1` (4× SHADE cross-building), vendor return `RTV-DEMO1` (2× LED-BULB from `A-01-01` — partial return is allowed), return `RMA-DEMO1` (Harbor Workshop, restock), putaway ticket `XFR-DEMO1` (8× SHADE + 6× BASE from `A-01-01` to `A-02-02` — partial move is allowed), replenishment `RPL-DEMO1` (14× LED-BULB from `A-01-01` to `A-01-02` — partial move is allowed), a floor order, Shopify order `#1004` (Maya Chen), work order `WO-DEMO1` (qty 4 — partial complete is allowed), and kit `KIT-DEMO1` (qty 2 — partial complete, then dekit). LED-BULB is lot-tracked (`LOT-2026-A` / `LOT-2026-B`) with pick min 20 on `A-01-02`; LAMP is serial-tracked (`LAMP-1001`–`LAMP-1014`) with pick min 12 on `B-01-01`; RESIN is catch-weight (6 bottles / 3000 g on `A-01-01`); GLUE is lot + expiry (`LOT-OLD` / `LOT-NEW` on `A-01-01`, expired `LOT-DEAD` on `A-01-03`). `LAMP-1001` is seeded with as-built component lots. Then open **Map** and **Move**.
 
 `wrangler.jsonc` uses a placeholder `database_id`. Local D1 does not need a Cloudflare account. When you are ready to deploy:
 
@@ -131,10 +141,17 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 - **Shipping label** mints `RL-` tracking (Rackline Ground / UPS Ground / USPS Priority) and prints from the order
 - **Print station** scans a bay, SKU, or order. Pack slips queue once picking has started; shipping labels once the ticket is picked. Floor **Print** and Setup **Labels** share that queue
 - **Reorder point** flags SKUs at or below the threshold on the floor board
+- **Zone** tags bays on a warehouse for wave scoping. Qty stays on location:item
+- **Wave / batch** groups open orders. Batch release consolidates remaining SKU qty; floor batch-pick posts picks across those orders and returns HTTP 409 (`OVER_BATCH_PICK`) when over. Qty stays integer pieces on location:item
+- **ASN** is a vendor advance notice that receives like a purchase (partial qty, over-receive 409)
+- **3PL client** tags documents (orders, ASNs, waves). Inventory is not split by client on the ledger
+- **Yard visit** tracks a trailer from expected → checked in → at dock → checked out
+- **Labor** appends an event when floor work posts; Setup → Labor shows the rollup
+- **Multi-warehouse** lets owners add buildings; transfers may target another warehouse (`toWarehouseId`) and scan-to-move may cross buildings
 
 ## Roles
 
-- `owner` — full catalog, including deletes, and Shopify credentials
-- `operator` — floor actions (receive, transfer, pick, unpick, cancel, ship, complete WO, kit, dekit, vendor RTV, cycle count, hold, adjust) and Shopify order simulation. Cannot delete items, locations, or BOMs
+- `owner` — full catalog, including deletes, Shopify credentials, clients, zones, and extra warehouses
+- `operator` — floor actions (receive, ASN, transfer, pick, wave batch-pick, unpick, cancel, ship, complete WO, kit, dekit, vendor RTV, cycle count, hold, yard, adjust) and Shopify order simulation. Cannot delete items, locations, or BOMs
 
 Signup creates an organization plus a default **Main warehouse**.

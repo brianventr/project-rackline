@@ -114,6 +114,7 @@ catalogRoute.get("/locations", async (c) => {
       sizeY: schema.locations.sizeY,
       sizeZ: schema.locations.sizeZ,
       slotRole: schema.locations.slotRole,
+      zoneId: schema.locations.zoneId,
       warehouseId: schema.locations.warehouseId,
       warehouseName: schema.warehouses.name,
     })
@@ -655,6 +656,21 @@ catalogRoute.get("/dashboard", async (c) => {
     inArray(schema.vendorReturns.status, ["open", "returning"]),
     warehouseId ? eq(schema.vendorReturns.warehouseId, warehouseId) : undefined,
   );
+  const waveWhere = and(
+    eq(schema.waves.organizationId, organizationId),
+    inArray(schema.waves.status, ["draft", "released", "picking"]),
+    warehouseId ? eq(schema.waves.warehouseId, warehouseId) : undefined,
+  );
+  const asnWhere = and(
+    eq(schema.asns.organizationId, organizationId),
+    inArray(schema.asns.status, ["draft", "expected", "receiving"]),
+    warehouseId ? eq(schema.asns.warehouseId, warehouseId) : undefined,
+  );
+  const yardWhere = and(
+    eq(schema.yardVisits.organizationId, organizationId),
+    inArray(schema.yardVisits.status, ["expected", "checked_in", "at_dock"]),
+    warehouseId ? eq(schema.yardVisits.warehouseId, warehouseId) : undefined,
+  );
 
   const openReceiptRows = await db.select().from(schema.receipts).where(receiptWhere).orderBy(desc(schema.receipts.createdAt));
   const openOrderRows = await db.select().from(schema.orders).where(orderWhere).orderBy(desc(schema.orders.createdAt));
@@ -837,6 +853,14 @@ catalogRoute.get("/dashboard", async (c) => {
     .leftJoin(schema.items, eq(schema.items.id, schema.inventoryHolds.itemId))
     .where(holdWhere)
     .orderBy(desc(schema.inventoryHolds.createdAt));
+
+  const openWaveRows = await db.select().from(schema.waves).where(waveWhere).orderBy(desc(schema.waves.createdAt));
+  const openAsnRows = await db.select().from(schema.asns).where(asnWhere).orderBy(desc(schema.asns.createdAt));
+  const openYardRows = await db
+    .select()
+    .from(schema.yardVisits)
+    .where(yardWhere)
+    .orderBy(desc(schema.yardVisits.createdAt));
 
   const slotLocations = await db
     .select({
@@ -1109,6 +1133,9 @@ catalogRoute.get("/dashboard", async (c) => {
     openVendorReturns: openVendorReturnRows.length,
     openReplenishments: openReplenishRows.length,
     openKits: openKitRows.length,
+    openWaves: openWaveRows.length,
+    openAsns: openAsnRows.length,
+    openYard: openYardRows.length,
     replenishDue: replenishSuggestions.length,
     expiringLots: expiringLots.length,
     lowStock,
@@ -1127,6 +1154,9 @@ catalogRoute.get("/dashboard", async (c) => {
       vendorReturns: openVendorReturnRows,
       replenishments: openReplenishRows,
       kits: openKitRows,
+      waves: openWaveRows,
+      asns: openAsnRows,
+      yard: openYardRows,
       shopifyExceptions,
       expiringLots,
     },

@@ -337,6 +337,7 @@ ordersRoute.post("/orders", async (c) => {
     warehouseId?: string;
     customerName?: string;
     shipToAddress?: string;
+    clientId?: string;
     lines?: { itemId?: string; qty?: number }[];
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
@@ -347,6 +348,14 @@ ordersRoute.post("/orders", async (c) => {
 
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  if (body.clientId) {
+    const [client] = await db
+      .select()
+      .from(schema.clients)
+      .where(and(eq(schema.clients.id, body.clientId), eq(schema.clients.organizationId, organizationId)))
+      .limit(1);
+    if (!client) badRequest("Client not found");
+  }
   const id = newId();
   const lines = [];
   for (const line of body.lines) {
@@ -367,6 +376,7 @@ ordersRoute.post("/orders", async (c) => {
       status: "open",
       createdAt: Date.now(),
       shipToAddress: body.shipToAddress?.trim() || null,
+      clientId: body.clientId || null,
     }),
     ...lines.map((line) => db.insert(schema.orderLines).values(line)),
   ]);
