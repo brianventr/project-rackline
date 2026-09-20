@@ -2,13 +2,18 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Location, type Order, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { canPickOrder, canStartPick, canCancelOrder, canUnpickOrder } from "@/domain/status";
 import { hasUnpicked } from "@/domain/partial-pick";
 import { remainingToUnpick } from "@/domain/partial-unpick";
+import { desiredVerb } from "@/domain/jobs";
+import { useSession } from "../../session";
+import { jobForRef, useOpenJobs } from "../../jobs";
 
 export function FloorPickPage() {
+  const me = useSession();
+  const { jobs, reload: reloadJobs } = useOpenJobs();
   const [params] = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -57,10 +62,12 @@ export function FloorPickPage() {
       }),
     );
     setLocations(nextLocations);
+    const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
       const match = await api<Order>(`/api/orders/${wanted}`);
-      applyOrder(match, nextLocations);
+      const job = jobForRef(nextJobs, "order", match.id, desiredVerb("order", match.status) ?? "pick");
+      openFloorRow(match, me.user.id, job, (order) => applyOrder(order, nextLocations), setError);
     }
   }
 
@@ -74,7 +81,10 @@ export function FloorPickPage() {
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
         .then((hit) => {
           if (hit.kind === "order") {
-            void api<Order>(`/api/orders/${hit.order.id}`).then((order) => applyOrder(order, locations));
+            void api<Order>(`/api/orders/${hit.order.id}`).then((order) => {
+              const job = jobForRef(jobs, "order", order.id, desiredVerb("order", order.status) ?? "pick");
+              openFloorRow(order, me.user.id, job, (next) => applyOrder(next, locations), setError);
+            });
             return;
           }
           if (hit.kind === "location") {
@@ -95,7 +105,7 @@ export function FloorPickPage() {
         })
         .catch((err: Error) => setError(err.message));
     },
-    [locations, active],
+    [locations, active, jobs, me.user.id],
   );
 
   async function pick() {
@@ -177,24 +187,23 @@ export function FloorPickPage() {
     <FloorFrame title="Pick" description="Scan the order, go to the suggested bay, pick remaining qty, or unpick back onto the bay." error={error}>
       <FloorScanBox label="Scan order, bay, or SKU" placeholder="ORD-DEMO1, B-01-01, or LAMP" onScan={onScan} />
       {!active ? (
-        <Card>
-          <p className="mb-3 font-medium">Open orders</p>
-          <ul className="space-y-2 text-sm">
-            {orders.map((row) => (
-              <li key={row.id}>
-                <button
-                  className="w-full text-left"
-                  onClick={() => {
-                    void api<Order>(`/api/orders/${row.id}`).then((order) => applyOrder(order, locations));
-                  }}
-                >
-                  <span className="font-mono">{row.number}</span> {row.customerName} <StatusBadge status={row.status} />
-                </button>
-              </li>
-            ))}
-            {orders.length === 0 ? <li className="text-muted-foreground">Nothing to pick.</li> : null}
-          </ul>
-        </Card>
+        <ClaimList
+          title="Open orders"
+          empty="Nothing to pick."
+          rows={orders}
+          userId={me.user.id}
+          jobFor={(row) => jobForRef(jobs, "order", row.id, desiredVerb("order", row.status) ?? "pick")}
+          onOpen={(row) =>
+            openFloorRow(row, me.user.id, jobForRef(jobs, "order", row.id, desiredVerb("order", row.status) ?? "pick"), (order) => {
+              void api<Order>(`/api/orders/${order.id}`).then((next) => applyOrder(next, locations));
+            }, setError)
+          }
+          render={(row) => (
+            <>
+              <span className="font-mono">{row.number}</span> {row.customerName} <StatusBadge status={row.status} />
+            </>
+          )}
+        />
       ) : (
         <Card className="space-y-4">
           <div className="flex items-center justify-between">

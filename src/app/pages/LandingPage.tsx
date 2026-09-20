@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import {
   ArrowRight,
   Boxes,
+  ClipboardList,
   Factory,
   Map,
   ScanLine,
@@ -25,6 +26,11 @@ const features = [
     title: "Floor map and scan-to-move",
     body: "Bins sit on a 2D floor plan and a 3D rack view. Scan a location barcode, then the next one — the whole slot transfers.",
     icon: Map,
+  },
+  {
+    title: "Next job from the same ledger",
+    body: "Every warehouse and bench verb shares one ranked queue. Pin, starved replenish, FEFO, and walk distance — assignment is optional, so a solo shop still just scans.",
+    icon: ClipboardList,
   },
   {
     title: "Shopify to pick ticket",

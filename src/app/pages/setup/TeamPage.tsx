@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type TeamMember } from "../../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../../components/ui";
+import { FLOOR_VERBS, VERB_LABELS, type FloorVerb } from "@/domain/jobs";
 
 export function TeamPage() {
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -34,12 +35,25 @@ export function TeamPage() {
     }
   }
 
+  async function saveVerbs(userId: string, floorVerbs: FloorVerb[]) {
+    setError(null);
+    try {
+      await api(`/api/team/${userId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ floorVerbs }),
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update verbs");
+    }
+  }
+
   return (
     <div>
       <PageHeader
         eyebrow="Setup"
         title="Team"
-        description="Owners see setup. Operators land on the floor. Invite someone with an email and a starter password."
+        description="Owners see setup. Operators land on the floor. Optionally limit which floor verbs a person can be offered as next job."
       />
       <ErrorBanner error={error} />
       <Card className="mb-6">
@@ -64,12 +78,43 @@ export function TeamPage() {
           </div>
         </form>
       </Card>
-      <Table columns={["Name", "Email", "Role"]}>
+      <Table columns={["Name", "Email", "Role", "Floor verbs"]}>
         {members.map((member) => (
           <tr key={member.id}>
             <td className="px-4 py-3">{member.name}</td>
             <td className="px-4 py-3">{member.email}</td>
             <td className="px-4 py-3 capitalize">{member.role}</td>
+            <td className="px-4 py-3">
+              {member.role === "owner" ? (
+                <p className="text-sm text-muted-foreground">All verbs</p>
+              ) : (
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                  {FLOOR_VERBS.map((verb) => {
+                    const checked = (member.floorVerbs ?? FLOOR_VERBS).includes(verb);
+                    return (
+                      <label key={verb} className="flex items-center gap-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) => {
+                            const current = (member.floorVerbs ?? [...FLOOR_VERBS]) as FloorVerb[];
+                            const next = event.target.checked
+                              ? [...new Set([...current, verb])]
+                              : current.filter((row) => row !== verb);
+                            if (next.length === 0) {
+                              setError("Pick at least one floor verb");
+                              return;
+                            }
+                            void saveVerbs(member.userId, next);
+                          }}
+                        />
+                        {VERB_LABELS[verb]}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </td>
           </tr>
         ))}
       </Table>

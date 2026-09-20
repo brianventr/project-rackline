@@ -2,12 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, type ReplenishSuggestion, type Replenishment, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { canPostReplenishment } from "@/domain/status";
 import { remainingToReplenish } from "@/domain/partial-replenish";
 import { useWarehouse } from "../../warehouse";
+import { useSession } from "../../session";
+import { jobForRef, jobForSuggestion, useOpenJobs } from "../../jobs";
 
 export function FloorReplenishPage() {
+  const me = useSession();
+  const { jobs, reload: reloadJobs } = useOpenJobs("replenish");
   const [params] = useSearchParams();
   const { warehouseId } = useWarehouse();
   const [docs, setDocs] = useState<Replenishment[]>([]);
@@ -32,9 +36,11 @@ export function FloorReplenishPage() {
     ]);
     setDocs(nextDocs.filter((row) => canPostReplenishment(row.status)));
     setSuggestions(nextSuggestions);
+    const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
-      applyDoc(nextDocs.find((row) => row.id === wanted) ?? (await api<Replenishment>(`/api/replenishments/${wanted}`)));
+      const match = nextDocs.find((row) => row.id === wanted) ?? (await api<Replenishment>(`/api/replenishments/${wanted}`));
+      openFloorRow(match, me.user.id, jobForRef(nextJobs, "replenishment", match.id, "replenish"), applyDoc, setError);
     }
   }
 
@@ -47,15 +53,22 @@ export function FloorReplenishPage() {
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
       .then((hit) => {
         if (hit.kind === "replenishment") {
-          void api<Replenishment>(`/api/replenishments/${hit.replenishment.id}`).then(applyDoc);
+          void api<Replenishment>(`/api/replenishments/${hit.replenishment.id}`).then((doc) =>
+            openFloorRow(doc, me.user.id, jobForRef(jobs, "replenishment", doc.id, "replenish"), applyDoc, setError),
+          );
           return;
         }
         setError("Scan a replenishment document, or pick a suggestion.");
       })
       .catch((err: Error) => setError(err.message));
-  }, []);
+  }, [jobs, me.user.id]);
 
   async function queueSuggestion(row: ReplenishSuggestion) {
+    const job = jobForSuggestion(jobs, "replenishSuggestion", row.fromLocationId, row.itemId, row.toLocationId);
+    if (job && job.assigneeId && job.assigneeId !== me.user.id) {
+      setError(`This job is claimed by ${job.assigneeName || "another teammate"}`);
+      return;
+    }
     setError(null);
     try {
       const created = await api<Replenishment>("/api/replenishments", {
@@ -105,36 +118,38 @@ export function FloorReplenishPage() {
       {done ? <p className="text-sm text-emerald-700">{done}</p> : null}
       {!active ? (
         <div className="grid gap-4 md:grid-cols-2">
-          <Card>
-            <p className="mb-3 font-medium">Open replenishments</p>
-            <ul className="space-y-2 text-sm">
-              {docs.map((row) => (
-                <li key={row.id}>
-                  <button className="w-full text-left" onClick={() => applyDoc(row)}>
-                    <span className="font-mono">{row.number}</span> {row.sku} × {row.qtyMoved ?? 0}/{row.qty}{" "}
-                    <StatusBadge status={row.status} />
-                  </button>
-                </li>
-              ))}
-              {docs.length === 0 ? <li className="text-muted-foreground">Nothing queued.</li> : null}
-            </ul>
-          </Card>
-          <Card>
-            <p className="mb-3 font-medium">Suggested now</p>
-            <ul className="space-y-2 text-sm">
-              {suggestions.map((row) => (
-                <li key={`${row.itemId}:${row.toLocationId}`}>
-                  <button className="w-full text-left" onClick={() => void queueSuggestion(row)}>
-                    {row.sku} {row.qty} · {row.fromCode} → {row.toCode}
-                    <span className="block text-muted-foreground">
-                      Pick {row.pickQty}/{row.pickMin}
-                    </span>
-                  </button>
-                </li>
-              ))}
-              {suggestions.length === 0 ? <li className="text-muted-foreground">Pick faces are at min.</li> : null}
-            </ul>
-          </Card>
+          <ClaimList
+            title="Open replenishments"
+            empty="Nothing queued."
+            rows={docs}
+            userId={me.user.id}
+            jobFor={(row) => jobForRef(jobs, "replenishment", row.id, "replenish")}
+            onOpen={(row) =>
+              openFloorRow(row, me.user.id, jobForRef(jobs, "replenishment", row.id, "replenish"), applyDoc, setError)
+            }
+            render={(row) => (
+              <>
+                <span className="font-mono">{row.number}</span> {row.sku} × {row.qtyMoved ?? 0}/{row.qty}{" "}
+                <StatusBadge status={row.status} />
+              </>
+            )}
+          />
+          <ClaimList
+            title="Suggested now"
+            empty="Pick faces are at min."
+            rows={suggestions.map((row) => ({ ...row, id: `${row.itemId}:${row.toLocationId}` }))}
+            userId={me.user.id}
+            jobFor={(row) => jobForSuggestion(jobs, "replenishSuggestion", row.fromLocationId, row.itemId, row.toLocationId)}
+            onOpen={(row) => void queueSuggestion(row)}
+            render={(row) => (
+              <>
+                {row.sku} {row.qty} · {row.fromCode} → {row.toCode}
+                <span className="block text-muted-foreground">
+                  Pick {row.pickQty}/{row.pickMin}
+                </span>
+              </>
+            )}
+          />
         </div>
       ) : (
         <Card className="space-y-4">

@@ -2,22 +2,23 @@ import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
-import { badRequest, conflict, requireString } from "../lib/http";
+import { badRequest, conflict, notFound, requireString } from "../lib/http";
 import { requireOwner } from "../lib/org";
 import { createAuth } from "../lib/auth";
 import { newId } from "../lib/ids";
 import { originFrom } from "../lib/types";
+import { FLOOR_VERBS, isFloorVerb, parseFloorVerbs, serializeFloorVerbs, type FloorVerb } from "../domain/jobs";
 
 export const teamRoute = new Hono<AppEnv>();
 
 teamRoute.get("/team", async (c) => {
-  requireOwner(c.get("role"));
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const rows = await db
     .select({
       id: schema.memberships.id,
       role: schema.memberships.role,
+      floorVerbs: schema.memberships.floorVerbs,
       userId: schema.user.id,
       name: schema.user.name,
       email: schema.user.email,
@@ -25,7 +26,12 @@ teamRoute.get("/team", async (c) => {
     .from(schema.memberships)
     .innerJoin(schema.user, eq(schema.user.id, schema.memberships.userId))
     .where(eq(schema.memberships.organizationId, organizationId));
-  return c.json(rows);
+  return c.json(
+    rows.map((row) => ({
+      ...row,
+      floorVerbs: parseFloorVerbs(row.floorVerbs, row.role),
+    })),
+  );
 });
 
 teamRoute.post("/team", async (c) => {
@@ -95,4 +101,43 @@ teamRoute.post("/team", async (c) => {
     .limit(1);
 
   return c.json(row, 201);
+});
+
+teamRoute.patch("/team/:userId", async (c) => {
+  requireOwner(c.get("role"));
+  const body = await c.req.json<{ floorVerbs?: string[] | null }>().catch(() => ({}) as { floorVerbs?: string[] | null });
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const userId = c.req.param("userId");
+  const [membership] = await db
+    .select()
+    .from(schema.memberships)
+    .where(and(eq(schema.memberships.organizationId, organizationId), eq(schema.memberships.userId, userId)))
+    .limit(1);
+  if (!membership) notFound("Teammate not found");
+  let floorVerbs: string | null = membership.floorVerbs;
+  if (body.floorVerbs !== undefined) {
+    if (body.floorVerbs === null) {
+      floorVerbs = null;
+    } else {
+      const allowed = body.floorVerbs.filter((row): row is FloorVerb => isFloorVerb(row));
+      if (allowed.length === 0) badRequest("Pick at least one floor verb");
+      floorVerbs = serializeFloorVerbs(allowed.length === FLOOR_VERBS.length ? null : allowed);
+    }
+  }
+  await db.update(schema.memberships).set({ floorVerbs }).where(eq(schema.memberships.id, membership.id));
+  const [row] = await db
+    .select({
+      id: schema.memberships.id,
+      role: schema.memberships.role,
+      floorVerbs: schema.memberships.floorVerbs,
+      userId: schema.user.id,
+      name: schema.user.name,
+      email: schema.user.email,
+    })
+    .from(schema.memberships)
+    .innerJoin(schema.user, eq(schema.user.id, schema.memberships.userId))
+    .where(eq(schema.memberships.id, membership.id))
+    .limit(1);
+  return c.json({ ...row, floorVerbs: parseFloorVerbs(row?.floorVerbs, row?.role || "operator") });
 });

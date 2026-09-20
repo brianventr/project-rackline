@@ -14,6 +14,7 @@ import {
 } from "./shopify";
 import { createShopifyGraphqlClient, fetchOrderFulfillmentOrders } from "../lib/shopify-client";
 import { cancelOrderDocument } from "../db/unpick";
+import { orderJobInput, syncDocumentJob } from "../db/jobs";
 
 export class ShopifyIngestError extends Error {
   constructor(
@@ -118,6 +119,9 @@ export async function persistInboundOrder(
     ...lines.map((line) => db.insert(schema.orderLines).values(line)),
   ]);
 
+  const [created] = await db.select().from(schema.orders).where(eq(schema.orders.id, orderId)).limit(1);
+  if (created) await syncDocumentJob(db, orderJobInput(created));
+
   return { orderId, created: true, number: inbound.shopifyOrderName };
 }
 
@@ -207,5 +211,11 @@ export async function cancelShopifyDraft(
     organizationId,
     orderId: order.id,
     createdBy: member?.userId ?? order.id,
+  }).then(async (ok) => {
+    if (ok) {
+      const [next] = await db.select().from(schema.orders).where(eq(schema.orders.id, order.id)).limit(1);
+      if (next) await syncDocumentJob(db, orderJobInput(next));
+    }
+    return ok;
   });
 }

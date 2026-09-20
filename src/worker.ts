@@ -14,8 +14,8 @@ import { OverUnpickError } from "./domain/partial-unpick";
 import { HeldStockError } from "./domain/holds";
 import { ExpiredLotError } from "./domain/expiry";
 import { InsufficientAtpError } from "./domain/allocations";
-import type { AppEnv } from "./lib/types";
-import { originFrom } from "./lib/types";
+import { JobClaimedError, JobNotReadyError, JobVerbDeniedError } from "./domain/jobs";
+import { originFrom, type AppEnv } from "./lib/types";
 import { registerRoute } from "./routes/register";
 import { demoRoute } from "./routes/demo";
 import { meRoute } from "./routes/me";
@@ -36,6 +36,7 @@ import { replenishmentsRoute } from "./routes/replenishments";
 import { kitsRoute } from "./routes/kits";
 import { holdsRoute } from "./routes/holds";
 import { vendorReturnsRoute } from "./routes/vendor-returns";
+import { jobsRoute } from "./routes/jobs";
 
 const app = new Hono<AppEnv>();
 
@@ -174,6 +175,23 @@ app.onError((err, c) => {
       409,
     );
   }
+  if (err instanceof JobClaimedError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "JOB_CLAIMED",
+        claimedById: err.claimedById,
+        claimedByName: err.claimedByName,
+      },
+      409,
+    );
+  }
+  if (err instanceof JobNotReadyError) {
+    return c.json({ error: err.message, code: "JOB_NOT_READY", notBefore: err.notBefore }, 409);
+  }
+  if (err instanceof JobVerbDeniedError) {
+    return c.json({ error: err.message, code: "JOB_VERB_DENIED", verb: err.verb }, 403);
+  }
   if (err instanceof ShopifyIngestError) {
     return c.json({ error: err.message }, err.status as 400 | 409);
   }
@@ -246,5 +264,6 @@ app.route("/api", replenishmentsRoute);
 app.route("/api", kitsRoute);
 app.route("/api", holdsRoute);
 app.route("/api", vendorReturnsRoute);
+app.route("/api", jobsRoute);
 
 export default app;

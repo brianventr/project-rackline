@@ -10,6 +10,7 @@ import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { applyPartialReturn, hasUnreturned, isFullyReturned, remainingToReturn, OverReturnError } from "../domain/partial-rtv";
 import { canPostVendorReturn } from "../domain/status";
 import { parseSerialList } from "../domain/lots";
+import { guardFloorJob, syncDocumentJob } from "../db/jobs";
 import { lineCatchWeight } from "../lib/catch-weight";
 
 export const vendorReturnsRoute = new Hono<AppEnv>();
@@ -187,7 +188,19 @@ vendorReturnsRoute.post("/vendor-returns", async (c) => {
     ...lines.map((line) => db.insert(schema.vendorReturnLines).values(line)),
   ]);
 
-  return c.json(await rtvWithLines(db, organizationId, id), 201);
+  const created = await rtvWithLines(db, organizationId, id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: created.warehouseId,
+    refType: "vendorReturn",
+    refId: created.id,
+    status: created.status,
+    number: created.number,
+    title: created.vendorName,
+    fromLocationId: created.locationId,
+    createdAt: created.createdAt,
+  });
+  return c.json(created, 201);
 });
 
 vendorReturnsRoute.post("/vendor-returns/:id/start", async (c) => {
@@ -195,8 +208,33 @@ vendorReturnsRoute.post("/vendor-returns/:id/start", async (c) => {
   const organizationId = c.get("organizationId")!;
   const rtv = await rtvWithLines(db, organizationId, c.req.param("id"));
   if (rtv.status !== "open") conflict("Vendor return is not open");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: rtv.warehouseId,
+    userId: c.get("user")!.id,
+    role: c.get("role")!,
+    refType: "vendorReturn",
+    refId: rtv.id,
+    verb: "rtv",
+    number: rtv.number,
+    title: rtv.vendorName,
+    fromLocationId: rtv.locationId,
+    createdAt: rtv.createdAt,
+  });
   await db.update(schema.vendorReturns).set({ status: "returning" }).where(eq(schema.vendorReturns.id, rtv.id));
-  return c.json(await rtvWithLines(db, organizationId, rtv.id));
+  const started = await rtvWithLines(db, organizationId, rtv.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: started.warehouseId,
+    refType: "vendorReturn",
+    refId: started.id,
+    status: started.status,
+    number: started.number,
+    title: started.vendorName,
+    fromLocationId: started.locationId,
+    createdAt: started.createdAt,
+  });
+  return c.json(started);
 });
 
 vendorReturnsRoute.post("/vendor-returns/:id/return", async (c) => {
@@ -210,6 +248,19 @@ vendorReturnsRoute.post("/vendor-returns/:id/return", async (c) => {
   const user = c.get("user")!;
   const rtv = await rtvWithLines(db, organizationId, c.req.param("id"));
   if (!canPostVendorReturn(rtv.status)) conflict("Vendor return is already returned");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: rtv.warehouseId,
+    userId: user.id,
+    role: c.get("role")!,
+    refType: "vendorReturn",
+    refId: rtv.id,
+    verb: "rtv",
+    number: rtv.number,
+    title: rtv.vendorName,
+    fromLocationId: locationId,
+    createdAt: rtv.createdAt,
+  });
   if (!hasUnreturned(rtv.lines.map(asRtvLine))) conflict("Vendor return has nothing remaining");
   await getOrgLocation(db, organizationId, locationId);
 
@@ -298,5 +349,17 @@ vendorReturnsRoute.post("/vendor-returns/:id/return", async (c) => {
     ],
   });
 
-  return c.json(await rtvWithLines(db, organizationId, rtv.id));
+  const posted = await rtvWithLines(db, organizationId, rtv.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: posted.warehouseId,
+    refType: "vendorReturn",
+    refId: posted.id,
+    status: posted.status,
+    number: posted.number,
+    title: posted.vendorName,
+    fromLocationId: posted.locationId,
+    createdAt: posted.createdAt,
+  });
+  return c.json(posted);
 });

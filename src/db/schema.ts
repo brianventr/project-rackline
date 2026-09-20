@@ -67,6 +67,7 @@ export const memberships = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").notNull(),
+    floorVerbs: text("floor_verbs"),
   },
   (t) => [uniqueIndex("memberships_org_user").on(t.organizationId, t.userId)],
 );
@@ -735,3 +736,66 @@ export type MovementType =
   | "rtv"
   | "unpick";
 export type ReturnDisposition = "restock" | "scrap" | "hold";
+export type FloorVerb =
+  | "receive"
+  | "putaway"
+  | "replenish"
+  | "pick"
+  | "pack"
+  | "ship"
+  | "return"
+  | "rtv"
+  | "count"
+  | "assemble"
+  | "kit"
+  | "hold";
+export type JobRefType =
+  | "order"
+  | "receipt"
+  | "purchase"
+  | "transfer"
+  | "replenishment"
+  | "rma"
+  | "vendorReturn"
+  | "cycleCount"
+  | "workOrder"
+  | "kit"
+  | "hold"
+  | "putawaySuggestion"
+  | "replenishSuggestion";
+export type JobStatus = "open" | "claimed" | "done" | "cancelled";
+
+export const floorJobs = sqliteTable(
+  "floor_jobs",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    verb: text("verb").notNull(),
+    refType: text("ref_type").notNull(),
+    refId: text("ref_id").notNull(),
+    status: text("status").notNull(),
+    number: text("number"),
+    title: text("title"),
+    assigneeId: text("assignee_id").references(() => user.id, { onDelete: "set null" }),
+    claimedAt: integer("claimed_at"),
+    releasedAt: integer("released_at"),
+    doneAt: integer("done_at"),
+    notBefore: integer("not_before"),
+    dueAt: integer("due_at"),
+    pinned: integer("pinned").notNull().default(0),
+    fromLocationId: text("from_location_id").references(() => locations.id, { onDelete: "set null" }),
+    toLocationId: text("to_location_id").references(() => locations.id, { onDelete: "set null" }),
+    itemId: text("item_id").references(() => items.id, { onDelete: "set null" }),
+    qty: integer("qty"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("floor_jobs_org_wh_status").on(t.organizationId, t.warehouseId, t.status),
+    index("floor_jobs_org_ref").on(t.organizationId, t.refType, t.refId),
+  ],
+);

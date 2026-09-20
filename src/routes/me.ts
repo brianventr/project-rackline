@@ -1,7 +1,8 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
+import { parseFloorVerbs } from "../domain/jobs";
 
 export const meRoute = new Hono<AppEnv>();
 
@@ -18,10 +19,16 @@ meRoute.get("/me", async (c) => {
     .select()
     .from(schema.warehouses)
     .where(eq(schema.warehouses.organizationId, organizationId));
+  const [membership] = await db
+    .select({ floorVerbs: schema.memberships.floorVerbs, role: schema.memberships.role })
+    .from(schema.memberships)
+    .where(and(eq(schema.memberships.organizationId, organizationId), eq(schema.memberships.userId, user.id)))
+    .limit(1);
   return c.json({
     user,
     organization: org,
     role: c.get("role"),
+    floorVerbs: parseFloorVerbs(membership?.floorVerbs, c.get("role") || "operator"),
     warehouses,
   });
 });

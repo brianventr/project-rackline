@@ -43,6 +43,7 @@ export type Me = {
   user: { id: string; name: string; email: string };
   organization: { id: string; name: string };
   role: "owner" | "operator";
+  floorVerbs?: string[];
   warehouses: { id: string; name: string }[];
 };
 
@@ -562,6 +563,7 @@ export type TeamMember = {
   userId: string;
   name: string;
   email: string;
+  floorVerbs?: string[];
 };
 
 export type Transfer = {
@@ -731,4 +733,32 @@ export type VendorReturn = {
   locationId: string | null;
   warehouseId?: string;
   lines?: VendorReturnLine[];
+};
+
+export type FloorJob = {
+  id: string;
+  verb: string;
+  refType: string;
+  refId: string;
+  status: string;
+  number: string | null;
+  title: string | null;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  fromLocationId: string | null;
+  toLocationId: string | null;
+  itemId: string | null;
+  fromCode: string | null;
+  fromBarcode: string | null;
+  toCode: string | null;
+  aisle: string | null;
+  qty: number | null;
+  pinned: boolean;
+  notBefore: number | null;
+  dueAt: number | null;
+  createdAt: number;
+  floorPath: string;
+  officePath: string;
+  score?: number;
+  reason?: string;
 };

@@ -2,11 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, type ScanHit, type WorkOrder } from "../../api";
 import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { canCompleteWorkOrder } from "@/domain/status";
 import { AsBuiltList } from "../../components/as-built";
+import { useSession } from "../../session";
+import { jobForRef, useOpenJobs } from "../../jobs";
 
 export function FloorAssemblePage() {
+  const me = useSession();
+  const { jobs, reload: reloadJobs } = useOpenJobs("assemble");
   const [params] = useSearchParams();
   const [orders, setOrders] = useState<WorkOrder[]>([]);
   const [active, setActive] = useState<WorkOrder | null>(null);
@@ -22,8 +26,12 @@ export function FloorAssemblePage() {
   async function load() {
     const next = await api<WorkOrder[]>("/api/work-orders");
     setOrders(next.filter((row) => canCompleteWorkOrder(row.status)));
+    const nextJobs = await reloadJobs();
     const wanted = params.get("id");
-    if (wanted) applyOrder(next.find((row) => row.id === wanted) ?? (await api<WorkOrder>(`/api/work-orders/${wanted}`)));
+    if (wanted) {
+      const match = next.find((row) => row.id === wanted) ?? (await api<WorkOrder>(`/api/work-orders/${wanted}`));
+      openFloorRow(match, me.user.id, jobForRef(nextJobs, "workOrder", match.id, "assemble"), applyOrder, setError);
+    }
   }
 
   useEffect(() => {
@@ -34,11 +42,14 @@ export function FloorAssemblePage() {
     setError(null);
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
       .then((hit) => {
-        if (hit.kind === "workOrder") void api<WorkOrder>(`/api/work-orders/${hit.workOrder.id}`).then(applyOrder);
-        else setError("Scan a work order.");
+        if (hit.kind === "workOrder") {
+          void api<WorkOrder>(`/api/work-orders/${hit.workOrder.id}`).then((order) =>
+            openFloorRow(order, me.user.id, jobForRef(jobs, "workOrder", order.id, "assemble"), applyOrder, setError),
+          );
+        } else setError("Scan a work order.");
       })
       .catch((err: Error) => setError(err.message));
-  }, []);
+  }, [jobs, me.user.id]);
 
   async function complete() {
     if (!active) return;
@@ -66,20 +77,20 @@ export function FloorAssemblePage() {
       <FloorScanBox label="Scan work order" placeholder="WO-DEMO1" onScan={onScan} />
       {done ? <p className="text-sm text-emerald-700">{done}</p> : null}
       {!active ? (
-        <Card>
-          <p className="mb-3 font-medium">Open work orders</p>
-          <ul className="space-y-2 text-sm">
-            {orders.map((row) => (
-              <li key={row.id}>
-                <button className="w-full text-left" onClick={() => applyOrder(row)}>
-                  <span className="font-mono">{row.number}</span> {row.sku} {row.qtyCompleted ?? 0}/{row.qty}{" "}
-                  <StatusBadge status={row.status} />
-                </button>
-              </li>
-            ))}
-            {orders.length === 0 ? <li className="text-muted-foreground">Nothing on the bench.</li> : null}
-          </ul>
-        </Card>
+        <ClaimList
+          title="Open work orders"
+          empty="Nothing on the bench."
+          rows={orders}
+          userId={me.user.id}
+          jobFor={(row) => jobForRef(jobs, "workOrder", row.id, "assemble")}
+          onOpen={(row) => openFloorRow(row, me.user.id, jobForRef(jobs, "workOrder", row.id, "assemble"), applyOrder, setError)}
+          render={(row) => (
+            <>
+              <span className="font-mono">{row.number}</span> {row.sku} {row.qtyCompleted ?? 0}/{row.qty}{" "}
+              <StatusBadge status={row.status} />
+            </>
+          )}
+        />
       ) : (
         <Card className="space-y-4">
           <div className="flex items-center justify-between">

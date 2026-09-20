@@ -15,6 +15,7 @@ import { lineExpiry } from "../lib/expiry";
 import { parseDisposition, type ReturnDisposition } from "../domain/return-disposition";
 import { coveringHold } from "../domain/holds";
 import { loadOpenHolds } from "../db/holds";
+import { guardFloorJob, syncDocumentJob } from "../db/jobs";
 
 export const returnsRoute = new Hono<AppEnv>();
 
@@ -203,7 +204,19 @@ returnsRoute.post("/returns", async (c) => {
     ...lines.map((line) => db.insert(schema.rmaLines).values(line)),
   ]);
 
-  return c.json(await rmaWithLines(db, organizationId, id), 201);
+  const created = await rmaWithLines(db, organizationId, id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: created.warehouseId,
+    refType: "rma",
+    refId: created.id,
+    status: created.status,
+    number: created.number,
+    title: created.customerName,
+    fromLocationId: created.locationId,
+    createdAt: created.createdAt,
+  });
+  return c.json(created, 201);
 });
 
 returnsRoute.post("/returns/:id/start", async (c) => {
@@ -211,8 +224,33 @@ returnsRoute.post("/returns/:id/start", async (c) => {
   const organizationId = c.get("organizationId")!;
   const rma = await rmaWithLines(db, organizationId, c.req.param("id"));
   if (rma.status !== "open") conflict("Return is not open");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: rma.warehouseId,
+    userId: c.get("user")!.id,
+    role: c.get("role")!,
+    refType: "rma",
+    refId: rma.id,
+    verb: "return",
+    number: rma.number,
+    title: rma.customerName,
+    fromLocationId: rma.locationId,
+    createdAt: rma.createdAt,
+  });
   await db.update(schema.rmas).set({ status: "receiving" }).where(eq(schema.rmas.id, rma.id));
-  return c.json(await rmaWithLines(db, organizationId, rma.id));
+  const started = await rmaWithLines(db, organizationId, rma.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: started.warehouseId,
+    refType: "rma",
+    refId: started.id,
+    status: started.status,
+    number: started.number,
+    title: started.customerName,
+    fromLocationId: started.locationId,
+    createdAt: started.createdAt,
+  });
+  return c.json(started);
 });
 
 returnsRoute.post("/returns/:id/receive", async (c) => {
@@ -234,6 +272,19 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
   const user = c.get("user")!;
   const rma = await rmaWithLines(db, organizationId, c.req.param("id"));
   if (!canReceiveReturn(rma.status)) conflict("Return is already received");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: rma.warehouseId,
+    userId: user.id,
+    role: c.get("role")!,
+    refType: "rma",
+    refId: rma.id,
+    verb: "return",
+    number: rma.number,
+    title: rma.customerName,
+    fromLocationId: locationId,
+    createdAt: rma.createdAt,
+  });
   if (!hasRemaining(rma.lines.map(asExpected))) conflict("Return has nothing remaining");
   const location = await getOrgLocation(db, organizationId, locationId);
 
@@ -358,5 +409,17 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
     ],
   });
 
-  return c.json(await rmaWithLines(db, organizationId, rma.id));
+  const received = await rmaWithLines(db, organizationId, rma.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: received.warehouseId,
+    refType: "rma",
+    refId: received.id,
+    status: received.status,
+    number: received.number,
+    title: received.customerName,
+    fromLocationId: received.locationId,
+    createdAt: received.createdAt,
+  });
+  return c.json(received);
 });

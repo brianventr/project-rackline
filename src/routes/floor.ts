@@ -33,6 +33,7 @@ import {
   loadAsBuiltForLotCode,
   loadAsBuiltForParentSerial,
 } from "../db/as-built";
+import { completeMatchingSuggestionJobs, guardFloorJob, guardMatchingSuggestionJobs, syncDocumentJob } from "../db/jobs";
 
 export const floorRoute = new Hono<AppEnv>();
 
@@ -207,7 +208,20 @@ floorRoute.post("/transfers", async (c) => {
     ...lines.map((line) => db.insert(schema.transferLines).values(line)),
   ]);
 
-  return c.json(await transferWithLines(db, organizationId, id), 201);
+  const created = await transferWithLines(db, organizationId, id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: created.warehouseId,
+    refType: "transfer",
+    refId: created.id,
+    status: created.status,
+    number: created.number,
+    title: created.notes,
+    fromLocationId: created.fromLocationId,
+    toLocationId: created.toLocationId,
+    createdAt: created.createdAt,
+  });
+  return c.json(created, 201);
 });
 
 floorRoute.post("/transfers/:id/start", async (c) => {
@@ -215,8 +229,35 @@ floorRoute.post("/transfers/:id/start", async (c) => {
   const organizationId = c.get("organizationId")!;
   const transfer = await transferWithLines(db, organizationId, c.req.param("id"));
   if (transfer.status !== "draft") conflict("Transfer is not a draft");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: transfer.warehouseId,
+    userId: c.get("user")!.id,
+    role: c.get("role")!,
+    refType: "transfer",
+    refId: transfer.id,
+    verb: "putaway",
+    number: transfer.number,
+    title: transfer.notes,
+    fromLocationId: transfer.fromLocationId,
+    toLocationId: transfer.toLocationId,
+    createdAt: transfer.createdAt,
+  });
   await db.update(schema.transfers).set({ status: "in_progress" }).where(eq(schema.transfers.id, transfer.id));
-  return c.json(await transferWithLines(db, organizationId, transfer.id));
+  const started = await transferWithLines(db, organizationId, transfer.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: started.warehouseId,
+    refType: "transfer",
+    refId: started.id,
+    status: started.status,
+    number: started.number,
+    title: started.notes,
+    fromLocationId: started.fromLocationId,
+    toLocationId: started.toLocationId,
+    createdAt: started.createdAt,
+  });
+  return c.json(started);
 });
 
 floorRoute.post("/transfers/:id/post", async (c) => {
@@ -228,6 +269,20 @@ floorRoute.post("/transfers/:id/post", async (c) => {
   const user = c.get("user")!;
   const transfer = await transferWithLines(db, organizationId, c.req.param("id"));
   if (!canPostTransfer(transfer.status)) conflict("Transfer already posted");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: transfer.warehouseId,
+    userId: user.id,
+    role: c.get("role")!,
+    refType: "transfer",
+    refId: transfer.id,
+    verb: "putaway",
+    number: transfer.number,
+    title: transfer.notes,
+    fromLocationId: transfer.fromLocationId,
+    toLocationId: transfer.toLocationId,
+    createdAt: transfer.createdAt,
+  });
   if (!hasUnmoved(transfer.lines.map(asMoveLine))) conflict("Transfer has nothing remaining to move");
 
   const incoming = resolveIncomingMove(transfer.lines, body.lines).filter((line) => line.qty > 0);
@@ -295,7 +350,20 @@ floorRoute.post("/transfers/:id/post", async (c) => {
     ],
   });
 
-  return c.json(await transferWithLines(db, organizationId, transfer.id));
+  const posted = await transferWithLines(db, organizationId, transfer.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: posted.warehouseId,
+    refType: "transfer",
+    refId: posted.id,
+    status: posted.status,
+    number: posted.number,
+    title: posted.notes,
+    fromLocationId: posted.fromLocationId,
+    toLocationId: posted.toLocationId,
+    createdAt: posted.createdAt,
+  });
+  return c.json(posted);
 });
 
 async function countWithLines(db: AppEnv["Variables"]["db"], organizationId: string, id: string) {
@@ -417,7 +485,19 @@ floorRoute.post("/cycle-counts", async (c) => {
     ...lines.map((line) => db.insert(schema.cycleCountLines).values(line)),
   ]);
 
-  return c.json(await countWithLines(db, organizationId, id), 201);
+  const createdCount = await countWithLines(db, organizationId, id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: createdCount.warehouseId,
+    refType: "cycleCount",
+    refId: createdCount.id,
+    status: createdCount.status,
+    number: createdCount.number,
+    title: createdCount.notes || "Bay count",
+    fromLocationId: createdCount.locationId,
+    createdAt: createdCount.createdAt,
+  });
+  return c.json(createdCount, 201);
 });
 
 floorRoute.post("/cycle-counts/:id/lines", async (c) => {
@@ -461,8 +541,33 @@ floorRoute.post("/cycle-counts/:id/start", async (c) => {
   const organizationId = c.get("organizationId")!;
   const count = await countWithLines(db, organizationId, c.req.param("id"));
   if (count.status !== "draft") conflict("Cycle count is not a draft");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: count.warehouseId,
+    userId: c.get("user")!.id,
+    role: c.get("role")!,
+    refType: "cycleCount",
+    refId: count.id,
+    verb: "count",
+    number: count.number,
+    title: count.notes,
+    fromLocationId: count.locationId,
+    createdAt: count.createdAt,
+  });
   await db.update(schema.cycleCounts).set({ status: "counting" }).where(eq(schema.cycleCounts.id, count.id));
-  return c.json(await countWithLines(db, organizationId, count.id));
+  const startedCount = await countWithLines(db, organizationId, count.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: startedCount.warehouseId,
+    refType: "cycleCount",
+    refId: startedCount.id,
+    status: startedCount.status,
+    number: startedCount.number,
+    title: startedCount.notes,
+    fromLocationId: startedCount.locationId,
+    createdAt: startedCount.createdAt,
+  });
+  return c.json(startedCount);
 });
 
 floorRoute.post("/cycle-counts/:id/post", async (c) => {
@@ -474,6 +579,19 @@ floorRoute.post("/cycle-counts/:id/post", async (c) => {
   const user = c.get("user")!;
   const count = await countWithLines(db, organizationId, c.req.param("id"));
   if (!canPostCount(count.status)) conflict("Cycle count already posted");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: count.warehouseId,
+    userId: user.id,
+    role: c.get("role")!,
+    refType: "cycleCount",
+    refId: count.id,
+    verb: "count",
+    number: count.number,
+    title: count.notes,
+    fromLocationId: count.locationId,
+    createdAt: count.createdAt,
+  });
 
   const incoming: { id: string; countedQty: number; weightGrams: number | null }[] = [];
   for (const line of body.lines ?? []) {
@@ -555,7 +673,19 @@ floorRoute.post("/cycle-counts/:id/post", async (c) => {
     ],
   });
 
-  return c.json(await countWithLines(db, organizationId, count.id));
+  const postedCount = await countWithLines(db, organizationId, count.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: postedCount.warehouseId,
+    refType: "cycleCount",
+    refId: postedCount.id,
+    status: postedCount.status,
+    number: postedCount.number,
+    title: postedCount.notes,
+    fromLocationId: postedCount.locationId,
+    createdAt: postedCount.createdAt,
+  });
+  return c.json(postedCount);
 });
 
 floorRoute.get("/map", async (c) => {
@@ -1136,6 +1266,16 @@ floorRoute.post("/moves", async (c) => {
     await getOrgItem(db, organizationId, line.itemId);
   }
 
+  await guardMatchingSuggestionJobs(db, {
+    organizationId,
+    warehouseId: from.warehouseId,
+    userId: user.id,
+    role: c.get("role")!,
+    fromLocationId: from.id,
+    toLocationId: to.id,
+    itemIds: requested.map((line) => line.itemId),
+  });
+
   const pairs = requested.flatMap((line) => [
     { locationId: from.id, itemId: line.itemId },
     { locationId: to.id, itemId: line.itemId },
@@ -1164,6 +1304,14 @@ floorRoute.post("/moves", async (c) => {
     now: Date.now(),
     loaded,
     plan,
+  });
+
+  await completeMatchingSuggestionJobs(db, {
+    organizationId,
+    warehouseId: from.warehouseId,
+    fromLocationId: from.id,
+    toLocationId: to.id,
+    itemIds: requested.map((line) => line.itemId),
   });
 
   return c.json({
