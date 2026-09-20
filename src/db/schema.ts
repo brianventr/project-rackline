@@ -67,6 +67,7 @@ export const memberships = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").notNull(),
+    floorVerbs: text("floor_verbs"),
   },
   (t) => [uniqueIndex("memberships_org_user").on(t.organizationId, t.userId)],
 );
@@ -141,6 +142,9 @@ export const items = sqliteTable(
     trackSerial: integer("track_serial", { mode: "boolean" }).notNull().default(false),
     catchWeight: integer("catch_weight", { mode: "boolean" }).notNull().default(false),
     trackExpiry: integer("track_expiry", { mode: "boolean" }).notNull().default(false),
+    stockUom: text("stock_uom").notNull().default("ea"),
+    altUom: text("alt_uom"),
+    altPerStock: integer("alt_per_stock"),
   },
   (t) => [
     uniqueIndex("items_org_sku").on(t.organizationId, t.sku),
@@ -192,6 +196,7 @@ export const inventoryMovements = sqliteTable(
     expiresOn: integer("expires_on"),
     equipmentId: text("equipment_id"),
     assignmentId: text("assignment_id"),
+    clientId: text("client_id"),
   },
   (t) => [
     index("movements_org_created").on(t.organizationId, t.createdAt),
@@ -824,6 +829,35 @@ export const clients = sqliteTable(
   (t) => [uniqueIndex("clients_org_code").on(t.organizationId, t.code)],
 );
 
+export const clientBalances = sqliteTable(
+  "client_balances",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    locationId: text("location_id")
+      .notNull()
+      .references(() => locations.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    qty: integer("qty").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("client_balances_org_loc_item_client").on(
+      t.organizationId,
+      t.locationId,
+      t.itemId,
+      t.clientId,
+    ),
+  ],
+);
+
 export const zones = sqliteTable(
   "zones",
   {
@@ -961,6 +995,143 @@ export const yardVisits = sqliteTable(
   (t) => [uniqueIndex("yard_visits_org_number").on(t.organizationId, t.number)],
 );
 
+export const laborClocks = sqliteTable(
+  "labor_clocks",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    verb: text("verb").notNull(),
+    refType: text("ref_type").notNull(),
+    refId: text("ref_id").notNull(),
+    startedAt: integer("started_at").notNull(),
+    endedAt: integer("ended_at"),
+    durationSec: integer("duration_sec"),
+  },
+  (t) => [index("labor_clocks_org_user_open").on(t.organizationId, t.userId, t.endedAt)],
+);
+
+export const carrierAccounts = sqliteTable(
+  "carrier_accounts",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    carrier: text("carrier").notNull(),
+    accountNumber: text("account_number").notNull(),
+    mode: text("mode").notNull().default("demo"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("carrier_accounts_org_carrier").on(t.organizationId, t.carrier)],
+);
+
+export const ediInbox = sqliteTable(
+  "edi_inbox",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    payloadJson: text("payload_json").notNull(),
+    status: text("status").notNull(),
+    createdAsnId: text("created_asn_id").references(() => asns.id, { onDelete: "set null" }),
+    createdAt: integer("created_at").notNull(),
+    error: text("error"),
+  },
+  (t) => [index("edi_inbox_org_created").on(t.organizationId, t.createdAt)],
+);
+
+export const billingAccounts = sqliteTable("billing_accounts", {
+  organizationId: text("organization_id")
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  plan: text("plan").notNull().default("free"),
+  status: text("status").notNull().default("active"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const printers = sqliteTable(
+  "printers",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    connection: text("connection").notNull().default("browser"),
+    media: text("media").notNull().default("letter"),
+    dpi: integer("dpi").notNull().default(203),
+    qzPrinterName: text("qz_printer_name"),
+    isDefault: integer("is_default").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("printers_org").on(t.organizationId)],
+);
+
+export const printStations = sqliteTable(
+  "print_stations",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    warehouseId: text("warehouse_id").references(() => warehouses.id, { onDelete: "set null" }),
+    defaultPrinterId: text("default_printer_id").references(() => printers.id, { onDelete: "set null" }),
+    bayPrinterId: text("bay_printer_id").references(() => printers.id, { onDelete: "set null" }),
+    shippingPrinterId: text("shipping_printer_id").references(() => printers.id, { onDelete: "set null" }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("print_stations_org").on(t.organizationId)],
+);
+
+export const printJobs = sqliteTable(
+  "print_jobs",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    printerId: text("printer_id").references(() => printers.id, { onDelete: "set null" }),
+    stationId: text("station_id").references(() => printStations.id, { onDelete: "set null" }),
+    kind: text("kind").notNull(),
+    payloadFormat: text("payload_format").notNull(),
+    status: text("status").notNull(),
+    refType: text("ref_type"),
+    refId: text("ref_id"),
+    error: text("error"),
+    createdAt: integer("created_at").notNull(),
+    sentAt: integer("sent_at"),
+  },
+  (t) => [index("print_jobs_org_created").on(t.organizationId, t.createdAt)],
+);
+
+export const invoices = sqliteTable(
+  "invoices",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    number: text("number").notNull(),
+    periodStart: integer("period_start").notNull(),
+    periodEnd: integer("period_end").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    status: text("status").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("invoices_org_number").on(t.organizationId, t.number)],
+);
+
 export const laborEvents = sqliteTable(
   "labor_events",
   {
@@ -1047,6 +1218,7 @@ export type CarrierMode = "live" | "demo";
 export type CarrierConnectionStatus = "connected" | "error";
 export type CarrierLabelStatus = "none" | "purchased" | "voided";
 export type CarrierOutboundKind = "test" | "rates" | "buy" | "void";
+
 
 export const equipment = sqliteTable(
   "equipment",
@@ -1172,3 +1344,67 @@ export type EquipmentEventType =
   | "transferred"
   | "out_of_service"
   | "returned_to_service";
+
+export type FloorVerb =
+  | "receive"
+  | "putaway"
+  | "replenish"
+  | "pick"
+  | "pack"
+  | "ship"
+  | "return"
+  | "rtv"
+  | "count"
+  | "assemble"
+  | "kit"
+  | "hold";
+export type JobRefType =
+  | "order"
+  | "receipt"
+  | "purchase"
+  | "transfer"
+  | "replenishment"
+  | "rma"
+  | "vendorReturn"
+  | "cycleCount"
+  | "workOrder"
+  | "kit"
+  | "hold"
+  | "putawaySuggestion"
+  | "replenishSuggestion";
+export type JobStatus = "open" | "claimed" | "done" | "cancelled";
+
+export const floorJobs = sqliteTable(
+  "floor_jobs",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    verb: text("verb").notNull(),
+    refType: text("ref_type").notNull(),
+    refId: text("ref_id").notNull(),
+    status: text("status").notNull(),
+    number: text("number"),
+    title: text("title"),
+    assigneeId: text("assignee_id").references(() => user.id, { onDelete: "set null" }),
+    claimedAt: integer("claimed_at"),
+    releasedAt: integer("released_at"),
+    doneAt: integer("done_at"),
+    notBefore: integer("not_before"),
+    dueAt: integer("due_at"),
+    pinned: integer("pinned").notNull().default(0),
+    fromLocationId: text("from_location_id").references(() => locations.id, { onDelete: "set null" }),
+    toLocationId: text("to_location_id").references(() => locations.id, { onDelete: "set null" }),
+    itemId: text("item_id").references(() => items.id, { onDelete: "set null" }),
+    qty: integer("qty"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("floor_jobs_org_wh_status").on(t.organizationId, t.warehouseId, t.status),
+    index("floor_jobs_org_ref").on(t.organizationId, t.refType, t.refId),
+  ],
+);

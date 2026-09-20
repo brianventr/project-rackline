@@ -41,8 +41,11 @@ import { WarehouseSetupPage } from "./pages/setup/WarehouseSetupPage";
 import { TeamPage } from "./pages/setup/TeamPage";
 import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
 import { CarriersPage } from "./pages/setup/CarriersPage";
+import { IntegrationsPage } from "./pages/setup/IntegrationsPage";
 import { ClientsPage } from "./pages/setup/ClientsPage";
 import { ZonesPage } from "./pages/setup/ZonesPage";
+import { BillingPage } from "./pages/setup/BillingPage";
+import { EdiPage } from "./pages/setup/EdiPage";
 import { ReplenishmentsPage } from "./pages/ReplenishmentsPage";
 import { KitsPage } from "./pages/KitsPage";
 import { WavesPage } from "./pages/WavesPage";
@@ -58,13 +61,16 @@ import { EquipmentPage } from "./pages/EquipmentPage";
 import { ShippingLabelPage } from "./pages/ShippingLabelPage";
 import { PackSlipPage } from "./pages/PackSlipPage";
 import { ScannerProvider } from "./scanner/ScannerProvider";
+import { PrintProvider } from "./print/PrintProvider";
 import { homePath, OwnerOnly } from "./warehouse";
 
 function Guard({ me }: { me: Me | null }) {
   if (!me) return <Navigate to="/login" replace />;
   return (
     <ScannerProvider>
-      <AppShell me={me} />
+      <PrintProvider>
+        <AppShell me={me} />
+      </PrintProvider>
     </ScannerProvider>
   );
 }
@@ -188,6 +194,14 @@ export function App() {
         <Route path="/outbound/returns" element={<ReturnsPage />} />
         <Route path="/outbound/returns/:id" element={<ReturnsPage />} />
         <Route
+          path="/setup/integrations"
+          element={
+            <OwnerOnly>
+              <IntegrationsPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
           path="/setup/shopify"
           element={
             me ? (
@@ -242,6 +256,22 @@ export function App() {
           element={
             <OwnerOnly>
               <LabelsSetupPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
+          path="/setup/billing"
+          element={
+            <OwnerOnly>
+              <BillingPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
+          path="/setup/edi"
+          element={
+            <OwnerOnly>
+              <EdiPage />
             </OwnerOnly>
           }
         />

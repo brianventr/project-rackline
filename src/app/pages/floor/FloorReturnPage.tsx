@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Location, type Rma, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { FloorFrame, FloorScanBox, ClaimList, openFloorRow } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
 import { DispositionSelect } from "../../components/disposition-field";
 import { canReceiveReturn } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
+import { useSession } from "../../session";
+import { jobForRef, useOpenJobs } from "../../jobs";
 import {
   parseDisposition,
   returnPostedMessage,
@@ -16,6 +18,8 @@ import {
 } from "@/domain/return-disposition";
 
 export function FloorReturnPage() {
+  const me = useSession();
+  const { jobs, reload: reloadJobs } = useOpenJobs("return");
   const [params] = useSearchParams();
   const [returns, setReturns] = useState<Rma[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -67,7 +71,8 @@ export function FloorReturnPage() {
     const wanted = params.get("id");
     if (wanted) {
       const match = await api<Rma>(`/api/returns/${wanted}`);
-      openRma(match);
+      const nextJobs = await reloadJobs();
+      openFloorRow(match, me.user.id, jobForRef(nextJobs, "rma", match.id, "return"), openRma, setError);
     }
   }
 
@@ -81,7 +86,9 @@ export function FloorReturnPage() {
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
       .then((hit) => {
         if (hit.kind === "rma") {
-          void api<Rma>(`/api/returns/${hit.rma.id}`).then(openRma);
+          void api<Rma>(`/api/returns/${hit.rma.id}`).then((rma) =>
+            openFloorRow(rma, me.user.id, jobForRef(jobs, "rma", rma.id, "return"), openRma, setError),
+          );
           return;
         }
         if (hit.kind === "location") {
@@ -91,7 +98,7 @@ export function FloorReturnPage() {
         setError("Scan a return number or a bay barcode.");
       })
       .catch((err: Error) => setError(err.message));
-  }, []);
+  }, [jobs, me.user.id]);
 
   async function receive() {
     if (!active) return;
@@ -161,19 +168,23 @@ export function FloorReturnPage() {
         </p>
       ) : null}
       {!active ? (
-        <Card>
-          <p className="mb-3 font-medium">Open returns</p>
-          <ul className="space-y-2 text-sm">
-            {returns.map((row) => (
-              <li key={row.id}>
-                <button className="w-full text-left" onClick={() => void api<Rma>(`/api/returns/${row.id}`).then(openRma)}>
-                  <span className="font-mono">{row.number}</span> {row.customerName} <StatusBadge status={row.status} />
-                </button>
-              </li>
-            ))}
-            {returns.length === 0 ? <li className="text-muted-foreground">Nothing to receive back.</li> : null}
-          </ul>
-        </Card>
+        <ClaimList
+          title="Open returns"
+          empty="Nothing to receive back."
+          rows={returns}
+          userId={me.user.id}
+          jobFor={(row) => jobForRef(jobs, "rma", row.id, "return")}
+          onOpen={(row) =>
+            openFloorRow(row, me.user.id, jobForRef(jobs, "rma", row.id, "return"), (rma) => {
+              void api<Rma>(`/api/returns/${rma.id}`).then(openRma);
+            }, setError)
+          }
+          render={(row) => (
+            <>
+              <span className="font-mono">{row.number}</span> {row.customerName} <StatusBadge status={row.status} />
+            </>
+          )}
+        />
       ) : (
         <Card className="space-y-4">
           <div className="flex items-center justify-between">

@@ -50,6 +50,7 @@ Iteration 22 adds partial replenish: tickets track moved vs expected qty, over-m
 
 Iteration 23 adds unpick and office/floor cancel: unpacked qty returns to the bay (`unpick` movement), leftover ATP is restored, and cancel restores picked (including packed) qty then releases allocations. Shopify `orders/cancelled` uses the same restore.
 
+
 Iteration 24 opens the parked logistics set on the same location:item ledger:
 
 - **Zones** — aisle/area zones; bays can join a zone for wave scoping
@@ -68,9 +69,29 @@ Iteration 27 adds Analytics → Traffic: a live ATC-style country/state map of p
 
 Iteration 28 adds equipment custody: register forklifts and pallet jacks, exclusive operator checkout for a shift and/or WMS document, OSHA-style pre-use inspection, and stamp the truck onto inventory movements. Fail inspection marks the machine out of service. Qty stays integer pieces on location:item.
 
-Iteration 29 scores staff against SKUs: Performance (owners) rolls lines, units, pace (0–10 vs expected time from lot/serial/catch-weight/expiry and map walk), and exceptions from the ledger plus pack events. Operators see My day on the floor. Slow SKUs are flagged separately from slow people. Northwind seeds picker Maya Chen (`maya@northwind.makers`) and dock operator Jordan Dock (`jordan@northwind.makers`) on `ORD-KPI1`; both sign in with `rackline-demo`.
+Iteration 29 adds floor jobs on top of the existing documents: assign, claim, and a ranked next-job queue across dock, aisles, and bench. Unassigned work stays pickable. First scan or post auto-claims. A second operator hitting a claimed job gets HTTP 409 (`JOB_CLAIMED`). Ranking uses pin, starved replenish, FEFO, dock dwell, due/age, and walk distance from the last bay.
+
+Iteration 30 scores staff against SKUs: Performance (owners) rolls lines, units, pace (0–10 vs expected time from lot/serial/catch-weight/expiry and map walk), and exceptions from the ledger plus pack events. Operators see My day on the floor. Slow SKUs are flagged separately from slow people. Northwind seeds picker Maya Chen (`maya@northwind.makers`) and dock operator Jordan Dock (`jordan@northwind.makers`) on `ORD-KPI1`; both sign in with `rackline-demo`.
 
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
+
+Iteration 25 deepens logistics on the same location:item ledger (qty stays integer stock units):
+
+- **3PL client stock** — `client_balances` overlay per location:item:client; receive/pick/ship stamp `client_id` on movements; outbound checks client qty (409 `CLIENT_STOCK`)
+- **Zone-directed picks** — wave `zoneId` prefers bays in that zone when suggesting pick faces
+- **Labor clocks** — clock in/out on a ref posts duration to labor events; GET `/api/labor` includes open clocks
+- **Yard ↔ ASN** — dock assign ties linked ASN to the dock bay; floor/office **Receive ASN** receives at dock
+- **Multi-WH ATP/holds** — `persistStockPlan` scopes holds and ATP checks to warehouses touched by the movement
+- **Carriers** — FedEx/DHL services and account numbers; tracking prefixes `FE-` / `DHL-`
+- **Supplier EDI (thin)** — POST `/api/edi/asn` creates expected ASN + `edi_inbox` row
+- **Dual UoM (thin)** — optional `alt_uom` / `alt_per_stock`; receive/pick accept `altQty` converted to stock pieces
+- **Billing (thin)** — 3PL plan stub; generate draft invoice = client count × $5
+
+Iteration 26 adds hardware support for the floor:
+
+- **Scanner** — HID guns stay global; typed FloorScanBox emits `typed` scans; camera uses Chromium `BarcodeDetector` with **ZXing** fallback; GS1 AI `(01)/(10)/(21)` parse; lookup shows wave/ASN/yard
+- **Printers** — org `printers` + `print_stations` + `print_jobs`; Setup → Printers binds this workstation; Floor Print / shipping labels dispatch via **browser**, **QZ Tray**, or **ZPL download**
+- **ZPL** — bay, SKU, and 4×6 shipping templates; sheet pages can download a ZPL batch
 
 ## Stack
 
@@ -94,7 +115,8 @@ Open [http://localhost:5173](http://localhost:5173). Guests see the landing page
 On the sign-in screen, either:
 
 - Create an organization, or
-- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt `RCP-DEMO1` (12× LED-BULB + 6× SHADE — partial receive is allowed), purchase order `PO-DEMO1` (Harbor Components), ASN `ASN-DEMO1` (expected Harbor notice), yard visit `YRD-DEMO1` (UPS Freight / TRL-4421), wave `WAV-DEMO1` (batch mode for Acme `ORD-WAVE1` / `ORD-WAVE2`), 3PL client `ACME`, zones A/B on Main, a second warehouse **West shop** with `XFR-WEST1` (4× SHADE cross-building), vendor return `RTV-DEMO1` (2× LED-BULB from `A-01-01` — partial return is allowed), return `RMA-DEMO1` (Harbor Workshop, restock), putaway ticket `XFR-DEMO1` (8× SHADE + 6× BASE from `A-01-01` to `A-02-02` — partial move is allowed), replenishment `RPL-DEMO1` (14× LED-BULB from `A-01-01` to `A-01-02` — partial move is allowed), a floor order, Shopify order `#1004` (Maya Chen), work order `WO-DEMO1` (qty 4 — partial complete is allowed), kit `KIT-DEMO1` (qty 2 — partial complete, then dekit), sit-down `FL-01` checked out on days against `XFR-DEMO1` (`CST-DEMO1`), pallet jack `PJ-01` with a closed yesterday assignment, `FL-02` out of service after a failed horn/leak inspection, shipped `ORD-KPI1` (Maya pick/pack of BASE / GLUE / LAMP plus an unpick), Jordan Dock inbound BASE and RESIN, and in-flight demo tickets on **Analytics → Traffic**. LED-BULB is lot-tracked (`LOT-2026-A` / `LOT-2026-B`) with pick min 20 on `A-01-02`; LAMP is serial-tracked (`LAMP-1001`–`LAMP-1014`) with pick min 12 on `B-01-01`; RESIN is catch-weight (6 bottles / 3000 g on `A-01-01`); GLUE is lot + expiry (`LOT-OLD` / `LOT-NEW` on `A-01-01`, expired `LOT-DEAD` on `A-01-03`). `LAMP-1001` is seeded with as-built component lots. Setup → Carriers has demo UPS `A1B2C3` and USPS accounts plus Rackline Ground. Then open **Map**, **Traffic**, **Performance**, and **Move**.
+- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt `RCP-DEMO1` (12× LED-BULB + 6× SHADE — partial receive is allowed), purchase order `PO-DEMO1` (Harbor Components), ASN `ASN-DEMO1` (expected Harbor notice), yard visit `YRD-DEMO1` (UPS Freight / TRL-4421), wave `WAV-DEMO1` (batch mode for Acme `ORD-WAVE1` / `ORD-WAVE2`), 3PL client `ACME`, zones A/B on Main, a second warehouse **West shop** with `XFR-WEST1` (4× SHADE cross-building), vendor return `RTV-DEMO1` (2× LED-BULB from `A-01-01` — partial return is allowed), return `RMA-DEMO1` (Harbor Workshop, restock), putaway ticket `XFR-DEMO1` (8× SHADE + 6× BASE from `A-01-01` to `A-02-02` — partial move is allowed), replenishment `RPL-DEMO1` (14× LED-BULB from `A-01-01` to `A-01-02` — partial move is allowed), a floor order (`ORD-DEMO1` pick assigned to you), Shopify order `#1004` (Maya Chen), work order `WO-DEMO1` (qty 4 — assigned to assemble; partial complete is allowed), kit `KIT-DEMO1` (qty 2 — partial complete, then dekit), sit-down `FL-01` checked out on days against `XFR-DEMO1` (`CST-DEMO1`), pallet jack `PJ-01` with a closed yesterday assignment, `FL-02` out of service after a failed horn/leak inspection, shipped `ORD-KPI1` (Maya pick/pack of BASE / GLUE / LAMP plus an unpick), Jordan Dock inbound BASE and RESIN, and in-flight demo tickets on **Analytics → Traffic**. LED-BULB is lot-tracked (`LOT-2026-A` / `LOT-2026-B`) with pick min 20 on `A-01-02`; LAMP is serial-tracked (`LAMP-1001`–`LAMP-1014`) with pick min 12 on `B-01-01`; RESIN is catch-weight (6 bottles / 3000 g on `A-01-01`); GLUE is lot + expiry (`LOT-OLD` / `LOT-NEW` on `A-01-01`, expired `LOT-DEAD` on `A-01-03`). `LAMP-1001` is seeded with as-built component lots. Setup → Carriers has demo UPS `A1B2C3` and USPS accounts plus Rackline Ground. Then open **Today** for the dispatch board, **Floor** for next job, **Map**, **Traffic**, **Performance**, and **Move**.
+
 
 `wrangler.jsonc` uses a placeholder `database_id`. Local D1 does not need a Cloudflare account. When you are ready to deploy:
 

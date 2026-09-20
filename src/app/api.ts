@@ -43,6 +43,7 @@ export type Me = {
   user: { id: string; name: string; email: string };
   organization: { id: string; name: string };
   role: "owner" | "operator";
+  floorVerbs?: string[];
   warehouses: { id: string; name: string }[];
 };
 
@@ -668,6 +669,7 @@ export type TeamMember = {
   userId: string;
   name: string;
   email: string;
+  floorVerbs?: string[];
 };
 
 export type Transfer = {
@@ -843,6 +845,34 @@ export type VendorReturn = {
   locationId: string | null;
   warehouseId?: string;
   lines?: VendorReturnLine[];
+};
+
+export type FloorJob = {
+  id: string;
+  verb: string;
+  refType: string;
+  refId: string;
+  status: string;
+  number: string | null;
+  title: string | null;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  fromLocationId: string | null;
+  toLocationId: string | null;
+  itemId: string | null;
+  fromCode: string | null;
+  fromBarcode: string | null;
+  toCode: string | null;
+  aisle: string | null;
+  qty: number | null;
+  pinned: boolean;
+  notBefore: number | null;
+  dueAt: number | null;
+  createdAt: number;
+  floorPath: string;
+  officePath: string;
+  score?: number;
+  reason?: string;
 };
 
 export type Client = {
@@ -1081,8 +1111,63 @@ export type {
   LaborVerbMix,
 } from "@/domain/labor-kpis";
 
+export type LaborClock = {
+  id: string;
+  organizationId: string;
+  warehouseId: string;
+  userId: string;
+  verb: string;
+  refType: string;
+  refId: string;
+  startedAt: number;
+  endedAt: number | null;
+  durationSec: number | null;
+  elapsedSec?: number;
+};
+
 export type LaborBoard = import("@/domain/labor-kpis").LaborKpiBoard & {
   range: { from: number; to: number; preset: string };
+  events: LaborEvent[];
+  rollup: LaborRollup[];
+  openClocks: LaborClock[];
+};
+
+export type Printer = {
+  id: string;
+  organizationId: string;
+  name: string;
+  connection: "browser" | "qz" | "download";
+  media: "letter" | "4x6" | "2x1";
+  dpi: number;
+  qzPrinterName: string | null;
+  isDefault: boolean;
+  createdAt: number;
+};
+
+export type PrintStation = {
+  id: string;
+  organizationId: string;
+  name: string;
+  warehouseId: string | null;
+  defaultPrinterId: string | null;
+  bayPrinterId: string | null;
+  shippingPrinterId: string | null;
+  createdAt: number;
+};
+
+export type PrintJobAudit = {
+  id: string;
+  organizationId: string;
+  printerId: string | null;
+  stationId: string | null;
+  kind: string;
+  payloadFormat: string;
+  status: string;
+  refType: string | null;
+  refId: string | null;
+  error: string | null;
+  createdAt: number;
+  sentAt: number | null;
 };
 
 export type {

@@ -18,3 +18,27 @@ export function yardLabel(visit: {
   const trailer = visit.trailerNumber?.trim();
   return trailer ? `${visit.number} · ${visit.carrierName} / ${trailer}` : `${visit.number} · ${visit.carrierName}`;
 }
+
+/** When a trailer takes a dock, tie the linked ASN to that receiving bay. */
+export function asnHandoffPatch(input: {
+  asnId: string | null | undefined;
+  dockLocationId: string;
+  currentAsnStatus?: string | null;
+}): { asnId: string; locationId: string; status: string } | null {
+  if (!input.asnId) return null;
+  const status =
+    input.currentAsnStatus === "draft"
+      ? "expected"
+      : input.currentAsnStatus && input.currentAsnStatus !== "cancelled"
+        ? input.currentAsnStatus
+        : "expected";
+  return { asnId: input.asnId, locationId: input.dockLocationId, status };
+}
+
+export function canReceiveLinkedAsn(visit: {
+  asnId?: string | null;
+  status: string;
+  dockLocationId?: string | null;
+}): boolean {
+  return Boolean(visit.asnId && visit.status === "at_dock" && visit.dockLocationId);
+}

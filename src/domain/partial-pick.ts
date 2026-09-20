@@ -13,6 +13,7 @@ export type StockedBay = {
   qty: number;
   type?: string;
   slotRole?: string;
+  zoneId?: string | null;
 };
 
 export class OverPickError extends Error {
@@ -73,15 +74,28 @@ function rankBays(rows: StockedBay[]): StockedBay[] {
   return rows.slice().sort((a, b) => b.qty - a.qty || a.locationCode.localeCompare(b.locationCode));
 }
 
-export function suggestPickBay(onHand: StockedBay[], remaining: number): StockedBay | null {
+function preferZone(rows: StockedBay[], preferredZoneId?: string | null): StockedBay[] {
+  if (!preferredZoneId) return rows;
+  const inZone = rows.filter((row) => row.zoneId === preferredZoneId);
+  return inZone.length > 0 ? inZone : rows;
+}
+
+export function suggestPickBay(
+  onHand: StockedBay[],
+  remaining: number,
+  preferredZoneId?: string | null,
+): StockedBay | null {
   const stocked = onHand.filter((row) => row.qty > 0);
-  const pickFaces = stocked.filter((row) => row.slotRole === "pick");
-  const storage = stocked.filter((row) => row.type === "storage");
+  const pickFaces = preferZone(stocked.filter((row) => row.slotRole === "pick"), preferredZoneId);
+  const storage = preferZone(stocked.filter((row) => row.type === "storage"), preferredZoneId);
+  const allPreferred = preferZone(stocked, preferredZoneId);
   const pools = [
     pickFaces.filter((row) => row.qty >= remaining),
     pickFaces,
     storage.filter((row) => row.qty >= remaining),
     storage,
+    allPreferred.filter((row) => row.qty >= remaining),
+    allPreferred,
     stocked.filter((row) => row.qty >= remaining),
     stocked,
   ];

@@ -2,12 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, type Hold, type Item, type Location, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { FloorFrame, FloorScanBox, ClaimList, openFloorRow } from "./floor-ui";
 import { useWarehouse } from "../../warehouse";
 import { HOLD_REASONS, holdLabel } from "@/domain/holds";
 import { canReleaseHold } from "@/domain/status";
+import { useSession } from "../../session";
+import { jobForRef, useOpenJobs } from "../../jobs";
 
 export function FloorHoldPage() {
+  const me = useSession();
+  const { jobs, reload: reloadJobs } = useOpenJobs("hold");
   const [params] = useSearchParams();
   const { warehouseId } = useWarehouse();
   const [holds, setHolds] = useState<Hold[]>([]);
@@ -38,7 +42,11 @@ export function FloorHoldPage() {
     const itemWanted = params.get("item");
     if (itemWanted) setItemId(itemWanted);
     const wanted = params.get("id");
-    if (wanted) setActive(await api<Hold>(`/api/holds/${wanted}`));
+    if (wanted) {
+      const match = await api<Hold>(`/api/holds/${wanted}`);
+      const nextJobs = await reloadJobs();
+      openFloorRow(match, me.user.id, jobForRef(nextJobs, "hold", match.id, "hold"), setActive, setError);
+    }
   }
 
   useEffect(() => {
@@ -53,7 +61,8 @@ export function FloorHoldPage() {
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
         .then(async (hit) => {
           if (hit.kind === "hold") {
-            setActive(await api<Hold>(`/api/holds/${hit.hold.id}`));
+            const match = await api<Hold>(`/api/holds/${hit.hold.id}`);
+            openFloorRow(match, me.user.id, jobForRef(jobs, "hold", match.id, "hold"), setActive, setError);
             return;
           }
           if (hit.kind === "location") {
@@ -69,7 +78,7 @@ export function FloorHoldPage() {
         })
         .catch((err: Error) => setError(err.message));
     },
-    [],
+    [jobs, me.user.id],
   );
 
   async function place() {
@@ -131,6 +140,7 @@ export function FloorHoldPage() {
           </Button>
         </Card>
       ) : (
+        <>
         <Card className="space-y-3">
           <Field label="Bay">
             <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
@@ -166,16 +176,25 @@ export function FloorHoldPage() {
             </Select>
           </Field>
           <Button onClick={() => void place()}>Place hold{location ? ` on ${location.code}` : ""}</Button>
-          <ul className="space-y-2 text-sm">
-            {holds.map((row) => (
-              <li key={row.id}>
-                <button onClick={() => void api<Hold>(`/api/holds/${row.id}`).then(setActive)}>
-                  {row.number} · {holdLabel(row)} <StatusBadge status={row.status} />
-                </button>
-              </li>
-            ))}
-          </ul>
         </Card>
+        <ClaimList
+          title="Open holds"
+          empty="Nothing is on hold."
+          rows={holds}
+          userId={me.user.id}
+          jobFor={(row) => jobForRef(jobs, "hold", row.id, "hold")}
+          onOpen={(row) =>
+            openFloorRow(row, me.user.id, jobForRef(jobs, "hold", row.id, "hold"), (hold) => {
+              void api<Hold>(`/api/holds/${hold.id}`).then(setActive);
+            }, setError)
+          }
+          render={(row) => (
+            <>
+              {row.number} · {holdLabel(row)} <StatusBadge status={row.status} />
+            </>
+          )}
+        />
+        </>
       )}
     </FloorFrame>
   );

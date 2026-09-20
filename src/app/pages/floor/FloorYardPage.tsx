@@ -4,6 +4,7 @@ import { api, type Location, type YardVisit } from "../../api";
 import { Button, Card, Field, Select, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { canAssignDock, canCheckInYard, canCheckOutYard, isOpenYard } from "@/domain/status";
+import { canReceiveLinkedAsn } from "@/domain/yard";
 
 function matchVisit(visits: YardVisit[], raw: string): YardVisit | undefined {
   const needle = raw.trim().toUpperCase().replace(/^YRD[:\-]/, "");
@@ -100,6 +101,18 @@ export function FloorYardPage() {
     }
   }
 
+  async function receiveAsn() {
+    if (!active) return;
+    setError(null);
+    try {
+      await api(`/api/yard/${active.id}/receive-asn`, { method: "POST" });
+      setDone(`${active.number}: ASN received at dock.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Receive ASN failed");
+    }
+  }
+
   async function checkOut() {
     if (!active) return;
     setError(null);
@@ -165,6 +178,11 @@ export function FloorYardPage() {
               </Field>
               <Button onClick={() => void assignDock()}>Assign dock</Button>
             </>
+          ) : null}
+          {canReceiveLinkedAsn(active) ? (
+            <Button variant="secondary" onClick={() => void receiveAsn()}>
+              Receive ASN
+            </Button>
           ) : null}
           {canCheckOutYard(active.status) ? <Button onClick={() => void checkOut()}>Check out</Button> : null}
           {active.status === "checked_out" ? <p>Checked out.</p> : null}

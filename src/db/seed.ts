@@ -5,6 +5,7 @@ import type { AppDb } from "./stock";
 import { newId } from "../lib/ids";
 import { chainPlans, planMove, planPick, planReceive, planShip, planUnpick } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "./stock";
+import { seedAssignedJobs } from "./jobs";
 import { provisionOrganization } from "../lib/org";
 import { demoFulfillmentOrderId } from "../domain/shopify";
 import { areaForType, gridPosition } from "../domain/map-layout";
@@ -200,6 +201,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       createdAt: now,
       reorderPoint: 4,
       catchWeight: true,
+      altUom: "case",
+      altPerStock: 6,
     }),
     db.insert(schema.items).values({
       id: item.glue,
@@ -571,6 +574,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     }),
   ]);
 
+
   const clientId = newId();
   const zoneA = newId();
   const zoneB = newId();
@@ -764,6 +768,58 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       itemId: item.shade,
       qty: 4,
       qtyMoved: 0,
+    }),
+    db.insert(schema.billingAccounts).values({
+      organizationId,
+      plan: "3pl",
+      status: "active",
+      createdAt: now,
+    }),
+    db.insert(schema.invoices).values({
+      id: newId(),
+      organizationId,
+      number: "INV-DEMO1",
+      periodStart: now - 30 * 86_400_000,
+      periodEnd: now,
+      amountCents: 500,
+      status: "draft",
+      createdAt: now,
+    }),
+  ]);
+
+  const browserPrinterId = newId();
+  const downloadPrinterId = newId();
+  const stationId = newId();
+  await db.batch([
+    db.insert(schema.printers).values({
+      id: browserPrinterId,
+      organizationId,
+      name: "Browser (HTML)",
+      connection: "browser",
+      media: "letter",
+      dpi: 203,
+      isDefault: 1,
+      createdAt: now,
+    }),
+    db.insert(schema.printers).values({
+      id: downloadPrinterId,
+      organizationId,
+      name: "ZPL download",
+      connection: "download",
+      media: "4x6",
+      dpi: 203,
+      isDefault: 0,
+      createdAt: now,
+    }),
+    db.insert(schema.printStations).values({
+      id: stationId,
+      organizationId,
+      name: "Front desk",
+      warehouseId,
+      defaultPrinterId: browserPrinterId,
+      bayPrinterId: browserPrinterId,
+      shippingPrinterId: downloadPrinterId,
+      createdAt: now,
     }),
   ]);
 
@@ -1044,6 +1100,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     now,
     ownerUserId: userId,
   });
+  await seedAssignedJobs(db, organizationId, userId, orderId, woId);
 
   return { organizationId };
 }

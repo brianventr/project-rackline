@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { accumulateHidKey, type HidBufferState } from "@/domain/hid-buffer";
 
 export type ScanSource = "hid" | "camera" | "typed";
 
@@ -8,25 +9,58 @@ export type ScanEvent = {
   at: number;
 };
 
+export type ScanPrefs = {
+  beep: boolean;
+  preferCamera: boolean;
+};
+
+type ScanHandler = (event: ScanEvent) => void;
+
 type ScannerContextValue = {
   lastScan: ScanEvent | null;
   emitScan: (raw: string, source: ScanSource) => void;
+  emitScanError: () => void;
+  subscribe: (handler: ScanHandler) => () => void;
   openCamera: () => void;
   closeCamera: () => void;
   cameraOpen: boolean;
   cameraSupported: boolean;
+  prefs: ScanPrefs;
+  setPrefs: (next: Partial<ScanPrefs>) => void;
 };
 
 const ScannerContext = createContext<ScannerContextValue | null>(null);
+const PREFS_KEY = "rackline.scanPrefs";
+const CAMERA_DEBOUNCE_MS = 800;
 
-const HID_GAP_MS = 40;
-const HID_MIN_LEN = 3;
-
-function cameraSupported(): boolean {
-  return typeof window !== "undefined" && "BarcodeDetector" in window && Boolean(navigator.mediaDevices?.getUserMedia);
+function defaultPrefs(): ScanPrefs {
+  return { beep: true, preferCamera: false };
 }
 
-function playTone(ok: boolean) {
+function loadPrefs(): ScanPrefs {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) return defaultPrefs();
+    const parsed = JSON.parse(raw) as Partial<ScanPrefs>;
+    return {
+      beep: parsed.beep !== false,
+      preferCamera: Boolean(parsed.preferCamera),
+    };
+  } catch {
+    return defaultPrefs();
+  }
+}
+
+function cameraHardwareAvailable(): boolean {
+  return typeof window !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia);
+}
+
+function barcodeDetectorAvailable(): boolean {
+  return typeof window !== "undefined" && "BarcodeDetector" in window;
+}
+
+function playTone(ok: boolean, enabled: boolean) {
+  if (!enabled) return;
   try {
     const ctx = new AudioContext();
     const osc = ctx.createOscillator();
@@ -47,14 +81,57 @@ function playTone(ok: boolean) {
 export function ScannerProvider({ children }: { children: ReactNode }) {
   const [lastScan, setLastScan] = useState<ScanEvent | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
-  const buffer = useRef("");
-  const lastKeyAt = useRef(0);
+  const [prefs, setPrefsState] = useState<ScanPrefs>(() =>
+    typeof window === "undefined" ? defaultPrefs() : loadPrefs(),
+  );
+  const hid = useRef<HidBufferState>({ buffer: "", lastKeyAt: 0 });
+  const listeners = useRef(new Set<ScanHandler>());
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
+  const lastCamera = useRef<{ raw: string; at: number } | null>(null);
 
-  const emitScan = useCallback((raw: string, source: ScanSource) => {
-    const value = raw.trim();
-    if (!value) return;
-    playTone(true);
-    setLastScan({ raw: value, source, at: Date.now() });
+  const publish = useCallback((event: ScanEvent) => {
+    setLastScan(event);
+    for (const handler of listeners.current) handler(event);
+  }, []);
+
+  const emitScan = useCallback(
+    (raw: string, source: ScanSource) => {
+      const value = raw.trim();
+      if (!value) return;
+      if (source === "camera") {
+        const prev = lastCamera.current;
+        const now = Date.now();
+        if (prev && prev.raw === value && now - prev.at < CAMERA_DEBOUNCE_MS) return;
+        lastCamera.current = { raw: value, at: now };
+      }
+      playTone(true, prefsRef.current.beep);
+      publish({ raw: value, source, at: Date.now() });
+    },
+    [publish],
+  );
+
+  const emitScanError = useCallback(() => {
+    playTone(false, prefsRef.current.beep);
+  }, []);
+
+  const subscribe = useCallback((handler: ScanHandler) => {
+    listeners.current.add(handler);
+    return () => {
+      listeners.current.delete(handler);
+    };
+  }, []);
+
+  const setPrefs = useCallback((next: Partial<ScanPrefs>) => {
+    setPrefsState((prev) => {
+      const merged = { ...prev, ...next };
+      try {
+        localStorage.setItem(PREFS_KEY, JSON.stringify(merged));
+      } catch {
+        // Ignore quota / private mode.
+      }
+      return merged;
+    });
   }, []);
 
   useEffect(() => {
@@ -63,38 +140,20 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       const inCapture = Boolean(target?.closest("[data-scan-capture]"));
       const inField =
         target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || Boolean(target?.isContentEditable);
-      const now = Date.now();
-      const rapid = now - lastKeyAt.current <= HID_GAP_MS;
-
-      if (event.key === "Enter") {
-        if (inCapture) {
-          buffer.current = "";
-          lastKeyAt.current = now;
-          return;
-        }
-        if (buffer.current.length >= HID_MIN_LEN && rapid) {
-          event.preventDefault();
-          const value = buffer.current;
-          buffer.current = "";
-          emitScan(value, "hid");
-        } else {
-          buffer.current = "";
-        }
-        lastKeyAt.current = now;
-        return;
+      const result = accumulateHidKey(hid.current, {
+        key: event.key,
+        now: Date.now(),
+        inCapture,
+        inField,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        altKey: event.altKey,
+      });
+      hid.current = result.state;
+      if (result.action === "emit") {
+        event.preventDefault();
+        emitScan(result.value, "hid");
       }
-
-      if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey) return;
-
-      if (!rapid && inField && !inCapture) {
-        buffer.current = "";
-        lastKeyAt.current = now;
-        return;
-      }
-
-      if (!rapid) buffer.current = "";
-      buffer.current += event.key;
-      lastKeyAt.current = now;
     }
 
     window.addEventListener("keydown", onKeyDown, true);
@@ -113,12 +172,16 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     () => ({
       lastScan,
       emitScan,
+      emitScanError,
+      subscribe,
       openCamera: () => setCameraOpen(true),
       closeCamera: () => setCameraOpen(false),
       cameraOpen,
-      cameraSupported: cameraSupported(),
+      cameraSupported: cameraHardwareAvailable(),
+      prefs,
+      setPrefs,
     }),
-    [lastScan, emitScan, cameraOpen],
+    [lastScan, emitScan, emitScanError, subscribe, cameraOpen, prefs, setPrefs],
   );
 
   return (
@@ -139,9 +202,21 @@ type Detector = {
   detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue: string }>>;
 };
 
+async function decodeWithZxing(video: HTMLVideoElement): Promise<string | null> {
+  try {
+    const { BrowserMultiFormatReader } = await import("@zxing/browser");
+    const reader = new BrowserMultiFormatReader();
+    const result = await reader.decodeOnceFromVideoElement(video);
+    return result.getText()?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 function CameraOverlay({ onClose, onScan }: { onClose: () => void; onScan: (raw: string) => void }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [engine, setEngine] = useState<"detector" | "zxing" | null>(null);
   const onScanRef = useRef(onScan);
   const onCloseRef = useRef(onClose);
   onScanRef.current = onScan;
@@ -151,6 +226,7 @@ function CameraOverlay({ onClose, onScan }: { onClose: () => void; onScan: (raw:
     let stream: MediaStream | null = null;
     let raf = 0;
     let closed = false;
+    let zxingTimer = 0;
     const video = videoRef.current;
     if (!video) return;
 
@@ -166,33 +242,49 @@ function CameraOverlay({ onClose, onScan }: { onClose: () => void; onScan: (raw:
         }
         video.srcObject = stream;
         await video.play();
+
         const DetectorCtor = (window as Window & { BarcodeDetector?: new (opts: { formats: string[] }) => Detector })
           .BarcodeDetector;
-        if (!DetectorCtor) {
-          setError("Camera barcode decoding is not available in this browser. Use a USB / Bluetooth scanner.");
+        if (DetectorCtor) {
+          setEngine("detector");
+          const detector = new DetectorCtor({
+            formats: ["code_128", "code_39", "code_93", "codabar", "ean_13", "ean_8", "upc_a", "upc_e", "qr_code", "itf"],
+          });
+          const tick = async () => {
+            if (closed || !video) return;
+            try {
+              const found = await detector.detect(video);
+              const value = found[0]?.rawValue?.trim();
+              if (value) {
+                onScanRef.current(value);
+                onCloseRef.current();
+                return;
+              }
+            } catch {
+              // Keep the viewfinder open if a frame fails to decode.
+            }
+            raf = window.requestAnimationFrame(() => {
+              void tick();
+            });
+          };
+          void tick();
           return;
         }
-        const detector = new DetectorCtor({
-          formats: ["code_128", "code_39", "code_93", "codabar", "ean_13", "ean_8", "upc_a", "upc_e", "qr_code", "itf"],
-        });
-        const tick = async () => {
+
+        setEngine("zxing");
+        const poll = async () => {
           if (closed || !video) return;
-          try {
-            const found = await detector.detect(video);
-            const value = found[0]?.rawValue?.trim();
-            if (value) {
-              onScanRef.current(value);
-              onCloseRef.current();
-              return;
-            }
-          } catch {
-            // Keep the viewfinder open if a frame fails to decode.
+          const value = await decodeWithZxing(video);
+          if (value) {
+            onScanRef.current(value);
+            onCloseRef.current();
+            return;
           }
-          raf = window.requestAnimationFrame(() => {
-            void tick();
-          });
+          zxingTimer = window.setTimeout(() => {
+            void poll();
+          }, 250);
         };
-        void tick();
+        void poll();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not open the camera");
       }
@@ -202,6 +294,7 @@ function CameraOverlay({ onClose, onScan }: { onClose: () => void; onScan: (raw:
     return () => {
       closed = true;
       window.cancelAnimationFrame(raf);
+      window.clearTimeout(zxingTimer);
       stream?.getTracks().forEach((track) => track.stop());
     };
   }, []);
@@ -222,7 +315,17 @@ function CameraOverlay({ onClose, onScan }: { onClose: () => void; onScan: (raw:
           <video ref={videoRef} className="aspect-[4/3] w-full object-cover" playsInline muted />
           <div className="pointer-events-none absolute inset-8 rounded-xl border-2 border-amber/80" />
         </div>
-        {error ? <p className="px-4 py-3 text-sm text-bad">{error}</p> : <p className="px-4 py-3 text-sm text-muted-foreground">USB and Bluetooth gun scanners also work from any screen — just scan.</p>}
+        {error ? (
+          <p className="px-4 py-3 text-sm text-bad">{error}</p>
+        ) : (
+          <p className="px-4 py-3 text-sm text-muted-foreground">
+            {engine === "zxing"
+              ? "Using ZXing camera decode. USB and Bluetooth guns also work from any screen."
+              : barcodeDetectorAvailable()
+                ? "USB and Bluetooth gun scanners also work from any screen — just scan."
+                : "Camera decode via ZXing. USB and Bluetooth guns also work from any screen."}
+          </p>
+        )}
       </div>
     </div>
   );

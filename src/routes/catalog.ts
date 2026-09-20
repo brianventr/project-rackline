@@ -487,6 +487,9 @@ catalogRoute.patch("/items/:id", async (c) => {
     trackSerial?: boolean;
     catchWeight?: boolean;
     trackExpiry?: boolean;
+    stockUom?: string;
+    altUom?: string | null;
+    altPerStock?: number | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -499,6 +502,9 @@ catalogRoute.patch("/items/:id", async (c) => {
     trackSerial?: boolean;
     catchWeight?: boolean;
     trackExpiry?: boolean;
+    stockUom?: string;
+    altUom?: string | null;
+    altPerStock?: number | null;
   } = {};
   if (body.reorderPoint !== undefined) {
     const reorderPoint = requireInt(body.reorderPoint, "reorderPoint");
@@ -519,6 +525,16 @@ catalogRoute.patch("/items/:id", async (c) => {
   if (body.trackExpiry !== undefined) {
     patch.trackExpiry = Boolean(body.trackExpiry);
     if (patch.trackExpiry) patch.trackLot = true;
+  }
+  if (body.stockUom !== undefined) patch.stockUom = requireString(body.stockUom, "stockUom");
+  if (body.altUom !== undefined) patch.altUom = body.altUom?.trim() || null;
+  if (body.altPerStock !== undefined) {
+    if (body.altPerStock === null) patch.altPerStock = null;
+    else {
+      const altPerStock = requireInt(body.altPerStock, "altPerStock");
+      if (altPerStock <= 0) badRequest("altPerStock must be positive");
+      patch.altPerStock = altPerStock;
+    }
   }
   if (Object.keys(patch).length === 0) badRequest("Nothing to update");
   try {
@@ -547,6 +563,29 @@ catalogRoute.delete("/items/:id", async (c) => {
 catalogRoute.get("/inventory", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  const clientId = c.req.query("clientId");
+  if (clientId) {
+    const stock = await db
+      .select({
+        qty: schema.clientBalances.qty,
+        updatedAt: schema.clientBalances.updatedAt,
+        itemId: schema.items.id,
+        sku: schema.items.sku,
+        itemName: schema.items.name,
+        locationId: schema.locations.id,
+        locationCode: schema.locations.code,
+        locationName: schema.locations.name,
+        warehouseId: schema.locations.warehouseId,
+      })
+      .from(schema.clientBalances)
+      .innerJoin(schema.items, eq(schema.items.id, schema.clientBalances.itemId))
+      .innerJoin(schema.locations, eq(schema.locations.id, schema.clientBalances.locationId))
+      .where(
+        and(eq(schema.clientBalances.organizationId, organizationId), eq(schema.clientBalances.clientId, clientId)),
+      )
+      .orderBy(schema.items.sku, schema.locations.code);
+    return c.json(stock);
+  }
   const rows = await db
     .select({
       id: schema.inventoryBalances.id,

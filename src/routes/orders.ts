@@ -45,9 +45,12 @@ import {
   loadOpenAllocations,
   releaseAllocationStatements,
 } from "../db/allocations";
+import type { OpenAllocation } from "../domain/allocations";
 import { cancelOrderDocument, persistUnpick, remainingToUnpick } from "../db/unpick";
 import { OverUnpickError } from "../domain/partial-unpick";
-import type { OpenAllocation } from "../domain/allocations";
+import { resolveLineStockQty, UomConversionError } from "../domain/uom";
+import { orderJobInput, guardFloorJob, syncDocumentJob } from "../db/jobs";
+import { desiredVerb } from "../domain/jobs";
 
 export const ordersRoute = new Hono<AppEnv>();
 
@@ -55,6 +58,7 @@ type IncomingPick = {
   lineId?: string;
   itemId?: string;
   qty?: number;
+  altQty?: number;
   lotCode?: string;
   serials?: string | string[];
   weightGrams?: number;
@@ -125,7 +129,13 @@ function allocatedUnits(allocations: OpenAllocation[]): number {
 
 async function withSuggestions<
   T extends { id: string; itemId: string; sku: string; qty: number; qtyPicked: number; qtyPacked: number },
->(db: AppEnv["Variables"]["db"], organizationId: string, lines: T[], excludeOrderId?: string) {
+>(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  lines: T[],
+  excludeOrderId?: string,
+  preferredZoneId?: string | null,
+) {
   const bays = await suggestedByItem(
     db,
     organizationId,
@@ -134,7 +144,8 @@ async function withSuggestions<
   );
   return lines.map((line) => {
     const remaining = remainingToPick(asPickLine(line));
-    const suggested = remaining > 0 ? suggestPickBay(bays.get(line.itemId) ?? [], remaining) : null;
+    const suggested =
+      remaining > 0 ? suggestPickBay(bays.get(line.itemId) ?? [], remaining, preferredZoneId) : null;
     return {
       ...line,
       remaining,
@@ -169,6 +180,7 @@ const orderLineSelect = {
   trackLot: schema.items.trackLot,
   trackSerial: schema.items.trackSerial,
   catchWeight: schema.items.catchWeight,
+  altPerStock: schema.items.altPerStock,
   shopifyLineItemId: schema.orderLines.shopifyLineItemId,
   shopifyFulfillmentLineItemId: schema.orderLines.shopifyFulfillmentLineItemId,
 };
@@ -191,8 +203,17 @@ async function orderWithLines(
     .innerJoin(schema.items, eq(schema.items.id, schema.orderLines.itemId))
     .where(eq(schema.orderLines.orderId, id));
   const allocations = await loadOpenAllocations(db, organizationId, { orderId: id });
+  let preferredZoneId: string | null = null;
+  if (order.waveId) {
+    const [wave] = await db
+      .select({ zoneId: schema.waves.zoneId })
+      .from(schema.waves)
+      .where(and(eq(schema.waves.id, order.waveId), eq(schema.waves.organizationId, organizationId)))
+      .limit(1);
+    preferredZoneId = wave?.zoneId ?? null;
+  }
   const decorated = options.suggest
-    ? await withSuggestions(db, organizationId, lines, order.id)
+    ? await withSuggestions(db, organizationId, lines, order.id, preferredZoneId)
     : lines.map(withRemaining);
   return {
     ...order,
@@ -203,7 +224,14 @@ async function orderWithLines(
 }
 
 function resolveIncoming(
-  lines: { id: string; itemId: string; remaining: number; sku: string; catchWeight?: boolean }[],
+  lines: {
+    id: string;
+    itemId: string;
+    remaining: number;
+    sku: string;
+    catchWeight?: boolean;
+    altPerStock?: number | null;
+  }[],
   bodyLines?: IncomingPick[],
 ): { lineId: string; qty: number; lotCode: string | null; serials: string[]; weightGrams: number | null }[] {
   if (Array.isArray(bodyLines) && bodyLines.length > 0) {
@@ -213,7 +241,21 @@ function resolveIncoming(
       const line =
         (row.lineId ? byId.get(row.lineId) : undefined) ?? (row.itemId ? byItem.get(row.itemId) : undefined);
       if (!line) badRequest("Line is not on this order");
-      const qty = row.qty === undefined || row.qty === null ? line.remaining : requireInt(row.qty, "qty");
+      let qty: number;
+      if (row.qty == null && row.altQty == null) {
+        qty = line.remaining;
+      } else {
+        try {
+          qty = resolveLineStockQty({
+            qty: row.qty == null ? undefined : requireInt(row.qty, "qty"),
+            altQty: row.altQty == null ? undefined : requireInt(row.altQty, "altQty"),
+            altPerStock: line.altPerStock,
+          });
+        } catch (err) {
+          if (err instanceof UomConversionError) badRequest(err.message);
+          throw err;
+        }
+      }
       return {
         lineId: line.id,
         qty,
@@ -389,7 +431,9 @@ ordersRoute.post("/orders", async (c) => {
     ...lines.map((line) => db.insert(schema.orderLines).values(line)),
   ]);
 
-  return c.json(await orderWithLines(db, organizationId, id), 201);
+  const created = await orderWithLines(db, organizationId, id);
+  await syncDocumentJob(db, orderJobInput(created));
+  return c.json(created, 201);
 });
 
 ordersRoute.post("/orders/:id/start", async (c) => {
@@ -397,6 +441,20 @@ ordersRoute.post("/orders/:id/start", async (c) => {
   const organizationId = c.get("organizationId")!;
   const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canStartPick(order.status)) conflict("Order is not open to start picking");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: order.warehouseId,
+    userId: c.get("user")!.id,
+    role: c.get("role")!,
+    refType: "order",
+    refId: order.id,
+    verb: "pick",
+    number: order.number,
+    title: order.source === "shopify" ? `${order.customerName} · Shopify` : order.customerName,
+    fromLocationId: order.pickLocationId,
+    dueAt: order.source === "shopify" ? order.createdAt : null,
+    createdAt: order.createdAt,
+  });
   await ensureAllocated(db, {
     organizationId,
     warehouseId: order.warehouseId,
@@ -409,7 +467,9 @@ ordersRoute.post("/orders/:id/start", async (c) => {
     })),
   });
   await db.update(schema.orders).set({ status: "picking" }).where(eq(schema.orders.id, order.id));
-  return c.json(await orderWithLines(db, organizationId, order.id));
+  const started = await orderWithLines(db, organizationId, order.id);
+  await syncDocumentJob(db, orderJobInput(started));
+  return c.json(started);
 });
 
 ordersRoute.post("/orders/:id/pick", async (c) => {
@@ -423,6 +483,20 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
   const user = c.get("user")!;
   const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canPickOrder(order.status)) conflict("Order is not open for picking");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: order.warehouseId,
+    userId: user.id,
+    role: c.get("role")!,
+    refType: "order",
+    refId: order.id,
+    verb: "pick",
+    number: order.number,
+    title: order.source === "shopify" ? `${order.customerName} · Shopify` : order.customerName,
+    fromLocationId: locationId,
+    dueAt: order.source === "shopify" ? order.createdAt : null,
+    createdAt: order.createdAt,
+  });
   if (!hasUnpicked(order.lines.map(asPickLine))) conflict("Order has nothing remaining to pick");
   await getOrgLocation(db, organizationId, locationId);
   const allocations = await ensureAllocated(db, {
@@ -485,6 +559,7 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
           lotCode: line.lotCode,
           serials: line.serials,
           weightGrams: line.weightGrams,
+          clientId: order.clientId,
         }),
     ),
   );
@@ -521,7 +596,9 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
     ],
   });
 
-  return c.json(await orderWithLines(db, organizationId, order.id));
+  const picked = await orderWithLines(db, organizationId, order.id);
+  await syncDocumentJob(db, orderJobInput(picked));
+  return c.json(picked);
 });
 
 ordersRoute.post("/orders/:id/pack", async (c) => {
@@ -532,6 +609,19 @@ ordersRoute.post("/orders/:id/pack", async (c) => {
   const organizationId = c.get("organizationId")!;
   const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canPackOrder(order.status)) conflict("Order must be picked before packing");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: order.warehouseId,
+    userId: c.get("user")!.id,
+    role: c.get("role")!,
+    refType: "order",
+    refId: order.id,
+    verb: "pack",
+    number: order.number,
+    title: order.source === "shopify" ? `${order.customerName} · Shopify` : order.customerName,
+    fromLocationId: order.pickLocationId,
+    createdAt: order.createdAt,
+  });
   if (!hasUnpacked(order.lines.map(asPackLine))) conflict("Order has nothing remaining to pack");
 
   const incoming = resolveIncomingPack(order.lines, body.lines).filter((line) => line.qty > 0);
@@ -582,7 +672,9 @@ ordersRoute.post("/orders/:id/pack", async (c) => {
     ),
   ]);
 
-  return c.json(await orderWithLines(db, organizationId, order.id));
+  const packed = await orderWithLines(db, organizationId, order.id);
+  await syncDocumentJob(db, orderJobInput(packed));
+  return c.json(packed);
 });
 
 ordersRoute.post("/orders/:id/start-pack", async (c) => {
@@ -590,8 +682,23 @@ ordersRoute.post("/orders/:id/start-pack", async (c) => {
   const organizationId = c.get("organizationId")!;
   const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canStartPack(order.status)) conflict("Order must be picked before packing");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: order.warehouseId,
+    userId: c.get("user")!.id,
+    role: c.get("role")!,
+    refType: "order",
+    refId: order.id,
+    verb: "pack",
+    number: order.number,
+    title: order.source === "shopify" ? `${order.customerName} · Shopify` : order.customerName,
+    fromLocationId: order.pickLocationId,
+    createdAt: order.createdAt,
+  });
   await db.update(schema.orders).set({ status: "packing" }).where(eq(schema.orders.id, order.id));
-  return c.json(await orderWithLines(db, organizationId, order.id));
+  const packing = await orderWithLines(db, organizationId, order.id);
+  await syncDocumentJob(db, orderJobInput(packing));
+  return c.json(packing);
 });
 
 async function warehouseShipFrom(
@@ -756,6 +863,19 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   const user = c.get("user")!;
   const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canShipOrder(order.status)) conflict("Order must be packed before shipping");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: order.warehouseId,
+    userId: user.id,
+    role: c.get("role")!,
+    refType: "order",
+    refId: order.id,
+    verb: "ship",
+    number: order.number,
+    title: order.source === "shopify" ? `${order.customerName} · Shopify` : order.customerName,
+    fromLocationId: order.pickLocationId,
+    createdAt: order.createdAt,
+  });
   const locationId = order.pickLocationId;
   if (!locationId) conflict("Pick location missing");
 
@@ -788,6 +908,7 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
       refType: "order",
       refId: order.id,
       weightGrams,
+      clientId: order.clientId,
     };
   });
   const plan: StockPlan = { balances: new Map(), movements };
@@ -823,7 +944,9 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   if (order.source === "shopify") {
     shopify = await fulfillShopifyOrder(db, organizationId, order.id);
   }
-  return c.json({ ...(await orderWithLines(db, organizationId, order.id)), shopify });
+  const shipped = await orderWithLines(db, organizationId, order.id);
+  await syncDocumentJob(db, orderJobInput(shipped));
+  return c.json({ ...shipped, shopify });
 });
 
 ordersRoute.post("/orders/:id/unpick", async (c) => {
@@ -838,6 +961,22 @@ ordersRoute.post("/orders/:id/unpick", async (c) => {
   const user = c.get("user")!;
   const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canUnpickOrder(order.status)) conflict("Order cannot be unpicked");
+  const unpickVerb = desiredVerb("order", order.status);
+  if (unpickVerb) {
+    await guardFloorJob(db, {
+      organizationId,
+      warehouseId: order.warehouseId,
+      userId: user.id,
+      role: c.get("role")!,
+      refType: "order",
+      refId: order.id,
+      verb: unpickVerb,
+      number: order.number,
+      title: order.source === "shopify" ? `${order.customerName} · Shopify` : order.customerName,
+      fromLocationId: order.pickLocationId,
+      createdAt: order.createdAt,
+    });
+  }
   const unpickLines = order.lines.map((line) => ({
     lineId: line.id,
     sku: line.sku,
@@ -865,7 +1004,9 @@ ordersRoute.post("/orders/:id/unpick", async (c) => {
     if (err instanceof OverUnpickError) throw err;
     badRequest(err instanceof Error ? err.message : "Invalid unpick");
   }
-  return c.json(await orderWithLines(db, organizationId, order.id));
+  const unpicked = await orderWithLines(db, organizationId, order.id);
+  await syncDocumentJob(db, orderJobInput(unpicked));
+  return c.json(unpicked);
 });
 
 ordersRoute.post("/orders/:id/cancel", async (c) => {
@@ -880,7 +1021,9 @@ ordersRoute.post("/orders/:id/cancel", async (c) => {
     createdBy: user.id,
   });
   if (!cancelled) conflict("Order cannot be cancelled");
-  return c.json(await orderWithLines(db, organizationId, order.id));
+  const cancelledOrder = await orderWithLines(db, organizationId, order.id);
+  await syncDocumentJob(db, orderJobInput(cancelledOrder));
+  return c.json(cancelledOrder);
 });
 
 ordersRoute.post("/orders/:id/shopify/fulfill", async (c) => {

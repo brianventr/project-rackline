@@ -10,6 +10,7 @@ import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { canCompleteWorkOrder } from "../domain/status";
 import { loadAsBuiltForRef } from "../db/as-built";
 import { applyPartialComplete, isFullyCompleted, remainingToComplete, OverCompleteError } from "../domain/partial-complete";
+import { guardFloorJob, syncDocumentJob } from "../db/jobs";
 
 export const manufacturingRoute = new Hono<AppEnv>();
 
@@ -219,7 +220,22 @@ manufacturingRoute.post("/work-orders", async (c) => {
     })
     .returning();
 
-  return c.json(row, 201);
+  const created = await workOrderWithItem(db, organizationId, row.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: created.warehouseId,
+    refType: "workOrder",
+    refId: created.id,
+    status: created.status,
+    number: created.number,
+    title: `${created.sku} × ${created.qty}`,
+    fromLocationId: created.sourceLocationId,
+    toLocationId: created.outputLocationId,
+    itemId: created.itemId,
+    qty: created.qty,
+    createdAt: created.createdAt,
+  });
+  return c.json(created, 201);
 });
 
 manufacturingRoute.post("/work-orders/:id/start", async (c) => {
@@ -227,8 +243,39 @@ manufacturingRoute.post("/work-orders/:id/start", async (c) => {
   const organizationId = c.get("organizationId")!;
   const wo = await workOrderWithItem(db, organizationId, c.req.param("id"));
   if (wo.status !== "draft") conflict("Work order is not a draft");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: wo.warehouseId,
+    userId: c.get("user")!.id,
+    role: c.get("role")!,
+    refType: "workOrder",
+    refId: wo.id,
+    verb: "assemble",
+    number: wo.number,
+    title: `${wo.sku} × ${wo.qty}`,
+    fromLocationId: wo.sourceLocationId,
+    toLocationId: wo.outputLocationId,
+    itemId: wo.itemId,
+    qty: wo.qty,
+    createdAt: wo.createdAt,
+  });
   await db.update(schema.workOrders).set({ status: "in_progress" }).where(eq(schema.workOrders.id, wo.id));
-  return c.json(await workOrderWithItem(db, organizationId, wo.id));
+  const started = await workOrderWithItem(db, organizationId, wo.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: started.warehouseId,
+    refType: "workOrder",
+    refId: started.id,
+    status: started.status,
+    number: started.number,
+    title: `${started.sku} × ${started.qty}`,
+    fromLocationId: started.sourceLocationId,
+    toLocationId: started.outputLocationId,
+    itemId: started.itemId,
+    qty: started.qty - (started.qtyCompleted ?? 0),
+    createdAt: started.createdAt,
+  });
+  return c.json(started);
 });
 
 manufacturingRoute.post("/work-orders/:id/complete", async (c) => {
@@ -240,6 +287,21 @@ manufacturingRoute.post("/work-orders/:id/complete", async (c) => {
   const user = c.get("user")!;
   const wo = await workOrderWithItem(db, organizationId, c.req.param("id"));
   if (!canCompleteWorkOrder(wo.status)) conflict("Work order already completed");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: wo.warehouseId,
+    userId: user.id,
+    role: c.get("role")!,
+    refType: "workOrder",
+    refId: wo.id,
+    verb: "assemble",
+    number: wo.number,
+    title: `${wo.sku} × ${wo.qty}`,
+    fromLocationId: wo.sourceLocationId,
+    toLocationId: wo.outputLocationId,
+    itemId: wo.itemId,
+    createdAt: wo.createdAt,
+  });
 
   const remaining = remainingToComplete(wo.qty, wo.qtyCompleted);
   if (remaining <= 0) conflict("Work order has nothing remaining");
@@ -308,5 +370,20 @@ manufacturingRoute.post("/work-orders/:id/complete", async (c) => {
     ],
   });
 
-  return c.json(await workOrderWithItem(db, organizationId, wo.id));
+  const completed = await workOrderWithItem(db, organizationId, wo.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: completed.warehouseId,
+    refType: "workOrder",
+    refId: completed.id,
+    status: completed.status,
+    number: completed.number,
+    title: `${completed.sku} × ${completed.qty}`,
+    fromLocationId: completed.sourceLocationId,
+    toLocationId: completed.outputLocationId,
+    itemId: completed.itemId,
+    qty: completed.qty - (completed.qtyCompleted ?? 0),
+    createdAt: completed.createdAt,
+  });
+  return c.json(completed);
 });

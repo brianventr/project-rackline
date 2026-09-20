@@ -2,12 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Location, type ScanHit, type VendorReturn } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { FloorFrame, FloorScanBox, ClaimList, openFloorRow } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { canPostVendorReturn } from "@/domain/status";
 import { hasUnreturned } from "@/domain/partial-rtv";
+import { useSession } from "../../session";
+import { jobForRef, useOpenJobs } from "../../jobs";
 
 export function FloorRtvPage() {
+  const me = useSession();
+  const { jobs, reload: reloadJobs } = useOpenJobs("rtv");
   const [params] = useSearchParams();
   const [returns, setReturns] = useState<VendorReturn[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -53,7 +57,8 @@ export function FloorRtvPage() {
     const wanted = params.get("id");
     if (wanted) {
       const match = await api<VendorReturn>(`/api/vendor-returns/${wanted}`);
-      openRtv(match);
+      const nextJobs = await reloadJobs();
+      openFloorRow(match, me.user.id, jobForRef(nextJobs, "vendorReturn", match.id, "rtv"), openRtv, setError);
     }
   }
 
@@ -67,7 +72,9 @@ export function FloorRtvPage() {
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
       .then((hit) => {
         if (hit.kind === "vendorReturn") {
-          void api<VendorReturn>(`/api/vendor-returns/${hit.vendorReturn.id}`).then(openRtv);
+          void api<VendorReturn>(`/api/vendor-returns/${hit.vendorReturn.id}`).then((rtv) =>
+            openFloorRow(rtv, me.user.id, jobForRef(jobs, "vendorReturn", rtv.id, "rtv"), openRtv, setError),
+          );
           return;
         }
         if (hit.kind === "location") {
@@ -77,7 +84,7 @@ export function FloorRtvPage() {
         setError("Scan a vendor return or a bay barcode.");
       })
       .catch((err: Error) => setError(err.message));
-  }, []);
+  }, [jobs, me.user.id]);
 
   async function postReturn() {
     if (!active) return;
@@ -119,19 +126,23 @@ export function FloorRtvPage() {
       <FloorScanBox label="Scan vendor return or bay" placeholder="RTV-DEMO1 or A-01-01" onScan={onScan} />
       {done ? <p className="text-sm text-emerald-700">{done}</p> : null}
       {!active ? (
-        <Card>
-          <p className="mb-3 font-medium">Open vendor returns</p>
-          <ul className="space-y-2 text-sm">
-            {returns.map((row) => (
-              <li key={row.id}>
-                <button className="w-full text-left" onClick={() => void api<VendorReturn>(`/api/vendor-returns/${row.id}`).then(openRtv)}>
-                  <span className="font-mono">{row.number}</span> {row.vendorName} <StatusBadge status={row.status} />
-                </button>
-              </li>
-            ))}
-            {returns.length === 0 ? <li className="text-muted-foreground">Nothing to ship back.</li> : null}
-          </ul>
-        </Card>
+        <ClaimList
+          title="Open vendor returns"
+          empty="Nothing to ship back."
+          rows={returns}
+          userId={me.user.id}
+          jobFor={(row) => jobForRef(jobs, "vendorReturn", row.id, "rtv")}
+          onOpen={(row) =>
+            openFloorRow(row, me.user.id, jobForRef(jobs, "vendorReturn", row.id, "rtv"), (rtv) => {
+              void api<VendorReturn>(`/api/vendor-returns/${rtv.id}`).then(openRtv);
+            }, setError)
+          }
+          render={(row) => (
+            <>
+              <span className="font-mono">{row.number}</span> {row.vendorName} <StatusBadge status={row.status} />
+            </>
+          )}
+        />
       ) : (
         <Card className="space-y-4">
           <div className="flex items-center justify-between">

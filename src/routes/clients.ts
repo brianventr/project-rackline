@@ -58,6 +58,36 @@ clientsRoute.patch("/clients/:id", async (c) => {
   return c.json(row);
 });
 
+clientsRoute.get("/clients/:id/stock", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const clientId = c.req.param("id");
+  const [client] = await db
+    .select()
+    .from(schema.clients)
+    .where(and(eq(schema.clients.id, clientId), eq(schema.clients.organizationId, organizationId)))
+    .limit(1);
+  if (!client) notFound("Client not found");
+  const rows = await db
+    .select({
+      qty: schema.clientBalances.qty,
+      updatedAt: schema.clientBalances.updatedAt,
+      locationId: schema.locations.id,
+      locationCode: schema.locations.code,
+      locationName: schema.locations.name,
+      itemId: schema.items.id,
+      sku: schema.items.sku,
+      itemName: schema.items.name,
+      warehouseId: schema.locations.warehouseId,
+    })
+    .from(schema.clientBalances)
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.clientBalances.locationId))
+    .innerJoin(schema.items, eq(schema.items.id, schema.clientBalances.itemId))
+    .where(and(eq(schema.clientBalances.organizationId, organizationId), eq(schema.clientBalances.clientId, clientId)))
+    .orderBy(schema.items.sku, schema.locations.code);
+  return c.json({ client, stock: rows });
+});
+
 clientsRoute.delete("/clients/:id", async (c) => {
   requireOwner(c.get("role"));
   const db = c.get("db");

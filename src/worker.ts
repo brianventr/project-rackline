@@ -15,9 +15,10 @@ import { OverBatchPickError } from "./domain/waves";
 import { HeldStockError } from "./domain/holds";
 import { ExpiredLotError } from "./domain/expiry";
 import { InsufficientAtpError } from "./domain/allocations";
+import { ClientStockError } from "./domain/client-stock";
+import { JobClaimedError, JobNotReadyError, JobVerbDeniedError } from "./domain/jobs";
 import { EquipmentCustodyError } from "./domain/equipment";
-import type { AppEnv } from "./lib/types";
-import { originFrom } from "./lib/types";
+import { originFrom, type AppEnv } from "./lib/types";
 import { registerRoute } from "./routes/register";
 import { demoRoute } from "./routes/demo";
 import { meRoute } from "./routes/me";
@@ -38,6 +39,7 @@ import { replenishmentsRoute } from "./routes/replenishments";
 import { kitsRoute } from "./routes/kits";
 import { holdsRoute } from "./routes/holds";
 import { vendorReturnsRoute } from "./routes/vendor-returns";
+import { jobsRoute } from "./routes/jobs";
 import { carriersRoute } from "./routes/carriers";
 import { wavesRoute } from "./routes/waves";
 import { asnsRoute } from "./routes/asns";
@@ -45,9 +47,11 @@ import { zonesRoute } from "./routes/zones";
 import { clientsRoute } from "./routes/clients";
 import { yardRoute } from "./routes/yard";
 import { laborRoute } from "./routes/labor";
+import { printersRoute } from "./routes/printers";
+import { billingRoute } from "./routes/billing";
+import { ediRoute } from "./routes/edi";
 import { equipmentRoute } from "./routes/equipment";
 import { analyticsRoute } from "./routes/analytics";
-
 const app = new Hono<AppEnv>();
 
 app.onError((err, c) => {
@@ -197,6 +201,30 @@ app.onError((err, c) => {
       409,
     );
   }
+  if (err instanceof ClientStockError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "CLIENT_STOCK",
+        clientId: err.clientId,
+        itemId: err.itemId,
+        onHand: err.onHand,
+        needed: err.needed,
+      },
+      409,
+    );
+  }
+  if (err instanceof JobClaimedError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "JOB_CLAIMED",
+        claimedById: err.claimedById,
+        claimedByName: err.claimedByName,
+      },
+      409,
+    );
+  }
   if (err instanceof EquipmentCustodyError) {
     return c.json(
       {
@@ -206,6 +234,12 @@ app.onError((err, c) => {
       },
       409,
     );
+  }
+  if (err instanceof JobNotReadyError) {
+    return c.json({ error: err.message, code: "JOB_NOT_READY", notBefore: err.notBefore }, 409);
+  }
+  if (err instanceof JobVerbDeniedError) {
+    return c.json({ error: err.message, code: "JOB_VERB_DENIED", verb: err.verb }, 403);
   }
   if (err instanceof ShopifyIngestError) {
     return c.json({ error: err.message }, err.status as 400 | 409);
@@ -279,6 +313,7 @@ app.route("/api", replenishmentsRoute);
 app.route("/api", kitsRoute);
 app.route("/api", holdsRoute);
 app.route("/api", vendorReturnsRoute);
+app.route("/api", jobsRoute);
 app.route("/api", carriersRoute);
 app.route("/api", wavesRoute);
 app.route("/api", asnsRoute);
@@ -286,6 +321,9 @@ app.route("/api", zonesRoute);
 app.route("/api", clientsRoute);
 app.route("/api", yardRoute);
 app.route("/api", laborRoute);
+app.route("/api", printersRoute);
+app.route("/api", billingRoute);
+app.route("/api", ediRoute);
 app.route("/api", equipmentRoute);
 app.route("/api", analyticsRoute);
 

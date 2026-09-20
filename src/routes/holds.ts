@@ -9,6 +9,7 @@ import { coveringHold, HOLD_REASONS } from "../domain/holds";
 import { normalizeLotCode } from "../domain/lots";
 import { canReleaseHold } from "../domain/status";
 import { loadOpenHolds } from "../db/holds";
+import { guardFloorJob, syncDocumentJob } from "../db/jobs";
 
 export const holdsRoute = new Hono<AppEnv>();
 
@@ -123,7 +124,20 @@ holdsRoute.post("/holds", async (c) => {
     })
     .returning();
 
-  return c.json(await holdWithScope(db, organizationId, row.id), 201);
+  const created = await holdWithScope(db, organizationId, row.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: created.warehouseId,
+    refType: "hold",
+    refId: created.id,
+    status: created.status,
+    number: created.number,
+    title: created.reason,
+    fromLocationId: created.locationId,
+    itemId: created.itemId,
+    createdAt: created.createdAt,
+  });
+  return c.json(created, 201);
 });
 
 holdsRoute.post("/holds/:id/release", async (c) => {
@@ -131,9 +145,36 @@ holdsRoute.post("/holds/:id/release", async (c) => {
   const organizationId = c.get("organizationId")!;
   const hold = await holdWithScope(db, organizationId, c.req.param("id"));
   if (!canReleaseHold(hold.status)) conflict("Hold is already released");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: hold.warehouseId,
+    userId: c.get("user")!.id,
+    role: c.get("role")!,
+    refType: "hold",
+    refId: hold.id,
+    verb: "hold",
+    number: hold.number,
+    title: hold.reason,
+    fromLocationId: hold.locationId,
+    itemId: hold.itemId,
+    createdAt: hold.createdAt,
+  });
   await db
     .update(schema.inventoryHolds)
     .set({ status: "released", releasedAt: Date.now() })
     .where(eq(schema.inventoryHolds.id, hold.id));
-  return c.json(await holdWithScope(db, organizationId, hold.id));
+  const released = await holdWithScope(db, organizationId, hold.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: released.warehouseId,
+    refType: "hold",
+    refId: released.id,
+    status: released.status,
+    number: released.number,
+    title: released.reason,
+    fromLocationId: released.locationId,
+    itemId: released.itemId,
+    createdAt: released.createdAt,
+  });
+  return c.json(released);
 });
