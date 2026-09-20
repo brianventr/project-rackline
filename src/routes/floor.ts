@@ -829,6 +829,7 @@ floorRoute.get("/scan", async (c) => {
           itemId: schema.rmaLines.itemId,
           qtyExpected: schema.rmaLines.qtyExpected,
           qtyReceived: schema.rmaLines.qtyReceived,
+          disposition: schema.rmaLines.disposition,
           sku: schema.items.sku,
           itemName: schema.items.name,
         })

@@ -37,6 +37,7 @@ describe("isAtpRestrictedType", () => {
     expect(isAtpRestrictedType("move")).toBe(true);
     expect(isAtpRestrictedType("receive")).toBe(false);
     expect(isAtpRestrictedType("ship")).toBe(false);
+    expect(isAtpRestrictedType("scrap")).toBe(false);
   });
 });
 

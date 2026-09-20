@@ -669,6 +669,7 @@ export type RmaLine = {
   remaining: number;
   sku: string;
   itemName: string;
+  disposition?: string;
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;

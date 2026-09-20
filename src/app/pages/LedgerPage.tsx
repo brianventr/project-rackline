@@ -23,7 +23,7 @@ export function LedgerPage() {
       <PageHeader
         eyebrow="Stock"
         title="Ledger"
-        description="Every receive, move, pick, ship, kit, replenishment, and work-order movement."
+        description="Every receive, move, pick, ship, kit, replenishment, scrap, and work-order movement."
       />
       <ErrorBanner error={error} />
       <Table columns={["When", "Type", "SKU", "Qty", "Weight", "Lot", "Expiry", "From", "To", "Reason"]}>

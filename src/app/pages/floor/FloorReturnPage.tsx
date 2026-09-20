@@ -5,8 +5,15 @@ import { Button, Card, Field, Input, Select, StatusBadge } from "../../component
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
+import { DispositionSelect } from "../../components/disposition-field";
 import { canReceiveReturn } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
+import {
+  parseDisposition,
+  returnPostedMessage,
+  showPutawayAfterReturn,
+  type ReturnDisposition,
+} from "@/domain/return-disposition";
 
 export function FloorReturnPage() {
   const [params] = useSearchParams();
@@ -18,12 +25,25 @@ export function FloorReturnPage() {
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
+  const [dispositions, setDispositions] = useState<Record<string, ReturnDisposition>>({});
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [postedDispositions, setPostedDispositions] = useState<string[]>([]);
 
   function openRma(rma: Rma) {
     setActive(rma);
     setQtys(Object.fromEntries((rma.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+    setDispositions(
+      Object.fromEntries(
+        (rma.lines ?? []).map((line) => {
+          try {
+            return [line.itemId, parseDisposition(line.disposition)];
+          } catch {
+            return [line.itemId, "restock" as const];
+          }
+        }),
+      ),
+    );
   }
 
   async function load() {
@@ -84,6 +104,7 @@ export function FloorReturnPage() {
           serials: serials[line.itemId] || undefined,
           weightGrams: parseWeightGrams(weights[line.itemId]),
           expiresOn: parseExpiryInput(expiries[line.itemId]),
+          disposition: dispositions[line.itemId] ?? "restock",
         }))
         .filter((line) => line.qty > 0);
       const posted = await api<Rma>(`/api/returns/${active.id}/receive`, {
@@ -91,7 +112,9 @@ export function FloorReturnPage() {
         body: JSON.stringify({ locationId, lines }),
       });
       openRma(posted);
-      setDone(`${posted.number} received back into the bay.`);
+      const kinds = lines.map((line) => line.disposition);
+      setPostedDispositions(kinds);
+      setDone(returnPostedMessage(posted.number, kinds));
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Receive failed");
@@ -108,18 +131,33 @@ export function FloorReturnPage() {
       })),
     );
 
+  const putaway = showPutawayAfterReturn(
+    postedDispositions.length
+      ? postedDispositions
+      : (active?.lines ?? []).filter((line) => line.qtyReceived > 0).map((line) => line.disposition ?? "restock"),
+  );
+  const held = (postedDispositions.length ? postedDispositions : (active?.lines ?? []).map((line) => line.disposition ?? "")).includes(
+    "hold",
+  );
+
   return (
-    <FloorFrame title="Return" description="Scan an RMA, scan the bay, put the goods back on hand." error={error}>
+    <FloorFrame title="Return" description="Scan an RMA, scan the bay, restock, scrap, or hold." error={error}>
       <FloorScanBox label="Scan return or bay" placeholder="RMA-DEMO1 or RECV" onScan={onScan} />
       {done ? (
         <p className="text-sm text-emerald-700">
           {done}{" "}
-          <Link
-            className="font-medium underline"
-            to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
-          >
-            Put away
-          </Link>
+          {putaway ? (
+            <Link
+              className="font-medium underline"
+              to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
+            >
+              Put away
+            </Link>
+          ) : held ? (
+            <Link className="font-medium underline" to="/floor/hold">
+              Holds
+            </Link>
+          ) : null}
         </p>
       ) : null}
       {!active ? (
@@ -164,6 +202,12 @@ export function FloorReturnPage() {
                   <span className="text-muted-foreground">Done</span>
                 )}
                 </div>
+                {line.remaining > 0 ? (
+                  <DispositionSelect
+                    value={dispositions[line.itemId] ?? "restock"}
+                    onChange={(value) => setDispositions((current) => ({ ...current, [line.itemId]: value }))}
+                  />
+                ) : null}
                 {line.trackSerial ? (
                   <Input
                     placeholder="Serials"
@@ -198,12 +242,18 @@ export function FloorReturnPage() {
           ) : (
             <div className="space-y-2">
               <p>Already received.</p>
-              <Link
-                className="block text-sm underline"
-                to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
-              >
-                Put away from this bay
-              </Link>
+              {putaway ? (
+                <Link
+                  className="block text-sm underline"
+                  to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
+                >
+                  Put away from this bay
+                </Link>
+              ) : held ? (
+                <Link className="block text-sm underline" to="/floor/hold">
+                  Held at the dock
+                </Link>
+              ) : null}
             </div>
           )}
           <Link className="block text-sm underline" to="/outbound/returns">

@@ -493,6 +493,7 @@ export const rmaLines = sqliteTable(
       .references(() => items.id),
     qtyExpected: integer("qty_expected").notNull(),
     qtyReceived: integer("qty_received").notNull().default(0),
+    disposition: text("disposition").notNull().default("restock"),
   },
   (t) => [uniqueIndex("rma_lines_rma_item").on(t.rmaId, t.itemId)],
 );
@@ -689,4 +690,6 @@ export type MovementType =
   | "wo_consume"
   | "wo_produce"
   | "kit_consume"
-  | "kit_produce";
+  | "kit_produce"
+  | "scrap";
+export type ReturnDisposition = "restock" | "scrap" | "hold";

@@ -13,6 +13,7 @@ import {
   type MovementDraft,
   type StockPlan,
 } from "../domain/inventory";
+import { returnReceiveSteps, type ReturnDisposition } from "../domain/return-disposition";
 import { newId } from "../lib/ids";
 import { appendTraceabilityStatements, expandMovementsForTraceability } from "./traceability";
 import { appendAsBuiltStatements } from "./as-built";
@@ -160,7 +161,16 @@ export async function postReceiveLines(
     locationId: string;
     refType: string;
     refId: string;
-    lines: { itemId: string; qty: number; lotCode?: string | null; serials?: string[] | null; weightGrams?: number | null; expiresOn?: number | null }[];
+    lines: {
+      itemId: string;
+      sku?: string;
+      qty: number;
+      lotCode?: string | null;
+      serials?: string[] | null;
+      weightGrams?: number | null;
+      expiresOn?: number | null;
+      disposition?: ReturnDisposition;
+    }[];
     extra?: BatchItem<"sqlite">[];
   },
 ): Promise<void> {
@@ -171,20 +181,37 @@ export async function postReceiveLines(
   );
   const plan = chainPlans(
     qtyMap(loaded),
-    input.lines.map((line) => (balances) =>
-      planReceive({
-        itemId: line.itemId,
-        locationId: input.locationId,
-        qty: line.qty,
-        refId: input.refId,
-        refType: input.refType,
-        lotCode: line.lotCode,
-        serials: line.serials,
-        weightGrams: line.weightGrams,
-        expiresOn: line.expiresOn,
-        balances,
-      }),
-    ),
+    input.lines.flatMap((line) => {
+      if (input.refType === "return") {
+        return returnReceiveSteps({
+          itemId: line.itemId,
+          sku: line.sku ?? line.itemId,
+          locationId: input.locationId,
+          qty: line.qty,
+          refId: input.refId,
+          disposition: line.disposition ?? "restock",
+          lotCode: line.lotCode,
+          serials: line.serials,
+          weightGrams: line.weightGrams,
+          expiresOn: line.expiresOn,
+        });
+      }
+      return [
+        (balances: Map<string, number>) =>
+          planReceive({
+            itemId: line.itemId,
+            locationId: input.locationId,
+            qty: line.qty,
+            refId: input.refId,
+            refType: input.refType,
+            lotCode: line.lotCode,
+            serials: line.serials,
+            weightGrams: line.weightGrams,
+            expiresOn: line.expiresOn,
+            balances,
+          }),
+      ];
+    }),
   );
   await persistStockPlan(db, {
     organizationId: input.organizationId,
