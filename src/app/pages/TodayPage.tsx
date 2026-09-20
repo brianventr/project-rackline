@@ -1,33 +1,69 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Dashboard } from "../api";
-import { ErrorBanner, PageHeader, StatusBadge } from "../components/ui";
+import { api, type Dashboard, type FloorJob, type TeamMember } from "../api";
+import { ErrorBanner, PageHeader, Select, StatusBadge } from "../components/ui";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useWarehouse } from "../warehouse";
+import { useSession } from "../session";
 import { statusLabel } from "@/domain/status";
 import { formatCountVariance } from "@/domain/blind-count";
 import { formatExpiresOn } from "@/domain/expiry";
+import { desiredVerb } from "@/domain/jobs";
+import { jobForRef, jobForSuggestion } from "../jobs";
 
 export function TodayPage() {
   const { warehouseId } = useWarehouse();
+  const me = useSession();
   const [data, setData] = useState<Dashboard | null>(null);
+  const [jobs, setJobs] = useState<FloorJob[]>([]);
+  const [team, setTeam] = useState<TeamMember[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  async function load() {
     const query = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : "";
-    api<Dashboard>(`/api/dashboard${query}`)
-      .then(setData)
-      .catch((err: Error) => setError(err.message));
+    const [nextDashboard, nextJobs, nextTeam] = await Promise.all([
+      api<Dashboard>(`/api/dashboard${query}`),
+      api<FloorJob[]>(`/api/jobs${query}${query ? "&" : "?"}open=1`),
+      api<TeamMember[]>("/api/team"),
+    ]);
+    setData(nextDashboard);
+    setJobs(nextJobs);
+    setTeam(nextTeam);
+  }
+
+  useEffect(() => {
+    load().catch((err: Error) => setError(err.message));
   }, [warehouseId]);
 
+  async function assign(jobId: string, userId: string | null) {
+    setError(null);
+    try {
+      await api(`/api/jobs/${jobId}/assign`, { method: "POST", body: JSON.stringify({ userId }) });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not assign");
+    }
+  }
+
+  async function pin(jobId: string, pinned: boolean) {
+    setError(null);
+    try {
+      await api(`/api/jobs/${jobId}/pin`, { method: "POST", body: JSON.stringify({ pinned }) });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not pin");
+    }
+  }
+
   const queues = data?.queues;
+  const dispatch = { team, role: me.role, onAssign: assign, onPin: pin };
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Office"
         title="Today"
-        description="Work waiting on the dock, in the aisles, on the bench, and at the box."
+        description="Dispatch board: assign floor jobs, or leave them unassigned so the next scan claims them."
       />
       <ErrorBanner error={error} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -61,6 +97,7 @@ export function TodayPage() {
         <QueueCard
           title="Dock receipts"
           empty="No open receipts."
+          dispatch={dispatch}
           rows={(queues?.receipts ?? []).map((row) => ({
             id: row.id,
             to: `/inbound/receipts/${row.id}`,
@@ -69,11 +106,13 @@ export function TodayPage() {
             status: row.status,
             actionTo: `/floor/receive?id=${row.id}`,
             action: "Receive",
+            job: jobForRef(jobs, "receipt", row.id, "receive"),
           }))}
         />
         <QueueCard
           title="Purchase orders"
           empty="No open purchases."
+          dispatch={dispatch}
           rows={(queues?.purchases ?? []).map((row) => ({
             id: row.id,
             to: `/inbound/purchases/${row.id}`,
@@ -82,11 +121,13 @@ export function TodayPage() {
             status: row.status,
             actionTo: `/floor/receive?purchase=${row.id}`,
             action: "Receive",
+            job: jobForRef(jobs, "purchase", row.id, "receive"),
           }))}
         />
         <QueueCard
           title="Putaway"
           empty="Nothing waiting to be put away."
+          dispatch={dispatch}
           rows={[
             ...(queues?.putaways ?? []).map((row) => ({
               id: row.id,
@@ -96,6 +137,7 @@ export function TodayPage() {
               status: row.status,
               actionTo: `/floor/putaway?id=${row.id}`,
               action: "Put away",
+              job: jobForRef(jobs, "transfer", row.id, "putaway"),
             })),
             ...(data?.putawaySuggestions ?? []).map((row) => ({
               id: `dock-${row.fromLocationId}-${row.itemId}`,
@@ -105,12 +147,14 @@ export function TodayPage() {
               status: "dock",
               actionTo: `/floor/putaway?from=${encodeURIComponent(row.fromBarcode)}`,
               action: "Put away",
+              job: jobForSuggestion(jobs, "putawaySuggestion", row.fromLocationId, row.itemId, row.toLocationId),
             })),
           ]}
         />
         <QueueCard
           title="Pick / pack / ship"
           empty="No open orders."
+          dispatch={dispatch}
           rows={(queues?.orders ?? []).map((row) => ({
             id: row.id,
             to: `/outbound/orders/${row.id}`,
@@ -119,6 +163,7 @@ export function TodayPage() {
             status: row.status,
             actionTo: floorActionForOrder(row.status, row.id),
             action: floorLabelForOrder(row.status),
+            job: jobForRef(jobs, "order", row.id, desiredVerb("order", row.status) ?? undefined),
           }))}
         />
         <QueueCard
@@ -163,6 +208,7 @@ export function TodayPage() {
         <QueueCard
           title="Work orders"
           empty="The bench is clear."
+          dispatch={dispatch}
           rows={(queues?.workOrders ?? []).map((row) => ({
             id: row.id,
             to: `/make/work-orders/${row.id}`,
@@ -171,11 +217,13 @@ export function TodayPage() {
             status: row.status,
             actionTo: `/floor/assemble?id=${row.id}`,
             action: "Assemble",
+            job: jobForRef(jobs, "workOrder", row.id, "assemble"),
           }))}
         />
         <QueueCard
           title="Kits"
           empty="No open kits."
+          dispatch={dispatch}
           rows={(queues?.kits ?? []).map((row) => ({
             id: row.id,
             to: `/make/kits/${row.id}`,
@@ -184,11 +232,13 @@ export function TodayPage() {
             status: row.status,
             actionTo: `/floor/kit?id=${row.id}`,
             action: "Kit",
+            job: jobForRef(jobs, "kit", row.id, "kit"),
           }))}
         />
         <QueueCard
           title="Replenish"
           empty="Pick faces are at min."
+          dispatch={dispatch}
           rows={[
             ...(queues?.replenishments ?? []).map((row) => ({
               id: row.id,
@@ -198,6 +248,7 @@ export function TodayPage() {
               status: row.status,
               actionTo: `/floor/replenish?id=${row.id}`,
               action: "Replenish",
+              job: jobForRef(jobs, "replenishment", row.id, "replenish"),
             })),
             ...(data?.replenishSuggestions ?? [])
               .filter((row) => !(queues?.replenishments ?? []).some((doc) => doc.itemId === row.itemId && doc.toLocationId === row.toLocationId && doc.status !== "posted"))
@@ -209,12 +260,14 @@ export function TodayPage() {
                 status: "suggested",
                 actionTo: "/floor/replenish",
                 action: "Replenish",
+                job: jobForSuggestion(jobs, "replenishSuggestion", row.fromLocationId, row.itemId, row.toLocationId),
               })),
           ]}
         />
         <QueueCard
           title="Vendor returns"
           empty="No open vendor returns."
+          dispatch={dispatch}
           rows={(queues?.vendorReturns ?? []).map((row) => ({
             id: row.id,
             to: `/inbound/vendor-returns/${row.id}`,
@@ -223,11 +276,13 @@ export function TodayPage() {
             status: row.status,
             actionTo: `/floor/rtv?id=${row.id}`,
             action: "Return",
+            job: jobForRef(jobs, "vendorReturn", row.id, "rtv"),
           }))}
         />
         <QueueCard
           title="Returns"
           empty="No open RMAs."
+          dispatch={dispatch}
           rows={(queues?.returns ?? []).map((row) => ({
             id: row.id,
             to: `/outbound/returns/${row.id}`,
@@ -236,11 +291,13 @@ export function TodayPage() {
             status: row.status,
             actionTo: `/floor/return?id=${row.id}`,
             action: "Receive",
+            job: jobForRef(jobs, "rma", row.id, "return"),
           }))}
         />
         <QueueCard
           title="Holds"
           empty="Nothing is on hold."
+          dispatch={dispatch}
           rows={(queues?.holds ?? []).map((row) => ({
             id: row.id,
             to: `/stock/holds/${row.id}`,
@@ -249,6 +306,7 @@ export function TodayPage() {
             status: row.status,
             actionTo: `/floor/hold?id=${row.id}`,
             action: "Release",
+            job: jobForRef(jobs, "hold", row.id, "hold"),
           }))}
         />
         <QueueCard
@@ -293,6 +351,7 @@ export function TodayPage() {
         <QueueCard
           title="Counts"
           empty="No open cycle counts."
+          dispatch={dispatch}
           rows={(queues?.counts ?? []).map((row) => ({
             id: row.id,
             to: `/stock/counts/${row.id}`,
@@ -301,6 +360,7 @@ export function TodayPage() {
             status: row.status,
             actionTo: `/floor/count?id=${row.id}`,
             action: "Count",
+            job: jobForRef(jobs, "cycleCount", row.id, "count"),
           }))}
         />
         <QueueCard
@@ -422,14 +482,32 @@ function floorLabelForOrder(status: string): string {
   return "Pick";
 }
 
+type Dispatch = {
+  team: TeamMember[];
+  role: string;
+  onAssign: (jobId: string, userId: string | null) => void;
+  onPin: (jobId: string, pinned: boolean) => void;
+};
+
 function QueueCard({
   title,
   empty,
   rows,
+  dispatch,
 }: {
   title: string;
   empty: string;
-  rows: { id: string; to: string; title: string; meta: string; status: string; actionTo: string; action: string }[];
+  dispatch?: Dispatch;
+  rows: {
+    id: string;
+    to: string;
+    title: string;
+    meta: string;
+    status: string;
+    actionTo: string;
+    action: string;
+    job?: FloorJob;
+  }[];
 }) {
   return (
     <Card>
@@ -441,16 +519,46 @@ function QueueCard({
           <p className="text-sm text-muted-foreground">{empty}</p>
         ) : (
           <ul className="space-y-3 text-sm">
-            {rows.map((row) => (
-              <li key={row.id} className="flex items-center justify-between gap-3 border-b py-2 last:border-0">
+            {[...rows]
+              .sort((a, b) => (b.job?.score ?? -1) - (a.job?.score ?? -1))
+              .map((row) => (
+              <li key={row.id} className="flex flex-col gap-2 border-b py-2 last:border-0 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <Link className="font-medium hover:underline" to={row.to}>
                     {row.title}
                   </Link>
                   <p className="text-muted-foreground">{row.meta}</p>
+                  {row.job?.reason ? <p className="text-xs text-muted-foreground">{row.job.reason}</p> : null}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge status={statusLabel(row.status)} />
+                  {row.job && dispatch ? (
+                    <>
+                      <Select
+                        className="h-8 w-36 text-xs"
+                        value={row.job.assigneeId ?? ""}
+                        onChange={(e) => dispatch.onAssign(row.job!.id, e.target.value || null)}
+                      >
+                        <option value="">Unassigned</option>
+                        {dispatch.team.map((member) => (
+                          <option key={member.userId} value={member.userId}>
+                            {member.name}
+                          </option>
+                        ))}
+                      </Select>
+                      {dispatch.role === "owner" ? (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold underline-offset-4 hover:underline"
+                          onClick={() => dispatch.onPin(row.job!.id, !row.job!.pinned)}
+                        >
+                          {row.job.pinned ? "Unpin" : "Pin"}
+                        </button>
+                      ) : null}
+                    </>
+                  ) : dispatch ? (
+                    <span className="text-xs text-muted-foreground">Unassigned</span>
+                  ) : null}
                   <Link className="text-xs font-semibold underline-offset-4 hover:underline" to={row.actionTo}>
                     {row.action}
                   </Link>

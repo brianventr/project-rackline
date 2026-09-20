@@ -16,6 +16,7 @@ import { atpOnHand } from "../db/allocations";
 import { applyPartialReplenish, isFullyReplenished, remainingToReplenish } from "../domain/partial-replenish";
 import { OverMoveError } from "../domain/partial-transfer";
 import { parseSerialList } from "../domain/lots";
+import { guardFloorJob, syncDocumentJob } from "../db/jobs";
 
 export const replenishmentsRoute = new Hono<AppEnv>();
 
@@ -199,7 +200,22 @@ replenishmentsRoute.post("/replenishments", async (c) => {
     })
     .returning();
 
-  return c.json(await replenishmentWithItem(db, organizationId, row.id), 201);
+  const created = await replenishmentWithItem(db, organizationId, row.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: created.warehouseId,
+    refType: "replenishment",
+    refId: created.id,
+    status: created.status,
+    number: created.number,
+    title: created.notes,
+    fromLocationId: created.fromLocationId,
+    toLocationId: created.toLocationId,
+    itemId: created.itemId,
+    qty: created.qty,
+    createdAt: created.createdAt,
+  });
+  return c.json(created, 201);
 });
 
 replenishmentsRoute.post("/replenishments/:id/start", async (c) => {
@@ -207,8 +223,39 @@ replenishmentsRoute.post("/replenishments/:id/start", async (c) => {
   const organizationId = c.get("organizationId")!;
   const doc = await replenishmentWithItem(db, organizationId, c.req.param("id"));
   if (doc.status !== "draft") conflict("Replenishment is not a draft");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: doc.warehouseId,
+    userId: c.get("user")!.id,
+    role: c.get("role")!,
+    refType: "replenishment",
+    refId: doc.id,
+    verb: "replenish",
+    number: doc.number,
+    title: doc.notes,
+    fromLocationId: doc.fromLocationId,
+    toLocationId: doc.toLocationId,
+    itemId: doc.itemId,
+    qty: doc.qty,
+    createdAt: doc.createdAt,
+  });
   await db.update(schema.replenishments).set({ status: "in_progress" }).where(eq(schema.replenishments.id, doc.id));
-  return c.json(await replenishmentWithItem(db, organizationId, doc.id));
+  const started = await replenishmentWithItem(db, organizationId, doc.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: started.warehouseId,
+    refType: "replenishment",
+    refId: started.id,
+    status: started.status,
+    number: started.number,
+    title: started.notes,
+    fromLocationId: started.fromLocationId,
+    toLocationId: started.toLocationId,
+    itemId: started.itemId,
+    qty: started.qty - (started.qtyMoved ?? 0),
+    createdAt: started.createdAt,
+  });
+  return c.json(started);
 });
 
 replenishmentsRoute.post("/replenishments/:id/post", async (c) => {
@@ -220,6 +267,21 @@ replenishmentsRoute.post("/replenishments/:id/post", async (c) => {
   const user = c.get("user")!;
   const doc = await replenishmentWithItem(db, organizationId, c.req.param("id"));
   if (!canPostReplenishment(doc.status)) conflict("Replenishment already posted");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: doc.warehouseId,
+    userId: user.id,
+    role: c.get("role")!,
+    refType: "replenishment",
+    refId: doc.id,
+    verb: "replenish",
+    number: doc.number,
+    title: doc.notes,
+    fromLocationId: doc.fromLocationId,
+    toLocationId: doc.toLocationId,
+    itemId: doc.itemId,
+    createdAt: doc.createdAt,
+  });
   if (remainingToReplenish(doc.qty, doc.qtyMoved) <= 0) conflict("Replenishment has nothing remaining");
 
   const thisQty = body.qty === undefined || body.qty === null ? remainingToReplenish(doc.qty, doc.qtyMoved) : requireInt(body.qty, "qty");
@@ -267,5 +329,20 @@ replenishmentsRoute.post("/replenishments/:id/post", async (c) => {
         .where(eq(schema.replenishments.id, doc.id)),
     ],
   });
-  return c.json(await replenishmentWithItem(db, organizationId, doc.id));
+  const posted = await replenishmentWithItem(db, organizationId, doc.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: posted.warehouseId,
+    refType: "replenishment",
+    refId: posted.id,
+    status: posted.status,
+    number: posted.number,
+    title: posted.notes,
+    fromLocationId: posted.fromLocationId,
+    toLocationId: posted.toLocationId,
+    itemId: posted.itemId,
+    qty: posted.qty - (posted.qtyMoved ?? 0),
+    createdAt: posted.createdAt,
+  });
+  return c.json(posted);
 });

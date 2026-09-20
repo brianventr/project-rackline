@@ -2,11 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type ScanHit, type Transfer } from "../../api";
 import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { canPostTransfer } from "@/domain/status";
 import { hasUnmoved } from "@/domain/partial-transfer";
+import { useSession } from "../../session";
+import { jobForRef, useOpenJobs } from "../../jobs";
 
 export function FloorTransferPage() {
+  const me = useSession();
+  const { jobs, reload: reloadJobs } = useOpenJobs("putaway");
   const [params] = useSearchParams();
   const [tickets, setTickets] = useState<Transfer[]>([]);
   const [active, setActive] = useState<Transfer | null>(null);
@@ -34,8 +38,12 @@ export function FloorTransferPage() {
           ),
       ),
     );
+    const nextJobs = await reloadJobs();
     const wanted = params.get("id");
-    if (wanted) applyTicket(next.find((row) => row.id === wanted) ?? (await api<Transfer>(`/api/transfers/${wanted}`)));
+    if (wanted) {
+      const match = next.find((row) => row.id === wanted) ?? (await api<Transfer>(`/api/transfers/${wanted}`));
+      openFloorRow(match, me.user.id, jobForRef(nextJobs, "transfer", match.id, "putaway"), applyTicket, setError);
+    }
   }
 
   useEffect(() => {
@@ -48,7 +56,9 @@ export function FloorTransferPage() {
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
         .then((hit) => {
           if (hit.kind === "transfer") {
-            void api<Transfer>(`/api/transfers/${hit.transfer.id}`).then(applyTicket);
+            void api<Transfer>(`/api/transfers/${hit.transfer.id}`).then((ticket) =>
+              openFloorRow(ticket, me.user.id, jobForRef(jobs, "transfer", ticket.id, "putaway"), applyTicket, setError),
+            );
             return;
           }
           if (hit.kind === "item" && active) {
@@ -64,7 +74,7 @@ export function FloorTransferPage() {
         })
         .catch((err: Error) => setError(err.message));
     },
-    [active],
+    [active, jobs, me.user.id],
   );
 
   async function post() {
@@ -112,23 +122,29 @@ export function FloorTransferPage() {
     >
       <FloorScanBox label="Scan putaway ticket or SKU" placeholder="XFR-DEMO1 or SHADE" onScan={onScan} />
       {!active ? (
-        <Card>
-          <p className="mb-3 font-medium">Open putaway tickets</p>
-          <ul className="space-y-2 text-sm">
-            {tickets.map((row) => (
-              <li key={row.id}>
-                <button className="w-full text-left" onClick={() => void api<Transfer>(`/api/transfers/${row.id}`).then(applyTicket)}>
-                  <span className="font-mono">{row.number}</span> {row.fromCode} → {row.toCode}{" "}
-                  <StatusBadge status={row.status} />
-                </button>
-              </li>
-            ))}
-            {tickets.length === 0 ? <li className="text-muted-foreground">No open putaway tickets.</li> : null}
-          </ul>
-          <Link className="mt-4 inline-block font-medium underline" to="/floor/putaway?scan=1">
-            Scan a bay instead
-          </Link>
-        </Card>
+        <ClaimList
+          title="Open putaway tickets"
+          empty="No open putaway tickets."
+          rows={tickets}
+          userId={me.user.id}
+          jobFor={(row) => jobForRef(jobs, "transfer", row.id, "putaway")}
+          onOpen={(row) =>
+            openFloorRow(row, me.user.id, jobForRef(jobs, "transfer", row.id, "putaway"), (ticket) => {
+              void api<Transfer>(`/api/transfers/${ticket.id}`).then(applyTicket);
+            }, setError)
+          }
+          render={(row) => (
+            <>
+              <span className="font-mono">{row.number}</span> {row.fromCode} → {row.toCode}{" "}
+              <StatusBadge status={row.status} />
+            </>
+          )}
+          footer={
+            <Link className="inline-block font-medium underline" to="/floor/putaway?scan=1">
+              Scan a bay instead
+            </Link>
+          }
+        />
       ) : (
         <Card className="space-y-4">
           <div className="flex items-center justify-between">

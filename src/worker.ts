@@ -15,9 +15,9 @@ import { OverBatchPickError } from "./domain/waves";
 import { HeldStockError } from "./domain/holds";
 import { ExpiredLotError } from "./domain/expiry";
 import { InsufficientAtpError } from "./domain/allocations";
+import { JobClaimedError, JobNotReadyError, JobVerbDeniedError } from "./domain/jobs";
 import { EquipmentCustodyError } from "./domain/equipment";
-import type { AppEnv } from "./lib/types";
-import { originFrom } from "./lib/types";
+import { originFrom, type AppEnv } from "./lib/types";
 import { registerRoute } from "./routes/register";
 import { demoRoute } from "./routes/demo";
 import { meRoute } from "./routes/me";
@@ -38,6 +38,7 @@ import { replenishmentsRoute } from "./routes/replenishments";
 import { kitsRoute } from "./routes/kits";
 import { holdsRoute } from "./routes/holds";
 import { vendorReturnsRoute } from "./routes/vendor-returns";
+import { jobsRoute } from "./routes/jobs";
 import { carriersRoute } from "./routes/carriers";
 import { wavesRoute } from "./routes/waves";
 import { asnsRoute } from "./routes/asns";
@@ -197,6 +198,17 @@ app.onError((err, c) => {
       409,
     );
   }
+  if (err instanceof JobClaimedError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "JOB_CLAIMED",
+        claimedById: err.claimedById,
+        claimedByName: err.claimedByName,
+      },
+      409,
+    );
+  }
   if (err instanceof EquipmentCustodyError) {
     return c.json(
       {
@@ -206,6 +218,12 @@ app.onError((err, c) => {
       },
       409,
     );
+  }
+  if (err instanceof JobNotReadyError) {
+    return c.json({ error: err.message, code: "JOB_NOT_READY", notBefore: err.notBefore }, 409);
+  }
+  if (err instanceof JobVerbDeniedError) {
+    return c.json({ error: err.message, code: "JOB_VERB_DENIED", verb: err.verb }, 403);
   }
   if (err instanceof ShopifyIngestError) {
     return c.json({ error: err.message }, err.status as 400 | 409);
@@ -279,6 +297,7 @@ app.route("/api", replenishmentsRoute);
 app.route("/api", kitsRoute);
 app.route("/api", holdsRoute);
 app.route("/api", vendorReturnsRoute);
+app.route("/api", jobsRoute);
 app.route("/api", carriersRoute);
 app.route("/api", wavesRoute);
 app.route("/api", asnsRoute);

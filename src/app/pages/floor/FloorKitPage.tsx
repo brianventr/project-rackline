@@ -2,11 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, type KitBuild, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { canCompleteKit, canDekit } from "@/domain/status";
 import { AsBuiltList } from "../../components/as-built";
+import { useSession } from "../../session";
+import { jobForRef, useOpenJobs } from "../../jobs";
 
 export function FloorKitPage() {
+  const me = useSession();
+  const { jobs, reload: reloadJobs } = useOpenJobs("kit");
   const [params] = useSearchParams();
   const [kits, setKits] = useState<KitBuild[]>([]);
   const [active, setActive] = useState<KitBuild | null>(null);
@@ -23,8 +27,12 @@ export function FloorKitPage() {
   async function load() {
     const next = await api<KitBuild[]>("/api/kits");
     setKits(next.filter((row) => canCompleteKit(row.status) || canDekit(row.status)));
+    const nextJobs = await reloadJobs();
     const wanted = params.get("id");
-    if (wanted) applyKit(next.find((row) => row.id === wanted) ?? (await api<KitBuild>(`/api/kits/${wanted}`)));
+    if (wanted) {
+      const match = next.find((row) => row.id === wanted) ?? (await api<KitBuild>(`/api/kits/${wanted}`));
+      openFloorRow(match, me.user.id, jobForRef(nextJobs, "kit", match.id, "kit"), applyKit, setError);
+    }
   }
 
   useEffect(() => {
@@ -35,11 +43,14 @@ export function FloorKitPage() {
     setError(null);
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
       .then((hit) => {
-        if (hit.kind === "kit") void api<KitBuild>(`/api/kits/${hit.kit.id}`).then(applyKit);
-        else setError("Scan a kit document.");
+        if (hit.kind === "kit") {
+          void api<KitBuild>(`/api/kits/${hit.kit.id}`).then((kit) =>
+            openFloorRow(kit, me.user.id, jobForRef(jobs, "kit", kit.id, "kit"), applyKit, setError),
+          );
+        } else setError("Scan a kit document.");
       })
       .catch((err: Error) => setError(err.message));
-  }, []);
+  }, [jobs, me.user.id]);
 
   async function complete() {
     if (!active) return;
@@ -77,20 +88,20 @@ export function FloorKitPage() {
       <FloorScanBox label="Scan kit" placeholder="KIT-DEMO1" onScan={onScan} />
       {done ? <p className="text-sm text-emerald-700">{done}</p> : null}
       {!active ? (
-        <Card>
-          <p className="mb-3 font-medium">Open kits</p>
-          <ul className="space-y-2 text-sm">
-            {kits.map((row) => (
-              <li key={row.id}>
-                <button className="w-full text-left" onClick={() => applyKit(row)}>
-                  <span className="font-mono">{row.number}</span> {row.sku} {row.qtyCompleted ?? 0}/{row.qty}{" "}
-                  <StatusBadge status={row.status} />
-                </button>
-              </li>
-            ))}
-            {kits.length === 0 ? <li className="text-muted-foreground">Nothing to kit.</li> : null}
-          </ul>
-        </Card>
+        <ClaimList
+          title="Open kits"
+          empty="Nothing to kit."
+          rows={kits}
+          userId={me.user.id}
+          jobFor={(row) => jobForRef(jobs, "kit", row.id, "kit")}
+          onOpen={(row) => openFloorRow(row, me.user.id, jobForRef(jobs, "kit", row.id, "kit"), applyKit, setError)}
+          render={(row) => (
+            <>
+              <span className="font-mono">{row.number}</span> {row.sku} {row.qtyCompleted ?? 0}/{row.qty}{" "}
+              <StatusBadge status={row.status} />
+            </>
+          )}
+        />
       ) : (
         <Card className="space-y-4">
           <div className="flex items-center justify-between">

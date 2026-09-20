@@ -12,6 +12,7 @@ import { canCompleteKit, canDekit } from "../domain/status";
 import { parseSerialList } from "../domain/lots";
 import { loadAsBuiltForRef } from "../db/as-built";
 import { applyPartialComplete, isFullyCompleted, remainingToComplete, OverCompleteError } from "../domain/partial-complete";
+import { guardFloorJob, syncDocumentJob } from "../db/jobs";
 
 export const kitsRoute = new Hono<AppEnv>();
 
@@ -135,7 +136,22 @@ kitsRoute.post("/kits", async (c) => {
     })
     .returning();
 
-  return c.json(await kitWithItem(db, organizationId, row.id), 201);
+  const created = await kitWithItem(db, organizationId, row.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: created.warehouseId,
+    refType: "kit",
+    refId: created.id,
+    status: created.status,
+    number: created.number,
+    title: `${created.sku} × ${created.qty}`,
+    fromLocationId: created.sourceLocationId,
+    toLocationId: created.outputLocationId,
+    itemId: created.itemId,
+    qty: created.qty,
+    createdAt: created.createdAt,
+  });
+  return c.json(created, 201);
 });
 
 kitsRoute.post("/kits/:id/complete", async (c) => {
@@ -147,6 +163,21 @@ kitsRoute.post("/kits/:id/complete", async (c) => {
   const user = c.get("user")!;
   const kit = await kitWithItem(db, organizationId, c.req.param("id"));
   if (!canCompleteKit(kit.status)) conflict("Kit already completed");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: kit.warehouseId,
+    userId: user.id,
+    role: c.get("role")!,
+    refType: "kit",
+    refId: kit.id,
+    verb: "kit",
+    number: kit.number,
+    title: `${kit.sku} × ${kit.qty}`,
+    fromLocationId: kit.sourceLocationId,
+    toLocationId: kit.outputLocationId,
+    itemId: kit.itemId,
+    createdAt: kit.createdAt,
+  });
   if (kit.components.length === 0) badRequest("BOM is missing");
 
   const remaining = remainingToComplete(kit.qty, kit.qtyCompleted);
@@ -202,7 +233,22 @@ kitsRoute.post("/kits/:id/complete", async (c) => {
     ],
   });
 
-  return c.json(await kitWithItem(db, organizationId, kit.id));
+  const completed = await kitWithItem(db, organizationId, kit.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: completed.warehouseId,
+    refType: "kit",
+    refId: completed.id,
+    status: completed.status,
+    number: completed.number,
+    title: `${completed.sku} × ${completed.qty}`,
+    fromLocationId: completed.sourceLocationId,
+    toLocationId: completed.outputLocationId,
+    itemId: completed.itemId,
+    qty: completed.qty - (completed.qtyCompleted ?? 0),
+    createdAt: completed.createdAt,
+  });
+  return c.json(completed);
 });
 
 kitsRoute.post("/kits/:id/dekit", async (c) => {
@@ -244,6 +290,20 @@ kitsRoute.post("/kits/:id/dekit", async (c) => {
     ],
   });
 
-  return c.json(await kitWithItem(db, organizationId, kit.id));
+  const dekitted = await kitWithItem(db, organizationId, kit.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: dekitted.warehouseId,
+    refType: "kit",
+    refId: dekitted.id,
+    status: dekitted.status,
+    number: dekitted.number,
+    title: `${dekitted.sku} × ${dekitted.qty}`,
+    fromLocationId: dekitted.sourceLocationId,
+    toLocationId: dekitted.outputLocationId,
+    itemId: dekitted.itemId,
+    createdAt: dekitted.createdAt,
+  });
+  return c.json(dekitted);
 });
 

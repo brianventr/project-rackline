@@ -11,6 +11,7 @@ import { canReceive } from "../domain/status";
 import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
+import { guardFloorJob, syncDocumentJob } from "../db/jobs";
 
 export const receiptsRoute = new Hono<AppEnv>();
 
@@ -144,7 +145,19 @@ receiptsRoute.post("/receipts", async (c) => {
     ...lines.map((line) => db.insert(schema.receiptLines).values(line)),
   ]);
 
-  return c.json(await receiptWithLines(db, organizationId, id), 201);
+  const created = await receiptWithLines(db, organizationId, id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: created.warehouseId,
+    refType: "receipt",
+    refId: created.id,
+    status: created.status,
+    number: created.number,
+    title: created.notes || "Receive onto the dock",
+    fromLocationId: created.locationId,
+    createdAt: created.createdAt,
+  });
+  return c.json(created, 201);
 });
 
 receiptsRoute.post("/receipts/:id/start", async (c) => {
@@ -152,8 +165,33 @@ receiptsRoute.post("/receipts/:id/start", async (c) => {
   const organizationId = c.get("organizationId")!;
   const receipt = await receiptWithLines(db, organizationId, c.req.param("id"));
   if (receipt.status !== "draft") conflict("Receipt is not a draft");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: receipt.warehouseId,
+    userId: c.get("user")!.id,
+    role: c.get("role")!,
+    refType: "receipt",
+    refId: receipt.id,
+    verb: "receive",
+    number: receipt.number,
+    title: receipt.notes,
+    fromLocationId: receipt.locationId,
+    createdAt: receipt.createdAt,
+  });
   await db.update(schema.receipts).set({ status: "receiving" }).where(eq(schema.receipts.id, receipt.id));
-  return c.json(await receiptWithLines(db, organizationId, receipt.id));
+  const started = await receiptWithLines(db, organizationId, receipt.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: started.warehouseId,
+    refType: "receipt",
+    refId: started.id,
+    status: started.status,
+    number: started.number,
+    title: started.notes,
+    fromLocationId: started.locationId,
+    createdAt: started.createdAt,
+  });
+  return c.json(started);
 });
 
 receiptsRoute.post("/receipts/:id/receive", async (c) => {
@@ -167,6 +205,19 @@ receiptsRoute.post("/receipts/:id/receive", async (c) => {
   const user = c.get("user")!;
   let receipt = await receiptWithLines(db, organizationId, c.req.param("id"));
   if (!canReceive(receipt.status)) conflict("Receipt is already received");
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: receipt.warehouseId,
+    userId: user.id,
+    role: c.get("role")!,
+    refType: "receipt",
+    refId: receipt.id,
+    verb: "receive",
+    number: receipt.number,
+    title: receipt.notes,
+    fromLocationId: locationId,
+    createdAt: receipt.createdAt,
+  });
   if (!hasRemaining(receipt.lines.map(asExpected))) conflict("Receipt has nothing remaining");
   await getOrgLocation(db, organizationId, locationId);
 
@@ -247,5 +298,17 @@ receiptsRoute.post("/receipts/:id/receive", async (c) => {
     ],
   });
 
-  return c.json(await receiptWithLines(db, organizationId, receipt.id));
+  const received = await receiptWithLines(db, organizationId, receipt.id);
+  await syncDocumentJob(db, {
+    organizationId,
+    warehouseId: received.warehouseId,
+    refType: "receipt",
+    refId: received.id,
+    status: received.status,
+    number: received.number,
+    title: received.notes,
+    fromLocationId: received.locationId,
+    createdAt: received.createdAt,
+  });
+  return c.json(received);
 });
