@@ -156,14 +156,16 @@ export function FloorShipPage() {
               <Button
                 variant="secondary"
                 onClick={() => {
-                  api<ShippingLabel>(`/api/orders/${active.id}/label`, {
+                  void api<ShippingLabel>(`/api/orders/${active.id}/label`, {
                     method: "POST",
                     body: JSON.stringify({ carrierService, trackingNumber: trackingNumber || undefined }),
                   })
-                    .then((label) => {
+                    .then(async (label) => {
                       setTrackingNumber(label.trackingNumber);
                       setTrackingCompany(label.carrierCompany);
                       setDone(`${label.trackingNumber} bought.`);
+                      const next = await api<Order>(`/api/orders/${active.id}`);
+                      setActive(next);
                     })
                     .catch((err: Error) => setError(err.message));
                 }}
