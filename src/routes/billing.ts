@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { desc, eq, sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
-import { conflict } from "../lib/http";
 import { requireOwner } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
 
@@ -10,14 +9,33 @@ export const billingRoute = new Hono<AppEnv>();
 
 const FEE_PER_CLIENT_CENTS = 500;
 
-billingRoute.get("/billing", async (c) => {
-  const db = c.get("db");
-  const organizationId = c.get("organizationId")!;
-  const [account] = await db
+async function ensureBillingAccount(db: AppEnv["Variables"]["db"], organizationId: string, plan = "3pl") {
+  const [existing] = await db
     .select()
     .from(schema.billingAccounts)
     .where(eq(schema.billingAccounts.organizationId, organizationId))
     .limit(1);
+  if (existing) return existing;
+  const id = newId();
+  await db.insert(schema.billingAccounts).values({
+    id,
+    organizationId,
+    plan,
+    status: "active",
+    createdAt: Date.now(),
+  });
+  const [row] = await db
+    .select()
+    .from(schema.billingAccounts)
+    .where(eq(schema.billingAccounts.id, id))
+    .limit(1);
+  return row!;
+}
+
+billingRoute.get("/billing", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const account = await ensureBillingAccount(db, organizationId);
   const invoices = await db
     .select()
     .from(schema.invoices)
@@ -29,7 +47,7 @@ billingRoute.get("/billing", async (c) => {
     .from(schema.clients)
     .where(eq(schema.clients.organizationId, organizationId));
   return c.json({
-    account: account ?? null,
+    account,
     invoices,
     clientCount,
     feePerClientCents: FEE_PER_CLIENT_CENTS,
@@ -40,12 +58,7 @@ billingRoute.post("/billing/invoices/generate", async (c) => {
   requireOwner(c.get("role"));
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const [account] = await db
-    .select()
-    .from(schema.billingAccounts)
-    .where(eq(schema.billingAccounts.organizationId, organizationId))
-    .limit(1);
-  if (!account) conflict("No billing account");
+  await ensureBillingAccount(db, organizationId);
   const [{ count: clientCount }] = await db
     .select({ count: sql<number>`count(*)` })
     .from(schema.clients)
