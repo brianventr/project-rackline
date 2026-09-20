@@ -14,6 +14,11 @@ import {
   canPostReplenishment,
   canPostTransfer,
   canReleaseHold,
+  canReleaseWave,
+  canPickWave,
+  canReceiveAsn,
+  canCheckInYard,
+  canCheckOutYard,
   isOpenOrder,
   isOpenPurchase,
   normalizeOrderStatus,
@@ -103,5 +108,16 @@ describe("order status", () => {
   it("releases holds while they are open", () => {
     expect(canReleaseHold("open")).toBe(true);
     expect(canReleaseHold("released")).toBe(false);
+  });
+
+  it("releases waves from draft and receives ASNs while open", () => {
+    expect(canReleaseWave("draft")).toBe(true);
+    expect(canReleaseWave("released")).toBe(false);
+    expect(canPickWave("released")).toBe(true);
+    expect(canReceiveAsn("expected")).toBe(true);
+    expect(canReceiveAsn("received")).toBe(false);
+    expect(canCheckInYard("expected")).toBe(true);
+    expect(canCheckOutYard("at_dock")).toBe(true);
+    expect(statusLabel("checked_in")).toBe("Checked in");
   });
 });

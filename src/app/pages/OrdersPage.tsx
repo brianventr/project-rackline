@@ -9,6 +9,7 @@ import { hasUnpacked } from "@/domain/partial-pack";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { LineFields } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
+import { PickMap } from "../components/PickMap";
 
 type Line = { itemId: string; qty: string };
 
@@ -462,6 +463,12 @@ function OrderDetail({ id }: { id: string }) {
           </DocumentRail>
         }
       >
+        <PickMap
+          lines={order.lines ?? []}
+          locations={locations}
+          selectedLocationId={pickLocation}
+          onSelectLocation={setPickLocation}
+        />
         <Table columns={["SKU", "Item", "Ordered", "Picked", "Packed", "Allocated", "Bay", "This pick", "This pack", "This unpick", "Lot / serial"]}>
           {(order.lines ?? []).map((line) => (
             <tr key={line.id}>

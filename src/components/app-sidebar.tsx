@@ -61,6 +61,8 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
       label: "Inbound",
       items: [
         { title: "Receipts", url: "/inbound/receipts", icon: Truck },
+        { title: "ASNs", url: "/inbound/asns", icon: Package },
+        { title: "Yard", url: "/inbound/yard", icon: Warehouse },
         { title: "Putaway", url: "/inbound/putaway", icon: Repeat },
         { title: "Purchases", url: "/inbound/purchases", icon: ShoppingCart },
         { title: "Vendor returns", url: "/inbound/vendor-returns", icon: ArrowUpFromLine },
@@ -90,6 +92,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
       label: "Outbound",
       items: [
         { title: "Orders", url: "/outbound/orders", icon: ClipboardList },
+        { title: "Waves", url: "/outbound/waves", icon: Layers },
         { title: "Returns", url: "/outbound/returns", icon: Undo2 },
       ],
     },
@@ -101,6 +104,9 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
               { title: "Shopify", url: "/setup/shopify", icon: Store },
               { title: "Carriers", url: "/setup/carriers", icon: Truck },
               { title: "Warehouse", url: "/setup/warehouse", icon: Settings2 },
+              { title: "Clients", url: "/setup/clients", icon: Users },
+              { title: "Zones", url: "/setup/zones", icon: BoxSelect },
+              { title: "Labor", url: "/setup/labor", icon: Calculator },
               { title: "Team", url: "/setup/team", icon: Users },
               { title: "Labels", url: "/setup/labels", icon: Tag },
             ],

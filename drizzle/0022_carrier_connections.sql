@@ -1,4 +1,4 @@
--- Migration number: 0021 	 2026-09-20T18:30:00.000Z
+-- Migration number: 0022 	 2026-09-20T18:30:00.000Z
 
 ALTER TABLE `warehouses` ADD `ship_from_address` text;
 ALTER TABLE `orders` ADD `carrier_connection_id` text;

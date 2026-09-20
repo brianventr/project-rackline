@@ -10,6 +10,7 @@ export function WarehouseSetupPage() {
   const [mapDepth, setMapDepth] = useState("28");
   const [mapHeight, setMapHeight] = useState("8");
   const [shipFromAddress, setShipFromAddress] = useState("");
+  const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const currentId = warehouse.warehouseId;
@@ -49,12 +50,27 @@ export function WarehouseSetupPage() {
     }
   }
 
+  async function addWarehouse() {
+    setError(null);
+    setOk(null);
+    try {
+      await api<WarehouseMapInfo>("/api/warehouses", {
+        method: "POST",
+        body: JSON.stringify({ name: newName }),
+      });
+      setOk("Warehouse added. Reloading…");
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add warehouse");
+    }
+  }
+
   return (
     <div>
       <PageHeader eyebrow="Setup" title="Warehouse" description="Name, map size, and ship-from address for this building. Bays live under Stock → Locations." />
       <ErrorBanner error={error} />
       {ok ? <p className="mb-4 text-sm">{ok}</p> : null}
-      <Card className="max-w-xl space-y-3">
+      <Card className="mb-6 max-w-xl space-y-3">
         <form className="space-y-3" onSubmit={onSubmit(save)}>
           <Field label="Name">
             <Input value={name} onChange={(e) => setName(e.target.value)} />
@@ -80,6 +96,18 @@ export function WarehouseSetupPage() {
             </Field>
           </div>
           <Button type="submit">Save warehouse</Button>
+        </form>
+      </Card>
+      <Card className="max-w-xl space-y-3">
+        <p className="text-sm font-medium">Add warehouse</p>
+        <p className="text-sm text-muted-foreground">Creates another building on this org, then reloads so it appears in the switcher.</p>
+        <form className="flex flex-wrap items-end gap-3" onSubmit={onSubmit(addWarehouse)}>
+          <div className="min-w-[12rem] flex-1">
+            <Field label="Name">
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} required placeholder="West building" />
+            </Field>
+          </div>
+          <Button type="submit">Add warehouse</Button>
         </form>
       </Card>
     </div>

@@ -41,8 +41,17 @@ import { WarehouseSetupPage } from "./pages/setup/WarehouseSetupPage";
 import { TeamPage } from "./pages/setup/TeamPage";
 import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
 import { CarriersPage } from "./pages/setup/CarriersPage";
+import { ClientsPage } from "./pages/setup/ClientsPage";
+import { ZonesPage } from "./pages/setup/ZonesPage";
 import { ReplenishmentsPage } from "./pages/ReplenishmentsPage";
 import { KitsPage } from "./pages/KitsPage";
+import { WavesPage } from "./pages/WavesPage";
+import { AsnsPage } from "./pages/AsnsPage";
+import { YardPage } from "./pages/YardPage";
+import { LaborPage } from "./pages/LaborPage";
+import { FloorWavePage } from "./pages/floor/FloorWavePage";
+import { FloorAsnPage } from "./pages/floor/FloorAsnPage";
+import { FloorYardPage } from "./pages/floor/FloorYardPage";
 import { ShippingLabelPage } from "./pages/ShippingLabelPage";
 import { PackSlipPage } from "./pages/PackSlipPage";
 import { ScannerProvider } from "./scanner/ScannerProvider";
@@ -93,8 +102,11 @@ export function App() {
         <Route path="/floor/lookup" element={<FloorLookupPage />} />
         <Route path="/floor/print" element={<FloorPrintPage />} />
         <Route path="/floor/receive" element={<FloorReceivePage />} />
+        <Route path="/floor/asn" element={<FloorAsnPage />} />
+        <Route path="/floor/yard" element={<FloorYardPage />} />
         <Route path="/floor/putaway" element={<FloorPutawayPage />} />
         <Route path="/floor/pick" element={<FloorPickPage />} />
+        <Route path="/floor/wave" element={<FloorWavePage />} />
         <Route path="/floor/pack" element={<FloorPackPage />} />
         <Route path="/floor/ship" element={<FloorShipPage />} />
         <Route path="/floor/count" element={<FloorCountPage />} />
@@ -116,6 +128,10 @@ export function App() {
         <Route path="/move" element={<Navigate to="/floor/putaway" replace />} />
         <Route path="/inbound/receipts" element={<ReceiptsPage />} />
         <Route path="/inbound/receipts/:id" element={<ReceiptsPage />} />
+        <Route path="/inbound/asns" element={<AsnsPage />} />
+        <Route path="/inbound/asns/:id" element={<AsnsPage />} />
+        <Route path="/inbound/yard" element={<YardPage />} />
+        <Route path="/inbound/yard/:id" element={<YardPage />} />
         <Route path="/inbound/putaway" element={<TransfersPage />} />
         <Route path="/inbound/putaway/:id" element={<TransfersPage />} />
         <Route path="/inbound/purchases" element={<PurchasesPage />} />
@@ -143,6 +159,8 @@ export function App() {
         <Route path="/outbound/orders/:id" element={<OrdersPage />} />
         <Route path="/outbound/orders/:id/shipping-label" element={<ShippingLabelPage />} />
         <Route path="/outbound/orders/:id/pack-slip" element={<PackSlipPage />} />
+        <Route path="/outbound/waves" element={<WavesPage />} />
+        <Route path="/outbound/waves/:id" element={<WavesPage />} />
         <Route path="/outbound/returns" element={<ReturnsPage />} />
         <Route path="/outbound/returns/:id" element={<ReturnsPage />} />
         <Route
@@ -168,6 +186,30 @@ export function App() {
           element={
             <OwnerOnly>
               <WarehouseSetupPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
+          path="/setup/clients"
+          element={
+            <OwnerOnly>
+              <ClientsPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
+          path="/setup/zones"
+          element={
+            <OwnerOnly>
+              <ZonesPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
+          path="/setup/labor"
+          element={
+            <OwnerOnly>
+              <LaborPage />
             </OwnerOnly>
           }
         />

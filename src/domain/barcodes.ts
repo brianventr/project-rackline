@@ -12,6 +12,9 @@ export type ScanKind =
   | "replenishment"
   | "kit"
   | "hold"
+  | "wave"
+  | "asn"
+  | "yard"
   | "serial"
   | "lot"
   | "unknown";
@@ -45,6 +48,9 @@ const PREFIXES: Array<{ prefix: string; kind: Exclude<ScanKind, "unknown"> }> = 
   { prefix: "RPL:", kind: "replenishment" },
   { prefix: "KIT:", kind: "kit" },
   { prefix: "HLD:", kind: "hold" },
+  { prefix: "WAV:", kind: "wave" },
+  { prefix: "ASN:", kind: "asn" },
+  { prefix: "YRD:", kind: "yard" },
   { prefix: "SN:", kind: "serial" },
   { prefix: "SER:", kind: "serial" },
   { prefix: "SERIAL:", kind: "serial" },
@@ -89,5 +95,11 @@ export function documentPath(kind: Exclude<ScanKind, "unknown" | "location" | "i
       return `/make/kits/${id}`;
     case "hold":
       return `/stock/holds/${id}`;
+    case "wave":
+      return `/outbound/waves/${id}`;
+    case "asn":
+      return `/inbound/asns/${id}`;
+    case "yard":
+      return `/inbound/yard/${id}`;
   }
 }

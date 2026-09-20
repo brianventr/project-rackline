@@ -12,7 +12,7 @@ searchRoute.get("/search", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
 
-  const [items, locations, orders, receipts, transfers, workOrders, counts, purchases, returns, vendorReturns, replenishments, kits, holds, serials] = await Promise.all([
+  const [items, locations, orders, receipts, transfers, workOrders, counts, purchases, returns, vendorReturns, replenishments, kits, holds, waves, asns, yard, serials] = await Promise.all([
     db
       .select({
         id: schema.items.id,
@@ -185,6 +185,35 @@ searchRoute.get("/search", async (c) => {
       .limit(8),
     db
       .select({
+        id: schema.waves.id,
+        number: schema.waves.number,
+        status: schema.waves.status,
+      })
+      .from(schema.waves)
+      .where(and(eq(schema.waves.organizationId, organizationId), like(schema.waves.number, needle)))
+      .limit(8),
+    db
+      .select({
+        id: schema.asns.id,
+        number: schema.asns.number,
+        status: schema.asns.status,
+        vendorName: schema.asns.vendorName,
+      })
+      .from(schema.asns)
+      .where(and(eq(schema.asns.organizationId, organizationId), like(schema.asns.number, needle)))
+      .limit(8),
+    db
+      .select({
+        id: schema.yardVisits.id,
+        number: schema.yardVisits.number,
+        status: schema.yardVisits.status,
+        carrierName: schema.yardVisits.carrierName,
+      })
+      .from(schema.yardVisits)
+      .where(and(eq(schema.yardVisits.organizationId, organizationId), like(schema.yardVisits.number, needle)))
+      .limit(8),
+    db
+      .select({
         serialCode: schema.serials.serialCode,
         itemId: schema.serials.itemId,
         sku: schema.items.sku,
@@ -211,6 +240,9 @@ searchRoute.get("/search", async (c) => {
     replenishments,
     kits,
     holds,
+    waves,
+    asns,
+    yard,
     serials,
   });
 });

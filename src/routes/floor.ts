@@ -179,8 +179,9 @@ floorRoute.post("/transfers", async (c) => {
 
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  await getOrgLocation(db, organizationId, fromLocationId);
-  await getOrgLocation(db, organizationId, toLocationId);
+  const from = await getOrgLocation(db, organizationId, fromLocationId);
+  const to = await getOrgLocation(db, organizationId, toLocationId);
+  if (from.warehouseId !== warehouseId) badRequest("From location must be in the selected warehouse");
 
   const id = newId();
   const lines = [];
@@ -201,6 +202,7 @@ floorRoute.post("/transfers", async (c) => {
       status: "draft",
       fromLocationId,
       toLocationId,
+      toWarehouseId: from.warehouseId !== to.warehouseId ? to.warehouseId : null,
       notes: body.notes?.trim() || null,
       createdAt: Date.now(),
     }),
@@ -995,6 +997,50 @@ floorRoute.get("/scan", async (c) => {
     if (parsed.kind === "hold") notFound("No hold matches that barcode");
   }
 
+  if (parsed.kind === "wave" || parsed.kind === "unknown") {
+    const rows = await db.select().from(schema.waves).where(eq(schema.waves.organizationId, organizationId));
+    const wave = await findByNumber(rows, parsed.value);
+    if (wave) return c.json({ kind: "wave" as const, wave });
+    if (parsed.kind === "wave") notFound("No wave matches that barcode");
+  }
+
+  if (parsed.kind === "asn" || parsed.kind === "unknown") {
+    const rows = await db.select().from(schema.asns).where(eq(schema.asns.organizationId, organizationId));
+    const asn = await findByNumber(rows, parsed.value);
+    if (asn) {
+      const lines = await db
+        .select({
+          id: schema.asnLines.id,
+          itemId: schema.asnLines.itemId,
+          qtyExpected: schema.asnLines.qtyExpected,
+          qtyReceived: schema.asnLines.qtyReceived,
+          sku: schema.items.sku,
+          itemName: schema.items.name,
+        })
+        .from(schema.asnLines)
+        .innerJoin(schema.items, eq(schema.items.id, schema.asnLines.itemId))
+        .where(eq(schema.asnLines.asnId, asn.id));
+      return c.json({
+        kind: "asn" as const,
+        asn: {
+          ...asn,
+          lines: lines.map((line) => ({
+            ...line,
+            remaining: line.qtyExpected - line.qtyReceived,
+          })),
+        },
+      });
+    }
+    if (parsed.kind === "asn") notFound("No ASN matches that barcode");
+  }
+
+  if (parsed.kind === "yard" || parsed.kind === "unknown") {
+    const rows = await db.select().from(schema.yardVisits).where(eq(schema.yardVisits.organizationId, organizationId));
+    const yard = await findByNumber(rows, parsed.value);
+    if (yard) return c.json({ kind: "yard" as const, yard });
+    if (parsed.kind === "yard") notFound("No yard visit matches that barcode");
+  }
+
   if (parsed.kind === "serial" || parsed.kind === "unknown") {
     const serial = await findSerialRow(db, organizationId, parsed.value);
     if (serial) {
@@ -1068,8 +1114,7 @@ floorRoute.post("/moves", async (c) => {
   if (!from) badRequest("Scan or choose a from location");
   if (!to) badRequest("Scan or choose a to location");
   if (from.id === to.id) badRequest("From and to locations must differ");
-  if (from.warehouseId !== to.warehouseId) badRequest("Locations must be in the same warehouse");
-
+  // Cross-warehouse scan-to-move is allowed for multi-warehouse shops.
   const onHand = await db
     .select({
       itemId: schema.items.id,

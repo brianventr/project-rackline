@@ -50,7 +50,19 @@ Iteration 22 adds partial replenish: tickets track moved vs expected qty, over-m
 
 Iteration 23 adds unpick and office/floor cancel: unpacked qty returns to the bay (`unpick` movement), leftover ATP is restored, and cancel restores picked (including packed) qty then releases allocations. Shopify `orders/cancelled` uses the same restore.
 
-Iteration 24 adds carrier integrations: Setup → Carriers is a Shopify-shaped pathway to connect your own UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine account, enable services, test, shop canned rates, and buy/void labels. Tracking prefixes follow the carrier (`1Z`, `9400`, `FE-`, `DHL-`, `RL-`). Live mode stores credentials and logs the payload; it does not purchase postage yet.
+Iteration 24 opens the parked logistics set on the same location:item ledger:
+
+- **Zones** — aisle/area zones; bays can join a zone for wave scoping
+- **Waves / batch** — group open orders into `WAV-` (`wave` or `batch`). Batch release consolidates SKU qty; floor batch-pick spreads across orders (over-batch 409)
+- **ASN** — vendor advance notices (`ASN-`) receive like a PO (partial qty, over-receive 409)
+- **3PL clients** — client codes tag orders, ASNs, and waves (qty stays on location:item)
+- **Yard** — trailer visits (`YRD-`) check in, take a dock bay, check out
+- **Labor** — floor posts append labor events; Setup → Labor rolls them up by user
+- **Multi-warehouse** — create another building, cross-building transfers stamp `toWarehouseId`
+
+Iteration 25 adds an optional pick map on the ticket: remaining SKUs become numbered walk stops on the floor plan and 3D racks. Tap a stop to set the pick-from bay. Qty stays integer pieces on location:item.
+
+Iteration 26 adds carrier integrations: Setup → Carriers is a Shopify-shaped pathway to connect your own UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine account, enable services, test, shop canned rates, and buy/void labels. Tracking prefixes follow the carrier (`1Z`, `9400`, `FE-`, `DHL-`, `RL-`). Live mode stores credentials and logs the payload; it does not purchase postage yet.
 
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
@@ -76,7 +88,7 @@ Open [http://localhost:5173](http://localhost:5173). Guests see the landing page
 On the sign-in screen, either:
 
 - Create an organization, or
-- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt `RCP-DEMO1` (12× LED-BULB + 6× SHADE — partial receive is allowed), purchase order `PO-DEMO1` (Harbor Components), vendor return `RTV-DEMO1` (2× LED-BULB from `A-01-01` — partial return is allowed), return `RMA-DEMO1` (Harbor Workshop, restock), putaway ticket `XFR-DEMO1` (8× SHADE + 6× BASE from `A-01-01` to `A-02-02` — partial move is allowed), replenishment `RPL-DEMO1` (14× LED-BULB from `A-01-01` to `A-01-02` — partial move is allowed), a floor order, Shopify order `#1004` (Maya Chen), work order `WO-DEMO1` (qty 4 — partial complete is allowed), and kit `KIT-DEMO1` (qty 2 — partial complete, then dekit). LED-BULB is lot-tracked (`LOT-2026-A` / `LOT-2026-B`) with pick min 20 on `A-01-02`; LAMP is serial-tracked (`LAMP-1001`–`LAMP-1014`) with pick min 12 on `B-01-01`; RESIN is catch-weight (6 bottles / 3000 g on `A-01-01`); GLUE is lot + expiry (`LOT-OLD` / `LOT-NEW` on `A-01-01`, expired `LOT-DEAD` on `A-01-03`). `LAMP-1001` is seeded with as-built component lots. Setup → Carriers has demo UPS `A1B2C3` and USPS accounts plus Rackline Ground. Then open **Map** and **Move**.
+- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt `RCP-DEMO1` (12× LED-BULB + 6× SHADE — partial receive is allowed), purchase order `PO-DEMO1` (Harbor Components), ASN `ASN-DEMO1` (expected Harbor notice), yard visit `YRD-DEMO1` (UPS Freight / TRL-4421), wave `WAV-DEMO1` (batch mode for Acme `ORD-WAVE1` / `ORD-WAVE2`), 3PL client `ACME`, zones A/B on Main, a second warehouse **West shop** with `XFR-WEST1` (4× SHADE cross-building), vendor return `RTV-DEMO1` (2× LED-BULB from `A-01-01` — partial return is allowed), return `RMA-DEMO1` (Harbor Workshop, restock), putaway ticket `XFR-DEMO1` (8× SHADE + 6× BASE from `A-01-01` to `A-02-02` — partial move is allowed), replenishment `RPL-DEMO1` (14× LED-BULB from `A-01-01` to `A-01-02` — partial move is allowed), a floor order, Shopify order `#1004` (Maya Chen), work order `WO-DEMO1` (qty 4 — partial complete is allowed), and kit `KIT-DEMO1` (qty 2 — partial complete, then dekit). LED-BULB is lot-tracked (`LOT-2026-A` / `LOT-2026-B`) with pick min 20 on `A-01-02`; LAMP is serial-tracked (`LAMP-1001`–`LAMP-1014`) with pick min 12 on `B-01-01`; RESIN is catch-weight (6 bottles / 3000 g on `A-01-01`); GLUE is lot + expiry (`LOT-OLD` / `LOT-NEW` on `A-01-01`, expired `LOT-DEAD` on `A-01-03`). `LAMP-1001` is seeded with as-built component lots. Setup → Carriers has demo UPS `A1B2C3` and USPS accounts plus Rackline Ground. Then open **Map** and **Move**.
 
 `wrangler.jsonc` uses a placeholder `database_id`. Local D1 does not need a Cloudflare account. When you are ready to deploy:
 
@@ -127,7 +139,7 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 
 - **Receive** adds qty to a location (blank receipt, purchase order, or customer return). Lines track received vs expected; posting more than remaining returns HTTP 409 (`OVER_RECEIVE`); the document stays `receiving` until every unit is in. Return lines choose restock, scrap, or hold; scrap writes receive then scrap in one persist so on-hand is unchanged; hold opens a QC lock on the bay SKU after receive; unknown disposition is HTTP 400
 - **Move / transfer** decrements the from bin and increments the to bin in one ledger movement. Lines track moved vs expected; posting more than remaining returns HTTP 409 (`OVER_MOVE`); the document stays `in_progress` until every unit is moved. Dock, ship, and bench stock get a suggested bulk/storage bay (same idea as directed pick). Moves cannot steal qty reserved for an open pick
-- **Pick** decrements the pick bin. Starting pick reserves remaining qty against ATP (on-hand − held − allocated) on location:item. A second start that would oversell returns HTTP 409 (`INSUFFICIENT_ATP`). Lines track picked vs ordered; posting more than remaining returns HTTP 409 (`OVER_PICK`); the document stays `picking` until every unit is picked. The API suggests a pick-face bay that still covers remaining qty for this order. Unpick puts unpacked qty back on a bay (`unpick` movement) and restores ATP; posting more than unpacked remaining returns HTTP 409 (`OVER_UNPICK`). Cancel restores all picked qty (including packed), releases allocations, and marks the order `cancelled`. Shipped orders cannot be cancelled.
+- **Pick** decrements the pick bin. Starting pick reserves remaining qty against ATP (on-hand − held − allocated) on location:item. A second start that would oversell returns HTTP 409 (`INSUFFICIENT_ATP`). Lines track picked vs ordered; posting more than remaining returns HTTP 409 (`OVER_PICK`); the document stays `picking` until every unit is picked. The API suggests a pick-face bay that still covers remaining qty for this order. Floor Pick and the order record can open an optional pick map: remaining SKUs are numbered walk stops on the floor plan and 3D racks; tap a stop to set the pick-from bay. Unpick puts unpacked qty back on a bay (`unpick` movement) and restores ATP; posting more than unpacked remaining returns HTTP 409 (`OVER_UNPICK`). Cancel restores all picked qty (including packed), releases allocations, and marks the order `cancelled`. Shipped orders cannot be cancelled.
 - **Pack slip** prints ordered vs picked vs packed qty from the order record
 - **Pack** posts packed qty against picked qty. Posting more than remaining returns HTTP 409 (`OVER_PACK`); the document stays `packing` until every picked unit is in the box. Pack does not move the location:item ledger (qty already left at pick)
 - **Ship** writes an outbound movement (qty already left at pick), releases leftover allocations, and, for Shopify orders, creates a fulfillment
@@ -145,10 +157,17 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 - **Shipping label** buys from a connected carrier account (Setup → Carriers). Demo mints `1Z` / `9400` / `FE-` / `DHL-` / `RL-` tracking; void is allowed until ship. Shop rates returns canned quotes from enabled services.
 - **Print station** scans a bay, SKU, or order. Pack slips queue once picking has started; shipping labels once the ticket is picked. Floor **Print** and Setup **Labels** share that queue
 - **Reorder point** flags SKUs at or below the threshold on the floor board
+- **Zone** tags bays on a warehouse for wave scoping. Qty stays on location:item
+- **Wave / batch** groups open orders. Batch release consolidates remaining SKU qty; floor batch-pick posts picks across those orders and returns HTTP 409 (`OVER_BATCH_PICK`) when over. Qty stays integer pieces on location:item
+- **ASN** is a vendor advance notice that receives like a purchase (partial qty, over-receive 409)
+- **3PL client** tags documents (orders, ASNs, waves). Inventory is not split by client on the ledger
+- **Yard visit** tracks a trailer from expected → checked in → at dock → checked out
+- **Labor** appends an event when floor work posts; Setup → Labor shows the rollup
+- **Multi-warehouse** lets owners add buildings; transfers may target another warehouse (`toWarehouseId`) and scan-to-move may cross buildings
 
 ## Roles
 
-- `owner` — full catalog, including deletes, and Shopify credentials
-- `operator` — floor actions (receive, transfer, pick, unpick, cancel, ship, complete WO, kit, dekit, vendor RTV, cycle count, hold, adjust) and Shopify order simulation. Cannot delete items, locations, or BOMs
+- `owner` — full catalog, including deletes, Shopify credentials, clients, zones, and extra warehouses
+- `operator` — floor actions (receive, ASN, transfer, pick, wave batch-pick, unpick, cancel, ship, complete WO, kit, dekit, vendor RTV, cycle count, hold, yard, adjust) and Shopify order simulation. Cannot delete items, locations, or BOMs
 
 Signup creates an organization plus a default **Main warehouse**.
