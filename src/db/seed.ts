@@ -988,6 +988,7 @@ async function seedLaborHistory(
     { id: newId(), orderId: kpiOrder, itemId: item.lamp, qty: 1, qtyPicked: 1, qtyPacked: 1 },
   ]);
 
+  const glueExpiry = addUtcDays(utcYyyymmdd(), 180);
   await applyLabor(db, organizationId, mayaId, yesterday, [{ locationId: a0101, itemId: item.base }], (balances) =>
     planPick({ itemId: item.base, sku: "BASE", locationId: a0101, qty: 4, refId: kpiOrder, balances }),
   );
@@ -1000,6 +1001,7 @@ async function seedLaborHistory(
       refId: kpiOrder,
       balances,
       lotCode: "LOT-NEW",
+      expiresOn: glueExpiry,
     }),
   );
   await applyLabor(db, organizationId, mayaId, yesterday + 22 * 60_000, [{ locationId: b0101, itemId: item.lamp }], (balances) =>
@@ -1022,6 +1024,7 @@ async function seedLaborHistory(
       refId: kpiOrder,
       balances,
       lotCode: "LOT-NEW",
+      expiresOn: glueExpiry,
     }),
   );
   await db.insert(schema.packEvents).values([
