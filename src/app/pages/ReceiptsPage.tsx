@@ -7,6 +7,7 @@ import { RECEIPT_STEPS, canReceive } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
+import { ExpiryInput, parseExpiryInput } from "../components/expiry-field";
 
 type Line = { itemId: string; qty: string };
 
@@ -102,6 +103,7 @@ function ReceiptDetail({ id }: { id: string }) {
   const [lots, setLots] = useState<Record<string, string>>({});
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
+  const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -140,6 +142,7 @@ function ReceiptDetail({ id }: { id: string }) {
           lotCode: lots[line.itemId] || undefined,
           serials: serials[line.itemId] || undefined,
           weightGrams: parseWeightGrams(weights[line.itemId]),
+          expiresOn: parseExpiryInput(expiries[line.itemId]),
         }))
         .filter((line) => line.qty > 0);
       const next = await api<Receipt>(`/api/receipts/${id}/receive`, {
@@ -245,6 +248,12 @@ function ReceiptDetail({ id }: { id: string }) {
                   show={line.catchWeight}
                   value={weights[line.itemId] ?? ""}
                   onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
+                />
+                <ExpiryInput
+                  className="mt-1"
+                  show={line.trackExpiry}
+                  value={expiries[line.itemId] ?? ""}
+                  onChange={(value) => setExpiries((current) => ({ ...current, [line.itemId]: value }))}
                 />
               </td>
             </tr>

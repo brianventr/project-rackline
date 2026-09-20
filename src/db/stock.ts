@@ -128,6 +128,7 @@ export async function persistStockPlan(
         lotCode: movement.lotCode ?? null,
         serialsJson: movement.serials?.length ? JSON.stringify(movement.serials) : null,
         weightGrams: movement.weightGrams ?? null,
+        expiresOn: movement.expiresOn ?? null,
       }),
     );
   }
@@ -152,7 +153,7 @@ export async function postReceiveLines(
     locationId: string;
     refType: string;
     refId: string;
-    lines: { itemId: string; qty: number; lotCode?: string | null; serials?: string[] | null; weightGrams?: number | null }[];
+    lines: { itemId: string; qty: number; lotCode?: string | null; serials?: string[] | null; weightGrams?: number | null; expiresOn?: number | null }[];
     extra?: BatchItem<"sqlite">[];
   },
 ): Promise<void> {
@@ -173,6 +174,7 @@ export async function postReceiveLines(
         lotCode: line.lotCode,
         serials: line.serials,
         weightGrams: line.weightGrams,
+        expiresOn: line.expiresOn,
         balances,
       }),
     ),

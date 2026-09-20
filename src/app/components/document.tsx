@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { PageHeader } from "./ui";
 import { api, type Movement } from "../api";
 import { formatCatchWeight } from "@/domain/catch-weight";
+import { formatExpiresOn } from "@/domain/expiry";
 
 export function StatusStepper({
   steps,
@@ -109,6 +110,8 @@ export function DocumentActivity({ refId, refreshKey }: { refId: string; refresh
               <span className="font-mono tabular-nums">
                 {row.qty}
                 {row.weightGrams ? ` · ${formatCatchWeight(row.weightGrams)}` : ""}
+                {row.lotCode ? ` · ${row.lotCode}` : ""}
+                {row.expiresOn ? ` · ${formatExpiresOn(row.expiresOn)}` : ""}
               </span>
             </li>
           ))}

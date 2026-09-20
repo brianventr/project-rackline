@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ExpiredLotError } from "./expiry";
 import { InsufficientStockError } from "./inventory";
 import {
   allocateFifoLots,
@@ -21,9 +22,30 @@ describe("lots and serials", () => {
         "LED-BULB",
       ),
     ).toEqual([
-      { lotCode: "LOT-2026-A", qty: 25 },
-      { lotCode: "LOT-2026-B", qty: 5 },
+      { lotCode: "LOT-2026-A", qty: 25, expiresOn: null },
+      { lotCode: "LOT-2026-B", qty: 5, expiresOn: null },
     ]);
+  });
+
+  it("picks the earliest expiry first and skips expired lots", () => {
+    expect(
+      allocateFifoLots(
+        [
+          { lotCode: "LOT-NEW", qty: 8, expiresOn: 20270301 },
+          { lotCode: "LOT-OLD", qty: 4, expiresOn: 20260923 },
+          { lotCode: "LOT-DEAD", qty: 2, expiresOn: 20260101 },
+        ],
+        5,
+        "GLUE",
+        20260920,
+      ),
+    ).toEqual([
+      { lotCode: "LOT-OLD", qty: 4, expiresOn: 20260923 },
+      { lotCode: "LOT-NEW", qty: 1, expiresOn: 20270301 },
+    ]);
+    expect(() =>
+      allocateFifoLots([{ lotCode: "LOT-DEAD", qty: 2, expiresOn: 20260101 }], 1, "GLUE", 20260920),
+    ).toThrow(ExpiredLotError);
   });
 
   it("rejects a short lot allocation", () => {

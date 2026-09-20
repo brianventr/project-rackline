@@ -8,6 +8,7 @@ import { persistStockPlan } from "./stock";
 import { provisionOrganization } from "../lib/org";
 import { demoFulfillmentOrderId } from "../domain/shopify";
 import { areaForType, gridPosition } from "../domain/map-layout";
+import { addUtcDays, utcYyyymmdd } from "../domain/expiry";
 
 export const DEMO_EMAIL = "demo@northwind.makers";
 export const DEMO_PASSWORD = "rackline-demo";
@@ -125,6 +126,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     cord: newId(),
     lamp: newId(),
     resin: newId(),
+    glue: newId(),
   };
   await db.batch([
     db.insert(schema.items).values({
@@ -192,6 +194,19 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       reorderPoint: 4,
       catchWeight: true,
     }),
+    db.insert(schema.items).values({
+      id: item.glue,
+      organizationId,
+      sku: "GLUE",
+      name: "Cyanoacrylate",
+      type: "raw",
+      barcode: "GLUE",
+      createdAt: now,
+      reorderPoint: 4,
+      pickMin: 4,
+      trackLot: true,
+      trackExpiry: true,
+    }),
   ]);
 
   const starting = [
@@ -205,6 +220,9 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     { itemId: item.bulb, locationId: locIds.a0102!, qty: 6, lotCode: "LOT-2026-A" },
     { itemId: item.shade, locationId: locIds.a0201!, qty: 4 },
     { itemId: item.resin, locationId: locIds.a0101!, qty: 6, weightGrams: 3000 },
+    { itemId: item.glue, locationId: locIds.a0101!, qty: 4, lotCode: "LOT-OLD", expiresOn: addUtcDays(utcYyyymmdd(), 3) },
+    { itemId: item.glue, locationId: locIds.a0101!, qty: 8, lotCode: "LOT-NEW", expiresOn: addUtcDays(utcYyyymmdd(), 180) },
+    { itemId: item.glue, locationId: locIds.a0103!, qty: 2, lotCode: "LOT-DEAD", expiresOn: addUtcDays(utcYyyymmdd(), -10) },
   ];
   const seedRef = "seed";
   const plan = chainPlans(
@@ -219,6 +237,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
         lotCode: line.lotCode,
         serials: line.serials,
         weightGrams: line.weightGrams,
+        expiresOn: line.expiresOn,
       }),
     ),
   );

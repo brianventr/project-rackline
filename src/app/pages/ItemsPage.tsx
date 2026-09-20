@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api, type Item, type Me } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
+import { formatExpiresOn } from "@/domain/expiry";
 
 const types = ["raw", "wip", "finished", "packaging"];
 
@@ -25,6 +26,7 @@ function ItemList() {
   const [trackLot, setTrackLot] = useState(false);
   const [trackSerial, setTrackSerial] = useState(false);
   const [catchWeight, setCatchWeight] = useState(false);
+  const [trackExpiry, setTrackExpiry] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [labels, setLabels] = useState(params.get("labels") === "1");
   const [ready, setReady] = useState(false);
@@ -54,6 +56,7 @@ function ItemList() {
           trackLot,
           trackSerial,
           catchWeight,
+          trackExpiry,
         }),
       });
       setSku("");
@@ -155,6 +158,10 @@ function ItemList() {
             <input type="checkbox" checked={catchWeight} onChange={(e) => setCatchWeight(e.target.checked)} />
             Catch-weight
           </label>
+          <label className="flex items-end gap-2 pb-2 text-sm">
+            <input type="checkbox" checked={trackExpiry} onChange={(e) => setTrackExpiry(e.target.checked)} />
+            Expiry
+          </label>
           <div className="flex items-end">
             <Button type="submit">Add item</Button>
           </div>
@@ -190,6 +197,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
   const [trackLot, setTrackLot] = useState(false);
   const [trackSerial, setTrackSerial] = useState(false);
   const [catchWeight, setCatchWeight] = useState(false);
+  const [trackExpiry, setTrackExpiry] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -203,6 +211,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
         setTrackLot(Boolean(next.trackLot));
         setTrackSerial(Boolean(next.trackSerial));
         setCatchWeight(Boolean(next.catchWeight));
+        setTrackExpiry(Boolean(next.trackExpiry));
       })
       .catch((err: Error) => setError(err.message));
   }, [id]);
@@ -221,6 +230,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
             trackLot,
             trackSerial,
             catchWeight,
+            trackExpiry,
           }),
         }),
       );
@@ -293,6 +303,10 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
           <input type="checkbox" checked={catchWeight} onChange={(e) => setCatchWeight(e.target.checked)} />
           Catch-weight
         </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={trackExpiry} onChange={(e) => setTrackExpiry(e.target.checked)} />
+          Track expiry
+        </label>
       </Card>
       <Table columns={["Location", "On hand", "Allocated", "ATP"]}>
         {(item.onHand ?? []).map((row) => (
@@ -309,11 +323,12 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
         ))}
       </Table>
       {(item.lots ?? []).length ? (
-        <Table columns={["Location", "Lot", "Qty"]}>
+        <Table columns={["Location", "Lot", "Expiry", "Qty"]}>
           {(item.lots ?? []).map((row) => (
             <tr key={`${row.locationId}:${row.lotCode}`}>
               <td className="px-4 py-3 font-mono">{row.locationCode}</td>
               <td className="px-4 py-3 font-mono">{row.lotCode}</td>
+              <td className="px-4 py-3 font-mono text-xs">{formatExpiresOn(row.expiresOn)}</td>
               <td className="px-4 py-3 font-mono">{row.qty}</td>
             </tr>
           ))}

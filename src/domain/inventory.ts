@@ -21,6 +21,7 @@ export type MovementDraft = {
   lotCode?: string | null;
   serials?: string[] | null;
   weightGrams?: number | null;
+  expiresOn?: number | null;
 };
 
 export type StockPlan = {
@@ -80,6 +81,7 @@ export function planReceive(input: {
   lotCode?: string | null;
   serials?: string[] | null;
   weightGrams?: number | null;
+  expiresOn?: number | null;
 }): StockPlan {
   requirePositiveQty(input.qty);
   const balances = new Map(input.balances);
@@ -97,6 +99,7 @@ export function planReceive(input: {
         lotCode: input.lotCode ?? null,
         serials: input.serials ?? null,
         weightGrams: input.weightGrams ?? null,
+        expiresOn: input.expiresOn ?? null,
       },
     ],
   };
@@ -112,6 +115,7 @@ export function planPick(input: {
   lotCode?: string | null;
   serials?: string[] | null;
   weightGrams?: number | null;
+  expiresOn?: number | null;
 }): StockPlan {
   requirePositiveQty(input.qty);
   const balances = new Map(input.balances);
@@ -129,6 +133,7 @@ export function planPick(input: {
         lotCode: input.lotCode ?? null,
         serials: input.serials ?? null,
         weightGrams: input.weightGrams ?? null,
+        expiresOn: input.expiresOn ?? null,
       },
     ],
   };

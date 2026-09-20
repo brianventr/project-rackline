@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type Movement } from "../api";
 import { ErrorBanner, PageHeader, Table } from "../components/ui";
 import { formatCatchWeight } from "@/domain/catch-weight";
+import { formatExpiresOn } from "@/domain/expiry";
 
 function formatWhen(ms: number) {
   return new Date(ms).toLocaleString();
@@ -25,7 +26,7 @@ export function LedgerPage() {
         description="Every receive, move, pick, ship, kit, replenishment, and work-order movement."
       />
       <ErrorBanner error={error} />
-      <Table columns={["When", "Type", "SKU", "Qty", "Weight", "Lot", "From", "To", "Reason"]}>
+      <Table columns={["When", "Type", "SKU", "Qty", "Weight", "Lot", "Expiry", "From", "To", "Reason"]}>
         {rows.map((row) => (
           <tr key={row.id}>
             <td className="px-4 py-3 text-xs text-muted-foreground">{formatWhen(row.createdAt)}</td>
@@ -34,6 +35,7 @@ export function LedgerPage() {
             <td className="px-4 py-3 font-mono tabular">{row.qty}</td>
             <td className="px-4 py-3 font-mono text-xs">{formatCatchWeight(row.weightGrams)}</td>
             <td className="px-4 py-3 font-mono text-xs">{row.lotCode || "—"}</td>
+            <td className="px-4 py-3 font-mono text-xs">{formatExpiresOn(row.expiresOn)}</td>
             <td className="px-4 py-3 font-mono">{row.fromLocationCode || "—"}</td>
             <td className="px-4 py-3 font-mono">{row.toLocationCode || "—"}</td>
             <td className="px-4 py-3 text-muted-foreground">{row.reason || "—"}</td>

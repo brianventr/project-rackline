@@ -14,6 +14,13 @@ import {
   normalizeSerials,
 } from "../domain/lots";
 import { splitCatchWeight } from "../domain/catch-weight";
+import {
+  addUtcDays,
+  assertLotNotExpired,
+  assertSameLotExpiry,
+  requireExpiry,
+  utcYyyymmdd,
+} from "../domain/expiry";
 import { badRequest } from "../lib/http";
 import { newId } from "../lib/ids";
 import {
@@ -30,6 +37,7 @@ type TrackedItem = {
   trackLot: boolean;
   trackSerial: boolean;
   catchWeight: boolean;
+  trackExpiry: boolean;
 };
 
 function isProduce(type: string): boolean {
@@ -59,6 +67,7 @@ export async function expandMovementsForTraceability(
       trackLot: schema.items.trackLot,
       trackSerial: schema.items.trackSerial,
       catchWeight: schema.items.catchWeight,
+      trackExpiry: schema.items.trackExpiry,
     })
     .from(schema.items)
     .where(and(eq(schema.items.organizationId, organizationId), inArray(schema.items.id, itemIds)));
@@ -102,6 +111,29 @@ async function expandOne(
     }
   }
 
+  if (item.trackExpiry && isInbound(movement)) {
+    try {
+      if (movement.expiresOn == null && (isProduce(movement.type) || movement.type === "adjust")) {
+        movement.expiresOn = addUtcDays(utcYyyymmdd(), 365);
+      } else {
+        movement.expiresOn = requireExpiry(true, item.sku, movement.expiresOn ?? undefined);
+      }
+    } catch (err) {
+      badRequest(err instanceof Error ? err.message : "Invalid expiry");
+    }
+  }
+
+  if (item.trackLot && lotCode && isOutbound(movement) && movement.fromLocationId) {
+    const lots = await loadLotsAt(db, organizationId, movement.fromLocationId, item.id);
+    const row = lots.find((lot) => lot.lotCode === lotCode);
+    try {
+      assertLotNotExpired(item.sku, lotCode, row?.expiresOn ?? null);
+    } catch (err) {
+      badRequest(err instanceof Error ? err.message : "Lot expired");
+    }
+    if (row?.expiresOn != null) movement.expiresOn = row.expiresOn;
+  }
+
   if (item.trackLot && !lotCode && isInbound(movement)) {
     if (isProduce(movement.type) || movement.type === "adjust") {
       lotCode = builtLotCode();
@@ -143,6 +175,7 @@ async function expandOne(
         lotCode: row.lotCode,
         serials: null,
         weightGrams: grams[index],
+        expiresOn: row.expiresOn ?? movement.expiresOn ?? null,
       };
       const withSerials = await attachOutboundSerials(db, organizationId, item, piece, []);
       split.push(...withSerials);
@@ -182,6 +215,7 @@ async function loadLotsAt(db: AppDb, organizationId: string, locationId: string,
     .select({
       lotCode: schema.lotBalances.lotCode,
       qty: schema.lotBalances.qty,
+      expiresOn: schema.lotBalances.expiresOn,
     })
     .from(schema.lotBalances)
     .where(
@@ -244,7 +278,8 @@ export async function appendTraceabilityStatements(
     }
   }
 
-  const existingLots = new Map<string, { id: string; qty: number }>();
+  const existingLots = new Map<string, { id: string; qty: number; expiresOn: number | null }>();
+  const lotExpiry = new Map<string, number | null>();
   const lotList = [...lotKeys.values()];
   if (lotList.length > 0) {
     const rows = await db
@@ -260,7 +295,15 @@ export async function appendTraceabilityStatements(
         ),
       );
     for (const row of rows) {
-      existingLots.set(`${row.locationId}:${row.itemId}:${row.lotCode}`, { id: row.id, qty: row.qty });
+      existingLots.set(`${row.locationId}:${row.itemId}:${row.lotCode}`, {
+        id: row.id,
+        qty: row.qty,
+        expiresOn: row.expiresOn ?? null,
+      });
+      const identity = `${row.itemId}:${row.lotCode}`;
+      if (!lotExpiry.has(identity) || lotExpiry.get(identity) == null) {
+        lotExpiry.set(identity, row.expiresOn ?? null);
+      }
     }
   }
 
@@ -296,6 +339,18 @@ export async function appendTraceabilityStatements(
     if (movement.type === "ship") continue;
     const lotCode = movement.lotCode?.trim() ? normalizeLotCode(movement.lotCode) : null;
     if (lotCode) {
+      const identity = `${movement.itemId}:${lotCode}`;
+      const known = lotExpiry.get(identity) ?? null;
+      if (isInbound(movement) && movement.expiresOn != null) {
+        try {
+          assertSameLotExpiry(movement.itemId, lotCode, known, movement.expiresOn);
+        } catch (err) {
+          badRequest(err instanceof Error ? err.message : "Lot expiry mismatch");
+        }
+        lotExpiry.set(identity, movement.expiresOn);
+      } else if (movement.expiresOn == null && known != null) {
+        movement.expiresOn = known;
+      }
       if (movement.fromLocationId) {
         applyLotDelta(lotQty, movement.fromLocationId, movement.itemId, lotCode, -movement.qty);
       }
@@ -379,11 +434,12 @@ export async function appendTraceabilityStatements(
   for (const [key, qty] of lotQty) {
     const [locationId, itemId, lotCode] = splitLotKey(key);
     const existing = existingLots.get(key);
+    const expiresOn = lotExpiry.get(`${itemId}:${lotCode}`) ?? existing?.expiresOn ?? null;
     if (existing) {
       input.statements.push(
         db
           .update(schema.lotBalances)
-          .set({ qty, updatedAt: input.now })
+          .set({ qty, updatedAt: input.now, expiresOn })
           .where(eq(schema.lotBalances.id, existing.id)),
       );
     } else {
@@ -395,6 +451,7 @@ export async function appendTraceabilityStatements(
           itemId,
           lotCode,
           qty,
+          expiresOn,
           updatedAt: input.now,
         }),
       );

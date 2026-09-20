@@ -133,6 +133,7 @@ export const items = sqliteTable(
     trackLot: integer("track_lot", { mode: "boolean" }).notNull().default(false),
     trackSerial: integer("track_serial", { mode: "boolean" }).notNull().default(false),
     catchWeight: integer("catch_weight", { mode: "boolean" }).notNull().default(false),
+    trackExpiry: integer("track_expiry", { mode: "boolean" }).notNull().default(false),
   },
   (t) => [
     uniqueIndex("items_org_sku").on(t.organizationId, t.sku),
@@ -179,6 +180,7 @@ export const inventoryMovements = sqliteTable("inventory_movements", {
   lotCode: text("lot_code"),
   serialsJson: text("serials_json"),
   weightGrams: integer("weight_grams"),
+  expiresOn: integer("expires_on"),
 });
 
 export const receipts = sqliteTable("receipts", {
@@ -510,6 +512,7 @@ export const lotBalances = sqliteTable(
       .references(() => items.id, { onDelete: "cascade" }),
     lotCode: text("lot_code").notNull(),
     qty: integer("qty").notNull(),
+    expiresOn: integer("expires_on"),
     updatedAt: integer("updated_at").notNull(),
   },
   (t) => [uniqueIndex("lot_balances_org_loc_item_lot").on(t.organizationId, t.locationId, t.itemId, t.lotCode)],

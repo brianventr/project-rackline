@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, gt, inArray, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lte, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
@@ -14,6 +14,7 @@ import { countVariance } from "../domain/blind-count";
 import { applyHoldsToOnHand, matchingHoldForMove } from "../domain/holds";
 import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
 import { annotateAtp, atpOnHand, loadOpenAllocations } from "../db/allocations";
+import { addUtcDays, EXPIRING_WITHIN_DAYS, utcYyyymmdd } from "../domain/expiry";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -330,6 +331,7 @@ catalogRoute.get("/items/:id", async (c) => {
       locationCode: schema.locations.code,
       lotCode: schema.lotBalances.lotCode,
       qty: schema.lotBalances.qty,
+      expiresOn: schema.lotBalances.expiresOn,
     })
     .from(schema.lotBalances)
     .innerJoin(schema.locations, eq(schema.locations.id, schema.lotBalances.locationId))
@@ -388,6 +390,7 @@ catalogRoute.post("/items", async (c) => {
     trackLot?: boolean;
     trackSerial?: boolean;
     catchWeight?: boolean;
+    trackExpiry?: boolean;
   }>();
   const sku = requireString(body.sku, "sku").toUpperCase();
   const name = requireString(body.name, "name");
@@ -412,9 +415,10 @@ catalogRoute.post("/items", async (c) => {
         createdAt: Date.now(),
         reorderPoint,
         pickMin,
-        trackLot: Boolean(body.trackLot),
+        trackLot: Boolean(body.trackLot) || Boolean(body.trackExpiry),
         trackSerial: Boolean(body.trackSerial),
         catchWeight: Boolean(body.catchWeight),
+        trackExpiry: Boolean(body.trackExpiry),
       })
       .returning();
     return c.json(row, 201);
@@ -432,6 +436,7 @@ catalogRoute.patch("/items/:id", async (c) => {
     trackLot?: boolean;
     trackSerial?: boolean;
     catchWeight?: boolean;
+    trackExpiry?: boolean;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -443,6 +448,7 @@ catalogRoute.patch("/items/:id", async (c) => {
     trackLot?: boolean;
     trackSerial?: boolean;
     catchWeight?: boolean;
+    trackExpiry?: boolean;
   } = {};
   if (body.reorderPoint !== undefined) {
     const reorderPoint = requireInt(body.reorderPoint, "reorderPoint");
@@ -460,6 +466,10 @@ catalogRoute.patch("/items/:id", async (c) => {
   if (body.trackLot !== undefined) patch.trackLot = Boolean(body.trackLot);
   if (body.trackSerial !== undefined) patch.trackSerial = Boolean(body.trackSerial);
   if (body.catchWeight !== undefined) patch.catchWeight = Boolean(body.catchWeight);
+  if (body.trackExpiry !== undefined) {
+    patch.trackExpiry = Boolean(body.trackExpiry);
+    if (patch.trackExpiry) patch.trackLot = true;
+  }
   if (Object.keys(patch).length === 0) badRequest("Nothing to update");
   try {
     const [row] = await db
@@ -538,6 +548,7 @@ catalogRoute.get("/movements", async (c) => {
       lotCode: schema.inventoryMovements.lotCode,
       serialsJson: schema.inventoryMovements.serialsJson,
       weightGrams: schema.inventoryMovements.weightGrams,
+      expiresOn: schema.inventoryMovements.expiresOn,
     })
     .from(schema.inventoryMovements)
     .innerJoin(schema.items, eq(schema.items.id, schema.inventoryMovements.itemId))
@@ -1016,6 +1027,32 @@ catalogRoute.get("/dashboard", async (c) => {
       ),
     );
 
+  const horizon = addUtcDays(utcYyyymmdd(), EXPIRING_WITHIN_DAYS);
+  const expiringLots = await db
+    .select({
+      locationId: schema.locations.id,
+      locationCode: schema.locations.code,
+      itemId: schema.items.id,
+      sku: schema.items.sku,
+      itemName: schema.items.name,
+      lotCode: schema.lotBalances.lotCode,
+      qty: schema.lotBalances.qty,
+      expiresOn: schema.lotBalances.expiresOn,
+    })
+    .from(schema.lotBalances)
+    .innerJoin(schema.items, eq(schema.items.id, schema.lotBalances.itemId))
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.lotBalances.locationId))
+    .where(
+      and(
+        eq(schema.lotBalances.organizationId, organizationId),
+        warehouseId ? eq(schema.locations.warehouseId, warehouseId) : undefined,
+        gt(schema.lotBalances.qty, 0),
+        lte(schema.lotBalances.expiresOn, horizon),
+      ),
+    )
+    .orderBy(schema.lotBalances.expiresOn)
+    .limit(20);
+
   return c.json({
     onHandUnits: Number(onHand?.units ?? 0),
     binRows: Number(onHand?.bins ?? 0),
@@ -1035,6 +1072,7 @@ catalogRoute.get("/dashboard", async (c) => {
     openReplenishments: openReplenishRows.length,
     openKits: openKitRows.length,
     replenishDue: replenishSuggestions.length,
+    expiringLots: expiringLots.length,
     lowStock,
     recent,
     hotBays: hotBays.map((row) => ({ ...row, units: Number(row.units) })),
@@ -1051,6 +1089,7 @@ catalogRoute.get("/dashboard", async (c) => {
       replenishments: openReplenishRows,
       kits: openKitRows,
       shopifyExceptions,
+      expiringLots,
     },
     replenishSuggestions,
     putawaySuggestions,

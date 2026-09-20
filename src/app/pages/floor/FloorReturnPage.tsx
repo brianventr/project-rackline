@@ -4,6 +4,7 @@ import { api, type Location, type Rma, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
+import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
 import { canReceiveReturn } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
 
@@ -16,6 +17,7 @@ export function FloorReturnPage() {
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
+  const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
@@ -81,6 +83,7 @@ export function FloorReturnPage() {
           qty: Number(qtys[line.itemId] || 0),
           serials: serials[line.itemId] || undefined,
           weightGrams: parseWeightGrams(weights[line.itemId]),
+          expiresOn: parseExpiryInput(expiries[line.itemId]),
         }))
         .filter((line) => line.qty > 0);
       const posted = await api<Rma>(`/api/returns/${active.id}/receive`, {
@@ -172,6 +175,11 @@ export function FloorReturnPage() {
                   show={line.catchWeight}
                   value={weights[line.itemId] ?? ""}
                   onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
+                />
+                <ExpiryInput
+                  show={line.trackExpiry}
+                  value={expiries[line.itemId] ?? ""}
+                  onChange={(value) => setExpiries((current) => ({ ...current, [line.itemId]: value }))}
                 />
               </li>
             ))}
