@@ -57,13 +57,16 @@ import { FloorYardPage } from "./pages/floor/FloorYardPage";
 import { ShippingLabelPage } from "./pages/ShippingLabelPage";
 import { PackSlipPage } from "./pages/PackSlipPage";
 import { ScannerProvider } from "./scanner/ScannerProvider";
+import { PrintProvider } from "./print/PrintProvider";
 import { homePath, OwnerOnly } from "./warehouse";
 
 function Guard({ me }: { me: Me | null }) {
   if (!me) return <Navigate to="/login" replace />;
   return (
     <ScannerProvider>
-      <AppShell me={me} />
+      <PrintProvider>
+        <AppShell me={me} />
+      </PrintProvider>
     </ScannerProvider>
   );
 }

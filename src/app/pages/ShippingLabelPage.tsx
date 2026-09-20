@@ -3,12 +3,15 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type ShippingLabel } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, ErrorBanner, PageHeader } from "../components/ui";
+import { usePrint } from "../print/PrintProvider";
 
 export function ShippingLabelPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const printer = usePrint();
   const [label, setLabel] = useState<ShippingLabel | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -24,7 +27,7 @@ export function ShippingLabelPage() {
       <PageHeader
         eyebrow="Outbound"
         title="Shipping label"
-        description={`${label.carrierCompany} ${label.carrierService}`}
+        description={`${label.carrierCompany} ${label.carrierService} · ${printer.statusLabel}`}
         actions={
           <div className="flex gap-2 print:hidden">
             <Button variant="ghost" onClick={() => navigate(`/outbound/orders/${label.orderId}`)}>
@@ -33,11 +36,36 @@ export function ShippingLabelPage() {
             <Button variant="secondary">
               <Link to={`/floor/ship?id=${label.orderId}`}>Ship</Link>
             </Button>
-            <Button onClick={() => window.print()}>Print</Button>
+            <Button
+              onClick={() => {
+                void printer
+                  .print({
+                    kind: "shipping-label",
+                    title: label.orderNumber,
+                    data: {
+                      orderNumber: label.orderNumber,
+                      customerName: label.customerName,
+                      shipToAddress: label.shipToAddress,
+                      carrierCompany: label.carrierCompany,
+                      carrierService: label.carrierService,
+                      trackingNumber: label.trackingNumber,
+                    },
+                    refType: "order",
+                    refId: label.orderId,
+                  })
+                  .then((result) => {
+                    setMessage(result.message);
+                    if (!result.ok) setError(result.message);
+                  });
+              }}
+            >
+              Print
+            </Button>
           </div>
         }
       />
       <ErrorBanner error={error} />
+      {message ? <p className="print:hidden text-sm text-muted-foreground">{message}</p> : null}
       <div className="rounded-2xl border bg-card p-6">
         <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">Ship to</p>
         <p className="mt-2 text-xl font-semibold">{label.customerName}</p>

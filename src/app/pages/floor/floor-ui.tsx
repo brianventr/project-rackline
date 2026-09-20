@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { ScanLine } from "lucide-react";
 import { useScanner } from "../../scanner/ScannerProvider";
 import { Button, ErrorBanner, Input } from "../../components/ui";
 
@@ -30,7 +31,10 @@ export function FloorScanBox({
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (value.trim()) onScan(value.trim());
+    const raw = value.trim();
+    if (!raw) return;
+    scanner.emitScan(raw, "typed");
+    onScan(raw);
   }
 
   return (
@@ -44,7 +48,15 @@ export function FloorScanBox({
         value={value}
         onChange={(e) => setValue(e.target.value)}
       />
-      <Button type="submit">Use scan</Button>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit">Use scan</Button>
+        {scanner.cameraSupported ? (
+          <Button type="button" variant="secondary" onClick={() => scanner.openCamera()}>
+            <ScanLine className="mr-1 size-4" />
+            Camera
+          </Button>
+        ) : null}
+      </div>
     </form>
   );
 }

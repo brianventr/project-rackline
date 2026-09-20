@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { documentPath, normalizeBarcode, parseScan } from "./barcodes";
+import { documentPath, normalizeBarcode, parseGs1, parseScan } from "./barcodes";
 
 describe("barcodes", () => {
   it("normalizes whitespace and case", () => {
@@ -25,6 +25,19 @@ describe("barcodes", () => {
     expect(parseScan("LOT:2026-A")).toEqual({ kind: "lot", value: "2026-A", raw: "LOT:2026-A" });
     expect(parseScan("RCP-DEMO1")).toEqual({ kind: "unknown", value: "RCP-DEMO1", raw: "RCP-DEMO1" });
     expect(parseScan("A-02-01")).toEqual({ kind: "unknown", value: "A-02-01", raw: "A-02-01" });
+  });
+
+  it("parses GS1 AI payloads", () => {
+    expect(parseGs1("(01)01234567890128(10)LOT42(21)SER99")).toEqual({
+      gtin: "01234567890128",
+      lot: "LOT42",
+      serial: "SER99",
+    });
+    expect(parseScan("010123456789012810LOT42")).toMatchObject({
+      kind: "item",
+      value: "01234567890128",
+      gs1: { gtin: "01234567890128", lot: "LOT42" },
+    });
   });
 
   it("maps documents onto office record routes", () => {

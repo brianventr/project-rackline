@@ -990,6 +990,62 @@ export const billingAccounts = sqliteTable("billing_accounts", {
   createdAt: integer("created_at").notNull(),
 });
 
+export const printers = sqliteTable(
+  "printers",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    connection: text("connection").notNull().default("browser"),
+    media: text("media").notNull().default("letter"),
+    dpi: integer("dpi").notNull().default(203),
+    qzPrinterName: text("qz_printer_name"),
+    isDefault: integer("is_default").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("printers_org").on(t.organizationId)],
+);
+
+export const printStations = sqliteTable(
+  "print_stations",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    warehouseId: text("warehouse_id").references(() => warehouses.id, { onDelete: "set null" }),
+    defaultPrinterId: text("default_printer_id").references(() => printers.id, { onDelete: "set null" }),
+    bayPrinterId: text("bay_printer_id").references(() => printers.id, { onDelete: "set null" }),
+    shippingPrinterId: text("shipping_printer_id").references(() => printers.id, { onDelete: "set null" }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("print_stations_org").on(t.organizationId)],
+);
+
+export const printJobs = sqliteTable(
+  "print_jobs",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    printerId: text("printer_id").references(() => printers.id, { onDelete: "set null" }),
+    stationId: text("station_id").references(() => printStations.id, { onDelete: "set null" }),
+    kind: text("kind").notNull(),
+    payloadFormat: text("payload_format").notNull(),
+    status: text("status").notNull(),
+    refType: text("ref_type"),
+    refId: text("ref_id"),
+    error: text("error"),
+    createdAt: integer("created_at").notNull(),
+    sentAt: integer("sent_at"),
+  },
+  (t) => [index("print_jobs_org_created").on(t.organizationId, t.createdAt)],
+);
+
 export const invoices = sqliteTable(
   "invoices",
   {

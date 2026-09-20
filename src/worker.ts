@@ -45,6 +45,7 @@ import { clientsRoute } from "./routes/clients";
 import { yardRoute } from "./routes/yard";
 import { laborRoute } from "./routes/labor";
 import { carriersRoute } from "./routes/carriers";
+import { printersRoute } from "./routes/printers";
 import { billingRoute } from "./routes/billing";
 import { ediRoute } from "./routes/edi";
 
@@ -289,6 +290,7 @@ app.route("/api", clientsRoute);
 app.route("/api", yardRoute);
 app.route("/api", laborRoute);
 app.route("/api", carriersRoute);
+app.route("/api", printersRoute);
 app.route("/api", billingRoute);
 app.route("/api", ediRoute);
 

@@ -72,16 +72,17 @@ export async function getOrgLocation(db: AppDb, organizationId: string, location
 }
 
 export async function getOrgLocationByScan(db: AppDb, organizationId: string, code: string) {
+  const value = code.trim().toUpperCase();
   const [byBarcode] = await db
     .select()
     .from(schema.locations)
-    .where(and(eq(schema.locations.organizationId, organizationId), eq(schema.locations.barcode, code)))
+    .where(and(eq(schema.locations.organizationId, organizationId), eq(schema.locations.barcode, value)))
     .limit(1);
   if (byBarcode) return byBarcode;
   const [byCode] = await db
     .select()
     .from(schema.locations)
-    .where(and(eq(schema.locations.organizationId, organizationId), eq(schema.locations.code, code)))
+    .where(and(eq(schema.locations.organizationId, organizationId), eq(schema.locations.code, value)))
     .limit(1);
   return byCode ?? null;
 }

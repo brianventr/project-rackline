@@ -194,9 +194,15 @@ function LookupResult({ hit }: { hit: ScanHit }) {
                 ? { title: hit.kit.number, status: hit.kit.status, to: documentPath("kit", hit.kit.id), floor: `/floor/kit?id=${hit.kit.id}` }
                 : hit.kind === "hold"
                   ? { title: hit.hold.number, status: hit.hold.status, to: documentPath("hold", hit.hold.id), floor: `/floor/hold?id=${hit.hold.id}` }
-              : hit.kind === "cycleCount"
-                ? { title: hit.cycleCount.number, status: hit.cycleCount.status, to: documentPath("cycleCount", hit.cycleCount.id), floor: `/floor/count?id=${hit.cycleCount.id}` }
-                : { title: "Unknown", status: "", to: "/floor/lookup", floor: "/floor/lookup" };
+              : hit.kind === "wave"
+                ? { title: hit.wave.number, status: hit.wave.status, to: documentPath("wave", hit.wave.id), floor: `/floor/wave?id=${hit.wave.id}` }
+                : hit.kind === "asn"
+                  ? { title: hit.asn.number, status: hit.asn.status, to: documentPath("asn", hit.asn.id), floor: `/floor/asn?id=${hit.asn.id}` }
+                  : hit.kind === "yard"
+                    ? { title: hit.yard.number, status: hit.yard.status, to: documentPath("yard", hit.yard.id), floor: `/floor/yard?id=${hit.yard.id}` }
+                    : hit.kind === "cycleCount"
+                      ? { title: hit.cycleCount.number, status: hit.cycleCount.status, to: documentPath("cycleCount", hit.cycleCount.id), floor: `/floor/count?id=${hit.cycleCount.id}` }
+                      : { title: "Unknown", status: "", to: "/floor/lookup", floor: "/floor/lookup" };
 
   return (
     <Card>

@@ -901,3 +901,41 @@ export type LaborBoard = {
   events: LaborEvent[];
   rollup: LaborRollup[];
 };
+
+export type Printer = {
+  id: string;
+  organizationId: string;
+  name: string;
+  connection: "browser" | "qz" | "download";
+  media: "letter" | "4x6" | "2x1";
+  dpi: number;
+  qzPrinterName: string | null;
+  isDefault: boolean;
+  createdAt: number;
+};
+
+export type PrintStation = {
+  id: string;
+  organizationId: string;
+  name: string;
+  warehouseId: string | null;
+  defaultPrinterId: string | null;
+  bayPrinterId: string | null;
+  shippingPrinterId: string | null;
+  createdAt: number;
+};
+
+export type PrintJobAudit = {
+  id: string;
+  organizationId: string;
+  printerId: string | null;
+  stationId: string | null;
+  kind: string;
+  payloadFormat: string;
+  status: string;
+  refType: string | null;
+  refId: string | null;
+  error: string | null;
+  createdAt: number;
+  sentAt: number | null;
+};
