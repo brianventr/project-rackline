@@ -250,6 +250,43 @@ function LaborStaffPage({ userId }: { userId: string }) {
           ))}
         </div>
       ) : null}
+      {detail?.daily.length || detail?.verbMix.length ? (
+        <div className="grid gap-6 lg:grid-cols-2">
+          {detail.daily.length ? (
+            <Card>
+              <p className="mb-3 text-sm font-medium">Daily volume and pace</p>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={detail.daily}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="day" tickLine={false} axisLine={false} />
+                    <YAxis tickLine={false} axisLine={false} width={32} />
+                    <Tooltip />
+                    <Area dataKey="units" type="monotone" fill="var(--chart-1)" stroke="var(--chart-1)" fillOpacity={0.2} />
+                    <Area dataKey="pace" type="monotone" fill="var(--chart-2)" stroke="var(--chart-2)" fillOpacity={0.15} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+          ) : null}
+          {detail.verbMix.length ? (
+            <Card>
+              <p className="mb-3 text-sm font-medium">Verb mix</p>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={detail.verbMix}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="verb" tickLine={false} axisLine={false} />
+                    <YAxis tickLine={false} axisLine={false} width={32} />
+                    <Tooltip />
+                    <Bar dataKey="units" fill="var(--chart-1)" radius={4} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+          ) : null}
+        </div>
+      ) : null}
       {detail?.skus.length ? (
         <div>
           <p className="mb-2 text-sm font-medium">SKUs handled</p>

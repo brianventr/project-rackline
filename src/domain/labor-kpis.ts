@@ -402,7 +402,7 @@ function annotateFacts(
   }
   for (const group of groups.values()) {
     const throughput = group.filter((row) => row.classified.kind === "throughput");
-    const active = sessionActiveMs(group.map((row) => row.fact.createdAt));
+    const active = sessionActiveMs(throughput.map((row) => row.fact.createdAt));
     const expectedTotal = throughput.reduce((sum, row) => sum + row.expectedMs, 0);
     for (const row of throughput) {
       if (active <= 0 || expectedTotal <= 0) {
@@ -430,7 +430,7 @@ function rollupStaff(worked: Worked[], members: Map<string, LaborMember>): Labor
     const units = sumQty(throughput);
     const exceptionUnits = sumQty(exceptions);
     const expectedMs = throughput.reduce((sum, row) => sum + row.expectedMs, 0);
-    const activeMs = sessionActiveMs(list.map((row) => row.fact.createdAt));
+    const activeMs = throughput.reduce((sum, row) => sum + row.actualMs, 0);
     const activeHours = hours(activeMs);
     const skuUnits = new Map<string, { itemId: string; sku: string; units: number; expectedMs: number; actualMs: number }>();
     for (const row of throughput) {
@@ -464,7 +464,7 @@ function rollupStaff(worked: Worked[], members: Map<string, LaborMember>): Labor
       lph: activeHours > 0 ? round1(throughput.length / activeHours) : 0,
       uph: activeHours > 0 ? round1(units / activeHours) : 0,
       expectedMs,
-      pace: paceScore(expectedMs, activeMs > 0 ? activeMs : expectedMs),
+      pace: paceScore(expectedMs, activeMs),
       topSkus,
     });
   }

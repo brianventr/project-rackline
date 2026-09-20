@@ -217,6 +217,29 @@ describe("labor KPIs", () => {
     expect(glue.hard).toBe(true);
   });
 
+  it("does not count idle time between documents as active hours", () => {
+    const t0 = Date.parse("2026-09-20T16:00:00Z");
+    const board = buildLaborKpis({
+      members,
+      items,
+      locations,
+      facts: [
+        fact({ userId: "maya", type: "pick", itemId: "base", qty: 2, createdAt: t0, refId: "ord-a" }),
+        fact({
+          userId: "maya",
+          type: "pick",
+          itemId: "glue",
+          qty: 1,
+          createdAt: t0 + 10 * 60_000,
+          refId: "ord-b",
+        }),
+      ],
+    });
+    const maya = board.staff[0]!;
+    expect(maya.activeMs).toBeLessThan(60_000);
+    expect(maya.pace).toBe(5);
+  });
+
   it("raises expected time when a picker walks between bays", () => {
     const t0 = 5_000_000;
     const still = buildLaborKpis({

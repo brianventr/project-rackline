@@ -870,6 +870,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     locIds,
     item,
     now,
+    ownerUserId: userId,
   });
 
   return { organizationId };
@@ -896,9 +897,10 @@ async function seedLaborHistory(
     locIds: Record<string, string>;
     item: Record<string, string>;
     now: number;
+    ownerUserId: string;
   },
 ) {
-  const { organizationId, warehouseId, locIds, item, now } = input;
+  const { organizationId, warehouseId, locIds, item, now, ownerUserId } = input;
   const mayaId = newId();
   const jordanId = newId();
   const createdAt = new Date(now);
@@ -924,6 +926,29 @@ async function seedLaborHistory(
     { id: newId(), organizationId, userId: mayaId, role: "operator" },
     { id: newId(), organizationId, userId: jordanId, role: "operator" },
   ]);
+  const [ownerAccount] = await db.select().from(schema.account).where(eq(schema.account.userId, ownerUserId)).limit(1);
+  if (ownerAccount?.password) {
+    await db.insert(schema.account).values([
+      {
+        id: newId(),
+        accountId: mayaId,
+        providerId: "credential",
+        userId: mayaId,
+        password: ownerAccount.password,
+        createdAt,
+        updatedAt: createdAt,
+      },
+      {
+        id: newId(),
+        accountId: jordanId,
+        providerId: "credential",
+        userId: jordanId,
+        password: ownerAccount.password,
+        createdAt,
+        updatedAt: createdAt,
+      },
+    ]);
+  }
 
   const twoDays = now - 2 * 24 * 60 * 60 * 1000;
   const yesterday = now - 20 * 60 * 60 * 1000;
@@ -939,7 +964,7 @@ async function seedLaborHistory(
     db,
     organizationId,
     jordanId,
-    twoDays + 2 * 60_000,
+    twoDays + 45_000,
     [
       { locationId: recv, itemId: item.base },
       { locationId: a0203, itemId: item.base },
@@ -977,9 +1002,9 @@ async function seedLaborHistory(
     customerName: "KPI studio",
     status: "shipped",
     createdAt: yesterday,
-    pickedAt: yesterday + 25 * 60_000,
-    packedAt: yesterday + 28 * 60_000,
-    shippedAt: yesterday + 32 * 60_000,
+    pickedAt: yesterday + 90_000,
+    packedAt: yesterday + 150_000,
+    shippedAt: yesterday + 180_000,
     source: "manual",
   });
   await db.insert(schema.orderLines).values([
@@ -992,7 +1017,7 @@ async function seedLaborHistory(
   await applyLabor(db, organizationId, mayaId, yesterday, [{ locationId: a0101, itemId: item.base }], (balances) =>
     planPick({ itemId: item.base, sku: "BASE", locationId: a0101, qty: 4, refId: kpiOrder, balances }),
   );
-  await applyLabor(db, organizationId, mayaId, yesterday + 18 * 60_000, [{ locationId: a0101, itemId: item.glue }], (balances) =>
+  await applyLabor(db, organizationId, mayaId, yesterday + 45_000, [{ locationId: a0101, itemId: item.glue }], (balances) =>
     planPick({
       itemId: item.glue,
       sku: "GLUE",
@@ -1004,7 +1029,7 @@ async function seedLaborHistory(
       expiresOn: glueExpiry,
     }),
   );
-  await applyLabor(db, organizationId, mayaId, yesterday + 22 * 60_000, [{ locationId: b0101, itemId: item.lamp }], (balances) =>
+  await applyLabor(db, organizationId, mayaId, yesterday + 90_000, [{ locationId: b0101, itemId: item.lamp }], (balances) =>
     planPick({
       itemId: item.lamp,
       sku: "LAMP",
@@ -1015,7 +1040,7 @@ async function seedLaborHistory(
       serials: ["LAMP-1008"],
     }),
   );
-  await applyLabor(db, organizationId, mayaId, yesterday + 24 * 60_000, [{ locationId: a0101, itemId: item.glue }], (balances) =>
+  await applyLabor(db, organizationId, mayaId, yesterday + 110_000, [{ locationId: a0101, itemId: item.glue }], (balances) =>
     planUnpick({
       itemId: item.glue,
       sku: "GLUE",
@@ -1036,7 +1061,7 @@ async function seedLaborHistory(
       orderId: kpiOrder,
       itemId: item.base,
       qty: 4,
-      createdAt: yesterday + 27 * 60_000,
+      createdAt: yesterday + 150_000,
     },
     {
       id: newId(),
@@ -1046,7 +1071,7 @@ async function seedLaborHistory(
       orderId: kpiOrder,
       itemId: item.glue,
       qty: 1,
-      createdAt: yesterday + 27 * 60_000,
+      createdAt: yesterday + 150_000,
     },
     {
       id: newId(),
@@ -1056,16 +1081,16 @@ async function seedLaborHistory(
       orderId: kpiOrder,
       itemId: item.lamp,
       qty: 1,
-      createdAt: yesterday + 28 * 60_000,
+      createdAt: yesterday + 155_000,
     },
   ]);
-  await applyLabor(db, organizationId, mayaId, yesterday + 32 * 60_000, [{ locationId: b0101, itemId: item.lamp }], () =>
+  await applyLabor(db, organizationId, mayaId, yesterday + 180_000, [{ locationId: b0101, itemId: item.lamp }], () =>
     planShip({ itemId: item.lamp, locationId: b0101, qty: 1, refId: kpiOrder }),
   );
-  await applyLabor(db, organizationId, mayaId, yesterday + 32 * 60_000, [{ locationId: a0101, itemId: item.base }], () =>
+  await applyLabor(db, organizationId, mayaId, yesterday + 180_000, [{ locationId: a0101, itemId: item.base }], () =>
     planShip({ itemId: item.base, locationId: a0101, qty: 4, refId: kpiOrder }),
   );
-  await applyLabor(db, organizationId, mayaId, yesterday + 32 * 60_000, [{ locationId: a0101, itemId: item.glue }], () =>
+  await applyLabor(db, organizationId, mayaId, yesterday + 180_000, [{ locationId: a0101, itemId: item.glue }], () =>
     planShip({ itemId: item.glue, locationId: a0101, qty: 1, refId: kpiOrder }),
   );
 }

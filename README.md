@@ -66,7 +66,7 @@ Iteration 26 adds carrier integrations: Setup → Carriers is a Shopify-shaped p
 
 Iteration 27 adds Analytics → Traffic: a live ATC-style country/state map of packed and in-flight orders plus SKU destination demand. Positions are lane estimates from warehouse origin → parsed ship-to (city/state/country), not carrier GPS.
 
-Iteration 28 scores staff against SKUs: Performance (owners) rolls lines, units, pace (0–10 vs expected time from lot/serial/catch-weight/expiry and map walk), and exceptions from the ledger plus pack events. Operators see My day on the floor. Slow SKUs are flagged separately from slow people. Northwind seeds picker Maya Chen and dock operator Jordan Dock with `ORD-KPI1`.
+Iteration 28 scores staff against SKUs: Performance (owners) rolls lines, units, pace (0–10 vs expected time from lot/serial/catch-weight/expiry and map walk), and exceptions from the ledger plus pack events. Operators see My day on the floor. Slow SKUs are flagged separately from slow people. Northwind seeds picker Maya Chen (`maya@northwind.makers`) and dock operator Jordan Dock (`jordan@northwind.makers`) on `ORD-KPI1`; both sign in with `rackline-demo`.
 
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
