@@ -388,7 +388,7 @@ export function MyDayCard() {
     <div className="mb-6 rounded-2xl border bg-card p-5 shadow-xs">
       <p className="text-sm font-medium text-muted-foreground">My day</p>
       <p className="mt-1 text-xl font-semibold">
-        {row.lines} lines · {row.units} units · pace {formatPace(row.pace)}
+        {row.lines} {row.lines === 1 ? "line" : "lines"} · {row.units} {row.units === 1 ? "unit" : "units"} · pace {formatPace(row.pace)}
       </p>
       <p className="mt-1 text-sm text-muted-foreground">
         {paceHint(row.pace)}
