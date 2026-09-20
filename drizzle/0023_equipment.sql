@@ -1,4 +1,4 @@
--- Migration number: 0022 	 2026-09-20T18:50:00.000Z
+-- Migration number: 0023 	 2026-09-20T18:50:00.000Z
 -- PIT registry, operator certs, exclusive checkout, OSHA pre-use inspections, ledger stamp.
 
 CREATE TABLE `equipment` (

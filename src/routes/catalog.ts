@@ -55,6 +55,7 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     mapWidth?: number;
     mapDepth?: number;
     mapHeight?: number;
+    shipFromAddress?: string | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -66,9 +67,19 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     .limit(1);
   if (!warehouse) badRequest("Warehouse not found");
 
-  const patch: { name?: string; mapWidth?: number; mapDepth?: number; mapHeight?: number } = {};
+  const patch: {
+    name?: string;
+    mapWidth?: number;
+    mapDepth?: number;
+    mapHeight?: number;
+    shipFromAddress?: string | null;
+  } = {};
   const name = optionalString(body.name);
   if (name) patch.name = name;
+  if ("shipFromAddress" in body) {
+    patch.shipFromAddress =
+      typeof body.shipFromAddress === "string" ? body.shipFromAddress.trim() || null : null;
+  }
   const mapWidth = optionalInt(body.mapWidth, "mapWidth");
   if (mapWidth !== undefined) {
     if (mapWidth <= 0) badRequest("mapWidth must be positive");

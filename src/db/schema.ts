@@ -81,6 +81,7 @@ export const warehouses = sqliteTable("warehouses", {
   mapWidth: integer("map_width").notNull().default(42),
   mapDepth: integer("map_depth").notNull().default(28),
   mapHeight: integer("map_height").notNull().default(8),
+  shipFromAddress: text("ship_from_address"),
 });
 
 export const locations = sqliteTable(
@@ -252,6 +253,8 @@ export const orders = sqliteTable(
     trackingUrl: text("tracking_url"),
     shipToAddress: text("ship_to_address"),
     carrierService: text("carrier_service"),
+    carrierConnectionId: text("carrier_connection_id"),
+    labelStatus: text("label_status").notNull().default("none"),
     waveId: text("wave_id"),
     clientId: text("client_id"),
   },
@@ -310,6 +313,46 @@ export const shopifyOutboundEvents = sqliteTable("shopify_outbound_events", {
   organizationId: text("organization_id")
     .notNull()
     .references(() => organizations.id, { onDelete: "cascade" }),
+  orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  status: text("status").notNull(),
+  requestJson: text("request_json").notNull(),
+  responseJson: text("response_json"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const carrierConnections = sqliteTable(
+  "carrier_connections",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    nickname: text("nickname").notNull(),
+    accountNumber: text("account_number"),
+    mode: text("mode").notNull().default("demo"),
+    status: text("status").notNull().default("connected"),
+    apiKey: text("api_key"),
+    apiSecret: text("api_secret"),
+    meterNumber: text("meter_number"),
+    enabledServicesJson: text("enabled_services_json").notNull().default("[]"),
+    isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
+    lastTestedAt: integer("last_tested_at"),
+    lastTestStatus: text("last_test_status"),
+    lastTestError: text("last_test_error"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("carrier_connections_org_provider").on(t.organizationId, t.provider)],
+);
+
+export const carrierOutboundEvents = sqliteTable("carrier_outbound_events", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  connectionId: text("connection_id").references(() => carrierConnections.id, { onDelete: "set null" }),
   orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
   kind: text("kind").notNull(),
   status: text("status").notNull(),
@@ -940,6 +983,18 @@ export type LaborVerb =
   | "assemble"
   | "yard"
   | "batch_pick";
+export type CarrierProvider =
+  | "rackline"
+  | "ups"
+  | "fedex"
+  | "usps"
+  | "dhl"
+  | "easypost"
+  | "shipengine";
+export type CarrierMode = "live" | "demo";
+export type CarrierConnectionStatus = "connected" | "error";
+export type CarrierLabelStatus = "none" | "purchased" | "voided";
+export type CarrierOutboundKind = "test" | "rates" | "buy" | "void";
 
 export const equipment = sqliteTable(
   "equipment",
