@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type CycleCount, type Location } from "../api";
+import { api, type CycleCount, type Item, type Location } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit } from "../components/ui";
 import { DocumentHeader, DocumentActivity } from "../components/document";
 import { COUNT_STEPS, canPostCount } from "@/domain/status";
@@ -54,7 +54,7 @@ function CountList() {
       <PageHeader
         eyebrow="Stock"
         title="Cycle counts"
-        description="Blind-count a bay, then post. System qty and variance stay hidden until the count is posted."
+        description="Blind-count a bay, then post. Scan or add a SKU that was not on the snapshot. System qty and variance stay hidden until the count is posted."
       />
       <ErrorBanner error={error} />
       <Card className="mb-6">
@@ -93,11 +93,16 @@ function CountList() {
 function CountDetail({ id }: { id: string }) {
   const navigate = useNavigate();
   const [active, setActive] = useState<CycleCount | null>(null);
+  const [items, setItems] = useState<Item[]>([]);
+  const [foundItemId, setFoundItemId] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api<CycleCount>(`/api/cycle-counts/${id}`)
-      .then(setActive)
+    Promise.all([api<CycleCount>(`/api/cycle-counts/${id}`), api<Item[]>("/api/items")])
+      .then(([count, nextItems]) => {
+        setActive(count);
+        setItems(nextItems);
+      })
       .catch((err: Error) => setError(err.message));
   }, [id]);
 
@@ -127,6 +132,22 @@ function CountDetail({ id }: { id: string }) {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not post count");
+    }
+  }
+
+  async function addFound() {
+    if (!active || !foundItemId) return;
+    setError(null);
+    try {
+      setActive(
+        await api<CycleCount>(`/api/cycle-counts/${id}/lines`, {
+          method: "POST",
+          body: JSON.stringify({ itemId: foundItemId }),
+        }),
+      );
+      setFoundItemId("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add SKU");
     }
   }
 
@@ -166,13 +187,34 @@ function CountDetail({ id }: { id: string }) {
         }
       />
       <ErrorBanner error={error} />
+      {canPostCount(active.status) ? (
+        <Card>
+          <form className="flex flex-wrap items-end gap-3" onSubmit={onSubmit(addFound)}>
+            <Field label="Found SKU">
+              <Select value={foundItemId} onChange={(e) => setFoundItemId(e.target.value)}>
+                <option value="">Choose a SKU not on the snapshot</option>
+                {items
+                  .filter((item) => !(active.lines ?? []).some((line) => line.itemId === item.id))
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.sku} — {item.name}
+                    </option>
+                  ))}
+              </Select>
+            </Field>
+            <Button type="submit" disabled={!foundItemId}>
+              Add found SKU
+            </Button>
+          </form>
+        </Card>
+      ) : null}
       {canPostCount(active.status) && !ready && lines.length > 0 ? (
         <p className="text-sm text-muted-foreground">Enter every SKU (0 is a real count) before posting.</p>
       ) : null}
       <DocumentActivity refId={active.id} refreshKey={active.status} />
       {lines.length === 0 ? (
         <Card>
-          <p className="text-sm">Nothing on the snapshot. Confirm the bay is empty, then post.</p>
+          <p className="text-sm">Nothing on the snapshot. Confirm the bay is empty, or add a SKU you found.</p>
         </Card>
       ) : (
         <Table columns={["SKU", "System", "Counted", "Variance"]}>

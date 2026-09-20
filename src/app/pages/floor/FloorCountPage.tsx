@@ -57,11 +57,28 @@ export function FloorCountPage() {
             setActive(await api<CycleCount>(`/api/cycle-counts/${created.id}`));
             return;
           }
-          setError("Scan a bay to count it.");
+          if (hit.kind === "item") {
+            if (!active || !canPostCount(active.status)) {
+              setError("Scan a bay first, then scan a SKU you found.");
+              return;
+            }
+            const existing = (active.lines ?? []).find(
+              (line) => line.itemId === hit.item.id || line.sku === hit.item.sku,
+            );
+            if (existing) return;
+            setActive(
+              await api<CycleCount>(`/api/cycle-counts/${active.id}/lines`, {
+                method: "POST",
+                body: JSON.stringify({ itemId: hit.item.id }),
+              }),
+            );
+            return;
+          }
+          setError("Scan a bay to count it, or a SKU you found in the bay.");
         })
         .catch((err: Error) => setError(err.message));
     },
-    [warehouseId],
+    [warehouseId, active],
   );
 
   async function post() {
@@ -87,8 +104,8 @@ export function FloorCountPage() {
   const ready = Boolean(active && canPostCount(active.status) && allLinesEntered(lines));
 
   return (
-    <FloorFrame title="Count" description="Scan a bay. Count what you see. System qty stays hidden until you post." error={error}>
-      <FloorScanBox label="Scan bay" placeholder="A-01-01" onScan={onScan} />
+    <FloorFrame title="Count" description="Scan a bay, then count what you see. Scan a SKU that was not on the snapshot to add it. System qty stays hidden until you post." error={error}>
+      <FloorScanBox label="Scan bay or found SKU" placeholder="A-01-01 or LAMP" onScan={onScan} />
       {!active ? (
         <Card className="space-y-3">
           <Field label="Or choose a bay">
@@ -128,7 +145,7 @@ export function FloorCountPage() {
             {isBlindCount(active.status) ? " · Blind count" : ""}
           </p>
           {lines.length === 0 ? (
-            <p className="text-sm">Nothing on the snapshot. Confirm the bay is empty, then post.</p>
+            <p className="text-sm">Nothing on the snapshot. Confirm the bay is empty, or scan a SKU you found.</p>
           ) : (
             lines.map((line) => (
               <Field

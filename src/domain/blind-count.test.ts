@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   allLinesEntered,
   applyCountEntries,
+  countHasItem,
   countHasVariance,
   countVariance,
   formatCountVariance,
@@ -46,6 +47,17 @@ describe("count entries", () => {
       { id: "b", countedQty: 0, entered: false },
     ]);
     expect(allLinesEntered(next)).toBe(false);
+  });
+});
+
+describe("countHasItem", () => {
+  it("finds a SKU already on the snapshot", () => {
+    const lines = [
+      { itemId: "cord" },
+      { itemId: "bulb" },
+    ];
+    expect(countHasItem(lines, "bulb")).toBe(true);
+    expect(countHasItem(lines, "shade")).toBe(false);
   });
 });
 

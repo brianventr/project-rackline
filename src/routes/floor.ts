@@ -12,7 +12,7 @@ import { parseScan } from "../domain/barcodes";
 import { canPostCount, canPostTransfer } from "../domain/status";
 import { shouldSuggestPutaway, suggestPutawayJobs } from "../domain/directed-putaway";
 import { loadPutawayBaysByItem } from "../db/putaway-bays";
-import { allLinesEntered, applyCountEntries, revealSystemQty } from "../domain/blind-count";
+import { allLinesEntered, applyCountEntries, countHasItem, revealSystemQty } from "../domain/blind-count";
 import { applyHoldsToOnHand, HeldStockError, matchingHoldForMove } from "../domain/holds";
 import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
 import { allocatedQtyAt, applyAllocationsToOnHand, InsufficientAtpError } from "../domain/allocations";
@@ -340,6 +340,42 @@ floorRoute.post("/cycle-counts", async (c) => {
   ]);
 
   return c.json(await countWithLines(db, organizationId, id), 201);
+});
+
+floorRoute.post("/cycle-counts/:id/lines", async (c) => {
+  const body = await c.req.json<{ itemId?: string }>();
+  const itemId = requireString(body.itemId, "itemId");
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const count = await countWithLines(db, organizationId, c.req.param("id"));
+  if (!canPostCount(count.status)) conflict("Cycle count already posted");
+  const item = await getOrgItem(db, organizationId, itemId);
+  if (countHasItem(count.lines, item.id)) conflict(`${item.sku} is already on this count`);
+
+  const [balance] = await db
+    .select({ qty: schema.inventoryBalances.qty })
+    .from(schema.inventoryBalances)
+    .where(
+      and(
+        eq(schema.inventoryBalances.organizationId, organizationId),
+        eq(schema.inventoryBalances.locationId, count.locationId),
+        eq(schema.inventoryBalances.itemId, item.id),
+      ),
+    )
+    .limit(1);
+
+  await db.insert(schema.cycleCountLines).values({
+    id: newId(),
+    cycleCountId: count.id,
+    itemId: item.id,
+    systemQty: balance?.qty ?? 0,
+    countedQty: 0,
+    entered: 0,
+  });
+  if (count.status === "draft") {
+    await db.update(schema.cycleCounts).set({ status: "counting" }).where(eq(schema.cycleCounts.id, count.id));
+  }
+  return c.json(await countWithLines(db, organizationId, count.id), 201);
 });
 
 floorRoute.post("/cycle-counts/:id/start", async (c) => {
