@@ -149,6 +149,11 @@ export type WarehouseMapInfo = {
   mapDepth: number;
   mapHeight: number;
   shipFromAddress?: string | null;
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
+  lat?: number | null;
+  lng?: number | null;
 };
 
 export type WarehouseMapData = {
@@ -355,6 +360,11 @@ export type Order = {
   trackingCompany?: string | null;
   trackingUrl?: string | null;
   shipToAddress?: string | null;
+  shipToCity?: string | null;
+  shipToRegion?: string | null;
+  shipToCountry?: string | null;
+  shipToLat?: number | null;
+  shipToLng?: number | null;
   carrierService?: string | null;
   carrierConnectionId?: string | null;
   labelStatus?: string | null;
@@ -972,3 +982,12 @@ export type LaborBoard = {
   events: LaborEvent[];
   rollup: LaborRollup[];
 };
+
+export type {
+  TrafficDestination,
+  TrafficException,
+  TrafficFlight,
+  TrafficGrain,
+  TrafficHorizon,
+  TrafficSnapshot,
+} from "@/domain/traffic";

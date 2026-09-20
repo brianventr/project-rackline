@@ -4,6 +4,7 @@ import {
   Boxes,
   Factory,
   Map,
+  Radar,
   ScanLine,
   Store,
   Warehouse,
@@ -45,6 +46,11 @@ const features = [
     title: "Locations that are physical",
     body: "Aisle, rack, bay, level, and XYZ on the map. Print labels. Stock never lives on the item record alone.",
     icon: Warehouse,
+  },
+  {
+    title: "Shipment traffic control",
+    body: "A live country/state radar of packed and in-flight orders, filtered by SKU — lane estimates from the warehouse, not fake GPS.",
+    icon: Radar,
   },
 ];
 

@@ -244,3 +244,15 @@ html {
     display: none !important;
   }
 }
+
+@keyframes traffic-radar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.traffic-radar {
+  background: conic-gradient(from 0deg, transparent 0 78%, rgba(56, 189, 248, 0.18) 88%, transparent 100%);
+  animation: traffic-radar-spin 9s linear infinite;
+}
+
