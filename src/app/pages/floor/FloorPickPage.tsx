@@ -13,7 +13,7 @@ import { jobForRef, useOpenJobs } from "../../jobs";
 
 export function FloorPickPage() {
   const me = useSession();
-  const { jobs, reload: reloadJobs } = useOpenJobs();
+  const { jobs, reload: reloadJobs } = useOpenJobs("pick");
   const [params] = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);

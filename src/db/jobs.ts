@@ -375,60 +375,93 @@ export async function listFloorJobs(
   const now = Date.now();
   const facts = await loadRankFacts(db, organizationId, filters.warehouseId, views, now);
   const ranked = rankJobs(facts, { now });
-  const byId = new Map(ranked.map((row) => [row.id, row]));
-  return views.map((row) => {
-    const rankedRow = byId.get(row.id);
-    return rankedRow ? { ...row, score: rankedRow.score, reason: rankedRow.reason } : row;
+  const byId = new Map(views.map((row) => [row.id, row]));
+  return ranked.flatMap((row) => {
+    const view = byId.get(row.id);
+    return view ? [{ ...view, score: row.score, reason: row.reason }] : [];
   });
 }
 
+function expiryDaysFromYyyymmdd(expiresOn: number, today: number): number {
+  const expires = Date.UTC(Math.floor(expiresOn / 10000), Math.floor((expiresOn % 10000) / 100) - 1, expiresOn % 100);
+  const todayDate = Date.UTC(Math.floor(today / 10000), Math.floor((today % 10000) / 100) - 1, today % 100);
+  return Math.round((expires - todayDate) / 86_400_000);
+}
+
+function minDays(current: number | undefined, next: number): number {
+  return current == null || next < current ? next : current;
+}
+
 async function loadRankFacts(db: AppDb, organizationId: string, warehouseId: string | undefined, rows: FloorJobView[], now: number) {
-  const itemIds = [...new Set(rows.map((row) => row.itemId).filter((id): id is string => Boolean(id)))];
+  if (rows.length === 0) return [];
   const allocatedItems = new Set<string>();
-  if (itemIds.length > 0) {
-    const allocations = await loadOpenAllocations(db, organizationId, { warehouseId });
-    for (const row of allocations) {
-      if (itemIds.includes(row.itemId)) allocatedItems.add(row.itemId);
-    }
+  const allocations = await loadOpenAllocations(db, organizationId, { warehouseId });
+  for (const row of allocations) allocatedItems.add(row.itemId);
+
+  const pickLines = await db
+    .select({
+      orderId: schema.orderLines.orderId,
+      itemId: schema.orderLines.itemId,
+      qty: schema.orderLines.qty,
+      qtyPicked: schema.orderLines.qtyPicked,
+    })
+    .from(schema.orderLines)
+    .innerJoin(schema.orders, eq(schema.orders.id, schema.orderLines.orderId))
+    .where(
+      and(
+        eq(schema.orders.organizationId, organizationId),
+        warehouseId ? eq(schema.orders.warehouseId, warehouseId) : undefined,
+        inArray(schema.orders.status, ["open", "picking"]),
+      ),
+    );
+  const itemsByOrder = new Map<string, string[]>();
+  for (const line of pickLines) {
+    if (line.qty - (line.qtyPicked ?? 0) <= 0) continue;
+    allocatedItems.add(line.itemId);
+    const list = itemsByOrder.get(line.orderId) ?? [];
+    list.push(line.itemId);
+    itemsByOrder.set(line.orderId, list);
   }
-  const locationIds = [...new Set(rows.map((row) => row.fromLocationId).filter((id): id is string => Boolean(id)))];
-  const lots =
-    locationIds.length === 0
-      ? []
-      : await db
-          .select({
-            locationId: schema.lotBalances.locationId,
-            itemId: schema.lotBalances.itemId,
-            expiresOn: schema.lotBalances.expiresOn,
-            qty: schema.lotBalances.qty,
-          })
-          .from(schema.lotBalances)
-          .where(
-            and(
-              eq(schema.lotBalances.organizationId, organizationId),
-              inArray(schema.lotBalances.locationId, locationIds),
-              gt(schema.lotBalances.qty, 0),
-              lte(schema.lotBalances.expiresOn, addUtcDays(utcYyyymmdd(), EXPIRING_WITHIN_DAYS)),
-            ),
-          );
+
+  const lots = await db
+    .select({
+      locationId: schema.lotBalances.locationId,
+      itemId: schema.lotBalances.itemId,
+      expiresOn: schema.lotBalances.expiresOn,
+    })
+    .from(schema.lotBalances)
+    .innerJoin(schema.locations, eq(schema.locations.id, schema.lotBalances.locationId))
+    .where(
+      and(
+        eq(schema.lotBalances.organizationId, organizationId),
+        warehouseId ? eq(schema.locations.warehouseId, warehouseId) : undefined,
+        gt(schema.lotBalances.qty, 0),
+        lte(schema.lotBalances.expiresOn, addUtcDays(utcYyyymmdd(), EXPIRING_WITHIN_DAYS)),
+      ),
+    );
   const today = utcYyyymmdd();
-  const expiryByKey = new Map<string, number>();
+  const expiryByLocItem = new Map<string, number>();
+  const expiryByItem = new Map<string, number>();
   for (const lot of lots) {
-    if (lot.expiresOn == null) continue;
-    const year = Math.floor(lot.expiresOn / 10000);
-    const month = Math.floor((lot.expiresOn % 10000) / 100) - 1;
-    const day = lot.expiresOn % 100;
-    const expires = Date.UTC(year, month, day);
-    const todayDate = Date.UTC(Math.floor(today / 10000), Math.floor((today % 10000) / 100) - 1, today % 100);
-    const days = Math.round((expires - todayDate) / 86_400_000);
-    const key = `${lot.locationId}:${lot.itemId ?? ""}`;
-    const prev = expiryByKey.get(key);
-    if (prev == null || days < prev) expiryByKey.set(key, days);
+    if (lot.expiresOn == null || !lot.itemId) continue;
+    const days = expiryDaysFromYyyymmdd(lot.expiresOn, today);
+    expiryByLocItem.set(`${lot.locationId}:${lot.itemId}`, minDays(expiryByLocItem.get(`${lot.locationId}:${lot.itemId}`), days));
+    expiryByItem.set(lot.itemId, minDays(expiryByItem.get(lot.itemId), days));
   }
 
   return rows.map((row) => {
     const dock = row.verb === "receive" || row.verb === "putaway";
-    const expiry = row.fromLocationId ? expiryByKey.get(`${row.fromLocationId}:${row.itemId ?? ""}`) : undefined;
+    let expiry =
+      row.fromLocationId && row.itemId
+        ? expiryByLocItem.get(`${row.fromLocationId}:${row.itemId}`)
+        : undefined;
+    if (expiry == null && row.itemId) expiry = expiryByItem.get(row.itemId);
+    if (expiry == null && row.verb === "pick" && row.refType === "order") {
+      for (const itemId of itemsByOrder.get(row.refId) ?? []) {
+        const days = expiryByItem.get(itemId);
+        if (days != null) expiry = minDays(expiry, days);
+      }
+    }
     const input: RankInput = {
       id: row.id,
       verb: isFloorVerb(row.verb) ? row.verb : "pick",

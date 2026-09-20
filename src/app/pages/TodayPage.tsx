@@ -436,7 +436,9 @@ function QueueCard({
           <p className="text-sm text-muted-foreground">{empty}</p>
         ) : (
           <ul className="space-y-3 text-sm">
-            {rows.map((row) => (
+            {[...rows]
+              .sort((a, b) => (b.job?.score ?? -1) - (a.job?.score ?? -1))
+              .map((row) => (
               <li key={row.id} className="flex flex-col gap-2 border-b py-2 last:border-0 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <Link className="font-medium hover:underline" to={row.to}>
