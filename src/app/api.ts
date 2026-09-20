@@ -186,6 +186,7 @@ export type ScanWorkOrderHit = { kind: "workOrder"; workOrder: WorkOrder };
 export type ScanCycleCountHit = { kind: "cycleCount"; cycleCount: CycleCount };
 export type ScanPurchaseHit = { kind: "purchase"; purchase: Purchase };
 export type ScanRmaHit = { kind: "rma"; rma: Rma };
+export type ScanVendorReturnHit = { kind: "vendorReturn"; vendorReturn: VendorReturn };
 export type ScanReplenishmentHit = { kind: "replenishment"; replenishment: Replenishment };
 export type ScanKitHit = { kind: "kit"; kit: KitBuild };
 export type ScanHoldHit = { kind: "hold"; hold: Hold };
@@ -234,6 +235,7 @@ export type ScanHit =
   | ScanCycleCountHit
   | ScanPurchaseHit
   | ScanRmaHit
+  | ScanVendorReturnHit
   | ScanReplenishmentHit
   | ScanKitHit
   | ScanHoldHit
@@ -388,6 +390,8 @@ export type WorkOrder = {
   number: string;
   itemId: string;
   qty: number;
+  qtyCompleted?: number;
+  remaining?: number;
   status: string;
   sku: string;
   itemName: string;
@@ -403,6 +407,8 @@ export type KitBuild = {
   number: string;
   itemId: string;
   qty: number;
+  qtyCompleted?: number;
+  remaining?: number;
   status: string;
   sku: string;
   itemName: string;
@@ -490,6 +496,7 @@ export type Dashboard = {
   openHolds?: number;
   openPurchases: number;
   openReturns: number;
+  openVendorReturns?: number;
   openReplenishments?: number;
   openKits?: number;
   replenishDue?: number;
@@ -509,6 +516,7 @@ export type Dashboard = {
     holds?: Hold[];
     purchases: Purchase[];
     returns: Rma[];
+    vendorReturns?: VendorReturn[];
     replenishments?: Replenishment[];
     kits?: KitBuild[];
     shopifyExceptions: Order[];
@@ -536,6 +544,7 @@ export type SearchResults = {
   counts: Pick<CycleCount, "id" | "number" | "status">[];
   purchases: Pick<Purchase, "id" | "number" | "vendorName" | "status">[];
   returns: Pick<Rma, "id" | "number" | "customerName" | "status">[];
+  vendorReturns?: Pick<VendorReturn, "id" | "number" | "vendorName" | "status">[];
   replenishments?: Pick<Replenishment, "id" | "number" | "status">[];
   kits?: Pick<KitBuild, "id" | "number" | "status">[];
   holds?: Pick<Hold, "id" | "number" | "status">[];
@@ -690,4 +699,31 @@ export type Rma = {
   locationId: string | null;
   warehouseId?: string;
   lines?: RmaLine[];
+};
+
+export type VendorReturnLine = {
+  id: string;
+  itemId: string;
+  qtyExpected: number;
+  qtyReturned: number;
+  remaining: number;
+  sku: string;
+  itemName: string;
+  trackLot?: boolean;
+  trackSerial?: boolean;
+  catchWeight?: boolean;
+};
+
+export type VendorReturn = {
+  id: string;
+  number: string;
+  vendorName: string;
+  status: string;
+  notes: string | null;
+  createdAt: number;
+  purchaseId: string | null;
+  purchaseNumber?: string | null;
+  locationId: string | null;
+  warehouseId?: string;
+  lines?: VendorReturnLine[];
 };

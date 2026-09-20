@@ -5,8 +5,9 @@ export const WORK_ORDER_STEPS = ["draft", "in_progress", "completed"] as const;
 export const COUNT_STEPS = ["draft", "counting", "posted"] as const;
 export const PURCHASE_STEPS = ["draft", "ordered", "receiving", "received"] as const;
 export const RETURN_STEPS = ["open", "receiving", "received"] as const;
+export const VENDOR_RETURN_STEPS = ["open", "returning", "returned"] as const;
 export const REPLENISH_STEPS = ["draft", "in_progress", "posted"] as const;
-export const KIT_STEPS = ["draft", "completed"] as const;
+export const KIT_STEPS = ["draft", "in_progress", "completed"] as const;
 export const HOLD_STEPS = ["open", "released"] as const;
 
 export type OrderStep = (typeof ORDER_STEPS)[number];
@@ -57,6 +58,10 @@ export function canReceiveReturn(status: string): boolean {
   return status === "open" || status === "receiving";
 }
 
+export function canPostVendorReturn(status: string): boolean {
+  return status === "open" || status === "returning";
+}
+
 export function isOpenPurchase(status: string): boolean {
   return canReceivePurchase(status);
 }
@@ -82,7 +87,11 @@ export function canPostReplenishment(status: string): boolean {
 }
 
 export function canCompleteKit(status: string): boolean {
-  return status === "draft";
+  return status === "draft" || status === "in_progress";
+}
+
+export function canDekit(status: string): boolean {
+  return status === "completed";
 }
 
 export function canReleaseHold(status: string): boolean {
@@ -116,6 +125,10 @@ export function isOpenReplenishment(status: string): boolean {
 
 export function isOpenKit(status: string): boolean {
   return canCompleteKit(status);
+}
+
+export function isOpenVendorReturn(status: string): boolean {
+  return canPostVendorReturn(status);
 }
 
 export function isOpenHoldStatus(status: string): boolean {

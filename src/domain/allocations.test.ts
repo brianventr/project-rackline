@@ -35,6 +35,7 @@ describe("isAtpRestrictedType", () => {
   it("blocks pick/move/kit/wo consume", () => {
     expect(isAtpRestrictedType("pick")).toBe(true);
     expect(isAtpRestrictedType("move")).toBe(true);
+    expect(isAtpRestrictedType("rtv")).toBe(true);
     expect(isAtpRestrictedType("receive")).toBe(false);
     expect(isAtpRestrictedType("ship")).toBe(false);
     expect(isAtpRestrictedType("scrap")).toBe(false);

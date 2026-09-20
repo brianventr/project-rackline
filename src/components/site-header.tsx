@@ -140,6 +140,8 @@ function pathForScan(hit: ScanHit): string | null {
       return documentPath("purchase", hit.purchase.id);
     case "rma":
       return documentPath("rma", hit.rma.id);
+    case "vendorReturn":
+      return documentPath("vendorReturn", hit.vendorReturn.id);
     case "replenishment":
       return documentPath("replenishment", hit.replenishment.id);
     case "kit":
@@ -265,6 +267,11 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               Return {rma.number} · {rma.customerName}
             </button>
           ))}
+          {results?.vendorReturns?.map((row) => (
+            <button key={row.id} className="block w-full text-left" onClick={() => go(`/inbound/vendor-returns/${row.id}`)}>
+              Vendor return {row.number} · {row.vendorName}
+            </button>
+          ))}
           {results?.replenishments?.map((row) => (
             <button key={row.id} className="block w-full text-left" onClick={() => go(`/stock/replenish/${row.id}`)}>
               Replenish {row.number}
@@ -299,6 +306,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           !results.counts.length &&
           !results.purchases.length &&
           !results.returns.length &&
+          !results.vendorReturns?.length &&
           !results.replenishments?.length &&
           !results.kits?.length &&
           !results.holds?.length &&

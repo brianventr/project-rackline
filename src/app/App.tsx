@@ -22,6 +22,7 @@ import { MapPage } from "./pages/MapPage";
 import { FloorPutawayPage } from "./pages/floor/FloorPutawayPage";
 import { PurchasesPage } from "./pages/PurchasesPage";
 import { ReturnsPage } from "./pages/ReturnsPage";
+import { VendorReturnsPage } from "./pages/VendorReturnsPage";
 import { FloorLauncherPage } from "./pages/floor/FloorLauncherPage";
 import { FloorPrintPage } from "./pages/floor/FloorPrintPage";
 import { FloorLookupPage } from "./pages/floor/FloorLookupPage";
@@ -33,6 +34,7 @@ import { FloorCountPage } from "./pages/floor/FloorCountPage";
 import { FloorHoldPage } from "./pages/floor/FloorHoldPage";
 import { FloorAssemblePage } from "./pages/floor/FloorAssemblePage";
 import { FloorReturnPage } from "./pages/floor/FloorReturnPage";
+import { FloorRtvPage } from "./pages/floor/FloorRtvPage";
 import { FloorReplenishPage } from "./pages/floor/FloorReplenishPage";
 import { FloorKitPage } from "./pages/floor/FloorKitPage";
 import { WarehouseSetupPage } from "./pages/setup/WarehouseSetupPage";
@@ -100,6 +102,7 @@ export function App() {
         <Route path="/floor/kit" element={<FloorKitPage />} />
         <Route path="/floor/replenish" element={<FloorReplenishPage />} />
         <Route path="/floor/return" element={<FloorReturnPage />} />
+        <Route path="/floor/rtv" element={<FloorRtvPage />} />
         <Route
           path="/floor/adjust"
           element={
@@ -116,6 +119,8 @@ export function App() {
         <Route path="/inbound/putaway/:id" element={<TransfersPage />} />
         <Route path="/inbound/purchases" element={<PurchasesPage />} />
         <Route path="/inbound/purchases/:id" element={<PurchasesPage />} />
+        <Route path="/inbound/vendor-returns" element={<VendorReturnsPage />} />
+        <Route path="/inbound/vendor-returns/:id" element={<VendorReturnsPage />} />
         <Route path="/stock" element={<InventoryPage />} />
         <Route path="/stock/items" element={me ? <ItemsPage me={me} /> : null} />
         <Route path="/stock/items/:id" element={me ? <ItemsPage me={me} /> : null} />

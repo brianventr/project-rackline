@@ -355,6 +355,7 @@ export const workOrders = sqliteTable("work_orders", {
     .notNull()
     .references(() => items.id),
   qty: integer("qty").notNull(),
+  qtyCompleted: integer("qty_completed").notNull().default(0),
   status: text("status").notNull(),
   sourceLocationId: text("source_location_id")
     .notNull()
@@ -500,6 +501,40 @@ export const rmaLines = sqliteTable(
   (t) => [uniqueIndex("rma_lines_rma_item").on(t.rmaId, t.itemId)],
 );
 
+export const vendorReturns = sqliteTable("vendor_returns", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  warehouseId: text("warehouse_id")
+    .notNull()
+    .references(() => warehouses.id),
+  number: text("number").notNull(),
+  vendorName: text("vendor_name").notNull(),
+  status: text("status").notNull(),
+  purchaseId: text("purchase_id").references(() => purchases.id),
+  locationId: text("location_id").references(() => locations.id),
+  notes: text("notes"),
+  createdAt: integer("created_at").notNull(),
+  returnedAt: integer("returned_at"),
+});
+
+export const vendorReturnLines = sqliteTable(
+  "vendor_return_lines",
+  {
+    id: text("id").primaryKey(),
+    vendorReturnId: text("vendor_return_id")
+      .notNull()
+      .references(() => vendorReturns.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id),
+    qtyExpected: integer("qty_expected").notNull(),
+    qtyReturned: integer("qty_returned").notNull().default(0),
+  },
+  (t) => [uniqueIndex("vendor_return_lines_rtv_item").on(t.vendorReturnId, t.itemId)],
+);
+
 export const lotBalances = sqliteTable(
   "lot_balances",
   {
@@ -578,6 +613,7 @@ export const kitBuilds = sqliteTable("kit_builds", {
     .notNull()
     .references(() => items.id),
   qty: integer("qty").notNull(),
+  qtyCompleted: integer("qty_completed").notNull().default(0),
   sourceLocationId: text("source_location_id")
     .notNull()
     .references(() => locations.id),
@@ -678,8 +714,9 @@ export type TransferStatus = "draft" | "in_progress" | "posted";
 export type CycleCountStatus = "draft" | "counting" | "posted";
 export type PurchaseStatus = "draft" | "ordered" | "receiving" | "received";
 export type RmaStatus = "open" | "receiving" | "received";
+export type VendorReturnStatus = "open" | "returning" | "returned";
 export type ReplenishmentStatus = "draft" | "in_progress" | "posted";
-export type KitBuildStatus = "draft" | "completed";
+export type KitBuildStatus = "draft" | "in_progress" | "completed" | "dekitted";
 export type HoldStatus = "open" | "released";
 export type AllocationStatus = "open" | "released";
 export type SerialStatus = "on_hand" | "shipped" | "consumed";
@@ -693,5 +730,6 @@ export type MovementType =
   | "wo_produce"
   | "kit_consume"
   | "kit_produce"
-  | "scrap";
+  | "scrap"
+  | "rtv";
 export type ReturnDisposition = "restock" | "scrap" | "hold";

@@ -8,6 +8,8 @@ import { OverReceiveError } from "./domain/partial-receive";
 import { OverPickError } from "./domain/partial-pick";
 import { OverPackError } from "./domain/partial-pack";
 import { OverMoveError } from "./domain/partial-transfer";
+import { OverReturnError } from "./domain/partial-rtv";
+import { OverCompleteError } from "./domain/partial-complete";
 import { HeldStockError } from "./domain/holds";
 import { ExpiredLotError } from "./domain/expiry";
 import { InsufficientAtpError } from "./domain/allocations";
@@ -32,6 +34,7 @@ import { layoutRoute } from "./routes/layout";
 import { replenishmentsRoute } from "./routes/replenishments";
 import { kitsRoute } from "./routes/kits";
 import { holdsRoute } from "./routes/holds";
+import { vendorReturnsRoute } from "./routes/vendor-returns";
 
 const app = new Hono<AppEnv>();
 
@@ -89,6 +92,30 @@ app.onError((err, c) => {
       {
         error: err.message,
         code: "OVER_MOVE",
+        sku: err.sku,
+        remaining: err.remaining,
+        qty: err.qty,
+      },
+      409,
+    );
+  }
+  if (err instanceof OverReturnError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "OVER_RETURN",
+        sku: err.sku,
+        remaining: err.remaining,
+        qty: err.qty,
+      },
+      409,
+    );
+  }
+  if (err instanceof OverCompleteError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "OVER_COMPLETE",
         sku: err.sku,
         remaining: err.remaining,
         qty: err.qty,
@@ -205,5 +232,6 @@ app.route("/api", layoutRoute);
 app.route("/api", replenishmentsRoute);
 app.route("/api", kitsRoute);
 app.route("/api", holdsRoute);
+app.route("/api", vendorReturnsRoute);
 
 export default app;

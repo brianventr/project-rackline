@@ -5,8 +5,10 @@ import {
   canReceive,
   canReceivePurchase,
   canReceiveReturn,
+  canPostVendorReturn,
   canShipOrder,
   canCompleteKit,
+  canDekit,
   canPostReplenishment,
   canPostTransfer,
   canReleaseHold,
@@ -50,6 +52,12 @@ describe("order status", () => {
     expect(isOpenPurchase("ordered")).toBe(true);
   });
 
+  it("lets a vendor return post while open", () => {
+    expect(canPostVendorReturn("open")).toBe(true);
+    expect(canPostVendorReturn("returning")).toBe(true);
+    expect(canPostVendorReturn("returned")).toBe(false);
+  });
+
   it("lets a return receive while open", () => {
     expect(canReceiveReturn("open")).toBe(true);
     expect(canReceiveReturn("receiving")).toBe(true);
@@ -73,7 +81,11 @@ describe("order status", () => {
     expect(canPostReplenishment("in_progress")).toBe(true);
     expect(canPostReplenishment("posted")).toBe(false);
     expect(canCompleteKit("draft")).toBe(true);
+    expect(canCompleteKit("in_progress")).toBe(true);
     expect(canCompleteKit("completed")).toBe(false);
+    expect(canDekit("completed")).toBe(true);
+    expect(canDekit("in_progress")).toBe(false);
+    expect(canDekit("dekitted")).toBe(false);
   });
 
   it("releases holds while they are open", () => {

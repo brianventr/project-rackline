@@ -8,6 +8,7 @@ export type ScanKind =
   | "cycleCount"
   | "purchase"
   | "rma"
+  | "vendorReturn"
   | "replenishment"
   | "kit"
   | "hold"
@@ -39,6 +40,8 @@ const PREFIXES: Array<{ prefix: string; kind: Exclude<ScanKind, "unknown"> }> = 
   { prefix: "PUR:", kind: "purchase" },
   { prefix: "RMA:", kind: "rma" },
   { prefix: "RET:", kind: "rma" },
+  { prefix: "RTV:", kind: "vendorReturn" },
+  { prefix: "VRT:", kind: "vendorReturn" },
   { prefix: "RPL:", kind: "replenishment" },
   { prefix: "KIT:", kind: "kit" },
   { prefix: "HLD:", kind: "hold" },
@@ -78,6 +81,8 @@ export function documentPath(kind: Exclude<ScanKind, "unknown" | "location" | "i
       return `/inbound/purchases/${id}`;
     case "rma":
       return `/outbound/returns/${id}`;
+    case "vendorReturn":
+      return `/inbound/vendor-returns/${id}`;
     case "replenishment":
       return `/stock/replenish/${id}`;
     case "kit":

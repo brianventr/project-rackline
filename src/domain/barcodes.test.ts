@@ -14,6 +14,7 @@ describe("barcodes", () => {
     expect(parseScan("ORD:DEMO1")).toEqual({ kind: "order", value: "DEMO1", raw: "ORD:DEMO1" });
     expect(parseScan("PO:DEMO1")).toEqual({ kind: "purchase", value: "DEMO1", raw: "PO:DEMO1" });
     expect(parseScan("RMA:DEMO1")).toEqual({ kind: "rma", value: "DEMO1", raw: "RMA:DEMO1" });
+    expect(parseScan("RTV:DEMO1")).toEqual({ kind: "vendorReturn", value: "DEMO1", raw: "RTV:DEMO1" });
     expect(parseScan("RPL:DEMO1")).toEqual({ kind: "replenishment", value: "DEMO1", raw: "RPL:DEMO1" });
     expect(parseScan("KIT:DEMO1")).toEqual({ kind: "kit", value: "DEMO1", raw: "KIT:DEMO1" });
     expect(parseScan("HLD:DEMO1")).toEqual({ kind: "hold", value: "DEMO1", raw: "HLD:DEMO1" });
@@ -31,6 +32,7 @@ describe("barcodes", () => {
     expect(documentPath("cycleCount", "abc")).toBe("/stock/counts/abc");
     expect(documentPath("purchase", "abc")).toBe("/inbound/purchases/abc");
     expect(documentPath("rma", "abc")).toBe("/outbound/returns/abc");
+    expect(documentPath("vendorReturn", "abc")).toBe("/inbound/vendor-returns/abc");
     expect(documentPath("replenishment", "abc")).toBe("/stock/replenish/abc");
     expect(documentPath("kit", "abc")).toBe("/make/kits/abc");
     expect(documentPath("hold", "abc")).toBe("/stock/holds/abc");

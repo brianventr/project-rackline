@@ -33,6 +33,7 @@ export function TodayPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { label: "To receive", value: data ? data.openReceipts + data.openPurchases : "—", to: "/inbound/purchases" },
+          { label: "Vendor RTV", value: data?.openVendorReturns ?? "—", to: "/inbound/vendor-returns" },
           { label: "To put away", value: data ? data.openTransfers + (data.putawayDue ?? 0) : "—", to: "/floor/putaway" },
           { label: "To fulfill", value: data?.openOrders ?? "—", to: "/outbound/orders" },
           { label: "To replenish", value: data ? (data.replenishDue ?? 0) + (data.openReplenishments ?? 0) : "—", to: "/stock/replenish" },
@@ -122,7 +123,7 @@ export function TodayPage() {
             id: row.id,
             to: `/make/work-orders/${row.id}`,
             title: row.number,
-            meta: `${row.sku} × ${row.qty}`,
+            meta: `${row.sku} × ${row.qtyCompleted ?? 0}/${row.qty}`,
             status: row.status,
             actionTo: `/floor/assemble?id=${row.id}`,
             action: "Assemble",
@@ -135,7 +136,7 @@ export function TodayPage() {
             id: row.id,
             to: `/make/kits/${row.id}`,
             title: row.number,
-            meta: `${row.sku} × ${row.qty}`,
+            meta: `${row.sku} × ${row.qtyCompleted ?? 0}/${row.qty}`,
             status: row.status,
             actionTo: `/floor/kit?id=${row.id}`,
             action: "Kit",
@@ -166,6 +167,19 @@ export function TodayPage() {
                 action: "Replenish",
               })),
           ]}
+        />
+        <QueueCard
+          title="Vendor returns"
+          empty="No open vendor returns."
+          rows={(queues?.vendorReturns ?? []).map((row) => ({
+            id: row.id,
+            to: `/inbound/vendor-returns/${row.id}`,
+            title: row.number,
+            meta: row.vendorName,
+            status: row.status,
+            actionTo: `/floor/rtv?id=${row.id}`,
+            action: "Return",
+          }))}
         />
         <QueueCard
           title="Returns"

@@ -4,7 +4,7 @@ import { api, type Item, type KitBuild, type Location } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
 import { DocumentHeader, DocumentActivity } from "../components/document";
 import { AsBuiltList } from "../components/as-built";
-import { KIT_STEPS, canCompleteKit } from "@/domain/status";
+import { KIT_STEPS, canCompleteKit, canDekit } from "@/domain/status";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
 export function KitsPage() {
@@ -67,7 +67,7 @@ function KitList() {
       <PageHeader
         eyebrow="Make"
         title="Kits"
-        description="Assemble a finished SKU from its recipe in one step. No in-progress bench."
+        description="Assemble a finished SKU from its recipe. Complete a partial qty; dekit a finished build."
         actions={<Button onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New kit"}</Button>}
       />
       <ErrorBanner error={error} />
@@ -111,7 +111,7 @@ function KitList() {
           </form>
         </Card>
       ) : null}
-      <Table columns={["Number", "Item", "Qty", "Status"]}>
+      <Table columns={["Number", "Item", "Qty", "Completed", "Status"]}>
         {inWarehouse(kits, warehouseId).map((kit) => (
           <tr key={kit.id}>
             <td className="px-4 py-3 font-mono">
@@ -123,6 +123,7 @@ function KitList() {
               {kit.sku} — {kit.itemName}
             </td>
             <td className="px-4 py-3 font-mono">{kit.qty}</td>
+            <td className="px-4 py-3 font-mono">{kit.qtyCompleted ?? 0}</td>
             <td className="px-4 py-3 capitalize">{kit.status}</td>
           </tr>
         ))}
@@ -135,36 +136,50 @@ function KitDetail({ id }: { id: string }) {
   const navigate = useNavigate();
   const [kit, setKit] = useState<KitBuild | null>(null);
   const [serials, setSerials] = useState("");
+  const [thisQty, setThisQty] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api<KitBuild>(`/api/kits/${id}`)
-      .then(setKit)
+      .then((next) => {
+        setKit(next);
+        setThisQty(String(next.remaining ?? next.qty));
+      })
       .catch((err: Error) => setError(err.message));
   }, [id]);
 
   async function complete() {
     setError(null);
     try {
-      setKit(
-        await api<KitBuild>(`/api/kits/${id}/complete`, {
-          method: "POST",
-          body: JSON.stringify({ serials: serials || undefined }),
-        }),
-      );
+      const next = await api<KitBuild>(`/api/kits/${id}/complete`, {
+        method: "POST",
+        body: JSON.stringify({ qty: Number(thisQty), serials: serials || undefined }),
+      });
+      setKit(next);
+      setThisQty(String(next.remaining ?? 0));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Complete failed");
     }
   }
 
+  async function dekit() {
+    setError(null);
+    try {
+      setKit(await api<KitBuild>(`/api/kits/${id}/dekit`, { method: "POST" }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Dekit failed");
+    }
+  }
+
   if (!kit) return <ErrorBanner error={error} />;
+  const remaining = kit.remaining ?? Math.max(0, kit.qty - (kit.qtyCompleted ?? 0));
 
   return (
     <div className="space-y-6">
       <DocumentHeader
         eyebrow="Make"
         title={kit.number}
-        description={`Kit ${kit.sku} × ${kit.qty}`}
+        description={`Kit ${kit.sku} · completed ${kit.qtyCompleted ?? 0}/${kit.qty}`}
         status={kit.status}
         steps={KIT_STEPS}
         actions={
@@ -172,7 +187,8 @@ function KitDetail({ id }: { id: string }) {
             <Button variant="ghost" onClick={() => navigate("/make/kits")}>
               All kits
             </Button>
-            {canCompleteKit(kit.status) ? <Button onClick={() => void complete()}>Complete</Button> : null}
+            {canCompleteKit(kit.status) && remaining > 0 ? <Button onClick={() => void complete()}>Complete</Button> : null}
+            {canDekit(kit.status) ? <Button variant="secondary" onClick={() => void dekit()}>Dekit</Button> : null}
             <Button variant="secondary">
               <Link to={`/floor/kit?id=${kit.id}`}>Floor</Link>
             </Button>
@@ -180,7 +196,12 @@ function KitDetail({ id }: { id: string }) {
         }
       />
       <ErrorBanner error={error} />
-      {kit.trackSerial && canCompleteKit(kit.status) ? (
+      {canCompleteKit(kit.status) && remaining > 0 ? (
+        <Field label={`This complete (remaining ${remaining})`}>
+          <Input type="number" min={1} max={remaining} value={thisQty} onChange={(e) => setThisQty(e.target.value)} />
+        </Field>
+      ) : null}
+      {kit.trackSerial && canCompleteKit(kit.status) && remaining > 0 ? (
         <Field label="Finished serials (optional — generated if blank)">
           <Input value={serials} onChange={(e) => setSerials(e.target.value)} placeholder="LAMP-2001" />
         </Field>
@@ -198,7 +219,7 @@ function KitDetail({ id }: { id: string }) {
       {(kit.asBuilt ?? []).length ? (
         <AsBuiltList title="As-built" empty="No component lots were recorded." rows={kit.asBuilt ?? []} mode="from" />
       ) : null}
-      <DocumentActivity refId={kit.id} refreshKey={kit.status} />
+      <DocumentActivity refId={kit.id} refreshKey={`${kit.status}:${kit.qtyCompleted ?? 0}`} />
     </div>
   );
 }
