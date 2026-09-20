@@ -36,6 +36,8 @@ Iteration 15 records as-built genealogy when a kit or work order completes: each
 
 Iteration 16 adds return disposition on RMA receive: restock (current behavior), scrap (receive then scrap so on-hand is unchanged), or hold (receive then a QC hold on the bay SKU). Invalid disposition is HTTP 400. Qty stays integer pieces on location:item.
 
+Iteration 17 adds directed partial pack: lines track packed vs picked qty, over-pack 409, and the order stays `packing` until every picked unit is in the box. Qty stays integer pieces on location:item.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 ## Stack
@@ -100,7 +102,8 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 - **Receive** adds qty to a location (blank receipt, purchase order, or customer return). Lines track received vs expected; posting more than remaining returns HTTP 409 (`OVER_RECEIVE`); the document stays `receiving` until every unit is in. Return lines choose restock, scrap, or hold; scrap writes receive then scrap in one persist so on-hand is unchanged; hold opens a QC lock on the bay SKU after receive; unknown disposition is HTTP 400
 - **Move / transfer** decrements the from bin and increments the to bin in one ledger movement. Dock, ship, and bench stock get a suggested bulk/storage bay (same idea as directed pick). Moves cannot steal qty reserved for an open pick
 - **Pick** decrements the pick bin. Starting pick reserves remaining qty against ATP (on-hand − held − allocated) on location:item. A second start that would oversell returns HTTP 409 (`INSUFFICIENT_ATP`). Lines track picked vs ordered; posting more than remaining returns HTTP 409 (`OVER_PICK`); the document stays `picking` until every unit is picked. The API suggests a pick-face bay that still covers remaining qty for this order
-- **Pack slip** prints ordered vs picked qty from the order record
+- **Pack slip** prints ordered vs picked vs packed qty from the order record
+- **Pack** posts packed qty against picked qty. Posting more than remaining returns HTTP 409 (`OVER_PACK`); the document stays `packing` until every picked unit is in the box. Pack does not move the location:item ledger (qty already left at pick)
 - **Ship** writes an outbound movement (qty already left at pick), releases leftover allocations, and, for Shopify orders, creates a fulfillment
 - **Adjust** applies a signed delta with a reason
 - **Cycle count** snapshots a bin without showing system qty. Every SKU must be entered (0 is a real count); posting more than once is blocked. Empty bays can be confirmed empty. A SKU that was not on the snapshot can be scanned or added; posting still adjusts against *current* on-hand so concurrent movement is not double-applied; Today lists posted counts where counted ≠ system

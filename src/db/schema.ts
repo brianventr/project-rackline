@@ -262,6 +262,7 @@ export const orderLines = sqliteTable("order_lines", {
     .references(() => items.id),
   qty: integer("qty").notNull(),
   qtyPicked: integer("qty_picked").notNull().default(0),
+  qtyPacked: integer("qty_packed").notNull().default(0),
   shopifyLineItemId: text("shopify_line_item_id"),
   shopifyFulfillmentLineItemId: text("shopify_fulfillment_line_item_id"),
 });

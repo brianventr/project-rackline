@@ -22,9 +22,9 @@ describe("order status", () => {
     expect(isOpenOrder("draft")).toBe(true);
   });
 
-  it("requires pack before ship", () => {
-    expect(canPackOrder("picked")).toBe(true);
-    expect(canShipOrder("picked")).toBe(false);
+  it("stays packing until every picked unit is packed", () => {
+    expect(canPackOrder("packing")).toBe(true);
+    expect(canShipOrder("packing")).toBe(false);
     expect(canShipOrder("packed")).toBe(true);
   });
 

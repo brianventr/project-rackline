@@ -6,6 +6,7 @@ import { HttpError } from "./lib/http";
 import { InsufficientStockError } from "./domain/inventory";
 import { OverReceiveError } from "./domain/partial-receive";
 import { OverPickError } from "./domain/partial-pick";
+import { OverPackError } from "./domain/partial-pack";
 import { HeldStockError } from "./domain/holds";
 import { ExpiredLotError } from "./domain/expiry";
 import { InsufficientAtpError } from "./domain/allocations";
@@ -63,6 +64,18 @@ app.onError((err, c) => {
       {
         error: err.message,
         code: "OVER_PICK",
+        sku: err.sku,
+        remaining: err.remaining,
+        qty: err.qty,
+      },
+      409,
+    );
+  }
+  if (err instanceof OverPackError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "OVER_PACK",
         sku: err.sku,
         remaining: err.remaining,
         qty: err.qty,

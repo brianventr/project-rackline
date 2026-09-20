@@ -23,6 +23,14 @@ import {
   type StockedBay,
 } from "../domain/partial-pick";
 import {
+  applyPartialPack,
+  hasUnpacked,
+  isFullyPacked,
+  remainingToPack,
+  OverPackError,
+  type PackLine,
+} from "../domain/partial-pack";
+import {
   consumeAllocationStatements,
   ensureAllocated,
   loadAtpBaysByItem,
@@ -51,6 +59,15 @@ function asPickLine(line: { id: string; sku: string; qty: number; qtyPicked: num
   };
 }
 
+function asPackLine(line: { id: string; sku: string; qtyPicked: number; qtyPacked: number }): PackLine {
+  return {
+    lineId: line.id,
+    sku: line.sku,
+    qtyPicked: line.qtyPicked,
+    qtyPacked: line.qtyPacked,
+  };
+}
+
 async function suggestedByItem(
   db: AppEnv["Variables"]["db"],
   organizationId: string,
@@ -60,8 +77,12 @@ async function suggestedByItem(
   return loadAtpBaysByItem(db, organizationId, itemIds, excludeOrderId);
 }
 
-function withRemaining<T extends { id: string; sku: string; qty: number; qtyPicked: number }>(line: T) {
-  return { ...line, remaining: remainingToPick(asPickLine(line)) };
+function withRemaining<T extends { id: string; sku: string; qty: number; qtyPicked: number; qtyPacked: number }>(line: T) {
+  return {
+    ...line,
+    remaining: remainingToPick(asPickLine(line)),
+    packRemaining: remainingToPack(asPackLine(line)),
+  };
 }
 
 function withAllocations<T extends { id: string }>(lines: T[], allocations: OpenAllocation[]) {
@@ -87,7 +108,7 @@ function allocatedUnits(allocations: OpenAllocation[]): number {
 }
 
 async function withSuggestions<
-  T extends { id: string; itemId: string; sku: string; qty: number; qtyPicked: number },
+  T extends { id: string; itemId: string; sku: string; qty: number; qtyPicked: number; qtyPacked: number },
 >(db: AppEnv["Variables"]["db"], organizationId: string, lines: T[], excludeOrderId?: string) {
   const bays = await suggestedByItem(
     db,
@@ -101,6 +122,7 @@ async function withSuggestions<
     return {
       ...line,
       remaining,
+      packRemaining: remainingToPack(asPackLine(line)),
       suggestedLocation: suggested
         ? {
             locationId: suggested.locationId,
@@ -119,6 +141,7 @@ const orderLineSelect = {
   itemId: schema.orderLines.itemId,
   qty: schema.orderLines.qty,
   qtyPicked: schema.orderLines.qtyPicked,
+  qtyPacked: schema.orderLines.qtyPacked,
   sku: schema.items.sku,
   itemName: schema.items.name,
   trackLot: schema.items.trackLot,
@@ -189,6 +212,24 @@ function resolveIncoming(
     }));
 }
 
+function resolveIncomingPack(
+  lines: { id: string; itemId: string; packRemaining: number }[],
+  bodyLines?: { lineId?: string; itemId?: string; qty?: number }[],
+): { lineId: string; qty: number }[] {
+  if (Array.isArray(bodyLines) && bodyLines.length > 0) {
+    const byId = new Map(lines.map((line) => [line.id, line]));
+    const byItem = new Map(lines.map((line) => [line.itemId, line]));
+    return bodyLines.map((row) => {
+      const line =
+        (row.lineId ? byId.get(row.lineId) : undefined) ?? (row.itemId ? byItem.get(row.itemId) : undefined);
+      if (!line) badRequest("Line is not on this order");
+      const qty = row.qty === undefined || row.qty === null ? line.packRemaining : requireInt(row.qty, "qty");
+      return { lineId: line.id, qty };
+    });
+  }
+  return lines.filter((line) => line.packRemaining > 0).map((line) => ({ lineId: line.id, qty: line.packRemaining }));
+}
+
 ordersRoute.get("/orders", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -205,6 +246,7 @@ ordersRoute.get("/orders", async (c) => {
       itemId: schema.orderLines.itemId,
       qty: schema.orderLines.qty,
       qtyPicked: schema.orderLines.qtyPicked,
+      qtyPacked: schema.orderLines.qtyPacked,
       sku: schema.items.sku,
       itemName: schema.items.name,
       trackLot: schema.items.trackLot,
@@ -424,15 +466,44 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
 });
 
 ordersRoute.post("/orders/:id/pack", async (c) => {
+  const body = await c.req
+    .json<{ lines?: { lineId?: string; itemId?: string; qty?: number }[] }>()
+    .catch(() => ({}) as { lines?: { lineId?: string; itemId?: string; qty?: number }[] });
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canPackOrder(order.status)) conflict("Order must be picked before packing");
+  if (!hasUnpacked(order.lines.map(asPackLine))) conflict("Order has nothing remaining to pack");
+
+  const incoming = resolveIncomingPack(order.lines, body.lines).filter((line) => line.qty > 0);
+  let applied;
+  try {
+    applied = applyPartialPack(order.lines.map(asPackLine), incoming);
+  } catch (err) {
+    if (err instanceof OverPackError) throw err;
+    badRequest(err instanceof Error ? err.message : "Invalid pack");
+  }
+
   const now = Date.now();
-  await db
-    .update(schema.orders)
-    .set({ status: "packed", packedAt: now })
-    .where(eq(schema.orders.id, order.id));
+  const fully = isFullyPacked(applied.next);
+  const qtyPackedByLine = new Map(applied.next.map((line) => [line.lineId, line.qtyPacked]));
+
+  await db.batch([
+    db
+      .update(schema.orders)
+      .set({
+        status: fully ? "packed" : "packing",
+        packedAt: fully ? now : order.packedAt,
+      })
+      .where(eq(schema.orders.id, order.id)),
+    ...order.lines.map((line) =>
+      db
+        .update(schema.orderLines)
+        .set({ qtyPacked: qtyPackedByLine.get(line.id) ?? line.qtyPacked })
+        .where(eq(schema.orderLines.id, line.id)),
+    ),
+  ]);
+
   return c.json(await orderWithLines(db, organizationId, order.id));
 });
 

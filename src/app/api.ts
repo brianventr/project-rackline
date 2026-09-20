@@ -311,7 +311,9 @@ export type OrderLine = {
   itemId: string;
   qty: number;
   qtyPicked: number;
+  qtyPacked?: number;
   remaining: number;
+  packRemaining?: number;
   allocatedQty?: number;
   allocations?: OrderAllocation[];
   sku: string;

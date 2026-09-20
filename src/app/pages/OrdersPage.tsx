@@ -5,6 +5,7 @@ import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadg
 import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
 import { ORDER_STEPS, canPackOrder, canPickOrder, canShipOrder, canStartPick } from "@/domain/status";
 import { hasUnpicked } from "@/domain/partial-pick";
+import { hasUnpacked } from "@/domain/partial-pack";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { LineFields } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
@@ -102,6 +103,7 @@ function OrderDetail({ id }: { id: string }) {
   const [locations, setLocations] = useState<Location[]>([]);
   const [pickLocation, setPickLocation] = useState("");
   const [qtys, setQtys] = useState<Record<string, string>>({});
+  const [packQtys, setPackQtys] = useState<Record<string, string>>({});
   const [lots, setLots] = useState<Record<string, string>>({});
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
@@ -116,6 +118,7 @@ function OrderDetail({ id }: { id: string }) {
     setLocations(nextLocations);
     setPickLocation(defaultPickLocation(next, nextLocations));
     setQtys(qtyDefaults(next));
+    setPackQtys(packQtyDefaults(next));
     setTrackingNumber(next.trackingNumber || "");
     setTrackingCompany(next.trackingCompany || "");
     setCarrierService(next.carrierService || "rackline_ground");
@@ -132,6 +135,7 @@ function OrderDetail({ id }: { id: string }) {
       setOrder(next);
       setPickLocation(defaultPickLocation(next, locations));
       setQtys(qtyDefaults(next));
+      setPackQtys(packQtyDefaults(next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start pick");
     }
@@ -157,15 +161,28 @@ function OrderDetail({ id }: { id: string }) {
       setOrder(next);
       setPickLocation(defaultPickLocation(next, locations));
       setQtys(qtyDefaults(next));
+      setPackQtys(packQtyDefaults(next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Pick failed");
     }
   }
 
   async function pack() {
+    if (!order) return;
     setError(null);
     try {
-      setOrder(await api<Order>(`/api/orders/${id}/pack`, { method: "POST" }));
+      const lines = (order.lines ?? [])
+        .map((line) => ({
+          lineId: line.id,
+          qty: Number(packQtys[line.id] || 0),
+        }))
+        .filter((line) => line.qty > 0);
+      const next = await api<Order>(`/api/orders/${id}/pack`, {
+        method: "POST",
+        body: JSON.stringify({ lines }),
+      });
+      setOrder(next);
+      setPackQtys(packQtyDefaults(next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Pack failed");
     }
@@ -207,7 +224,16 @@ function OrderDetail({ id }: { id: string }) {
       qtyPicked: line.qtyPicked ?? 0,
     })),
   );
+  const unpacked = hasUnpacked(
+    (order.lines ?? []).map((line) => ({
+      lineId: line.id,
+      sku: line.sku,
+      qtyPicked: line.qtyPicked ?? 0,
+      qtyPacked: line.qtyPacked ?? 0,
+    })),
+  );
   const thisPick = Object.values(qtys).some((value) => Number(value) > 0);
+  const thisPack = Object.values(packQtys).some((value) => Number(value) > 0);
 
   return (
     <div className="space-y-6">
@@ -232,7 +258,11 @@ function OrderDetail({ id }: { id: string }) {
                 Pick
               </Button>
             ) : null}
-            {canPackOrder(order.status) ? <Button onClick={() => void pack()}>Pack</Button> : null}
+            {canPackOrder(order.status) && unpacked ? (
+              <Button disabled={!thisPack} onClick={() => void pack()}>
+                Pack
+              </Button>
+            ) : null}
             {canShipOrder(order.status) ? (
               <Button onClick={() => void ship()}>{order.source === "shopify" ? "Ship & fulfill" : "Ship"}</Button>
             ) : null}
@@ -302,18 +332,19 @@ function OrderDetail({ id }: { id: string }) {
             </Card>
             <DocumentActivity
               refId={order.id}
-              refreshKey={`${order.status}:${(order.lines ?? []).map((line) => line.qtyPicked).join(",")}`}
+              refreshKey={`${order.status}:${(order.lines ?? []).map((line) => `${line.qtyPicked}:${line.qtyPacked}`).join(",")}`}
             />
           </DocumentRail>
         }
       >
-        <Table columns={["SKU", "Item", "Ordered", "Picked", "Allocated", "Bay", "This pick", "Lot / serial"]}>
+        <Table columns={["SKU", "Item", "Ordered", "Picked", "Packed", "Allocated", "Bay", "This pick", "This pack", "Lot / serial"]}>
           {(order.lines ?? []).map((line) => (
             <tr key={line.id}>
               <td className="px-4 py-3 font-mono">{line.sku}</td>
               <td className="px-4 py-3">{line.itemName}</td>
               <td className="px-4 py-3 font-mono">{line.qty}</td>
               <td className="px-4 py-3 font-mono">{line.qtyPicked ?? 0}</td>
+              <td className="px-4 py-3 font-mono">{line.qtyPacked ?? 0}</td>
               <td className="px-4 py-3 font-mono text-sm">
                 {(line.allocations ?? []).length
                   ? (line.allocations ?? []).map((row) => `${row.locationCode} ×${row.qty}`).join(", ")
@@ -346,6 +377,19 @@ function OrderDetail({ id }: { id: string }) {
                   />
                 ) : (
                   <span className="text-muted-foreground">Done</span>
+                )}
+              </td>
+              <td className="px-4 py-3">
+                {(line.packRemaining ?? 0) > 0 ? (
+                  <Input
+                    type="number"
+                    min={0}
+                    max={line.packRemaining}
+                    value={packQtys[line.id] ?? "0"}
+                    onChange={(e) => setPackQtys((current) => ({ ...current, [line.id]: e.target.value }))}
+                  />
+                ) : (
+                  <span className="text-muted-foreground">{(line.qtyPicked ?? 0) > 0 ? "Done" : "—"}</span>
                 )}
               </td>
               <td className="px-4 py-3">
@@ -387,6 +431,10 @@ function floorActionForOrder(status: string, id: string): string {
 
 function qtyDefaults(order: Order): Record<string, string> {
   return Object.fromEntries((order.lines ?? []).map((line) => [line.id, String(line.remaining ?? 0)]));
+}
+
+function packQtyDefaults(order: Order): Record<string, string> {
+  return Object.fromEntries((order.lines ?? []).map((line) => [line.id, String(line.packRemaining ?? 0)]));
 }
 
 function defaultPickLocation(order: Order, locations: Location[]): string {
