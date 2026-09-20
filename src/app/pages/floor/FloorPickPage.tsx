@@ -4,7 +4,7 @@ import { api, type Location, type Order, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
-import { canPickOrder } from "@/domain/status";
+import { canPickOrder, canStartPick } from "@/domain/status";
 import { hasUnpicked } from "@/domain/partial-pick";
 
 export function FloorPickPage() {
@@ -90,8 +90,9 @@ export function FloorPickPage() {
     if (!active) return;
     setError(null);
     try {
-      if (active.status === "open" || active.status === "draft") {
-        await api(`/api/orders/${active.id}/start`, { method: "POST" });
+      if (canStartPick(active.status)) {
+        const started = await api<Order>(`/api/orders/${active.id}/start`, { method: "POST" });
+        applyOrder(started, locations);
       }
       const lines = (active.lines ?? [])
         .map((line) => ({
