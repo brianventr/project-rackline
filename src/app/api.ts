@@ -57,6 +57,7 @@ export type Item = {
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;
+  trackExpiry?: boolean;
   onHand?: {
     locationId: string;
     locationCode: string;
@@ -66,7 +67,7 @@ export type Item = {
     allocated?: number;
     atp?: number;
   }[];
-  lots?: { locationId: string; locationCode: string; lotCode: string; qty: number }[];
+  lots?: { locationId: string; locationCode: string; lotCode: string; qty: number; expiresOn?: number | null }[];
   serials?: { serialCode: string; status: string; locationId: string | null; locationCode: string | null }[];
 };
 
@@ -209,6 +210,7 @@ export type ReceiptLine = {
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;
+  trackExpiry?: boolean;
 };
 
 export type Receipt = {
@@ -254,6 +256,7 @@ export type OrderLine = {
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;
+  trackExpiry?: boolean;
   suggestedLocation?: SuggestedLocation | null;
 };
 
@@ -422,6 +425,7 @@ export type Dashboard = {
   openReplenishments?: number;
   openKits?: number;
   replenishDue?: number;
+  expiringLots?: number;
   lowStock: { itemId: string; sku: string; name: string; onHand: number; reorderPoint: number }[];
   recent: { id: string; type: string; qty: number; createdAt: number; sku: string }[];
   hotBays: { locationId: string; locationCode: string; locationName: string; units: number }[];
@@ -440,6 +444,16 @@ export type Dashboard = {
     replenishments?: Replenishment[];
     kits?: KitBuild[];
     shopifyExceptions: Order[];
+    expiringLots?: {
+      locationId: string;
+      locationCode: string;
+      itemId: string;
+      sku: string;
+      itemName: string;
+      lotCode: string;
+      qty: number;
+      expiresOn: number | null;
+    }[];
   };
 };
 
@@ -551,6 +565,7 @@ export type Movement = {
   lotCode?: string | null;
   serialsJson?: string | null;
   weightGrams?: number | null;
+  expiresOn?: number | null;
 };
 
 export type PurchaseLine = {
@@ -564,6 +579,7 @@ export type PurchaseLine = {
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;
+  trackExpiry?: boolean;
 };
 
 export type Purchase = {
@@ -589,6 +605,7 @@ export type RmaLine = {
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;
+  trackExpiry?: boolean;
 };
 
 export type Rma = {

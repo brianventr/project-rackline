@@ -10,6 +10,7 @@ import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, Ov
 import { canReceiveReturn } from "../domain/status";
 import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
+import { lineExpiry } from "../lib/expiry";
 
 export const returnsRoute = new Hono<AppEnv>();
 
@@ -54,6 +55,7 @@ async function rmaWithLines(db: AppEnv["Variables"]["db"], organizationId: strin
       trackLot: schema.items.trackLot,
       trackSerial: schema.items.trackSerial,
       catchWeight: schema.items.catchWeight,
+      trackExpiry: schema.items.trackExpiry,
     })
     .from(schema.rmaLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.rmaLines.itemId))
@@ -99,6 +101,7 @@ returnsRoute.get("/returns", async (c) => {
       trackLot: schema.items.trackLot,
       trackSerial: schema.items.trackSerial,
       catchWeight: schema.items.catchWeight,
+      trackExpiry: schema.items.trackExpiry,
     })
     .from(schema.rmaLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.rmaLines.itemId))
@@ -201,7 +204,7 @@ returnsRoute.post("/returns/:id/start", async (c) => {
 returnsRoute.post("/returns/:id/receive", async (c) => {
   const body = await c.req.json<{
     locationId?: string;
-    lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number }[];
+    lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number; expiresOn?: unknown }[];
   }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
@@ -224,6 +227,7 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
             lotCode: line.lotCode?.trim() || null,
             serials: parseSerialList(line.serials),
             weightGrams: lineCatchWeight(docLine.catchWeight, docLine.sku, line.weightGrams),
+            expiresOn: lineExpiry(docLine.trackExpiry, docLine.sku, line.expiresOn),
           };
         })
       : rma.lines
@@ -233,6 +237,7 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
             lotCode: null as string | null,
             serials: [] as string[],
             weightGrams: lineCatchWeight(line.catchWeight, line.sku, undefined),
+            expiresOn: lineExpiry(line.trackExpiry, line.sku, undefined),
           }))
           .filter((line) => line.qty > 0);
 
@@ -261,6 +266,7 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
         lotCode: extra?.lotCode,
         serials: extra?.serials.length ? extra.serials : null,
         weightGrams: extra?.weightGrams,
+        expiresOn: extra?.expiresOn,
       };
     }),
     extra: [

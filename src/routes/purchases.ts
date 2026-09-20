@@ -10,6 +10,7 @@ import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, Ov
 import { canReceivePurchase, canStartPurchase } from "../domain/status";
 import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
+import { lineExpiry } from "../lib/expiry";
 
 export const purchasesRoute = new Hono<AppEnv>();
 
@@ -40,6 +41,7 @@ async function purchaseWithLines(db: AppEnv["Variables"]["db"], organizationId: 
       trackLot: schema.items.trackLot,
       trackSerial: schema.items.trackSerial,
       catchWeight: schema.items.catchWeight,
+      trackExpiry: schema.items.trackExpiry,
     })
     .from(schema.purchaseLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.purchaseLines.itemId))
@@ -71,6 +73,7 @@ purchasesRoute.get("/purchases", async (c) => {
       trackLot: schema.items.trackLot,
       trackSerial: schema.items.trackSerial,
       catchWeight: schema.items.catchWeight,
+      trackExpiry: schema.items.trackExpiry,
     })
     .from(schema.purchaseLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.purchaseLines.itemId))
@@ -162,7 +165,7 @@ purchasesRoute.post("/purchases/:id/start", async (c) => {
 purchasesRoute.post("/purchases/:id/receive", async (c) => {
   const body = await c.req.json<{
     locationId?: string;
-    lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number }[];
+    lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number; expiresOn?: unknown }[];
   }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
@@ -193,6 +196,7 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
             lotCode: line.lotCode?.trim() || null,
             serials: parseSerialList(line.serials),
             weightGrams: lineCatchWeight(docLine.catchWeight, docLine.sku, line.weightGrams),
+            expiresOn: lineExpiry(docLine.trackExpiry, docLine.sku, line.expiresOn),
           };
         })
       : purchase.lines
@@ -202,6 +206,7 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
             lotCode: null as string | null,
             serials: [] as string[],
             weightGrams: lineCatchWeight(line.catchWeight, line.sku, undefined),
+            expiresOn: lineExpiry(line.trackExpiry, line.sku, undefined),
           }))
           .filter((line) => line.qty > 0);
 
@@ -230,6 +235,7 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
         lotCode: extra?.lotCode,
         serials: extra?.serials.length ? extra.serials : null,
         weightGrams: extra?.weightGrams,
+        expiresOn: extra?.expiresOn,
       };
     }),
     extra: [

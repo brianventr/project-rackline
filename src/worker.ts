@@ -7,6 +7,7 @@ import { InsufficientStockError } from "./domain/inventory";
 import { OverReceiveError } from "./domain/partial-receive";
 import { OverPickError } from "./domain/partial-pick";
 import { HeldStockError } from "./domain/holds";
+import { ExpiredLotError } from "./domain/expiry";
 import { InsufficientAtpError } from "./domain/allocations";
 import type { AppEnv } from "./lib/types";
 import { originFrom } from "./lib/types";
@@ -80,6 +81,18 @@ app.onError((err, c) => {
         reason: err.reason,
       },
       409,
+    );
+  }
+  if (err instanceof ExpiredLotError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "EXPIRED_LOT",
+        sku: err.sku,
+        lotCode: err.lotCode ?? null,
+        expiresOn: err.expiresOn ?? null,
+      },
+      400,
     );
   }
   if (err instanceof InsufficientAtpError) {

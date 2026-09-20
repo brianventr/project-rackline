@@ -4,6 +4,7 @@ import { api, type Location, type Purchase, type Receipt, type ScanHit } from ".
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
+import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
 import { canReceive, canReceivePurchase } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
 
@@ -19,6 +20,7 @@ export function FloorReceivePage() {
   const [lots, setLots] = useState<Record<string, string>>({});
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
+  const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
@@ -117,6 +119,7 @@ export function FloorReceivePage() {
           lotCode: lots[line.itemId] || undefined,
           serials: serials[line.itemId] || undefined,
           weightGrams: parseWeightGrams(weights[line.itemId]),
+          expiresOn: parseExpiryInput(expiries[line.itemId]),
         }))
         .filter((line) => line.qty > 0);
       const posted = await api<Receipt>(`/api/receipts/${activeReceipt.id}/receive`, {
@@ -143,6 +146,7 @@ export function FloorReceivePage() {
           lotCode: lots[line.itemId] || undefined,
           serials: serials[line.itemId] || undefined,
           weightGrams: parseWeightGrams(weights[line.itemId]),
+          expiresOn: parseExpiryInput(expiries[line.itemId]),
         }))
         .filter((line) => line.qty > 0);
       const posted = await api<Purchase>(`/api/purchases/${activePurchase.id}/receive`, {
@@ -264,6 +268,11 @@ export function FloorReceivePage() {
                   value={weights[line.itemId] ?? ""}
                   onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
                 />
+                <ExpiryInput
+                  show={line.trackExpiry}
+                  value={expiries[line.itemId] ?? ""}
+                  onChange={(value) => setExpiries((current) => ({ ...current, [line.itemId]: value }))}
+                />
               </li>
             ))}
           </ul>
@@ -346,6 +355,11 @@ export function FloorReceivePage() {
                   show={line.catchWeight}
                   value={weights[line.itemId] ?? ""}
                   onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
+                />
+                <ExpiryInput
+                  show={line.trackExpiry}
+                  value={expiries[line.itemId] ?? ""}
+                  onChange={(value) => setExpiries((current) => ({ ...current, [line.itemId]: value }))}
                 />
               </li>
             ))}

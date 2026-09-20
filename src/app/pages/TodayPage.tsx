@@ -6,6 +6,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { useWarehouse } from "../warehouse";
 import { statusLabel } from "@/domain/status";
 import { formatCountVariance } from "@/domain/blind-count";
+import { formatExpiresOn } from "@/domain/expiry";
 
 export function TodayPage() {
   const { warehouseId } = useWarehouse();
@@ -38,6 +39,7 @@ export function TodayPage() {
           { label: "Count variance", value: data?.countVariances ?? "—", to: "/stock/counts" },
           { label: "On hold", value: data?.openHolds ?? "—", to: "/stock/holds" },
           { label: "Allocated", value: data?.allocatedUnits ?? "—", to: "/outbound/orders" },
+          { label: "Expiring", value: data?.expiringLots ?? "—", to: "/stock" },
         ].map((stat) => (
           <Link key={stat.label} to={stat.to}>
             <Card className="from-primary/5 to-card bg-gradient-to-t shadow-xs">
@@ -215,6 +217,19 @@ export function TodayPage() {
             status: "variance",
             actionTo: `/stock/counts/${row.countId}`,
             action: "Review",
+          }))}
+        />
+        <QueueCard
+          title="Expiring lots"
+          empty="Nothing expiring in the next 14 days."
+          rows={(queues?.expiringLots ?? []).map((row) => ({
+            id: `${row.locationId}:${row.itemId}:${row.lotCode}`,
+            to: `/stock/items/${row.itemId}`,
+            title: `${row.sku} ${row.lotCode}`,
+            meta: `${row.locationCode} · ${row.qty} · ${formatExpiresOn(row.expiresOn)}`,
+            status: "expiring",
+            actionTo: `/stock/items/${row.itemId}`,
+            action: "Open",
           }))}
         />
         <QueueCard
