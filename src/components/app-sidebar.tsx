@@ -27,6 +27,7 @@ import {
   Layers,
   ShieldAlert,
   Forklift,
+  Radar,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Logo } from "@/components/logo";
@@ -58,6 +59,10 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
         { title: "Equipment", url: "/equipment", icon: Forklift },
         ...(owner ? [{ title: "Build floor", url: "/map?edit=1", icon: BoxSelect }] : []),
       ],
+    },
+    {
+      label: "Analytics",
+      items: [{ title: "Traffic", url: "/analytics/traffic", icon: Radar }],
     },
     {
       label: "Inbound",

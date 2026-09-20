@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -82,6 +82,11 @@ export const warehouses = sqliteTable("warehouses", {
   mapDepth: integer("map_depth").notNull().default(28),
   mapHeight: integer("map_height").notNull().default(8),
   shipFromAddress: text("ship_from_address"),
+  city: text("city"),
+  region: text("region"),
+  country: text("country"),
+  lat: real("lat"),
+  lng: real("lng"),
 });
 
 export const locations = sqliteTable(
@@ -257,8 +262,16 @@ export const orders = sqliteTable(
     labelStatus: text("label_status").notNull().default("none"),
     waveId: text("wave_id"),
     clientId: text("client_id"),
+    shipToCity: text("ship_to_city"),
+    shipToRegion: text("ship_to_region"),
+    shipToCountry: text("ship_to_country"),
+    shipToLat: real("ship_to_lat"),
+    shipToLng: real("ship_to_lng"),
   },
-  (t) => [uniqueIndex("shopify_orders_org_order").on(t.organizationId, t.shopifyOrderId)],
+  (t) => [
+    uniqueIndex("shopify_orders_org_order").on(t.organizationId, t.shopifyOrderId),
+    index("orders_org_status_shipped").on(t.organizationId, t.status, t.shippedAt),
+  ],
 );
 
 export const orderLines = sqliteTable("order_lines", {

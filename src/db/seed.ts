@@ -10,6 +10,7 @@ import { demoFulfillmentOrderId } from "../domain/shopify";
 import { areaForType, gridPosition } from "../domain/map-layout";
 import { addUtcDays, utcYyyymmdd } from "../domain/expiry";
 import { checklistForClass, equipmentBarcode } from "../domain/equipment";
+import { destPatchFromAddress, originColumns, resolveOrigin } from "../domain/geo";
 
 export const DEMO_EMAIL = "demo@northwind.makers";
 export const DEMO_PASSWORD = "rackline-demo";
@@ -90,9 +91,10 @@ const DEMO_LOCATIONS: LocSeed[] = [
 export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organizationId: string }> {
   const { organizationId, warehouseId } = await provisionOrganization(db, userId, "Northwind Makers");
   const now = Date.now();
+  const mainOrigin = originColumns(resolveOrigin({ city: "Portland", region: "OR", country: "US" }));
   await db
     .update(schema.warehouses)
-    .set({ shipFromAddress: "14 Dock St, Portland, OR 97209" })
+    .set({ shipFromAddress: "14 Dock St, Portland, OR 97209", ...mainOrigin })
     .where(eq(schema.warehouses.id, warehouseId));
 
   const locIds = Object.fromEntries(DEMO_LOCATIONS.map((row) => [row.key, newId()])) as Record<string, string>;
@@ -328,7 +330,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       status: "open",
       createdAt: now,
       source: "manual",
-      shipToAddress: "14 Dock Street\nPortland, OR 97201",
+      ...destPatchFromAddress("14 Dock Street\nPortland, OR 97201"),
     }),
     db.insert(schema.orderLines).values({ id: newId(), orderId, itemId: item.lamp, qty: 2 }),
     db.insert(schema.rmas).values({
@@ -498,7 +500,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       shopifyFulfillmentOrderId: demoFulfillmentOrderId("1004"),
       shopifySyncStatus: "inbound",
       shopifyShopDomain: "northwind-makers.myshopify.com",
-      shipToAddress: "88 Harbor Ave\nSeattle, WA 98101",
+      ...destPatchFromAddress("88 Harbor Ave\nSeattle, WA 98101"),
     }),
     db.insert(schema.orderLines).values({
       id: newId(),
@@ -617,6 +619,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       mapWidth: 24,
       mapDepth: 18,
       mapHeight: 8,
+      ...originColumns(resolveOrigin({ city: "Vancouver", region: "WA", country: "US" })),
     }),
     db.insert(schema.locations).values({
       id: westRecv,
@@ -934,6 +937,104 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     .where(
       and(eq(schema.inventoryMovements.organizationId, organizationId), eq(schema.inventoryMovements.createdBy, userId)),
     );
+
+  const hour = 3_600_000;
+  const sku = { lamp: item.lamp, bulb: item.bulb, shade: item.shade };
+  const traffic = [
+    { number: "ORD-LAX1", customer: "Echo Park Shop", address: "120 Spring St\nLos Angeles, CA 90012", sku: "lamp" as const, qty: 2, hoursAgo: 8, carrier: "ups_ground", tracking: "RL-LAX001" },
+    { number: "ORD-SFO1", customer: "Mission Light", address: "18 Valencia St\nSan Francisco, CA 94110", sku: "shade" as const, qty: 3, hoursAgo: 5, carrier: "usps_priority", tracking: "RL-SFO001" },
+    { number: "ORD-DEN1", customer: "High Plains Co", address: "1401 Blake St\nDenver, CO 80202", sku: "lamp" as const, qty: 1, hoursAgo: 20, carrier: "rackline_ground", tracking: "RL-DEN001" },
+    { number: "ORD-AUS1", customer: "South Congress", address: "1400 S Congress Ave\nAustin, TX 78704", sku: "lamp" as const, qty: 2, hoursAgo: 14, carrier: "ups_ground", tracking: "RL-AUS001" },
+    { number: "ORD-CHI1", customer: "Wicker Park", address: "1608 N Milwaukee Ave\nChicago, IL 60647", sku: "bulb" as const, qty: 6, hoursAgo: 30, carrier: "usps_priority", tracking: "RL-CHI001" },
+    { number: "ORD-NYC1", customer: "Brooklyn Studio", address: "85 N 3rd St\nBrooklyn, NY 11249", sku: "lamp" as const, qty: 1, hoursAgo: 10, carrier: "ups_ground", tracking: "RL-NYC001" },
+    { number: "ORD-BOS1", customer: "Fort Point", address: "12 Farnsworth St\nBoston, MA 02210", sku: "lamp" as const, qty: 1, hoursAgo: 120, carrier: "ups_ground", tracking: "RL-BOS001" },
+    { number: "ORD-MIA1", customer: "Wynwood Lab", address: "2301 NW 2nd Ave\nMiami, FL 33127", sku: "shade" as const, qty: 2, hoursAgo: 16, carrier: "usps_priority", tracking: "RL-MIA001" },
+    { number: "ORD-ATL1", customer: "Old Fourth Ward", address: "675 Ponce De Leon Ave\nAtlanta, GA 30308", sku: "lamp" as const, qty: 2, hoursAgo: 4, carrier: "rackline_ground", tracking: "RL-ATL001" },
+    { number: "ORD-PHX1", customer: "Roosevelt Row", address: "918 N 2nd St\nPhoenix, AZ 85004", sku: "bulb" as const, qty: 4, hoursAgo: 22, carrier: "ups_ground", tracking: "RL-PHX001" },
+    { number: "ORD-MSP1", customer: "North Loop", address: "1101 S 10th St\nMinneapolis, MN 55415", sku: "lamp" as const, qty: 1, hoursAgo: 12, carrier: "usps_priority", tracking: "RL-MSP001" },
+    { number: "ORD-YYZ1", customer: "King West", address: "12 King Street West\nToronto, ON M5H 1A1", sku: "lamp" as const, qty: 1, hoursAgo: 18, carrier: "ups_ground", tracking: "RL-YYZ001" },
+    { number: "ORD-LON1", customer: "Shoreditch Works", address: "221B Baker Street\nLondon, UK", sku: "lamp" as const, qty: 1, hoursAgo: 36, carrier: "usps_priority", tracking: "RL-LON001" },
+  ];
+  const packedId = newId();
+  const willCallId = newId();
+  const trafficInserts = traffic.flatMap((row) => {
+    const id = newId();
+    const shippedAt = now - row.hoursAgo * hour;
+    return [
+      db.insert(schema.orders).values({
+        id,
+        organizationId,
+        warehouseId,
+        number: row.number,
+        customerName: row.customer,
+        status: "shipped",
+        createdAt: shippedAt - 6 * hour,
+        packedAt: shippedAt - hour,
+        shippedAt,
+        source: "manual",
+        trackingNumber: row.tracking,
+        trackingCompany: row.carrier === "usps_priority" ? "USPS" : row.carrier === "ups_ground" ? "UPS" : "Rackline",
+        carrierService: row.carrier,
+        ...destPatchFromAddress(row.address),
+      }),
+      db.insert(schema.orderLines).values({
+        id: newId(),
+        orderId: id,
+        itemId: sku[row.sku],
+        qty: row.qty,
+        qtyPicked: row.qty,
+        qtyPacked: row.qty,
+      }),
+    ];
+  });
+  await db.batch([
+    db.insert(schema.orders).values({
+      id: packedId,
+      organizationId,
+      warehouseId,
+      number: "ORD-DFW1",
+      customerName: "Deep Ellum",
+      status: "packed",
+      createdAt: now - 8 * hour,
+      packedAt: now - hour,
+      source: "manual",
+      trackingNumber: "RL-DFW001",
+      carrierService: "ups_ground",
+      ...destPatchFromAddress("2803 Main St\nDallas, TX 75226"),
+    }),
+    db.insert(schema.orderLines).values({
+      id: newId(),
+      orderId: packedId,
+      itemId: item.lamp,
+      qty: 2,
+      qtyPicked: 2,
+      qtyPacked: 2,
+    }),
+    db.insert(schema.orders).values({
+      id: willCallId,
+      organizationId,
+      warehouseId,
+      number: "ORD-CALL1",
+      customerName: "Will Call",
+      status: "shipped",
+      createdAt: now - 5 * hour,
+      packedAt: now - 3 * hour,
+      shippedAt: now - 2 * hour,
+      source: "manual",
+      trackingNumber: "RL-CALL01",
+      carrierService: "rackline_ground",
+      shipToAddress: "Will call",
+    }),
+    db.insert(schema.orderLines).values({
+      id: newId(),
+      orderId: willCallId,
+      itemId: item.shade,
+      qty: 1,
+      qtyPicked: 1,
+      qtyPacked: 1,
+    }),
+    ...(trafficInserts as typeof trafficInserts),
+  ] as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
 
   return { organizationId };
 }

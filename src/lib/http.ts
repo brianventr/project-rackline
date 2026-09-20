@@ -53,3 +53,10 @@ export function optionalString(value: unknown): string | undefined {
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
 }
+
+export function optionalFloat(value: unknown, field: string): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) badRequest(`${field} must be a number`);
+  return n;
+}

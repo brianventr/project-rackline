@@ -18,6 +18,7 @@ import { addUtcDays, EXPIRING_WITHIN_DAYS, utcYyyymmdd } from "../domain/expiry"
 import { CERT_EXPIRING_WITHIN_DAYS, isCertExpiring } from "../domain/equipment";
 import { loadAsBuiltForItem } from "../db/as-built";
 import { loadDocumentNumber } from "../db/equipment";
+import { originColumns, resolveOrigin } from "../domain/geo";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -56,6 +57,9 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     mapDepth?: number;
     mapHeight?: number;
     shipFromAddress?: string | null;
+    city?: string | null;
+    region?: string | null;
+    country?: string | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -73,6 +77,11 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     mapDepth?: number;
     mapHeight?: number;
     shipFromAddress?: string | null;
+    city?: string | null;
+    region?: string | null;
+    country?: string | null;
+    lat?: number | null;
+    lng?: number | null;
   } = {};
   const name = optionalString(body.name);
   if (name) patch.name = name;
@@ -94,6 +103,17 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
   if (mapHeight !== undefined) {
     if (mapHeight <= 0) badRequest("mapHeight must be positive");
     patch.mapHeight = mapHeight;
+  }
+  if ("city" in body) patch.city = optionalString(body.city) ?? null;
+  if ("region" in body) patch.region = optionalString(body.region) ?? null;
+  if ("country" in body) patch.country = optionalString(body.country) ?? null;
+  if ("city" in body || "region" in body || "country" in body) {
+    const next = {
+      city: patch.city !== undefined ? patch.city : warehouse.city,
+      region: patch.region !== undefined ? patch.region : warehouse.region,
+      country: patch.country !== undefined ? patch.country : warehouse.country,
+    };
+    Object.assign(patch, originColumns(resolveOrigin(next)));
   }
   if (Object.keys(patch).length === 0) badRequest("No warehouse fields to update");
 

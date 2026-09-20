@@ -10,6 +10,9 @@ export function WarehouseSetupPage() {
   const [mapDepth, setMapDepth] = useState("28");
   const [mapHeight, setMapHeight] = useState("8");
   const [shipFromAddress, setShipFromAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [region, setRegion] = useState("");
+  const [country, setCountry] = useState("");
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -25,6 +28,9 @@ export function WarehouseSetupPage() {
         setMapDepth(String(current.mapDepth));
         setMapHeight(String(current.mapHeight));
         setShipFromAddress(current.shipFromAddress || "");
+        setCity(current.city || "");
+        setRegion(current.region || "");
+        setCountry(current.country || "");
       })
       .catch((err: Error) => setError(err.message));
   }, [currentId]);
@@ -42,6 +48,9 @@ export function WarehouseSetupPage() {
           mapDepth: Number(mapDepth),
           mapHeight: Number(mapHeight),
           shipFromAddress,
+          city,
+          region,
+          country,
         }),
       });
       setOk("Warehouse saved.");
@@ -67,7 +76,7 @@ export function WarehouseSetupPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="Setup" title="Warehouse" description="Name, map size, and ship-from address for this building. Bays live under Stock → Locations." />
+      <PageHeader eyebrow="Setup" title="Warehouse" description="Name, ship-from address, origin city, and map size for this building. Bays live under Stock → Locations." />
       <ErrorBanner error={error} />
       {ok ? <p className="mb-4 text-sm">{ok}</p> : null}
       <Card className="mb-6 max-w-xl space-y-3">
@@ -84,6 +93,20 @@ export function WarehouseSetupPage() {
               placeholder="14 Dock St, Portland, OR 97209"
             />
           </Field>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="City">
+              <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Portland" />
+            </Field>
+            <Field label="State">
+              <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="OR" />
+            </Field>
+            <Field label="Country">
+              <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="US" />
+            </Field>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Origin for Analytics → Traffic. Lane estimates fly from this city, not live GPS.
+          </p>
           <div className="grid grid-cols-3 gap-3">
             <Field label="Map width">
               <Input type="number" min={1} value={mapWidth} onChange={(e) => setMapWidth(e.target.value)} />
