@@ -41,6 +41,7 @@ import { WarehouseSetupPage } from "./pages/setup/WarehouseSetupPage";
 import { TeamPage } from "./pages/setup/TeamPage";
 import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
 import { CarriersPage } from "./pages/setup/CarriersPage";
+import { IntegrationsPage } from "./pages/setup/IntegrationsPage";
 import { ClientsPage } from "./pages/setup/ClientsPage";
 import { ZonesPage } from "./pages/setup/ZonesPage";
 import { BillingPage } from "./pages/setup/BillingPage";
@@ -175,6 +176,14 @@ export function App() {
         <Route path="/outbound/waves/:id" element={<WavesPage />} />
         <Route path="/outbound/returns" element={<ReturnsPage />} />
         <Route path="/outbound/returns/:id" element={<ReturnsPage />} />
+        <Route
+          path="/setup/integrations"
+          element={
+            <OwnerOnly>
+              <IntegrationsPage />
+            </OwnerOnly>
+          }
+        />
         <Route
           path="/setup/shopify"
           element={
