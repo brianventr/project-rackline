@@ -7,6 +7,7 @@ import { InsufficientStockError } from "./domain/inventory";
 import { OverReceiveError } from "./domain/partial-receive";
 import { OverPickError } from "./domain/partial-pick";
 import { HeldStockError } from "./domain/holds";
+import { InsufficientAtpError } from "./domain/allocations";
 import type { AppEnv } from "./lib/types";
 import { originFrom } from "./lib/types";
 import { registerRoute } from "./routes/register";
@@ -77,6 +78,19 @@ app.onError((err, c) => {
         locationCode: err.locationCode,
         holdNumber: err.holdNumber,
         reason: err.reason,
+      },
+      409,
+    );
+  }
+  if (err instanceof InsufficientAtpError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "INSUFFICIENT_ATP",
+        sku: err.sku,
+        atp: err.atp,
+        needed: err.needed,
+        locationCode: err.locationCode,
       },
       409,
     );

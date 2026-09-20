@@ -158,6 +158,11 @@ export function FloorPickPage() {
                   <span>
                     {line.sku} × {line.qty}
                     {line.qtyPicked ? <span className="text-muted-foreground"> · picked {line.qtyPicked}</span> : null}
+                    {(line.allocations ?? []).length ? (
+                      <span className="block text-xs text-muted-foreground">
+                        Allocated {(line.allocations ?? []).map((row) => `${row.locationCode} ×${row.qty}`).join(", ")}
+                      </span>
+                    ) : null}
                   </span>
                   <button
                     type="button"

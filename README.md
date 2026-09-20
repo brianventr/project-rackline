@@ -24,6 +24,8 @@ Iteration 9 makes cycle counts blind: the floor and office hide system qty until
 
 Iteration 10 adds inventory holds: lock a bay, a location:item, or a lot so pick, replenish, kit, and move skip it. Qty stays on the ledger. Floor gets a Hold verb; Today lists what is locked. Receive, count, adjust, and ship still run.
 
+Iteration 11 reserves ATP when pick starts: location:item allocations (on-hand − held − allocated). A second order that would oversell returns HTTP 409 (`INSUFFICIENT_ATP`). Create and Shopify ingest stay promises until start. Leftover reservations release on ship or Shopify cancel.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 ## Stack
@@ -86,13 +88,14 @@ Demo mode never calls Shopify; it stores the GraphQL payload that would have bee
 All quantity changes go through one engine (`src/domain/inventory.ts`) and an append-only movement ledger.
 
 - **Receive** adds qty to a location (blank receipt, purchase order, or customer return). Lines track received vs expected; posting more than remaining returns HTTP 409 (`OVER_RECEIVE`); the document stays `receiving` until every unit is in
-- **Move / transfer** decrements the from bin and increments the to bin in one ledger movement. Dock, ship, and bench stock get a suggested bulk/storage bay (same idea as directed pick)
-- **Pick** decrements the pick bin. Lines track picked vs ordered; posting more than remaining returns HTTP 409 (`OVER_PICK`); the document stays `picking` until every unit is picked. The API suggests a pick-face bay that covers remaining qty
+- **Move / transfer** decrements the from bin and increments the to bin in one ledger movement. Dock, ship, and bench stock get a suggested bulk/storage bay (same idea as directed pick). Moves cannot steal qty reserved for an open pick
+- **Pick** decrements the pick bin. Starting pick reserves remaining qty against ATP (on-hand − held − allocated) on location:item. A second start that would oversell returns HTTP 409 (`INSUFFICIENT_ATP`). Lines track picked vs ordered; posting more than remaining returns HTTP 409 (`OVER_PICK`); the document stays `picking` until every unit is picked. The API suggests a pick-face bay that still covers remaining qty for this order
 - **Pack slip** prints ordered vs picked qty from the order record
-- **Ship** writes an outbound movement (qty already left at pick) and, for Shopify orders, creates a fulfillment
+- **Ship** writes an outbound movement (qty already left at pick), releases leftover allocations, and, for Shopify orders, creates a fulfillment
 - **Adjust** applies a signed delta with a reason
 - **Cycle count** snapshots a bin without showing system qty. Every SKU must be entered (0 is a real count); posting more than once is blocked. Empty bays can be confirmed empty. Variances post against *current* on-hand so concurrent movement is not double-applied; Today lists posted counts where counted ≠ system
 - **Hold** locks a bay, a SKU in a bay, or a lot. Pick, move, replenish, kit consume, and work-order consume return HTTP 409 (`HELD_STOCK`). Receive, count, adjust, produce, and ship still post. FIFO skips held lots when other lots cover the qty
+- **Allocate** reserves remaining order qty on pick start against location:item ATP. Pick, move, replenish, kit consume, and work-order consume return HTTP 409 (`INSUFFICIENT_ATP`) when they would take another order's reservation. Receive, count, adjust, produce, and ship still post
 - **Work order complete** consumes `BOM qty × WO qty` from the source location and produces finished goods into the output location. Short components return HTTP 409
 - **Kit complete** is the same explode, in one step, with `kit_consume` / `kit_produce` ledger types
 - **Replenish** moves bulk storage onto a pick face when on-hand is below the SKU's pick min

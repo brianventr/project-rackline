@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Item, type Location, type Order } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
 import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
-import { ORDER_STEPS, canPackOrder, canPickOrder, canShipOrder } from "@/domain/status";
+import { ORDER_STEPS, canPackOrder, canPickOrder, canShipOrder, canStartPick } from "@/domain/status";
 import { hasUnpicked } from "@/domain/partial-pick";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { LineFields } from "./ReceiptsPage";
@@ -58,7 +58,7 @@ function OrderList() {
       <PageHeader
         eyebrow="Outbound"
         title="Orders"
-        description="Shopify checkouts and floor orders. Pick from the suggested bay, pack, then ship."
+        description="Shopify checkouts and floor orders. Start pick to reserve ATP, then pick from the suggested bay."
         actions={<Button onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New order"}</Button>}
       />
       <ErrorBanner error={error} />
@@ -73,7 +73,7 @@ function OrderList() {
           </form>
         </Card>
       ) : null}
-      <Table columns={["Number", "Channel", "Customer", "Lines", "Status"]}>
+      <Table columns={["Number", "Channel", "Customer", "Lines", "Allocated", "Status"]}>
         {inWarehouse(orders, warehouseId).map((order) => (
           <tr key={order.id}>
             <td className="px-4 py-3 font-mono">
@@ -84,6 +84,7 @@ function OrderList() {
             <td className="px-4 py-3">{order.source === "shopify" ? "Shopify" : "Floor"}</td>
             <td className="px-4 py-3">{order.customerName}</td>
             <td className="px-4 py-3 text-sm">{summarizeLines(order.lines)}</td>
+            <td className="px-4 py-3 font-mono tabular">{order.allocatedUnits ?? 0}</td>
             <td className="px-4 py-3">
               <StatusBadge status={order.status} />
             </td>
@@ -121,6 +122,18 @@ function OrderDetail({ id }: { id: string }) {
   useEffect(() => {
     load().catch((err: Error) => setError(err.message));
   }, [id]);
+
+  async function startPick() {
+    setError(null);
+    try {
+      const next = await api<Order>(`/api/orders/${id}/start`, { method: "POST" });
+      setOrder(next);
+      setPickLocation(defaultPickLocation(next, locations));
+      setQtys(qtyDefaults(next));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start pick");
+    }
+  }
 
   async function pick() {
     if (!order) return;
@@ -206,6 +219,11 @@ function OrderDetail({ id }: { id: string }) {
             <Button variant="ghost" onClick={() => navigate("/outbound/orders")}>
               All orders
             </Button>
+            {canStartPick(order.status) && remaining ? (
+              <Button variant="secondary" onClick={() => void startPick()}>
+                Start pick
+              </Button>
+            ) : null}
             {canPickOrder(order.status) && remaining ? (
               <Button disabled={!thisPick} onClick={() => void pick()}>
                 Pick
@@ -286,13 +304,20 @@ function OrderDetail({ id }: { id: string }) {
           </DocumentRail>
         }
       >
-        <Table columns={["SKU", "Item", "Ordered", "Picked", "Bay", "This pick", "Lot / serial"]}>
+        <Table columns={["SKU", "Item", "Ordered", "Picked", "Allocated", "Bay", "This pick", "Lot / serial"]}>
           {(order.lines ?? []).map((line) => (
             <tr key={line.id}>
               <td className="px-4 py-3 font-mono">{line.sku}</td>
               <td className="px-4 py-3">{line.itemName}</td>
               <td className="px-4 py-3 font-mono">{line.qty}</td>
               <td className="px-4 py-3 font-mono">{line.qtyPicked ?? 0}</td>
+              <td className="px-4 py-3 font-mono text-sm">
+                {(line.allocations ?? []).length
+                  ? (line.allocations ?? []).map((row) => `${row.locationCode} ×${row.qty}`).join(", ")
+                  : (line.allocatedQty ?? 0) > 0
+                    ? line.allocatedQty
+                    : "—"}
+              </td>
               <td className="px-4 py-3 font-mono text-sm">
                 {line.suggestedLocation ? (
                   <button

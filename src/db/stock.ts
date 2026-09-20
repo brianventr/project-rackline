@@ -16,6 +16,7 @@ import {
 import { newId } from "../lib/ids";
 import { appendTraceabilityStatements, expandMovementsForTraceability } from "./traceability";
 import { assertOutboundNotHeld, loadOpenHolds } from "./holds";
+import { assertOutboundAtp } from "./allocations";
 
 export type AppDb = DrizzleD1Database<typeof import("./schema")>;
 
@@ -83,6 +84,7 @@ export async function persistStockPlan(
     holds,
   );
   assertOutboundNotHeld(movements, holds);
+  await assertOutboundAtp(db, input.organizationId, movements, input.loaded);
 
   for (const [key, qty] of input.plan.balances) {
     const { locationId, itemId } = parseBalanceKey(key);

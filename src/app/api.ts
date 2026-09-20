@@ -56,7 +56,15 @@ export type Item = {
   pickMin?: number;
   trackLot?: boolean;
   trackSerial?: boolean;
-  onHand?: { locationId: string; locationCode: string; locationName: string; barcode: string; qty: number }[];
+  onHand?: {
+    locationId: string;
+    locationCode: string;
+    locationName: string;
+    barcode: string;
+    qty: number;
+    allocated?: number;
+    atp?: number;
+  }[];
   lots?: { locationId: string; locationCode: string; lotCode: string; qty: number }[];
   serials?: { serialCode: string; status: string; locationId: string | null; locationCode: string | null }[];
 };
@@ -93,6 +101,7 @@ export type MapContent = {
   holdNumber?: string | null;
   holdReason?: string | null;
   availableQty?: number;
+  allocated?: number;
   suggestedLocation?: SuggestedLocation | null;
 };
 
@@ -136,6 +145,7 @@ export type ScanItemHit = {
     holdNumber?: string | null;
     holdReason?: string | null;
     availableQty?: number;
+    allocated?: number;
   }[];
 };
 
@@ -175,6 +185,8 @@ export type MoveResult = {
 export type InventoryRow = {
   id: string;
   qty: number;
+  allocated?: number;
+  atp?: number;
   sku: string;
   itemName: string;
   itemType: string;
@@ -216,12 +228,24 @@ export type SuggestedLocation = {
   qty: number;
 };
 
+export type OrderAllocation = {
+  id: string;
+  locationId: string;
+  locationCode: string;
+  itemId: string;
+  sku: string;
+  qty: number;
+  orderLineId?: string;
+};
+
 export type OrderLine = {
   id: string;
   itemId: string;
   qty: number;
   qtyPicked: number;
   remaining: number;
+  allocatedQty?: number;
+  allocations?: OrderAllocation[];
   sku: string;
   itemName: string;
   shopifyLineItemId?: string | null;
@@ -250,6 +274,8 @@ export type Order = {
   shipToAddress?: string | null;
   carrierService?: string | null;
   packedAt?: number | null;
+  allocatedUnits?: number;
+  allocations?: OrderAllocation[];
   shopify?: { status?: string; fulfillmentId?: string | null; error?: string | null };
   lines?: OrderLine[];
 };
@@ -377,6 +403,7 @@ export type Dashboard = {
   onHandUnits: number;
   binRows: number;
   skuCount: number;
+  allocatedUnits?: number;
   openReceipts: number;
   openOrders: number;
   openWorkOrders: number;

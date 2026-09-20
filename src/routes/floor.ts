@@ -15,6 +15,8 @@ import { loadPutawayBaysByItem } from "../db/putaway-bays";
 import { allLinesEntered, applyCountEntries, revealSystemQty } from "../domain/blind-count";
 import { applyHoldsToOnHand, HeldStockError, matchingHoldForMove } from "../domain/holds";
 import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
+import { allocatedQtyAt, applyAllocationsToOnHand, InsufficientAtpError } from "../domain/allocations";
+import { loadOpenAllocations } from "../db/allocations";
 
 export const floorRoute = new Hono<AppEnv>();
 
@@ -531,16 +533,19 @@ floorRoute.get("/scan", async (c) => {
       );
     const holds = await loadOpenHolds(db, organizationId, location.warehouseId);
     const lotQtys = await loadHeldLotQuantities(db, organizationId, holds);
+    const allocations = await loadOpenAllocations(db, organizationId, { warehouseId: location.warehouseId });
     const withLocation = contents.map((row) => ({ ...row, locationId: location.id }));
-    const available = applyHoldsToOnHand(withLocation, holds, lotQtys);
+    const available = applyAllocationsToOnHand(applyHoldsToOnHand(withLocation, holds, lotQtys), allocations);
     const availableByItem = new Map(available.map((row) => [row.itemId, row.qty]));
     const annotated = contents.map((row) => {
       const hit = matchingHoldForMove(holds, location.id, row.itemId);
+      const allocated = allocatedQtyAt(allocations, location.id, row.itemId);
       return {
         ...row,
         held: Boolean(hit),
         holdNumber: hit?.number ?? null,
         holdReason: hit?.reason ?? null,
+        allocated,
         availableQty: availableByItem.get(row.itemId) ?? row.qty,
       };
     });
@@ -606,14 +611,20 @@ floorRoute.get("/scan", async (c) => {
       );
     const holds = await loadOpenHolds(db, organizationId);
     const lotQtys = await loadHeldLotQuantities(db, organizationId, holds);
-    const available = applyHoldsToOnHand(onHand, holds, lotQtys);
+    const allocations = await loadOpenAllocations(db, organizationId);
+    const holdAdjusted = applyHoldsToOnHand(onHand, holds, lotQtys);
+    const available = applyAllocationsToOnHand(holdAdjusted, allocations);
     const annotated = available.map((row) => {
+      const physical = onHand.find((entry) => entry.locationId === row.locationId)?.qty ?? row.qty;
       const hit = matchingHoldForMove(holds, row.locationId, item.id);
+      const allocated = allocatedQtyAt(allocations, row.locationId, item.id);
       return {
         ...row,
-        held: Boolean(hit) || row.qty < (onHand.find((entry) => entry.locationId === row.locationId)?.qty ?? row.qty),
+        qty: physical,
+        held: Boolean(hit) || (holdAdjusted.find((entry) => entry.locationId === row.locationId)?.qty ?? physical) < physical,
         holdNumber: hit?.number ?? null,
         holdReason: hit?.reason ?? null,
+        allocated,
         availableQty: row.qty,
       };
     });
@@ -873,10 +884,14 @@ floorRoute.post("/moves", async (c) => {
 
   const holds = await loadOpenHolds(db, organizationId, from.warehouseId);
   const lotQtys = await loadHeldLotQuantities(db, organizationId, holds);
-  const available = applyHoldsToOnHand(
-    onHand.map((row) => ({ ...row, locationId: from.id })),
-    holds,
-    lotQtys,
+  const allocations = await loadOpenAllocations(db, organizationId, { warehouseId: from.warehouseId });
+  const available = applyAllocationsToOnHand(
+    applyHoldsToOnHand(
+      onHand.map((row) => ({ ...row, locationId: from.id })),
+      holds,
+      lotQtys,
+    ),
+    allocations,
   );
 
   const requested = body.lines?.length
@@ -890,6 +905,8 @@ floorRoute.post("/moves", async (c) => {
         if (qty > free) {
           const hit = matchingHoldForMove(holds, from.id, itemId);
           if (hit) throw new HeldStockError(hit.sku ?? row.sku, hit.locationCode, hit.number, hit.reason);
+          const allocated = allocatedQtyAt(allocations, from.id, itemId);
+          if (allocated > 0) throw new InsufficientAtpError(row.sku, free, qty, from.code);
           badRequest(`Only ${row.qty} of ${row.sku} in ${from.code}`);
         }
         return { itemId, sku: row.sku, itemName: row.itemName, qty };
@@ -901,6 +918,10 @@ floorRoute.post("/moves", async (c) => {
   if (requested.length === 0) {
     const hit = matchingHoldForMove(holds, from.id, onHand[0]!.itemId) ?? holds.find((hold) => hold.locationId === from.id);
     if (hit) throw new HeldStockError(hit.sku ?? onHand[0]!.sku, hit.locationCode, hit.number, hit.reason);
+    const allocated = allocatedQtyAt(allocations, from.id, onHand[0]!.itemId);
+    if (allocated > 0) {
+      throw new InsufficientAtpError(onHand[0]!.sku, 0, allocated, from.code);
+    }
     badRequest(`${from.code} is empty`);
   }
 

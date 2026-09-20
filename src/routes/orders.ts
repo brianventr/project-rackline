@@ -21,7 +21,14 @@ import {
   type PickLine,
   type StockedBay,
 } from "../domain/partial-pick";
-import { availableOnHand } from "../db/holds";
+import {
+  consumeAllocationStatements,
+  ensureAllocated,
+  loadAtpBaysByItem,
+  loadOpenAllocations,
+  releaseAllocationStatements,
+} from "../db/allocations";
+import type { OpenAllocation } from "../domain/allocations";
 
 export const ordersRoute = new Hono<AppEnv>();
 
@@ -46,53 +53,45 @@ async function suggestedByItem(
   db: AppEnv["Variables"]["db"],
   organizationId: string,
   itemIds: string[],
+  excludeOrderId?: string,
 ): Promise<Map<string, StockedBay[]>> {
-  const byItem = new Map<string, StockedBay[]>();
-  if (itemIds.length === 0) return byItem;
-  const rows = await db
-    .select({
-      itemId: schema.inventoryBalances.itemId,
-      locationId: schema.locations.id,
-      locationCode: schema.locations.code,
-      locationName: schema.locations.name,
-      barcode: schema.locations.barcode,
-      qty: schema.inventoryBalances.qty,
-      type: schema.locations.type,
-      slotRole: schema.locations.slotRole,
-    })
-    .from(schema.inventoryBalances)
-    .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
-    .where(
-      and(eq(schema.inventoryBalances.organizationId, organizationId), inArray(schema.inventoryBalances.itemId, itemIds)),
-    );
-  const available = await availableOnHand(db, organizationId, rows);
-  for (const row of available) {
-    const list = byItem.get(row.itemId) ?? [];
-    list.push({
-      locationId: row.locationId,
-      locationCode: row.locationCode,
-      locationName: row.locationName,
-      barcode: row.barcode,
-      qty: row.qty,
-      type: row.type,
-      slotRole: row.slotRole,
-    });
-    byItem.set(row.itemId, list);
-  }
-  return byItem;
+  return loadAtpBaysByItem(db, organizationId, itemIds, excludeOrderId);
 }
 
 function withRemaining<T extends { id: string; sku: string; qty: number; qtyPicked: number }>(line: T) {
   return { ...line, remaining: remainingToPick(asPickLine(line)) };
 }
 
+function withAllocations<T extends { id: string }>(lines: T[], allocations: OpenAllocation[]) {
+  return lines.map((line) => {
+    const reserved = allocations.filter((row) => row.orderLineId === line.id);
+    return {
+      ...line,
+      allocatedQty: reserved.reduce((sum, row) => sum + row.qty, 0),
+      allocations: reserved.map((row) => ({
+        id: row.id,
+        locationId: row.locationId,
+        locationCode: row.locationCode,
+        itemId: row.itemId,
+        sku: row.sku,
+        qty: row.qty,
+      })),
+    };
+  });
+}
+
+function allocatedUnits(allocations: OpenAllocation[]): number {
+  return allocations.reduce((sum, row) => sum + row.qty, 0);
+}
+
 async function withSuggestions<
   T extends { id: string; itemId: string; sku: string; qty: number; qtyPicked: number },
->(db: AppEnv["Variables"]["db"], organizationId: string, lines: T[]) {
+>(db: AppEnv["Variables"]["db"], organizationId: string, lines: T[], excludeOrderId?: string) {
   const bays = await suggestedByItem(
     db,
     organizationId,
     [...new Set(lines.map((line) => line.itemId))],
+    excludeOrderId,
   );
   return lines.map((line) => {
     const remaining = remainingToPick(asPickLine(line));
@@ -143,9 +142,15 @@ async function orderWithLines(
     .from(schema.orderLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.orderLines.itemId))
     .where(eq(schema.orderLines.orderId, id));
+  const allocations = await loadOpenAllocations(db, organizationId, { orderId: id });
+  const decorated = options.suggest
+    ? await withSuggestions(db, organizationId, lines, order.id)
+    : lines.map(withRemaining);
   return {
     ...order,
-    lines: options.suggest ? await withSuggestions(db, organizationId, lines) : lines.map(withRemaining),
+    allocatedUnits: allocatedUnits(allocations),
+    allocations,
+    lines: withAllocations(decorated, allocations),
   };
 }
 
@@ -209,11 +214,23 @@ ordersRoute.get("/orders", async (c) => {
     list.push(line);
     byOrder.set(line.orderId, list);
   }
+  const allocations = await loadOpenAllocations(db, organizationId);
+  const allocsByOrder = new Map<string, OpenAllocation[]>();
+  for (const row of allocations) {
+    const list = allocsByOrder.get(row.orderId) ?? [];
+    list.push(row);
+    allocsByOrder.set(row.orderId, list);
+  }
   return c.json(
-    rows.map((row) => ({
-      ...row,
-      lines: (byOrder.get(row.id) ?? []).map(withRemaining),
-    })),
+    rows.map((row) => {
+      const reserved = allocsByOrder.get(row.id) ?? [];
+      return {
+        ...row,
+        allocatedUnits: allocatedUnits(reserved),
+        allocations: reserved,
+        lines: withAllocations((byOrder.get(row.id) ?? []).map(withRemaining), reserved),
+      };
+    }),
   );
 });
 
@@ -268,6 +285,17 @@ ordersRoute.post("/orders/:id/start", async (c) => {
   const organizationId = c.get("organizationId")!;
   const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canStartPick(order.status)) conflict("Order is not open to start picking");
+  await ensureAllocated(db, {
+    organizationId,
+    warehouseId: order.warehouseId,
+    orderId: order.id,
+    lines: order.lines.map((line) => ({
+      id: line.id,
+      itemId: line.itemId,
+      sku: line.sku,
+      remaining: remainingToPick(asPickLine(line)),
+    })),
+  });
   await db.update(schema.orders).set({ status: "picking" }).where(eq(schema.orders.id, order.id));
   return c.json(await orderWithLines(db, organizationId, order.id));
 });
@@ -285,6 +313,17 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
   if (!canPickOrder(order.status)) conflict("Order is not open for picking");
   if (!hasUnpicked(order.lines.map(asPickLine))) conflict("Order has nothing remaining to pick");
   await getOrgLocation(db, organizationId, locationId);
+  const allocations = await ensureAllocated(db, {
+    organizationId,
+    warehouseId: order.warehouseId,
+    orderId: order.id,
+    lines: order.lines.map((line) => ({
+      id: line.id,
+      itemId: line.itemId,
+      sku: line.sku,
+      remaining: remainingToPick(asPickLine(line)),
+    })),
+  });
 
   const incoming = resolveIncoming(order.lines, body.lines).filter((line) => line.qty > 0);
   let applied;
@@ -305,6 +344,7 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
     .map((line) => {
       const trace = traceByLine.get(line.id);
       return {
+        lineId: line.id,
         itemId: line.itemId,
         sku: line.sku,
         qty: postedByLine.get(line.id)!,
@@ -338,6 +378,9 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
   const now = Date.now();
   const fully = isFullyPicked(applied.next);
   const qtyPickedByLine = new Map(applied.next.map((line) => [line.lineId, line.qtyPicked]));
+  const consumeExtras = pickLines.flatMap((line) =>
+    consumeAllocationStatements(db, allocations, line.lineId, locationId, line.qty, now),
+  );
 
   await persistStockPlan(db, {
     organizationId,
@@ -360,6 +403,7 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
           pickedAt: fully ? now : order.pickedAt,
         })
         .where(eq(schema.orders.id, order.id)),
+      ...consumeExtras,
     ],
   });
 
@@ -504,6 +548,7 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
           shopifySyncStatus: order.source === "shopify" ? "pending_fulfill" : order.shopifySyncStatus,
         })
         .where(eq(schema.orders.id, order.id)),
+      ...releaseAllocationStatements(db, order.id, now),
     ],
   });
 

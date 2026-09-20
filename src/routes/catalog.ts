@@ -13,6 +13,7 @@ import { loadPutawayBaysByItem } from "../db/putaway-bays";
 import { countVariance } from "../domain/blind-count";
 import { applyHoldsToOnHand, matchingHoldForMove } from "../domain/holds";
 import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
+import { annotateAtp, atpOnHand, loadOpenAllocations } from "../db/allocations";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -345,7 +346,12 @@ catalogRoute.get("/items/:id", async (c) => {
     .from(schema.serials)
     .leftJoin(schema.locations, eq(schema.locations.id, schema.serials.locationId))
     .where(and(eq(schema.serials.organizationId, organizationId), eq(schema.serials.itemId, item.id)));
-  return c.json({ ...item, onHand, lots, serials: serialRows });
+  const located = onHand.map((row) => ({ ...row, itemId: item.id }));
+  const openHolds = await loadOpenHolds(db, organizationId);
+  const heldLotQtys = await loadHeldLotQuantities(db, organizationId, openHolds);
+  const available = applyHoldsToOnHand(located, openHolds, heldLotQtys);
+  const allocations = await loadOpenAllocations(db, organizationId);
+  return c.json({ ...item, onHand: annotateAtp(located, allocations, available), lots, serials: serialRows });
 });
 
 catalogRoute.get("/locations/:id", async (c) => {
@@ -496,7 +502,11 @@ catalogRoute.get("/inventory", async (c) => {
     .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
     .where(eq(schema.inventoryBalances.organizationId, organizationId))
     .orderBy(schema.items.sku, schema.locations.code);
-  return c.json(rows);
+  const openHolds = await loadOpenHolds(db, organizationId);
+  const heldLotQtys = await loadHeldLotQuantities(db, organizationId, openHolds);
+  const available = applyHoldsToOnHand(rows, openHolds, heldLotQtys);
+  const allocations = await loadOpenAllocations(db, organizationId);
+  return c.json(annotateAtp(rows, allocations, available));
 });
 
 catalogRoute.get("/movements", async (c) => {
@@ -814,10 +824,9 @@ catalogRoute.get("/dashboard", async (c) => {
     .from(schema.items)
     .where(eq(schema.items.organizationId, organizationId));
   const openHolds = await loadOpenHolds(db, organizationId, warehouseId);
-  const heldLotQtys = await loadHeldLotQuantities(db, organizationId, openHolds);
   const replenishSuggestions = suggestReplenishments({
     locations: slotLocations,
-    onHand: applyHoldsToOnHand(replenishOnHand, openHolds, heldLotQtys),
+    onHand: await atpOnHand(db, organizationId, replenishOnHand, { warehouseId }),
     items: replenishItems,
   }).filter(
     (job) =>
@@ -851,7 +860,7 @@ catalogRoute.get("/dashboard", async (c) => {
     );
 
   const putawaySuggestions = [];
-  const availableStaging = applyHoldsToOnHand(stagingRows, openHolds, heldLotQtys).filter((row) => row.qty > 0);
+  const availableStaging = (await atpOnHand(db, organizationId, stagingRows, { warehouseId })).filter((row) => row.qty > 0);
   const stagingByWarehouse = new Map<string, typeof availableStaging>();
   for (const row of availableStaging) {
     const list = stagingByWarehouse.get(row.warehouseId) ?? [];
@@ -988,10 +997,24 @@ catalogRoute.get("/dashboard", async (c) => {
     .orderBy(desc(sql`coalesce(sum(${schema.inventoryBalances.qty}), 0)`))
     .limit(6);
 
+  const [allocated] = await db
+    .select({
+      units: sql<number>`coalesce(sum(${schema.inventoryAllocations.qty}), 0)`,
+    })
+    .from(schema.inventoryAllocations)
+    .where(
+      and(
+        eq(schema.inventoryAllocations.organizationId, organizationId),
+        eq(schema.inventoryAllocations.status, "open"),
+        warehouseId ? eq(schema.inventoryAllocations.warehouseId, warehouseId) : undefined,
+      ),
+    );
+
   return c.json({
     onHandUnits: Number(onHand?.units ?? 0),
     binRows: Number(onHand?.bins ?? 0),
     skuCount: Number(skuCount?.n ?? 0),
+    allocatedUnits: Number(allocated?.units ?? 0),
     openReceipts: openReceiptRows.length,
     openOrders: openOrderRows.length,
     openWorkOrders: openWorkOrderRows.length,
