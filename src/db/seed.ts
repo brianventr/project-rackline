@@ -89,6 +89,10 @@ const DEMO_LOCATIONS: LocSeed[] = [
 export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organizationId: string }> {
   const { organizationId, warehouseId } = await provisionOrganization(db, userId, "Northwind Makers");
   const now = Date.now();
+  await db
+    .update(schema.warehouses)
+    .set({ shipFromAddress: "14 Dock St, Portland, OR 97209" })
+    .where(eq(schema.warehouses.id, warehouseId));
 
   const locIds = Object.fromEntries(DEMO_LOCATIONS.map((row) => [row.key, newId()])) as Record<string, string>;
 
@@ -436,6 +440,45 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       webhookSecret: "rackline-demo-shopify-secret",
       apiVersion: "2026-07",
       mode: "demo",
+      createdAt: now,
+      updatedAt: now,
+    }),
+    db.insert(schema.carrierConnections).values({
+      id: newId(),
+      organizationId,
+      provider: "rackline",
+      nickname: "Rackline Ground",
+      accountNumber: null,
+      mode: "demo",
+      status: "connected",
+      enabledServicesJson: JSON.stringify(["rackline_ground"]),
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    }),
+    db.insert(schema.carrierConnections).values({
+      id: newId(),
+      organizationId,
+      provider: "ups",
+      nickname: "Northwind UPS",
+      accountNumber: "A1B2C3",
+      mode: "demo",
+      status: "connected",
+      enabledServicesJson: JSON.stringify(["ups_ground"]),
+      isDefault: false,
+      createdAt: now,
+      updatedAt: now,
+    }),
+    db.insert(schema.carrierConnections).values({
+      id: newId(),
+      organizationId,
+      provider: "usps",
+      nickname: "Northwind USPS",
+      accountNumber: "123456789",
+      mode: "demo",
+      status: "connected",
+      enabledServicesJson: JSON.stringify(["usps_priority"]),
+      isDefault: false,
       createdAt: now,
       updatedAt: now,
     }),

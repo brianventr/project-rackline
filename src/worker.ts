@@ -36,6 +36,7 @@ import { replenishmentsRoute } from "./routes/replenishments";
 import { kitsRoute } from "./routes/kits";
 import { holdsRoute } from "./routes/holds";
 import { vendorReturnsRoute } from "./routes/vendor-returns";
+import { carriersRoute } from "./routes/carriers";
 
 const app = new Hono<AppEnv>();
 
@@ -246,5 +247,6 @@ app.route("/api", replenishmentsRoute);
 app.route("/api", kitsRoute);
 app.route("/api", holdsRoute);
 app.route("/api", vendorReturnsRoute);
+app.route("/api", carriersRoute);
 
 export default app;
