@@ -272,6 +272,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
   const orderId = newId();
   const woId = newId();
   const kitId = newId();
+  const transferId = newId();
   const shopifyOrderRowId = newId();
   const shopifyLineId = "8801";
   await db.batch([
@@ -365,6 +366,31 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       sourceLocationId: locIds.a0101!,
       outputLocationId: locIds.b0101!,
       createdAt: now,
+    }),
+    db.insert(schema.transfers).values({
+      id: transferId,
+      organizationId,
+      warehouseId,
+      number: "XFR-DEMO1",
+      status: "draft",
+      fromLocationId: locIds.a0101!,
+      toLocationId: locIds.a0202!,
+      notes: "Consolidate shades and bases onto A-02-02",
+      createdAt: now,
+    }),
+    db.insert(schema.transferLines).values({
+      id: newId(),
+      transferId,
+      itemId: item.shade,
+      qty: 8,
+      qtyMoved: 0,
+    }),
+    db.insert(schema.transferLines).values({
+      id: newId(),
+      transferId,
+      itemId: item.base,
+      qty: 6,
+      qtyMoved: 0,
     }),
     db.insert(schema.shopifyConnections).values({
       id: newId(),

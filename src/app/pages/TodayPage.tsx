@@ -88,7 +88,7 @@ export function TodayPage() {
               title: row.number,
               meta: `${row.fromCode ?? "from"} → ${row.toCode ?? "to"}`,
               status: row.status,
-              actionTo: `/floor/putaway?from=${encodeURIComponent(row.fromBarcode || row.fromCode || "")}`,
+              actionTo: `/floor/putaway?id=${row.id}`,
               action: "Put away",
             })),
             ...(data?.putawaySuggestions ?? []).map((row) => ({

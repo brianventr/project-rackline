@@ -19,7 +19,7 @@ import { CycleCountsPage } from "./pages/CycleCountsPage";
 import { HoldsPage } from "./pages/HoldsPage";
 import { LedgerPage } from "./pages/LedgerPage";
 import { MapPage } from "./pages/MapPage";
-import { MovePage } from "./pages/MovePage";
+import { FloorPutawayPage } from "./pages/floor/FloorPutawayPage";
 import { PurchasesPage } from "./pages/PurchasesPage";
 import { ReturnsPage } from "./pages/ReturnsPage";
 import { FloorLauncherPage } from "./pages/floor/FloorLauncherPage";
@@ -90,7 +90,7 @@ export function App() {
         <Route path="/floor/lookup" element={<FloorLookupPage />} />
         <Route path="/floor/print" element={<FloorPrintPage />} />
         <Route path="/floor/receive" element={<FloorReceivePage />} />
-        <Route path="/floor/putaway" element={<MovePage />} />
+        <Route path="/floor/putaway" element={<FloorPutawayPage />} />
         <Route path="/floor/pick" element={<FloorPickPage />} />
         <Route path="/floor/pack" element={<FloorPackPage />} />
         <Route path="/floor/ship" element={<FloorShipPage />} />

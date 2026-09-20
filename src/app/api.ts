@@ -562,7 +562,7 @@ export type Transfer = {
   toBarcode?: string;
   warehouseId?: string;
   notes: string | null;
-  lines?: { id: string; itemId: string; qty: number; sku: string; itemName: string }[];
+  lines?: { id: string; itemId: string; qty: number; qtyMoved?: number; remaining?: number; sku: string; itemName: string }[];
 };
 
 export type CountVariance = {

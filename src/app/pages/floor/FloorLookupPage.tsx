@@ -183,7 +183,7 @@ function LookupResult({ hit }: { hit: ScanHit }) {
           : hit.kind === "rma"
             ? { title: hit.rma.number, status: hit.rma.status, to: documentPath("rma", hit.rma.id), floor: `/floor/return?id=${hit.rma.id}` }
         : hit.kind === "transfer"
-          ? { title: hit.transfer.number, status: hit.transfer.status, to: documentPath("transfer", hit.transfer.id), floor: "/floor/putaway" }
+          ? { title: hit.transfer.number, status: hit.transfer.status, to: documentPath("transfer", hit.transfer.id), floor: `/floor/putaway?id=${hit.transfer.id}` }
           : hit.kind === "workOrder"
             ? { title: hit.workOrder.number, status: hit.workOrder.status, to: documentPath("workOrder", hit.workOrder.id), floor: `/floor/assemble?id=${hit.workOrder.id}` }
             : hit.kind === "replenishment"
