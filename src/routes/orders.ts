@@ -40,6 +40,7 @@ import {
 import { cancelOrderDocument, persistUnpick, remainingToUnpick } from "../db/unpick";
 import { OverUnpickError } from "../domain/partial-unpick";
 import type { OpenAllocation } from "../domain/allocations";
+import { resolveLineStockQty, UomConversionError } from "../domain/uom";
 
 export const ordersRoute = new Hono<AppEnv>();
 
@@ -47,6 +48,7 @@ type IncomingPick = {
   lineId?: string;
   itemId?: string;
   qty?: number;
+  altQty?: number;
   lotCode?: string;
   serials?: string | string[];
   weightGrams?: number;
@@ -117,7 +119,13 @@ function allocatedUnits(allocations: OpenAllocation[]): number {
 
 async function withSuggestions<
   T extends { id: string; itemId: string; sku: string; qty: number; qtyPicked: number; qtyPacked: number },
->(db: AppEnv["Variables"]["db"], organizationId: string, lines: T[], excludeOrderId?: string) {
+>(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  lines: T[],
+  excludeOrderId?: string,
+  preferredZoneId?: string | null,
+) {
   const bays = await suggestedByItem(
     db,
     organizationId,
@@ -126,7 +134,8 @@ async function withSuggestions<
   );
   return lines.map((line) => {
     const remaining = remainingToPick(asPickLine(line));
-    const suggested = remaining > 0 ? suggestPickBay(bays.get(line.itemId) ?? [], remaining) : null;
+    const suggested =
+      remaining > 0 ? suggestPickBay(bays.get(line.itemId) ?? [], remaining, preferredZoneId) : null;
     return {
       ...line,
       remaining,
@@ -161,6 +170,7 @@ const orderLineSelect = {
   trackLot: schema.items.trackLot,
   trackSerial: schema.items.trackSerial,
   catchWeight: schema.items.catchWeight,
+  altPerStock: schema.items.altPerStock,
   shopifyLineItemId: schema.orderLines.shopifyLineItemId,
   shopifyFulfillmentLineItemId: schema.orderLines.shopifyFulfillmentLineItemId,
 };
@@ -183,8 +193,17 @@ async function orderWithLines(
     .innerJoin(schema.items, eq(schema.items.id, schema.orderLines.itemId))
     .where(eq(schema.orderLines.orderId, id));
   const allocations = await loadOpenAllocations(db, organizationId, { orderId: id });
+  let preferredZoneId: string | null = null;
+  if (order.waveId) {
+    const [wave] = await db
+      .select({ zoneId: schema.waves.zoneId })
+      .from(schema.waves)
+      .where(and(eq(schema.waves.id, order.waveId), eq(schema.waves.organizationId, organizationId)))
+      .limit(1);
+    preferredZoneId = wave?.zoneId ?? null;
+  }
   const decorated = options.suggest
-    ? await withSuggestions(db, organizationId, lines, order.id)
+    ? await withSuggestions(db, organizationId, lines, order.id, preferredZoneId)
     : lines.map(withRemaining);
   return {
     ...order,
@@ -195,7 +214,14 @@ async function orderWithLines(
 }
 
 function resolveIncoming(
-  lines: { id: string; itemId: string; remaining: number; sku: string; catchWeight?: boolean }[],
+  lines: {
+    id: string;
+    itemId: string;
+    remaining: number;
+    sku: string;
+    catchWeight?: boolean;
+    altPerStock?: number | null;
+  }[],
   bodyLines?: IncomingPick[],
 ): { lineId: string; qty: number; lotCode: string | null; serials: string[]; weightGrams: number | null }[] {
   if (Array.isArray(bodyLines) && bodyLines.length > 0) {
@@ -205,7 +231,21 @@ function resolveIncoming(
       const line =
         (row.lineId ? byId.get(row.lineId) : undefined) ?? (row.itemId ? byItem.get(row.itemId) : undefined);
       if (!line) badRequest("Line is not on this order");
-      const qty = row.qty === undefined || row.qty === null ? line.remaining : requireInt(row.qty, "qty");
+      let qty: number;
+      if (row.qty == null && row.altQty == null) {
+        qty = line.remaining;
+      } else {
+        try {
+          qty = resolveLineStockQty({
+            qty: row.qty == null ? undefined : requireInt(row.qty, "qty"),
+            altQty: row.altQty == null ? undefined : requireInt(row.altQty, "altQty"),
+            altPerStock: line.altPerStock,
+          });
+        } catch (err) {
+          if (err instanceof UomConversionError) badRequest(err.message);
+          throw err;
+        }
+      }
       return {
         lineId: line.id,
         qty,
@@ -477,6 +517,7 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
           lotCode: line.lotCode,
           serials: line.serials,
           weightGrams: line.weightGrams,
+          clientId: order.clientId,
         }),
     ),
   );
@@ -672,6 +713,7 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
       refType: "order",
       refId: order.id,
       weightGrams,
+      clientId: order.clientId,
     };
   });
   const plan: StockPlan = { balances: new Map(), movements };

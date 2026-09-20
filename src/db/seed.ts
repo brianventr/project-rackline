@@ -193,6 +193,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       createdAt: now,
       reorderPoint: 4,
       catchWeight: true,
+      altUom: "case",
+      altPerStock: 6,
     }),
     db.insert(schema.items).values({
       id: item.glue,
@@ -717,6 +719,22 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       itemId: item.shade,
       qty: 4,
       qtyMoved: 0,
+    }),
+    db.insert(schema.billingAccounts).values({
+      organizationId,
+      plan: "3pl",
+      status: "active",
+      createdAt: now,
+    }),
+    db.insert(schema.invoices).values({
+      id: newId(),
+      organizationId,
+      number: "INV-DEMO1",
+      periodStart: now - 30 * 86_400_000,
+      periodEnd: now,
+      amountCents: 500,
+      status: "draft",
+      createdAt: now,
     }),
   ]);
 

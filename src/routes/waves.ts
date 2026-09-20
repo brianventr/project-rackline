@@ -332,6 +332,7 @@ wavesRoute.post("/waves/:id/batch-pick", async (c) => {
             qty: line.qty,
             refId: orderId,
             balances,
+            clientId: order?.clientId ?? null,
           }),
       ),
     );

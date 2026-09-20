@@ -42,6 +42,9 @@ import { TeamPage } from "./pages/setup/TeamPage";
 import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
 import { ClientsPage } from "./pages/setup/ClientsPage";
 import { ZonesPage } from "./pages/setup/ZonesPage";
+import { BillingPage } from "./pages/setup/BillingPage";
+import { CarriersPage } from "./pages/setup/CarriersPage";
+import { EdiPage } from "./pages/setup/EdiPage";
 import { ReplenishmentsPage } from "./pages/ReplenishmentsPage";
 import { KitsPage } from "./pages/KitsPage";
 import { WavesPage } from "./pages/WavesPage";
@@ -217,6 +220,30 @@ export function App() {
           element={
             <OwnerOnly>
               <LabelsSetupPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
+          path="/setup/billing"
+          element={
+            <OwnerOnly>
+              <BillingPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
+          path="/setup/carriers"
+          element={
+            <OwnerOnly>
+              <CarriersPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
+          path="/setup/edi"
+          element={
+            <OwnerOnly>
+              <EdiPage />
             </OwnerOnly>
           }
         />

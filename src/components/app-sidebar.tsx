@@ -108,6 +108,9 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
               { title: "Labor", url: "/setup/labor", icon: Calculator },
               { title: "Team", url: "/setup/team", icon: Users },
               { title: "Labels", url: "/setup/labels", icon: Tag },
+              { title: "Billing", url: "/setup/billing", icon: Calculator },
+              { title: "Carriers", url: "/setup/carriers", icon: Truck },
+              { title: "EDI", url: "/setup/edi", icon: ScrollText },
             ],
           },
         ]

@@ -98,4 +98,10 @@ describe("suggestPickBay", () => {
     expect(suggestPickBay([{ ...plenty, qty: 0 }], 1)).toBeNull();
     expect(suggestPickBay([], 1)).toBeNull();
   });
+
+  it("prefers bays in the wave zone when set", () => {
+    const zoneA = { ...pickFace, zoneId: "zone-a", locationCode: "A-PICK" };
+    const zoneB = { ...plenty, zoneId: "zone-b", qty: 20 };
+    expect(suggestPickBay([zoneB, zoneA], 2, "zone-a")?.locationCode).toBe("A-PICK");
+  });
 });

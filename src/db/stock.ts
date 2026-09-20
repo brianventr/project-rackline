@@ -1,9 +1,10 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import {
   inventoryBalances,
   inventoryMovements,
+  locations,
   type MovementType,
 } from "./schema";
 import {
@@ -19,6 +20,13 @@ import { appendTraceabilityStatements, expandMovementsForTraceability } from "./
 import { appendAsBuiltStatements } from "./as-built";
 import { assertOutboundNotHeld, loadOpenHolds } from "./holds";
 import { assertOutboundAtp } from "./allocations";
+import { warehousesForMovements } from "../domain/multi-warehouse";
+import {
+  applyClientMovementsToMap,
+  clientBalanceStatements,
+  clientKeysFromMovements,
+  loadClientBalanceMap,
+} from "./client-stock";
 
 export type AppDb = DrizzleD1Database<typeof import("./schema")>;
 
@@ -78,15 +86,53 @@ export async function persistStockPlan(
   },
 ): Promise<void> {
   const statements: BatchItem<"sqlite">[] = [...((input.extra as BatchItem<"sqlite">[] | undefined) ?? [])];
-  const holds = await loadOpenHolds(db, input.organizationId);
-  const movements: MovementDraft[] = await expandMovementsForTraceability(
+  const expanded: MovementDraft[] = await expandMovementsForTraceability(
     db,
     input.organizationId,
     input.plan.movements,
-    holds,
+    await loadOpenHolds(db, input.organizationId),
   );
+
+  const locationIds = [
+    ...new Set(
+      expanded.flatMap((movement) => [movement.fromLocationId, movement.toLocationId].filter(Boolean) as string[]),
+    ),
+  ];
+  const locationWarehouseId = new Map<string, string>();
+  if (locationIds.length > 0) {
+    const locRows = await db
+      .select({ id: locations.id, warehouseId: locations.warehouseId })
+      .from(locations)
+      .where(
+        and(eq(locations.organizationId, input.organizationId), inArray(locations.id, locationIds)),
+      );
+    for (const row of locRows) locationWarehouseId.set(row.id, row.warehouseId);
+  }
+  const warehouseScope = warehousesForMovements(expanded, locationWarehouseId);
+  const holds =
+    warehouseScope.size === 0
+      ? await loadOpenHolds(db, input.organizationId)
+      : (
+          await Promise.all(
+            [...warehouseScope].map((warehouseId) => loadOpenHolds(db, input.organizationId, warehouseId)),
+          )
+        ).flat();
+
+  const movements = expanded;
   assertOutboundNotHeld(movements, holds);
-  await assertOutboundAtp(db, input.organizationId, movements, input.loaded);
+  await assertOutboundAtp(db, input.organizationId, movements, input.loaded, warehouseScope);
+
+  const clientKeys = clientKeysFromMovements(movements);
+  const clientLoaded = await loadClientBalanceMap(db, input.organizationId, clientKeys);
+  const clientApplied = applyClientMovementsToMap(clientLoaded, movements);
+  statements.push(
+    ...clientBalanceStatements(db, {
+      organizationId: input.organizationId,
+      now: input.now,
+      loaded: clientApplied.loaded,
+      next: clientApplied.next,
+    }),
+  );
 
   for (const [key, qty] of input.plan.balances) {
     const { locationId, itemId } = parseBalanceKey(key);
@@ -131,6 +177,7 @@ export async function persistStockPlan(
         serialsJson: movement.serials?.length ? JSON.stringify(movement.serials) : null,
         weightGrams: movement.weightGrams ?? null,
         expiresOn: movement.expiresOn ?? null,
+        clientId: movement.clientId ?? null,
       }),
     );
   }
@@ -161,6 +208,7 @@ export async function postReceiveLines(
     locationId: string;
     refType: string;
     refId: string;
+    clientId?: string | null;
     lines: {
       itemId: string;
       sku?: string;
@@ -208,6 +256,7 @@ export async function postReceiveLines(
             serials: line.serials,
             weightGrams: line.weightGrams,
             expiresOn: line.expiresOn,
+            clientId: input.clientId,
             balances,
           }),
       ];

@@ -15,6 +15,7 @@ import { OverBatchPickError } from "./domain/waves";
 import { HeldStockError } from "./domain/holds";
 import { ExpiredLotError } from "./domain/expiry";
 import { InsufficientAtpError } from "./domain/allocations";
+import { ClientStockError } from "./domain/client-stock";
 import type { AppEnv } from "./lib/types";
 import { originFrom } from "./lib/types";
 import { registerRoute } from "./routes/register";
@@ -43,6 +44,9 @@ import { zonesRoute } from "./routes/zones";
 import { clientsRoute } from "./routes/clients";
 import { yardRoute } from "./routes/yard";
 import { laborRoute } from "./routes/labor";
+import { carriersRoute } from "./routes/carriers";
+import { billingRoute } from "./routes/billing";
+import { ediRoute } from "./routes/edi";
 
 const app = new Hono<AppEnv>();
 
@@ -193,6 +197,19 @@ app.onError((err, c) => {
       409,
     );
   }
+  if (err instanceof ClientStockError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "CLIENT_STOCK",
+        clientId: err.clientId,
+        itemId: err.itemId,
+        onHand: err.onHand,
+        needed: err.needed,
+      },
+      409,
+    );
+  }
   if (err instanceof ShopifyIngestError) {
     return c.json({ error: err.message }, err.status as 400 | 409);
   }
@@ -271,5 +288,8 @@ app.route("/api", zonesRoute);
 app.route("/api", clientsRoute);
 app.route("/api", yardRoute);
 app.route("/api", laborRoute);
+app.route("/api", carriersRoute);
+app.route("/api", billingRoute);
+app.route("/api", ediRoute);
 
 export default app;

@@ -80,6 +80,7 @@ export async function loadAtpBaysByItem(
   organizationId: string,
   itemIds: string[],
   excludeOrderId?: string,
+  warehouseId?: string,
 ): Promise<Map<string, StockedBay[]>> {
   const byItem = new Map<string, StockedBay[]>();
   if (itemIds.length === 0) return byItem;
@@ -93,13 +94,18 @@ export async function loadAtpBaysByItem(
       qty: schema.inventoryBalances.qty,
       type: schema.locations.type,
       slotRole: schema.locations.slotRole,
+      zoneId: schema.locations.zoneId,
     })
     .from(schema.inventoryBalances)
     .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
     .where(
-      and(eq(schema.inventoryBalances.organizationId, organizationId), inArray(schema.inventoryBalances.itemId, itemIds)),
+      and(
+        eq(schema.inventoryBalances.organizationId, organizationId),
+        inArray(schema.inventoryBalances.itemId, itemIds),
+        warehouseId ? eq(schema.locations.warehouseId, warehouseId) : undefined,
+      ),
     );
-  const available = await atpOnHand(db, organizationId, rows, { excludeOrderId });
+  const available = await atpOnHand(db, organizationId, rows, { excludeOrderId, warehouseId });
   for (const row of available) {
     const list = byItem.get(row.itemId) ?? [];
     list.push({
@@ -110,6 +116,7 @@ export async function loadAtpBaysByItem(
       qty: row.qty,
       type: row.type,
       slotRole: row.slotRole,
+      zoneId: row.zoneId,
     });
     byItem.set(row.itemId, list);
   }
@@ -264,13 +271,27 @@ export async function assertOutboundAtp(
   organizationId: string,
   movements: MovementDraft[],
   loaded: Map<string, { id: string; qty: number }>,
+  warehouseScope: Set<string> = new Set(),
 ): Promise<void> {
   const restricted = movements.filter(
     (movement) => isAtpRestrictedType(movement.type) && movement.fromLocationId && movement.qty > 0,
   );
   if (restricted.length === 0) return;
 
-  const allocations = await loadOpenAllocations(db, organizationId);
+  let allocations = await loadOpenAllocations(db, organizationId);
+  if (warehouseScope.size > 0 && allocations.length > 0) {
+    const locRows = await db
+      .select({ id: schema.locations.id, warehouseId: schema.locations.warehouseId })
+      .from(schema.locations)
+      .where(
+        inArray(schema.locations.id, [...new Set(allocations.map((row) => row.locationId))]),
+      );
+    const whByLoc = new Map(locRows.map((row) => [row.id, row.warehouseId]));
+    allocations = allocations.filter((row) => {
+      const wh = whByLoc.get(row.locationId);
+      return wh != null && warehouseScope.has(wh);
+    });
+  }
   const locationIds = [...new Set(restricted.map((movement) => movement.fromLocationId!))];
   const itemIds = [...new Set(restricted.map((movement) => movement.itemId))];
   const [locations, items] = await Promise.all([
