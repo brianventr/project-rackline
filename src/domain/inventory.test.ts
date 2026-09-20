@@ -9,6 +9,7 @@ import {
   planMove,
   planPick,
   planReceive,
+  planScrap,
 } from "./inventory";
 import { explodeBom, planCompleteKit, planCompleteWorkOrder } from "./manufacturing";
 
@@ -288,6 +289,34 @@ describe("work orders", () => {
         balances,
       }),
     ).toThrow(InsufficientStockError);
+  });
+});
+
+describe("return scrap", () => {
+  it("receives then scraps so on-hand is unchanged", () => {
+    const plan = chainPlans(new Map([[balanceKey("RECV", "shade"), 4]]), [
+      (balances) =>
+        planReceive({
+          itemId: "shade",
+          locationId: "RECV",
+          qty: 1,
+          refId: "rma-1",
+          refType: "return",
+          balances,
+        }),
+      (balances) =>
+        planScrap({
+          itemId: "shade",
+          sku: "SHADE",
+          locationId: "RECV",
+          qty: 1,
+          refId: "rma-1",
+          balances,
+        }),
+    ]);
+    expect(plan.balances.get(balanceKey("RECV", "shade"))).toBe(4);
+    expect(plan.movements.map((row) => row.type)).toEqual(["receive", "scrap"]);
+    expect(plan.movements[1]?.reason).toBe("Return scrap");
   });
 });
 

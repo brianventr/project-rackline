@@ -340,6 +340,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       itemId: item.lamp,
       qtyExpected: 1,
       qtyReceived: 0,
+      disposition: "restock",
     }),
     db.insert(schema.workOrders).values({
       id: woId,

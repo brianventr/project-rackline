@@ -7,7 +7,8 @@ export type MovementType =
   | "wo_consume"
   | "wo_produce"
   | "kit_consume"
-  | "kit_produce";
+  | "kit_produce"
+  | "scrap";
 
 export type MovementDraft = {
   type: MovementType;
@@ -158,6 +159,41 @@ export function planShip(input: {
         refType: "order",
         refId: input.refId,
         weightGrams: input.weightGrams ?? null,
+      },
+    ],
+  };
+}
+
+export function planScrap(input: {
+  itemId: string;
+  sku: string;
+  locationId: string;
+  qty: number;
+  refId: string;
+  balances: Map<string, number>;
+  lotCode?: string | null;
+  serials?: string[] | null;
+  weightGrams?: number | null;
+  expiresOn?: number | null;
+}): StockPlan {
+  requirePositiveQty(input.qty);
+  const balances = new Map(input.balances);
+  applyDelta(balances, input.locationId, input.itemId, -input.qty, input.sku);
+  return {
+    balances,
+    movements: [
+      {
+        type: "scrap",
+        itemId: input.itemId,
+        qty: input.qty,
+        fromLocationId: input.locationId,
+        refType: "return",
+        refId: input.refId,
+        reason: "Return scrap",
+        lotCode: input.lotCode ?? null,
+        serials: input.serials ?? null,
+        weightGrams: input.weightGrams ?? null,
+        expiresOn: input.expiresOn ?? null,
       },
     ],
   };

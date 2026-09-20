@@ -133,6 +133,7 @@ describe("isHoldRestrictedType", () => {
     expect(isHoldRestrictedType("receive")).toBe(false);
     expect(isHoldRestrictedType("adjust")).toBe(false);
     expect(isHoldRestrictedType("ship")).toBe(false);
+    expect(isHoldRestrictedType("scrap")).toBe(false);
   });
 });
 

@@ -9,6 +9,8 @@ import { useWarehouse, inWarehouse } from "../warehouse";
 import { LineFields } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { ExpiryInput, parseExpiryInput } from "../components/expiry-field";
+import { DispositionSelect } from "../components/disposition-field";
+import { parseDisposition, type ReturnDisposition } from "@/domain/return-disposition";
 
 type Line = { itemId: string; qty: string };
 
@@ -70,7 +72,7 @@ function ReturnList() {
       <PageHeader
         eyebrow="Outbound"
         title="Returns"
-        description="Customer RMAs. Receive the goods back into a bay, including partials."
+        description="Customer RMAs. Receive back into a bay as restock, scrap, or hold."
         actions={<Button onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New return"}</Button>}
       />
       <ErrorBanner error={error} />
@@ -140,6 +142,7 @@ function ReturnDetail({ id }: { id: string }) {
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
+  const [dispositions, setDispositions] = useState<Record<string, ReturnDisposition>>({});
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -149,6 +152,17 @@ function ReturnDetail({ id }: { id: string }) {
     const dock = nextLocations.find((row) => row.type === "receiving") ?? nextLocations[0];
     if (dock) setLocationId(next.locationId || dock.id);
     setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+    setDispositions(
+      Object.fromEntries(
+        (next.lines ?? []).map((line) => {
+          try {
+            return [line.itemId, parseDisposition(line.disposition)];
+          } catch {
+            return [line.itemId, "restock" as const];
+          }
+        }),
+      ),
+    );
   }
 
   useEffect(() => {
@@ -175,6 +189,7 @@ function ReturnDetail({ id }: { id: string }) {
           serials: serials[line.itemId] || undefined,
           weightGrams: parseWeightGrams(weights[line.itemId]),
           expiresOn: parseExpiryInput(expiries[line.itemId]),
+          disposition: dispositions[line.itemId] ?? "restock",
         }))
         .filter((line) => line.qty > 0);
       const next = await api<Rma>(`/api/returns/${id}/receive`, {
@@ -183,6 +198,17 @@ function ReturnDetail({ id }: { id: string }) {
       });
       setRma(next);
       setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+      setDispositions(
+        Object.fromEntries(
+          (next.lines ?? []).map((line) => {
+            try {
+              return [line.itemId, parseDisposition(line.disposition)];
+            } catch {
+              return [line.itemId, "restock" as const];
+            }
+          }),
+        ),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not receive return");
     }
@@ -249,7 +275,7 @@ function ReturnDetail({ id }: { id: string }) {
           </DocumentRail>
         }
       >
-        <Table columns={["SKU", "Item", "Expected", "Received", "This receive", "Serials"]}>
+        <Table columns={["SKU", "Item", "Expected", "Received", "This receive", "Disposition", "Serials"]}>
           {(rma.lines ?? []).map((line) => (
             <tr key={line.id}>
               <td className="px-4 py-3 font-mono">{line.sku}</td>
@@ -267,6 +293,16 @@ function ReturnDetail({ id }: { id: string }) {
                   />
                 ) : (
                   <span className="text-muted-foreground">Done</span>
+                )}
+              </td>
+              <td className="px-4 py-3">
+                {line.remaining > 0 ? (
+                  <DispositionSelect
+                    value={dispositions[line.itemId] ?? "restock"}
+                    onChange={(value) => setDispositions((current) => ({ ...current, [line.itemId]: value }))}
+                  />
+                ) : (
+                  <span className="text-muted-foreground capitalize">{line.disposition || "restock"}</span>
                 )}
               </td>
               <td className="px-4 py-3">

@@ -34,6 +34,8 @@ Iteration 14 adds lot expiry / FEFO: flag a SKU, enter a calendar date on receiv
 
 Iteration 15 records as-built genealogy when a kit or work order completes: each finished serial/lot is linked to the component lots and serials consumed. Floor Lookup scans a serial or lot. Qty stays integer pieces on location:item.
 
+Iteration 16 adds return disposition on RMA receive: restock (current behavior), scrap (receive then scrap so on-hand is unchanged), or hold (receive then a QC hold on the bay SKU). Invalid disposition is HTTP 400. Qty stays integer pieces on location:item.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 ## Stack
@@ -58,7 +60,7 @@ Open [http://localhost:5173](http://localhost:5173). Guests see the landing page
 On the sign-in screen, either:
 
 - Create an organization, or
-- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt `RCP-DEMO1` (12× LED-BULB + 6× SHADE — partial receive is allowed), purchase order `PO-DEMO1` (Harbor Components), return `RMA-DEMO1` (Harbor Workshop), a floor order, Shopify order `#1004` (Maya Chen), a work order, and kit `KIT-DEMO1`. LED-BULB is lot-tracked (`LOT-2026-A` / `LOT-2026-B`) with pick min 20 on `A-01-02`; LAMP is serial-tracked (`LAMP-1001`–`LAMP-1014`) with pick min 12 on `B-01-01`; RESIN is catch-weight (6 bottles / 3000 g on `A-01-01`); GLUE is lot + expiry (`LOT-OLD` / `LOT-NEW` on `A-01-01`, expired `LOT-DEAD` on `A-01-03`). `LAMP-1001` is seeded with as-built component lots. Then open **Map** and **Move**.
+- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt `RCP-DEMO1` (12× LED-BULB + 6× SHADE — partial receive is allowed), purchase order `PO-DEMO1` (Harbor Components), return `RMA-DEMO1` (Harbor Workshop, restock), a floor order, Shopify order `#1004` (Maya Chen), a work order, and kit `KIT-DEMO1`. LED-BULB is lot-tracked (`LOT-2026-A` / `LOT-2026-B`) with pick min 20 on `A-01-02`; LAMP is serial-tracked (`LAMP-1001`–`LAMP-1014`) with pick min 12 on `B-01-01`; RESIN is catch-weight (6 bottles / 3000 g on `A-01-01`); GLUE is lot + expiry (`LOT-OLD` / `LOT-NEW` on `A-01-01`, expired `LOT-DEAD` on `A-01-03`). `LAMP-1001` is seeded with as-built component lots. Then open **Map** and **Move**.
 
 `wrangler.jsonc` uses a placeholder `database_id`. Local D1 does not need a Cloudflare account. When you are ready to deploy:
 
@@ -95,14 +97,14 @@ Demo mode never calls Shopify; it stores the GraphQL payload that would have bee
 
 All quantity changes go through one engine (`src/domain/inventory.ts`) and an append-only movement ledger.
 
-- **Receive** adds qty to a location (blank receipt, purchase order, or customer return). Lines track received vs expected; posting more than remaining returns HTTP 409 (`OVER_RECEIVE`); the document stays `receiving` until every unit is in
+- **Receive** adds qty to a location (blank receipt, purchase order, or customer return). Lines track received vs expected; posting more than remaining returns HTTP 409 (`OVER_RECEIVE`); the document stays `receiving` until every unit is in. Return lines choose restock, scrap, or hold; scrap writes receive then scrap in one persist so on-hand is unchanged; hold opens a QC lock on the bay SKU after receive; unknown disposition is HTTP 400
 - **Move / transfer** decrements the from bin and increments the to bin in one ledger movement. Dock, ship, and bench stock get a suggested bulk/storage bay (same idea as directed pick). Moves cannot steal qty reserved for an open pick
 - **Pick** decrements the pick bin. Starting pick reserves remaining qty against ATP (on-hand − held − allocated) on location:item. A second start that would oversell returns HTTP 409 (`INSUFFICIENT_ATP`). Lines track picked vs ordered; posting more than remaining returns HTTP 409 (`OVER_PICK`); the document stays `picking` until every unit is picked. The API suggests a pick-face bay that still covers remaining qty for this order
 - **Pack slip** prints ordered vs picked qty from the order record
 - **Ship** writes an outbound movement (qty already left at pick), releases leftover allocations, and, for Shopify orders, creates a fulfillment
 - **Adjust** applies a signed delta with a reason
 - **Cycle count** snapshots a bin without showing system qty. Every SKU must be entered (0 is a real count); posting more than once is blocked. Empty bays can be confirmed empty. A SKU that was not on the snapshot can be scanned or added; posting still adjusts against *current* on-hand so concurrent movement is not double-applied; Today lists posted counts where counted ≠ system
-- **Hold** locks a bay, a SKU in a bay, or a lot. Pick, move, replenish, kit consume, and work-order consume return HTTP 409 (`HELD_STOCK`). Receive, count, adjust, produce, and ship still post. FIFO skips held lots when other lots cover the qty
+- **Hold** locks a bay, a SKU in a bay, or a lot. Pick, move, replenish, kit consume, and work-order consume return HTTP 409 (`HELD_STOCK`). Receive, count, adjust, produce, ship, and scrap still post. FIFO skips held lots when other lots cover the qty. A return received as hold opens a QC lock on the bay SKU (or lot) after the receive
 - **Allocate** reserves remaining order qty on pick start against location:item ATP. Pick, move, replenish, kit consume, and work-order consume return HTTP 409 (`INSUFFICIENT_ATP`) when they would take another order's reservation. Receive, count, adjust, produce, and ship still post
 - **Work order complete** consumes `BOM qty × WO qty` from the source location and produces finished goods into the output location. Short components return HTTP 409
 - **Kit complete** is the same explode, in one step, with `kit_consume` / `kit_produce` ledger types. Completing a kit or work order writes as-built links from each finished serial/lot to the component lots/serials consumed

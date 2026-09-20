@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { and, desc, eq, inArray } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
@@ -8,9 +9,12 @@ import { docNumber, newId } from "../lib/ids";
 import { postReceiveLines } from "../db/stock";
 import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError } from "../domain/partial-receive";
 import { canReceiveReturn } from "../domain/status";
-import { parseSerialList } from "../domain/lots";
+import { parseSerialList, normalizeLotCode } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
+import { parseDisposition, type ReturnDisposition } from "../domain/return-disposition";
+import { coveringHold } from "../domain/holds";
+import { loadOpenHolds } from "../db/holds";
 
 export const returnsRoute = new Hono<AppEnv>();
 
@@ -21,6 +25,14 @@ function asExpected(line: { itemId: string; sku: string; qtyExpected: number; qt
     qtyExpected: line.qtyExpected,
     qtyReceived: line.qtyReceived,
   };
+}
+
+function requireDisposition(raw: unknown): ReturnDisposition {
+  try {
+    return parseDisposition(raw);
+  } catch (err) {
+    badRequest(err instanceof Error ? err.message : "Invalid disposition");
+  }
 }
 
 async function rmaWithLines(db: AppEnv["Variables"]["db"], organizationId: string, id: string) {
@@ -50,6 +62,7 @@ async function rmaWithLines(db: AppEnv["Variables"]["db"], organizationId: strin
       itemId: schema.rmaLines.itemId,
       qtyExpected: schema.rmaLines.qtyExpected,
       qtyReceived: schema.rmaLines.qtyReceived,
+      disposition: schema.rmaLines.disposition,
       sku: schema.items.sku,
       itemName: schema.items.name,
       trackLot: schema.items.trackLot,
@@ -96,6 +109,7 @@ returnsRoute.get("/returns", async (c) => {
       itemId: schema.rmaLines.itemId,
       qtyExpected: schema.rmaLines.qtyExpected,
       qtyReceived: schema.rmaLines.qtyReceived,
+      disposition: schema.rmaLines.disposition,
       sku: schema.items.sku,
       itemName: schema.items.name,
       trackLot: schema.items.trackLot,
@@ -171,7 +185,7 @@ returnsRoute.post("/returns", async (c) => {
     if (seen.has(itemId)) badRequest("Each SKU can appear once on a return");
     seen.add(itemId);
     await getOrgItem(db, organizationId, itemId);
-    lines.push({ id: newId(), rmaId: id, itemId, qtyExpected: qty, qtyReceived: 0 });
+    lines.push({ id: newId(), rmaId: id, itemId, qtyExpected: qty, qtyReceived: 0, disposition: "restock" });
   }
 
   await db.batch([
@@ -204,7 +218,15 @@ returnsRoute.post("/returns/:id/start", async (c) => {
 returnsRoute.post("/returns/:id/receive", async (c) => {
   const body = await c.req.json<{
     locationId?: string;
-    lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number; expiresOn?: unknown }[];
+    lines?: {
+      itemId?: string;
+      qty?: number;
+      lotCode?: string;
+      serials?: string | string[];
+      weightGrams?: number;
+      expiresOn?: unknown;
+      disposition?: unknown;
+    }[];
   }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
@@ -213,7 +235,7 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
   const rma = await rmaWithLines(db, organizationId, c.req.param("id"));
   if (!canReceiveReturn(rma.status)) conflict("Return is already received");
   if (!hasRemaining(rma.lines.map(asExpected))) conflict("Return has nothing remaining");
-  await getOrgLocation(db, organizationId, locationId);
+  const location = await getOrgLocation(db, organizationId, locationId);
 
   const incoming =
     Array.isArray(body.lines) && body.lines.length > 0
@@ -223,21 +245,25 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
           if (!docLine) badRequest("Line is not on this return");
           return {
             itemId: docLine.itemId,
+            sku: docLine.sku,
             qty: requireInt(line.qty, "qty"),
             lotCode: line.lotCode?.trim() || null,
             serials: parseSerialList(line.serials),
             weightGrams: lineCatchWeight(docLine.catchWeight, docLine.sku, line.weightGrams),
             expiresOn: lineExpiry(docLine.trackExpiry, docLine.sku, line.expiresOn),
+            disposition: requireDisposition(line.disposition),
           };
         })
       : rma.lines
           .map((line) => ({
             itemId: line.itemId,
+            sku: line.sku,
             qty: line.remaining,
             lotCode: null as string | null,
             serials: [] as string[],
             weightGrams: lineCatchWeight(line.catchWeight, line.sku, undefined),
             expiresOn: lineExpiry(line.trackExpiry, line.sku, undefined),
+            disposition: "restock" as const,
           }))
           .filter((line) => line.qty > 0);
 
@@ -251,6 +277,45 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
   const now = Date.now();
   const nextStatus = isFullyReceived(applied.next) ? "received" : "receiving";
   const qtyByItem = new Map(applied.next.map((line) => [line.itemId, line.qtyReceived]));
+  const dispositionByItem = new Map(incoming.map((line) => [line.itemId, line.disposition]));
+
+  const holdLines = incoming.filter((line) => line.disposition === "hold" && applied.posted.some((row) => row.itemId === line.itemId));
+  const extraHolds: BatchItem<"sqlite">[] = [];
+  if (holdLines.length > 0) {
+    const open = await loadOpenHolds(db, organizationId, location.warehouseId);
+    const pending = [...open];
+    for (const line of holdLines) {
+      const lotCode = line.lotCode ? normalizeLotCode(line.lotCode) : null;
+      const existing = coveringHold(pending, locationId, line.itemId, lotCode);
+      if (existing) conflict(`Already on hold (${existing.number}: ${existing.reason})`);
+      const number = docNumber("HLD");
+      extraHolds.push(
+        db.insert(schema.inventoryHolds).values({
+          id: newId(),
+          organizationId,
+          warehouseId: location.warehouseId,
+          number,
+          status: "open",
+          locationId,
+          itemId: line.itemId,
+          lotCode,
+          reason: "QC",
+          notes: "Return hold",
+          createdAt: now,
+        }),
+      );
+      pending.push({
+        id: number,
+        number,
+        reason: "QC",
+        locationId,
+        locationCode: location.code,
+        itemId: line.itemId,
+        sku: line.sku,
+        lotCode,
+      });
+    }
+  }
 
   await postReceiveLines(db, {
     organizationId,
@@ -263,17 +328,23 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
       const extra = incoming.find((row) => row.itemId === line.itemId);
       return {
         ...line,
+        sku: extra?.sku,
         lotCode: extra?.lotCode,
         serials: extra?.serials.length ? extra.serials : null,
         weightGrams: extra?.weightGrams,
         expiresOn: extra?.expiresOn,
+        disposition: extra?.disposition ?? "restock",
       };
     }),
     extra: [
+      ...extraHolds,
       ...rma.lines.map((line) =>
         db
           .update(schema.rmaLines)
-          .set({ qtyReceived: qtyByItem.get(line.itemId) ?? line.qtyReceived })
+          .set({
+            qtyReceived: qtyByItem.get(line.itemId) ?? line.qtyReceived,
+            disposition: dispositionByItem.get(line.itemId) ?? line.disposition,
+          })
           .where(eq(schema.rmaLines.id, line.id)),
       ),
       db
