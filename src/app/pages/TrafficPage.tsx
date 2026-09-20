@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, ChevronsUpDown, Radar } from "lucide-react";
-import { api, type Item, type TrafficGrain, type TrafficHorizon, type TrafficSnapshot } from "../api";
+import { api, type Item, type TrafficDestination, type TrafficGrain, type TrafficHorizon, type TrafficSnapshot } from "../api";
 import { ErrorBanner } from "../components/ui";
 import { useWarehouse } from "../warehouse";
 import { Button } from "@/components/ui/button";
@@ -68,6 +68,24 @@ export function TrafficPage() {
       window.clearInterval(timer);
     };
   }, [warehouseId, horizon, grain, skuIds, frameTouched]);
+
+  function handleSelectDestination(row: TrafficDestination) {
+    if (grain === "country") {
+      setGrain("region");
+      if (row.country === "US") {
+        setFrameTouched(true);
+        setFrame("us");
+      }
+      return;
+    }
+    if (grain === "region") {
+      setGrain("city");
+      if (row.country === "US") {
+        setFrameTouched(true);
+        setFrame("us");
+      }
+    }
+  }
 
   const selected = data?.flights.find((row) => row.orderId === selectedFlightId) ?? null;
   const skuLabel = useMemo(() => {
@@ -158,8 +176,8 @@ export function TrafficPage() {
           <ErrorBanner error={error} />
         </div>
       ) : null}
-      <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_18rem]">
-        <div className="relative min-h-0">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="relative min-h-[28rem] min-w-0">
           {data ? (
             <TrafficMap
               snapshot={data}
@@ -167,10 +185,12 @@ export function TrafficPage() {
               frame={frame}
               selectedFlightId={selectedFlightId}
               onSelectFlight={setSelectedFlightId}
-              onSelectDestination={() => undefined}
+              onSelectDestination={handleSelectDestination}
             />
           ) : (
-            <div className="grid h-full place-items-center font-mono text-sm text-cyan-200/60">Acquiring radar…</div>
+            <div className="grid h-full min-h-[28rem] place-items-center font-mono text-sm text-cyan-200/60">
+              Acquiring radar…
+            </div>
           )}
           {data ? (
             <div className="pointer-events-none absolute left-4 top-4 flex flex-wrap gap-2">
@@ -193,7 +213,12 @@ export function TrafficPage() {
             ) : (
               <ul>
                 {(data?.destinations ?? []).map((row) => (
-                  <li key={row.key} className="border-b border-cyan-400/10 px-4 py-2.5">
+                  <li key={row.key} className="border-b border-cyan-400/10">
+                    <button
+                      type="button"
+                      className="w-full px-4 py-2.5 text-left hover:bg-cyan-400/5"
+                      onClick={() => handleSelectDestination(row)}
+                    >
                     <div className="flex items-baseline justify-between gap-3">
                       <p className="text-sm text-cyan-50">{destinationLabel(row)}</p>
                       <p className="font-mono text-sm tabular-nums text-cyan-200">{row.units}</p>
@@ -202,6 +227,7 @@ export function TrafficPage() {
                       {row.orders} {row.orders === 1 ? "order" : "orders"}
                       {row.skus[0] ? ` · ${row.skus[0].sku} × ${row.skus[0].qty}` : ""}
                     </p>
+                    </button>
                   </li>
                 ))}
               </ul>

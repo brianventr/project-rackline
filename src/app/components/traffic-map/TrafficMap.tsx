@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { geoAlbersUsa, geoEqualEarth, geoPath, type GeoProjection } from "d3-geo";
 import { feature } from "topojson-client";
 import type { Topology } from "topojson-specification";
@@ -27,33 +27,29 @@ const states = feature(usTopology, usTopology.objects.states) as FeatureCollecti
 export function TrafficMap({ snapshot, grain, frame, selectedFlightId, onSelectFlight, onSelectDestination }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 960, height: 560 });
-  const [now, setNow] = useState(snapshot.asOf);
   const [hoverId, setHoverId] = useState<string | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const box = entries[0]?.contentRect;
-      if (!box) return;
-      setSize({ width: Math.max(320, box.width), height: Math.max(280, box.height) });
-    });
+    const read = () => {
+      const width = el.clientWidth;
+      const height = el.clientHeight;
+      if (width < 80 || height < 80) return;
+      setSize((prev) => (Math.abs(prev.width - width) < 1 && Math.abs(prev.height - height) < 1 ? prev : { width, height }));
+    };
+    read();
+    const ro = new ResizeObserver(read);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-
-  useEffect(() => {
-    setNow(snapshot.asOf);
-    const id = window.setInterval(() => setNow(Date.now()), 250);
-    return () => window.clearInterval(id);
-  }, [snapshot.asOf]);
 
   const projection = useMemo(() => {
     const proj: GeoProjection = frame === "us" ? geoAlbersUsa() : geoEqualEarth();
     return proj.fitExtent(
       [
-        [24, 28],
-        [size.width - 24, size.height - 28],
+        [28, 36],
+        [size.width - 28, size.height - 36],
       ],
       frame === "us" ? states : countries,
     );
@@ -65,9 +61,16 @@ export function TrafficMap({ snapshot, grain, frame, selectedFlightId, onSelectF
   const destByRegion = indexBy(snapshot.destinations, (row) => `${row.country}-${row.region ?? ""}`);
 
   return (
-    <div ref={wrapRef} className="relative h-full min-h-[22rem] overflow-hidden bg-[#061018]">
+    <div ref={wrapRef} data-testid="traffic-map" className="relative h-full min-h-[28rem] w-full overflow-hidden bg-[#061018]">
       <div className="traffic-radar pointer-events-none absolute inset-0 opacity-30" />
-      <svg width={size.width} height={size.height} className="block h-full w-full" onClick={() => onSelectFlight(null)}>
+      <svg
+        viewBox={`0 0 ${size.width} ${size.height}`}
+        preserveAspectRatio="xMidYMid meet"
+        className="traffic-map-svg absolute inset-0 size-full"
+        role="img"
+        aria-label="Shipment traffic map"
+        onClick={() => onSelectFlight(null)}
+      >
         <defs>
           <filter id="blip-glow" x="-80%" y="-80%" width="260%" height="260%">
             <feGaussianBlur stdDeviation="2.4" result="blur" />
@@ -134,18 +137,6 @@ export function TrafficMap({ snapshot, grain, frame, selectedFlightId, onSelectF
             </g>
           );
         })}
-        {snapshot.flights.map((flight) => (
-          <FlightLayer
-            key={flight.orderId}
-            flight={flight}
-            now={now}
-            projection={projection}
-            selected={selectedFlightId === flight.orderId}
-            hovered={hoverId === flight.orderId}
-            onHover={setHoverId}
-            onSelect={onSelectFlight}
-          />
-        ))}
         {grain === "city" &&
           snapshot.destinations.map((row) => {
             const p = projection([row.lng, row.lat]);
@@ -168,6 +159,14 @@ export function TrafficMap({ snapshot, grain, frame, selectedFlightId, onSelectF
               </g>
             );
           })}
+        <FlightsOverlay
+          flights={snapshot.flights}
+          projection={projection}
+          selectedFlightId={selectedFlightId}
+          hoverId={hoverId}
+          onHover={setHoverId}
+          onSelect={onSelectFlight}
+        />
       </svg>
       <p className="pointer-events-none absolute bottom-3 left-4 font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-200/70">
         Positions are lane estimates from ship time, not live GPS
@@ -175,6 +174,55 @@ export function TrafficMap({ snapshot, grain, frame, selectedFlightId, onSelectF
     </div>
   );
 }
+
+const FlightsOverlay = memo(function FlightsOverlay({
+  flights,
+  projection,
+  selectedFlightId,
+  hoverId,
+  onHover,
+  onSelect,
+}: {
+  flights: TrafficFlight[];
+  projection: GeoProjection;
+  selectedFlightId: string | null;
+  hoverId: string | null;
+  onHover: (id: string | null) => void;
+  onSelect: (id: string) => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    let raf = 0;
+    let last = 0;
+    const tick = (ts: number) => {
+      if (ts - last >= 80) {
+        last = ts;
+        setNow(Date.now());
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <g>
+      {flights.map((flight) => (
+        <FlightLayer
+          key={flight.orderId}
+          flight={flight}
+          now={now}
+          projection={projection}
+          selected={selectedFlightId === flight.orderId}
+          hovered={hoverId === flight.orderId}
+          onHover={onHover}
+          onSelect={onSelect}
+        />
+      ))}
+    </g>
+  );
+});
 
 function FlightLayer({
   flight,
@@ -215,6 +263,10 @@ function FlightLayer({
       }}
     >
       <path d={d} fill="none" stroke={color} strokeOpacity={active ? 0.9 : 0.35} strokeWidth={active ? 2 : 1} />
+      {flight.status === "at_gate" ? (
+        <circle cx={blip[0]} cy={blip[1]} r={10} className="traffic-gate-ring fill-amber-300/40" />
+      ) : null}
+      <circle cx={blip[0]} cy={blip[1]} r={14} fill="transparent" />
       <circle cx={blip[0]} cy={blip[1]} r={active ? 5.5 : 3.5} fill={color} filter="url(#blip-glow)" />
       {active ? (
         <text x={blip[0] + 8} y={blip[1] - 8} className="fill-emerald-50 font-mono text-[10px] tracking-wide">
