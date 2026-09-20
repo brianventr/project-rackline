@@ -26,6 +26,8 @@ Iteration 10 adds inventory holds: lock a bay, a location:item, or a lot so pick
 
 Iteration 11 reserves ATP when pick starts: location:item allocations (on-hand − held − allocated). A second order that would oversell returns HTTP 409 (`INSUFFICIENT_ATP`). Create and Shopify ingest stay promises until start. Leftover reservations release on ship or Shopify cancel.
 
+Iteration 12 lets a cycle count take an unexpected SKU: scan or add a catalog item that was not on the bay snapshot. Posting still adjusts against current on-hand, so a found SKU with system 0 becomes a +variance.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 ## Stack
@@ -93,7 +95,7 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 - **Pack slip** prints ordered vs picked qty from the order record
 - **Ship** writes an outbound movement (qty already left at pick), releases leftover allocations, and, for Shopify orders, creates a fulfillment
 - **Adjust** applies a signed delta with a reason
-- **Cycle count** snapshots a bin without showing system qty. Every SKU must be entered (0 is a real count); posting more than once is blocked. Empty bays can be confirmed empty. Variances post against *current* on-hand so concurrent movement is not double-applied; Today lists posted counts where counted ≠ system
+- **Cycle count** snapshots a bin without showing system qty. Every SKU must be entered (0 is a real count); posting more than once is blocked. Empty bays can be confirmed empty. A SKU that was not on the snapshot can be scanned or added; posting still adjusts against *current* on-hand so concurrent movement is not double-applied; Today lists posted counts where counted ≠ system
 - **Hold** locks a bay, a SKU in a bay, or a lot. Pick, move, replenish, kit consume, and work-order consume return HTTP 409 (`HELD_STOCK`). Receive, count, adjust, produce, and ship still post. FIFO skips held lots when other lots cover the qty
 - **Allocate** reserves remaining order qty on pick start against location:item ATP. Pick, move, replenish, kit consume, and work-order consume return HTTP 409 (`INSUFFICIENT_ATP`) when they would take another order's reservation. Receive, count, adjust, produce, and ship still post
 - **Work order complete** consumes `BOM qty × WO qty` from the source location and produces finished goods into the output location. Short components return HTTP 409

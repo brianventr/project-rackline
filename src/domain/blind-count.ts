@@ -23,6 +23,10 @@ export function allLinesEntered(lines: { entered?: boolean | number | null }[]):
   return lines.every((line) => isCountEntered(line.entered));
 }
 
+export function countHasItem(lines: { itemId: string }[], itemId: string): boolean {
+  return lines.some((line) => line.itemId === itemId);
+}
+
 export function revealSystemQty(status: string, systemQty: number): number | null {
   return isBlindCount(status) ? null : systemQty;
 }
