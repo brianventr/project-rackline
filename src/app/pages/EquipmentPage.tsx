@@ -315,7 +315,7 @@ function EquipmentDetail({ id }: { id: string }) {
             {active.status === "out_of_service" && me.role === "owner" ? (
               <Button onClick={() => void returnToService()}>Return to service</Button>
             ) : null}
-            <Button variant="secondary">
+            <Button variant="secondary" asChild>
               <Link to={`/floor/checkout?id=${active.id}`}>Floor</Link>
             </Button>
           </>

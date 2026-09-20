@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "./schema";
 import type { AppDb } from "./stock";
@@ -884,6 +884,13 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       createdAt: now,
     }),
   ]);
+
+  await db
+    .update(schema.inventoryMovements)
+    .set({ equipmentId: fl01, assignmentId: openAsnId })
+    .where(
+      and(eq(schema.inventoryMovements.organizationId, organizationId), eq(schema.inventoryMovements.createdBy, userId)),
+    );
 
   return { organizationId };
 }

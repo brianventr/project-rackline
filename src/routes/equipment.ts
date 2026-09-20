@@ -342,6 +342,10 @@ equipmentRoute.post("/equipment/:id/checkout", async (c) => {
   const graded = gradeInspection(equipment.class, answers);
   if (graded.missing.length) badRequest(`Inspection is missing: ${graded.missing.join(", ")}`);
 
+  const openTruck = await loadOpenAssignmentForEquipment(db, organizationId, equipment.id);
+  const openOperator = await loadOpenAssignmentForOperator(db, organizationId, operatorUserId);
+  assertCanCheckout(equipment, openTruck, openOperator);
+
   const now = Date.now();
   const inspectionId = newId();
   await db.insert(schema.equipmentInspections).values({
@@ -378,9 +382,6 @@ equipmentRoute.post("/equipment/:id/checkout", async (c) => {
 
   const certs = await loadOperatorCerts(db, organizationId, operatorUserId);
   assertOperatorCertified(certs, operatorUserId, equipment.class);
-  const openTruck = await loadOpenAssignmentForEquipment(db, organizationId, equipment.id);
-  const openOperator = await loadOpenAssignmentForOperator(db, organizationId, operatorUserId);
-  assertCanCheckout(equipment, openTruck, openOperator);
 
   let task: { refType: string; refId: string; number: string } | null = null;
   const refType = optionalString(body.refType);
