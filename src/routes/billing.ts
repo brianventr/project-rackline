@@ -16,9 +16,7 @@ async function ensureBillingAccount(db: AppEnv["Variables"]["db"], organizationI
     .where(eq(schema.billingAccounts.organizationId, organizationId))
     .limit(1);
   if (existing) return existing;
-  const id = newId();
   await db.insert(schema.billingAccounts).values({
-    id,
     organizationId,
     plan,
     status: "active",
@@ -27,7 +25,7 @@ async function ensureBillingAccount(db: AppEnv["Variables"]["db"], organizationI
   const [row] = await db
     .select()
     .from(schema.billingAccounts)
-    .where(eq(schema.billingAccounts.id, id))
+    .where(eq(schema.billingAccounts.organizationId, organizationId))
     .limit(1);
   return row!;
 }
