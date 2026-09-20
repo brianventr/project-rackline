@@ -17,6 +17,7 @@ export type SceneTheme = {
   hover: string;
   from: string;
   to: string;
+  pick: string;
   ghost: string;
   invalid: string;
   bayHighlight: string;
@@ -46,6 +47,7 @@ const light: SceneTheme = {
   hover: "#e16f41",
   from: "#2d6a4f",
   to: "#e2b146",
+  pick: "#3d8b6e",
   ghost: "#7399bf",
   invalid: "#ef4444",
   bayHighlight: "#f3c4ae",
@@ -75,6 +77,7 @@ const dark: SceneTheme = {
   hover: "#e16f41",
   from: "#4ade80",
   to: "#e2b146",
+  pick: "#34d399",
   ghost: "#85a6c7",
   invalid: "#ef4444",
   bayHighlight: "#8a4630",
