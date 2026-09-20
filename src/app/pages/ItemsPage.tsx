@@ -4,6 +4,7 @@ import { api, type Item, type Me } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
 import { formatExpiresOn } from "@/domain/expiry";
+import { formatAsBuiltPart } from "@/domain/as-built";
 
 const types = ["raw", "wip", "finished", "packaging"];
 
@@ -335,12 +336,26 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
         </Table>
       ) : null}
       {(item.serials ?? []).length ? (
-        <Table columns={["Serial", "Status", "Location"]}>
+        <Table columns={["Serial", "Status", "Location", "Built from"]}>
           {(item.serials ?? []).map((row) => (
             <tr key={row.serialCode}>
               <td className="px-4 py-3 font-mono">{row.serialCode}</td>
               <td className="px-4 py-3">{row.status}</td>
               <td className="px-4 py-3 font-mono">{row.locationCode || "—"}</td>
+              <td className="px-4 py-3 font-mono text-xs">
+                {(row.builtFrom ?? []).length
+                  ? (row.builtFrom ?? [])
+                      .map((link) =>
+                        formatAsBuiltPart({
+                          sku: link.componentSku,
+                          lotCode: link.componentLotCode,
+                          serial: link.componentSerial,
+                          qty: link.qty,
+                        }),
+                      )
+                      .join(" · ")
+                  : "—"}
+              </td>
             </tr>
           ))}
         </Table>

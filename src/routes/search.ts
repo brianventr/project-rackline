@@ -12,7 +12,7 @@ searchRoute.get("/search", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
 
-  const [items, locations, orders, receipts, transfers, workOrders, counts, purchases, returns, replenishments, kits, holds] = await Promise.all([
+  const [items, locations, orders, receipts, transfers, workOrders, counts, purchases, returns, replenishments, kits, holds, serials] = await Promise.all([
     db
       .select({
         id: schema.items.id,
@@ -168,6 +168,17 @@ searchRoute.get("/search", async (c) => {
       .from(schema.inventoryHolds)
       .where(and(eq(schema.inventoryHolds.organizationId, organizationId), like(schema.inventoryHolds.number, needle)))
       .limit(8),
+    db
+      .select({
+        serialCode: schema.serials.serialCode,
+        itemId: schema.serials.itemId,
+        sku: schema.items.sku,
+        status: schema.serials.status,
+      })
+      .from(schema.serials)
+      .innerJoin(schema.items, eq(schema.items.id, schema.serials.itemId))
+      .where(and(eq(schema.serials.organizationId, organizationId), like(schema.serials.serialCode, needle)))
+      .limit(8),
   ]);
 
   return c.json({
@@ -184,5 +195,6 @@ searchRoute.get("/search", async (c) => {
     replenishments,
     kits,
     holds,
+    serials,
   });
 });

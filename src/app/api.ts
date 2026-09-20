@@ -46,6 +46,20 @@ export type Me = {
   warehouses: { id: string; name: string }[];
 };
 
+export type AsBuiltLink = {
+  refType: string;
+  refId: string;
+  parentItemId: string;
+  parentSku: string;
+  parentLotCode: string | null;
+  parentSerial: string | null;
+  componentItemId: string;
+  componentSku: string;
+  componentLotCode: string | null;
+  componentSerial: string | null;
+  qty: number;
+};
+
 export type Item = {
   id: string;
   sku: string;
@@ -67,8 +81,22 @@ export type Item = {
     allocated?: number;
     atp?: number;
   }[];
-  lots?: { locationId: string; locationCode: string; lotCode: string; qty: number; expiresOn?: number | null }[];
-  serials?: { serialCode: string; status: string; locationId: string | null; locationCode: string | null }[];
+  lots?: {
+    locationId: string;
+    locationCode: string;
+    lotCode: string;
+    qty: number;
+    expiresOn?: number | null;
+    usedIn?: AsBuiltLink[];
+  }[];
+  serials?: {
+    serialCode: string;
+    status: string;
+    locationId: string | null;
+    locationCode: string | null;
+    builtFrom?: AsBuiltLink[];
+    usedIn?: AsBuiltLink[];
+  }[];
 };
 
 export type Location = {
@@ -161,6 +189,40 @@ export type ScanRmaHit = { kind: "rma"; rma: Rma };
 export type ScanReplenishmentHit = { kind: "replenishment"; replenishment: Replenishment };
 export type ScanKitHit = { kind: "kit"; kit: KitBuild };
 export type ScanHoldHit = { kind: "hold"; hold: Hold };
+export type ScanSerialHit = {
+  kind: "serial";
+  serial: {
+    serialCode: string;
+    status: string;
+    itemId: string;
+    sku: string;
+    itemName: string;
+    locationId: string | null;
+    locationCode: string | null;
+    locationName: string | null;
+  };
+  item: Pick<Item, "id" | "sku" | "name" | "barcode">;
+  builtFrom: AsBuiltLink[];
+  usedIn: AsBuiltLink[];
+};
+export type ScanLotHit = {
+  kind: "lot";
+  lotCode: string;
+  onHand: {
+    locationId: string;
+    locationCode: string;
+    locationName: string;
+    barcode: string;
+    itemId: string;
+    sku: string;
+    itemName: string;
+    lotCode: string;
+    qty: number;
+    expiresOn?: number | null;
+  }[];
+  builtFrom: AsBuiltLink[];
+  usedIn: AsBuiltLink[];
+};
 
 export type ScanHit =
   | ScanLocationHit
@@ -174,7 +236,9 @@ export type ScanHit =
   | ScanRmaHit
   | ScanReplenishmentHit
   | ScanKitHit
-  | ScanHoldHit;
+  | ScanHoldHit
+  | ScanSerialHit
+  | ScanLotHit;
 
 export type MoveResult = {
   ok: true;
@@ -329,6 +393,7 @@ export type WorkOrder = {
   outputLocationId: string;
   createdAt: number;
   warehouseId?: string;
+  asBuilt?: AsBuiltLink[];
 };
 
 export type KitBuild = {
@@ -347,6 +412,7 @@ export type KitBuild = {
   trackSerial?: boolean;
   catchWeight?: boolean;
   components?: { itemId: string; qty: number; sku: string; itemName: string }[];
+  asBuilt?: AsBuiltLink[];
 };
 
 export type Replenishment = {
@@ -471,6 +537,7 @@ export type SearchResults = {
   replenishments?: Pick<Replenishment, "id" | "number" | "status">[];
   kits?: Pick<KitBuild, "id" | "number" | "status">[];
   holds?: Pick<Hold, "id" | "number" | "status">[];
+  serials?: { serialCode: string; itemId: string; sku: string; status: string }[];
 };
 
 export type TeamMember = {

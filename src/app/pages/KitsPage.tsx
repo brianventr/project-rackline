@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Item, type KitBuild, type Location } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
 import { DocumentHeader, DocumentActivity } from "../components/document";
+import { AsBuiltList } from "../components/as-built";
 import { KIT_STEPS, canCompleteKit } from "@/domain/status";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
@@ -194,6 +195,9 @@ function KitDetail({ id }: { id: string }) {
           </tr>
         ))}
       </Table>
+      {(kit.asBuilt ?? []).length ? (
+        <AsBuiltList title="As-built" empty="No component lots were recorded." rows={kit.asBuilt ?? []} mode="from" />
+      ) : null}
       <DocumentActivity refId={kit.id} refreshKey={kit.status} />
     </div>
   );

@@ -146,6 +146,10 @@ function pathForScan(hit: ScanHit): string | null {
       return documentPath("kit", hit.kit.id);
     case "hold":
       return documentPath("hold", hit.hold.id);
+    case "serial":
+      return `/stock/items/${hit.item.id}`;
+    case "lot":
+      return hit.onHand[0] ? `/stock/items/${hit.onHand[0].itemId}` : hit.usedIn[0] ? `/stock/items/${hit.usedIn[0].parentItemId}` : null;
   }
 }
 
@@ -276,6 +280,15 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               Hold {row.number}
             </button>
           ))}
+          {results?.serials?.map((row) => (
+            <button
+              key={`${row.itemId}:${row.serialCode}`}
+              className="block w-full text-left"
+              onClick={() => go(`/stock/items/${row.itemId}`)}
+            >
+              Serial {row.serialCode} · {row.sku}
+            </button>
+          ))}
           {results &&
           !results.items.length &&
           !results.locations.length &&
@@ -288,7 +301,8 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           !results.returns.length &&
           !results.replenishments?.length &&
           !results.kits?.length &&
-          !results.holds?.length ? (
+          !results.holds?.length &&
+          !results.serials?.length ? (
             <p className="text-muted-foreground">Nothing matches that search.</p>
           ) : null}
         </div>

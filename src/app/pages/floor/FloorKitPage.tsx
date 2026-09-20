@@ -4,6 +4,7 @@ import { api, type KitBuild, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { canCompleteKit } from "@/domain/status";
+import { AsBuiltList } from "../../components/as-built";
 
 export function FloorKitPage() {
   const [params] = useSearchParams();
@@ -85,7 +86,15 @@ export function FloorKitPage() {
           {canCompleteKit(active.status) ? (
             <Button onClick={() => void complete()}>Complete kit</Button>
           ) : (
-            <p>Already completed.</p>
+            <div className="space-y-3">
+              <p>Already completed.</p>
+              <AsBuiltList
+                title="As-built"
+                empty="No component lots were recorded."
+                rows={active.asBuilt ?? []}
+                mode="from"
+              />
+            </div>
           )}
         </Card>
       )}

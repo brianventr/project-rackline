@@ -4,6 +4,7 @@ import { api, type ScanHit } from "../../api";
 import { documentPath } from "@/domain/barcodes";
 import { Button, Card, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { AsBuiltList } from "../../components/as-built";
 
 export function FloorLookupPage() {
   const [hit, setHit] = useState<ScanHit | null>(null);
@@ -20,8 +21,8 @@ export function FloorLookupPage() {
   }, []);
 
   return (
-    <FloorFrame title="Lookup" description="Scan a SKU, item barcode, bay, or document number." error={error}>
-      <FloorScanBox label="Scan" placeholder="Bay, SKU, ORD-…, RCP-…" onScan={onScan} />
+    <FloorFrame title="Lookup" description="Scan a SKU, item barcode, bay, document, serial, or lot." error={error}>
+      <FloorScanBox label="Scan" placeholder="Bay, SKU, LAMP-1001, LOT-2026-A" onScan={onScan} />
       {hit ? <LookupResult hit={hit} /> : null}
     </FloorFrame>
   );
@@ -116,6 +117,56 @@ function LookupResult({ hit }: { hit: ScanHit }) {
       </Card>
     );
   }
+  if (hit.kind === "serial") {
+    return (
+      <div className="space-y-4">
+        <Card>
+          <p className="font-mono text-xs uppercase text-muted-foreground">Serial</p>
+          <h2 className="text-2xl font-semibold">{hit.serial.serialCode}</h2>
+          <p className="text-muted-foreground">
+            {hit.serial.sku} {hit.serial.itemName}
+          </p>
+          <p className="mt-2 text-sm">
+            <StatusBadge status={hit.serial.status} />{" "}
+            <span className="font-mono">{hit.serial.locationCode || "—"}</span>
+          </p>
+          <div className="mt-4 flex gap-2">
+            <Button variant="secondary">
+              <Link to={`/stock/items/${hit.item.id}`}>Open item</Link>
+            </Button>
+          </div>
+        </Card>
+        <AsBuiltList title="Built from" empty="No kit or work-order genealogy for this serial." rows={hit.builtFrom} mode="from" />
+        <AsBuiltList title="Used in" empty="This serial was not consumed into a build." rows={hit.usedIn} mode="into" />
+      </div>
+    );
+  }
+  if (hit.kind === "lot") {
+    return (
+      <div className="space-y-4">
+        <Card>
+          <p className="font-mono text-xs uppercase text-muted-foreground">Lot</p>
+          <h2 className="text-2xl font-semibold">{hit.lotCode}</h2>
+          <ul className="mt-4 space-y-1 text-sm">
+            {hit.onHand.length ? (
+              hit.onHand.map((row) => (
+                <li key={`${row.locationId}:${row.itemId}`} className="flex justify-between">
+                  <span>
+                    <span className="font-mono">{row.sku}</span> @ {row.locationCode}
+                  </span>
+                  <span className="font-mono">{row.qty}</span>
+                </li>
+              ))
+            ) : (
+              <li className="text-muted-foreground">None on hand.</li>
+            )}
+          </ul>
+        </Card>
+        <AsBuiltList title="Used in" empty="This lot was not consumed into a build." rows={hit.usedIn} mode="into" />
+        <AsBuiltList title="Built from" empty="No genealogy for this finished lot." rows={hit.builtFrom} mode="from" />
+      </div>
+    );
+  }
 
   const record =
     hit.kind === "order"
@@ -141,7 +192,9 @@ function LookupResult({ hit }: { hit: ScanHit }) {
                 ? { title: hit.kit.number, status: hit.kit.status, to: documentPath("kit", hit.kit.id), floor: `/floor/kit?id=${hit.kit.id}` }
                 : hit.kind === "hold"
                   ? { title: hit.hold.number, status: hit.hold.status, to: documentPath("hold", hit.hold.id), floor: `/floor/hold?id=${hit.hold.id}` }
-            : { title: hit.cycleCount.number, status: hit.cycleCount.status, to: documentPath("cycleCount", hit.cycleCount.id), floor: `/floor/count?id=${hit.cycleCount.id}` };
+              : hit.kind === "cycleCount"
+                ? { title: hit.cycleCount.number, status: hit.cycleCount.status, to: documentPath("cycleCount", hit.cycleCount.id), floor: `/floor/count?id=${hit.cycleCount.id}` }
+                : { title: "Unknown", status: "", to: "/floor/lookup", floor: "/floor/lookup" };
 
   return (
     <Card>

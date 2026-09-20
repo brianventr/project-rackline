@@ -4,6 +4,7 @@ import { api, type ScanHit, type WorkOrder } from "../../api";
 import { Button, Card, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { canCompleteWorkOrder } from "@/domain/status";
+import { AsBuiltList } from "../../components/as-built";
 
 export function FloorAssemblePage() {
   const [params] = useSearchParams();
@@ -79,7 +80,15 @@ export function FloorAssemblePage() {
           {canCompleteWorkOrder(active.status) ? (
             <Button onClick={() => void complete()}>Complete work order</Button>
           ) : (
-            <p>Already completed.</p>
+            <div className="space-y-3">
+              <p>Already completed.</p>
+              <AsBuiltList
+                title="As-built"
+                empty="No component lots were recorded."
+                rows={active.asBuilt ?? []}
+                mode="from"
+              />
+            </div>
           )}
         </Card>
       )}

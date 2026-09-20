@@ -3,7 +3,7 @@ import { PageHeader } from "../../components/ui";
 import { useSession } from "../../session";
 
 const verbs = [
-  { to: "/floor/lookup", title: "Lookup", body: "Scan a SKU, bay, or document." },
+  { to: "/floor/lookup", title: "Lookup", body: "Scan a SKU, bay, document, serial, or lot." },
   { to: "/floor/print", title: "Print", body: "Print a bay, SKU, pack slip, or shipping label." },
   { to: "/floor/receive", title: "Receive", body: "Post a receipt or purchase onto the dock, including partials." },
   { to: "/floor/putaway", title: "Put away", body: "Scan the dock, then the suggested bulk bay." },

@@ -9,6 +9,7 @@ import { planCompleteKit } from "../domain/manufacturing";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { canCompleteKit } from "../domain/status";
 import { parseSerialList } from "../domain/lots";
+import { loadAsBuiltForRef } from "../db/as-built";
 
 export const kitsRoute = new Hono<AppEnv>();
 
@@ -52,7 +53,8 @@ async function kitWithItem(db: AppEnv["Variables"]["db"], organizationId: string
         .innerJoin(schema.items, eq(schema.items.id, schema.bomLines.itemId))
         .where(eq(schema.bomLines.bomId, bom.id))
     : [];
-  return { ...row, components };
+  const asBuilt = await loadAsBuiltForRef(db, organizationId, row.id);
+  return { ...row, components, asBuilt };
 }
 
 kitsRoute.get("/kits", async (c) => {
