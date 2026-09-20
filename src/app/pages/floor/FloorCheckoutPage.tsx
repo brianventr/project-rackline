@@ -166,7 +166,9 @@ export function FloorCheckoutPage() {
             <p className="text-sm">
               {active.currentAssignment.operatorName} · {active.currentAssignment.number}
               {active.currentAssignment.shift ? ` · ${active.currentAssignment.shift}` : ""}
-              {active.currentAssignment.refType ? ` · ${active.currentAssignment.refType}` : ""}
+              {active.currentAssignment.taskNumber || active.currentAssignment.refType
+                ? ` · ${active.currentAssignment.taskNumber || active.currentAssignment.refType}`
+                : ""}
             </p>
           ) : null}
           {task ? (

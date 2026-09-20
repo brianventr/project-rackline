@@ -258,7 +258,7 @@ export function TodayPage() {
             id: row.id,
             to: `/equipment/${row.equipmentId}`,
             title: row.equipmentCode,
-            meta: `${row.operatorName}${row.shift ? ` · ${row.shift}` : ""}${row.refType ? ` · ${row.refType}` : ""}`,
+            meta: `${row.operatorName}${row.shift ? ` · ${row.shift}` : ""}${row.taskNumber || row.refType ? ` · ${row.taskNumber || row.refType}` : ""}`,
             status: row.status,
             actionTo: `/floor/checkout?id=${row.equipmentId}`,
             action: "Check in",

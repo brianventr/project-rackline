@@ -17,6 +17,7 @@ import { annotateAtp, atpOnHand, loadOpenAllocations } from "../db/allocations";
 import { addUtcDays, EXPIRING_WITHIN_DAYS, utcYyyymmdd } from "../domain/expiry";
 import { CERT_EXPIRING_WITHIN_DAYS, isCertExpiring } from "../domain/equipment";
 import { loadAsBuiltForItem } from "../db/as-built";
+import { loadDocumentNumber } from "../db/equipment";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -872,7 +873,7 @@ catalogRoute.get("/dashboard", async (c) => {
     eq(schema.equipmentAssignments.status, "open"),
     warehouseId ? eq(schema.equipmentAssignments.warehouseId, warehouseId) : undefined,
   );
-  const openCheckoutRows = await db
+  const openCheckoutRaw = await db
     .select({
       id: schema.equipmentAssignments.id,
       number: schema.equipmentAssignments.number,
@@ -893,6 +894,12 @@ catalogRoute.get("/dashboard", async (c) => {
     .innerJoin(schema.user, eq(schema.user.id, schema.equipmentAssignments.operatorUserId))
     .where(checkoutWhere)
     .orderBy(desc(schema.equipmentAssignments.startedAt));
+  const openCheckoutRows = await Promise.all(
+    openCheckoutRaw.map(async (row) => ({
+      ...row,
+      taskNumber: await loadDocumentNumber(db, organizationId, row.refType, row.refId),
+    })),
+  );
 
   const outOfServiceRows = await db
     .select()

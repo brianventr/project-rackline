@@ -26,6 +26,7 @@ import {
 } from "../domain/equipment";
 import {
   loadAssignmentHistory,
+  loadDocumentNumber,
   loadOpenAssignmentForEquipment,
   loadOpenAssignmentForOperator,
   loadOperatorCerts,
@@ -116,6 +117,18 @@ async function resolveTask(
   return { refType, refId: row.id, number: row.number };
 }
 
+async function withTaskNumber<T extends { refType: string | null; refId: string | null }>(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  assignment: T,
+): Promise<T & { taskNumber: string | null }> {
+  if (!assignment.refType || !assignment.refId) return { ...assignment, taskNumber: null };
+  return {
+    ...assignment,
+    taskNumber: await loadDocumentNumber(db, organizationId, assignment.refType, assignment.refId),
+  };
+}
+
 function parseInspectionBody(raw: unknown): InspectionAnswer[] {
   if (!Array.isArray(raw) || raw.length === 0) badRequest("inspection is required");
   return raw.map((entry, index) => {
@@ -152,9 +165,9 @@ async function equipmentDetail(db: AppEnv["Variables"]["db"], organizationId: st
   ]);
   return {
     ...row,
-    currentAssignment: current,
+    currentAssignment: current ? await withTaskNumber(db, organizationId, current) : null,
     checklist: checklistForClass(row.class),
-    assignments,
+    assignments: await Promise.all(assignments.map((assignment) => withTaskNumber(db, organizationId, assignment))),
     events,
     inspections: inspections.map((inspection) => ({
       ...inspection,
@@ -195,12 +208,16 @@ equipmentRoute.get("/equipment", async (c) => {
     .innerJoin(schema.user, eq(schema.user.id, schema.equipmentAssignments.operatorUserId))
     .where(and(eq(schema.equipmentAssignments.organizationId, organizationId), eq(schema.equipmentAssignments.status, "open")));
   const byEquipment = new Map(open.map((row) => [row.equipmentId, row]));
-  return c.json(
-    rows.map((row) => ({
-      ...row,
-      currentAssignment: byEquipment.get(row.id) ?? null,
-    })),
+  const withTasks = await Promise.all(
+    rows.map(async (row) => {
+      const current = byEquipment.get(row.id) ?? null;
+      return {
+        ...row,
+        currentAssignment: current ? await withTaskNumber(db, organizationId, current) : null,
+      };
+    }),
   );
+  return c.json(withTasks);
 });
 
 equipmentRoute.get("/equipment/audit", async (c) => {

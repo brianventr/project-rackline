@@ -897,6 +897,7 @@ export type EquipmentAssignment = {
   shift: string | null;
   refType: string | null;
   refId: string | null;
+  taskNumber?: string | null;
   startedAt: number;
   endedAt?: number | null;
   startedBy?: string;

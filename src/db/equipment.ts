@@ -3,6 +3,34 @@ import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { newId } from "../lib/ids";
 import type { EquipmentEventType } from "./schema";
+import { isAssignmentTaskType } from "../domain/equipment";
+
+const TASK_TABLES = {
+  order: schema.orders,
+  transfer: schema.transfers,
+  replenishment: schema.replenishments,
+  workOrder: schema.workOrders,
+  kit: schema.kitBuilds,
+  receipt: schema.receipts,
+  wave: schema.waves,
+  asn: schema.asns,
+} as const;
+
+export async function loadDocumentNumber(
+  db: AppDb,
+  organizationId: string,
+  refType: string | null | undefined,
+  refId: string | null | undefined,
+): Promise<string | null> {
+  if (!refType || !refId || !isAssignmentTaskType(refType)) return null;
+  const table = TASK_TABLES[refType];
+  const [row] = await db
+    .select({ number: table.number })
+    .from(table)
+    .where(and(eq(table.id, refId), eq(table.organizationId, organizationId)))
+    .limit(1);
+  return row?.number ?? null;
+}
 
 export async function loadOpenAssignmentForEquipment(db: AppDb, organizationId: string, equipmentId: string) {
   const [row] = await db

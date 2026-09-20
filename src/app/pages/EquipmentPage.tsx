@@ -145,7 +145,9 @@ function EquipmentList() {
             <td className="px-4 py-3">{row.currentAssignment?.operatorName ?? "—"}</td>
             <td className="px-4 py-3 font-mono text-xs">
               {row.currentAssignment
-                ? [row.currentAssignment.shift, row.currentAssignment.refType].filter(Boolean).join(" · ") || "—"
+                ? [row.currentAssignment.shift, row.currentAssignment.taskNumber || row.currentAssignment.refType]
+                    .filter(Boolean)
+                    .join(" · ") || "—"
                 : "—"}
             </td>
             <td className="px-4 py-3">
@@ -332,7 +334,7 @@ function EquipmentDetail({ id }: { id: string }) {
             {active.currentAssignment.operatorName} · {active.currentAssignment.number}
           </p>
           <p className="font-mono text-sm text-muted-foreground">
-            {[active.currentAssignment.shift, active.currentAssignment.refType, active.currentAssignment.refId]
+            {[active.currentAssignment.shift, active.currentAssignment.taskNumber || active.currentAssignment.refType]
               .filter(Boolean)
               .join(" · ") || "No shift or task"}
           </p>
@@ -406,7 +408,7 @@ function EquipmentDetail({ id }: { id: string }) {
             <td className="px-4 py-3 font-mono">{row.number}</td>
             <td className="px-4 py-3">{row.operatorName}</td>
             <td className="px-4 py-3">{row.shift || "—"}</td>
-            <td className="px-4 py-3 font-mono text-xs">{row.refType || "—"}</td>
+            <td className="px-4 py-3 font-mono text-xs">{row.taskNumber || row.refType || "—"}</td>
             <td className="px-4 py-3">
               <StatusBadge status={row.status} />
             </td>

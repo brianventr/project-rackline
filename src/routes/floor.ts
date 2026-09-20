@@ -33,7 +33,7 @@ import {
   loadAsBuiltForLotCode,
   loadAsBuiltForParentSerial,
 } from "../db/as-built";
-import { loadOpenAssignmentForEquipment } from "../db/equipment";
+import { loadDocumentNumber, loadOpenAssignmentForEquipment } from "../db/equipment";
 
 export const floorRoute = new Hono<AppEnv>();
 
@@ -1070,6 +1070,7 @@ floorRoute.get("/scan", async (c) => {
           shift: open.shift,
           refType: open.refType,
           refId: open.refId,
+          taskNumber: await loadDocumentNumber(db, organizationId, open.refType, open.refId),
           startedAt: open.startedAt,
         };
       }
