@@ -8,6 +8,7 @@ import {
   canShipOrder,
   canCompleteKit,
   canPostReplenishment,
+  canPostTransfer,
   canReleaseHold,
   isOpenOrder,
   isOpenPurchase,
@@ -59,6 +60,12 @@ describe("order status", () => {
     expect(canReceive("draft")).toBe(true);
     expect(canReceive("receiving")).toBe(true);
     expect(canReceive("received")).toBe(false);
+  });
+
+  it("posts transfers until every expected unit is moved", () => {
+    expect(canPostTransfer("draft")).toBe(true);
+    expect(canPostTransfer("in_progress")).toBe(true);
+    expect(canPostTransfer("posted")).toBe(false);
   });
 
   it("posts replenishments like transfers and completes kits from draft", () => {

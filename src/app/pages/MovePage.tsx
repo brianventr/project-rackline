@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type MapContent, type ScanHit, type ScanLocationHit, type WarehouseMapData } from "../api";
+import { api, type MapContent, type ScanHit, type ScanLocationHit, type Transfer, type WarehouseMapData } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { WarehouseMap } from "../components/WarehouseMap";
-import { Button, Card, ErrorBanner, PageHeader } from "../components/ui";
+import { Button, Card, ErrorBanner, PageHeader, StatusBadge } from "../components/ui";
 import { useScanner } from "../scanner/ScannerProvider";
+import { canPostTransfer } from "@/domain/status";
+import { hasUnmoved } from "@/domain/partial-transfer";
 
 type Slot = {
   barcode: string;
@@ -167,6 +169,7 @@ export function MovePage() {
         }
       />
       <ErrorBanner error={error} />
+      <OpenTransferTickets />
       {result ? <p className="mb-4 rounded-lg border border-ok/30 bg-ok/10 px-4 py-3 text-sm text-ok">{result}</p> : null}
       <div className="grid gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <div className="space-y-4">
@@ -241,6 +244,49 @@ export function MovePage() {
         ) : null}
       </div>
     </div>
+  );
+}
+
+function OpenTransferTickets() {
+  const [tickets, setTickets] = useState<Transfer[]>([]);
+
+  useEffect(() => {
+    api<Transfer[]>("/api/transfers")
+      .then((rows) =>
+        setTickets(
+          rows.filter(
+            (row) =>
+              canPostTransfer(row.status) &&
+              hasUnmoved(
+                (row.lines ?? []).map((line) => ({
+                  lineId: line.id,
+                  sku: line.sku,
+                  qtyExpected: line.qty,
+                  qtyMoved: line.qtyMoved ?? 0,
+                })),
+              ),
+          ),
+        ),
+      )
+      .catch(() => undefined);
+  }, []);
+
+  if (!tickets.length) return null;
+
+  return (
+    <Card className="mb-6">
+      <p className="mb-3 font-medium">Open putaway tickets</p>
+      <ul className="space-y-2 text-sm">
+        {tickets.map((row) => (
+          <li key={row.id}>
+            <Link className="hover:underline" to={`/floor/putaway?id=${row.id}`}>
+              <span className="font-mono">{row.number}</span> {row.fromCode} → {row.toCode}{" "}
+              <StatusBadge status={row.status} />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 

@@ -11,6 +11,14 @@ import { chainPlans, planCycleCount, planMove } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { parseScan } from "../domain/barcodes";
 import { canPostCount, canPostTransfer } from "../domain/status";
+import {
+  applyPartialMove,
+  hasUnmoved,
+  isFullyMoved,
+  remainingToMove,
+  OverMoveError,
+  type MoveLine,
+} from "../domain/partial-transfer";
 import { shouldSuggestPutaway, suggestPutawayJobs } from "../domain/directed-putaway";
 import { loadPutawayBaysByItem } from "../db/putaway-bays";
 import { allLinesEntered, applyCountEntries, countHasItem, revealSystemQty } from "../domain/blind-count";
@@ -27,6 +35,46 @@ import {
 } from "../db/as-built";
 
 export const floorRoute = new Hono<AppEnv>();
+
+const transferLineSelect = {
+  id: schema.transferLines.id,
+  itemId: schema.transferLines.itemId,
+  qty: schema.transferLines.qty,
+  qtyMoved: schema.transferLines.qtyMoved,
+  sku: schema.items.sku,
+  itemName: schema.items.name,
+};
+
+function asMoveLine(line: { id: string; sku: string; qty: number; qtyMoved: number }): MoveLine {
+  return {
+    lineId: line.id,
+    sku: line.sku,
+    qtyExpected: line.qty,
+    qtyMoved: line.qtyMoved,
+  };
+}
+
+function withMoveRemaining<T extends { id: string; sku: string; qty: number; qtyMoved: number }>(line: T) {
+  return { ...line, remaining: remainingToMove(asMoveLine(line)) };
+}
+
+function resolveIncomingMove(
+  lines: { id: string; itemId: string; remaining: number }[],
+  bodyLines?: { lineId?: string; itemId?: string; qty?: number }[],
+): { lineId: string; qty: number }[] {
+  if (Array.isArray(bodyLines) && bodyLines.length > 0) {
+    const byId = new Map(lines.map((line) => [line.id, line]));
+    const byItem = new Map(lines.map((line) => [line.itemId, line]));
+    return bodyLines.map((row) => {
+      const line =
+        (row.lineId ? byId.get(row.lineId) : undefined) ?? (row.itemId ? byItem.get(row.itemId) : undefined);
+      if (!line) badRequest("Line is not on this transfer");
+      const qty = row.qty === undefined || row.qty === null ? line.remaining : requireInt(row.qty, "qty");
+      return { lineId: line.id, qty };
+    });
+  }
+  return lines.filter((line) => line.remaining > 0).map((line) => ({ lineId: line.id, qty: line.remaining }));
+}
 
 async function transferWithLines(db: AppEnv["Variables"]["db"], organizationId: string, id: string) {
   const fromLoc = alias(schema.locations, "from_loc");
@@ -55,17 +103,11 @@ async function transferWithLines(db: AppEnv["Variables"]["db"], organizationId: 
     .limit(1);
   if (!row) notFound("Transfer not found");
   const lines = await db
-    .select({
-      id: schema.transferLines.id,
-      itemId: schema.transferLines.itemId,
-      qty: schema.transferLines.qty,
-      sku: schema.items.sku,
-      itemName: schema.items.name,
-    })
+    .select(transferLineSelect)
     .from(schema.transferLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.transferLines.itemId))
     .where(eq(schema.transferLines.transferId, id));
-  return { ...row, lines };
+  return { ...row, lines: lines.map(withMoveRemaining) };
 }
 
 floorRoute.get("/transfers", async (c) => {
@@ -95,12 +137,8 @@ floorRoute.get("/transfers", async (c) => {
   if (rows.length === 0) return c.json([]);
   const lines = await db
     .select({
-      id: schema.transferLines.id,
+      ...transferLineSelect,
       transferId: schema.transferLines.transferId,
-      itemId: schema.transferLines.itemId,
-      qty: schema.transferLines.qty,
-      sku: schema.items.sku,
-      itemName: schema.items.name,
     })
     .from(schema.transferLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.transferLines.itemId))
@@ -110,10 +148,10 @@ floorRoute.get("/transfers", async (c) => {
         rows.map((row) => row.id),
       ),
     );
-  const byTransfer = new Map<string, typeof lines>();
+  const byTransfer = new Map<string, ReturnType<typeof withMoveRemaining<(typeof lines)[number]>>[]>();
   for (const line of lines) {
     const list = byTransfer.get(line.transferId) ?? [];
-    list.push(line);
+    list.push(withMoveRemaining(line));
     byTransfer.set(line.transferId, list);
   }
   return c.json(rows.map((row) => ({ ...row, lines: byTransfer.get(row.id) ?? [] })));
@@ -151,7 +189,7 @@ floorRoute.post("/transfers", async (c) => {
     const qty = requireInt(line.qty, "qty");
     if (qty <= 0) badRequest("Line quantity must be positive");
     await getOrgItem(db, organizationId, itemId);
-    lines.push({ id: newId(), transferId: id, itemId, qty });
+    lines.push({ id: newId(), transferId: id, itemId, qty, qtyMoved: 0 });
   }
 
   await db.batch([
@@ -182,37 +220,58 @@ floorRoute.post("/transfers/:id/start", async (c) => {
 });
 
 floorRoute.post("/transfers/:id/post", async (c) => {
+  const body = await c.req
+    .json<{ lines?: { lineId?: string; itemId?: string; qty?: number }[] }>()
+    .catch(() => ({}) as { lines?: { lineId?: string; itemId?: string; qty?: number }[] });
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
   const transfer = await transferWithLines(db, organizationId, c.req.param("id"));
   if (!canPostTransfer(transfer.status)) conflict("Transfer already posted");
+  if (!hasUnmoved(transfer.lines.map(asMoveLine))) conflict("Transfer has nothing remaining to move");
+
+  const incoming = resolveIncomingMove(transfer.lines, body.lines).filter((line) => line.qty > 0);
+  let applied;
+  try {
+    applied = applyPartialMove(transfer.lines.map(asMoveLine), incoming);
+  } catch (err) {
+    if (err instanceof OverMoveError) throw err;
+    badRequest(err instanceof Error ? err.message : "Invalid transfer");
+  }
 
   const loaded = await loadBalanceMap(
     db,
     organizationId,
-    transfer.lines.flatMap((line) => [
-      { locationId: transfer.fromLocationId, itemId: line.itemId },
-      { locationId: transfer.toLocationId, itemId: line.itemId },
-    ]),
+    applied.posted.flatMap((row) => {
+      const line = transfer.lines.find((item) => item.id === row.lineId)!;
+      return [
+        { locationId: transfer.fromLocationId, itemId: line.itemId },
+        { locationId: transfer.toLocationId, itemId: line.itemId },
+      ];
+    }),
   );
   const plan = chainPlans(
     qtyMap(loaded),
-    transfer.lines.map((line) => (balances) =>
-      planMove({
-        itemId: line.itemId,
-        sku: line.sku,
-        fromLocationId: transfer.fromLocationId,
-        toLocationId: transfer.toLocationId,
-        qty: line.qty,
-        refId: transfer.id,
-        balances,
-        refType: "transfer",
-      }),
-    ),
+    applied.posted.map((row) => {
+      const line = transfer.lines.find((item) => item.id === row.lineId)!;
+      return (balances: Map<string, number>) =>
+        planMove({
+          itemId: line.itemId,
+          sku: line.sku,
+          fromLocationId: transfer.fromLocationId,
+          toLocationId: transfer.toLocationId,
+          qty: row.qty,
+          refId: transfer.id,
+          balances,
+          refType: "transfer",
+        });
+    }),
   );
 
   const now = Date.now();
+  const fully = isFullyMoved(applied.next);
+  const qtyMovedByLine = new Map(applied.next.map((line) => [line.lineId, line.qtyMoved]));
+
   await persistStockPlan(db, {
     organizationId,
     createdBy: user.id,
@@ -222,8 +281,17 @@ floorRoute.post("/transfers/:id/post", async (c) => {
     extra: [
       db
         .update(schema.transfers)
-        .set({ status: "posted", postedAt: now })
+        .set({
+          status: fully ? "posted" : "in_progress",
+          postedAt: fully ? now : transfer.postedAt,
+        })
         .where(eq(schema.transfers.id, transfer.id)),
+      ...transfer.lines.map((line) =>
+        db
+          .update(schema.transferLines)
+          .set({ qtyMoved: qtyMovedByLine.get(line.id) ?? line.qtyMoved })
+          .where(eq(schema.transferLines.id, line.id)),
+      ),
     ],
   });
 
@@ -776,7 +844,7 @@ floorRoute.get("/scan", async (c) => {
   if (parsed.kind === "transfer" || parsed.kind === "unknown") {
     const rows = await db.select().from(schema.transfers).where(eq(schema.transfers.organizationId, organizationId));
     const transfer = await findByNumber(rows, parsed.value);
-    if (transfer) return c.json({ kind: "transfer" as const, transfer });
+    if (transfer) return c.json({ kind: "transfer" as const, transfer: await transferWithLines(db, organizationId, transfer.id) });
     if (parsed.kind === "transfer") notFound("No transfer matches that barcode");
   }
 

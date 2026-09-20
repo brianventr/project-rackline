@@ -396,6 +396,7 @@ export const transferLines = sqliteTable("transfer_lines", {
     .notNull()
     .references(() => items.id),
   qty: integer("qty").notNull(),
+  qtyMoved: integer("qty_moved").notNull().default(0),
 });
 
 export const cycleCounts = sqliteTable("cycle_counts", {

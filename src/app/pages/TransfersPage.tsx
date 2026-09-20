@@ -4,6 +4,7 @@ import { api, type Item, type Location, type Transfer } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
 import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
 import { TRANSFER_STEPS, canPostTransfer } from "@/domain/status";
+import { hasUnmoved } from "@/domain/partial-transfer";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { LineFields } from "./ReceiptsPage";
 
@@ -140,18 +141,24 @@ function TransferList() {
 function TransferDetail({ id }: { id: string }) {
   const navigate = useNavigate();
   const [transfer, setTransfer] = useState<Transfer | null>(null);
+  const [moveQtys, setMoveQtys] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+
+  function applyTransfer(next: Transfer) {
+    setTransfer(next);
+    setMoveQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.id, String(line.remaining ?? 0)])));
+  }
 
   useEffect(() => {
     api<Transfer>(`/api/transfers/${id}`)
-      .then(setTransfer)
+      .then(applyTransfer)
       .catch((err: Error) => setError(err.message));
   }, [id]);
 
   async function start() {
     setError(null);
     try {
-      setTransfer(await api<Transfer>(`/api/transfers/${id}/start`, { method: "POST" }));
+      applyTransfer(await api<Transfer>(`/api/transfers/${id}/start`, { method: "POST" }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start");
     }
@@ -160,13 +167,29 @@ function TransferDetail({ id }: { id: string }) {
   async function post() {
     setError(null);
     try {
-      setTransfer(await api<Transfer>(`/api/transfers/${id}/post`, { method: "POST" }));
+      const lines = (transfer?.lines ?? [])
+        .map((line) => ({
+          lineId: line.id,
+          qty: Number(moveQtys[line.id] || 0),
+        }))
+        .filter((line) => line.qty > 0);
+      applyTransfer(await api<Transfer>(`/api/transfers/${id}/post`, { method: "POST", body: JSON.stringify({ lines }) }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not post");
     }
   }
 
   if (!transfer) return <ErrorBanner error={error} />;
+
+  const remaining = hasUnmoved(
+    (transfer.lines ?? []).map((line) => ({
+      lineId: line.id,
+      sku: line.sku,
+      qtyExpected: line.qty,
+      qtyMoved: line.qtyMoved ?? 0,
+    })),
+  );
+  const thisMove = Object.values(moveQtys).some((value) => Number(value) > 0);
 
   return (
     <div className="space-y-6">
@@ -182,11 +205,13 @@ function TransferDetail({ id }: { id: string }) {
               All putaway
             </Button>
             {transfer.status === "draft" ? <Button onClick={() => void start()}>Start</Button> : null}
-            {canPostTransfer(transfer.status) ? <Button onClick={() => void post()}>Post</Button> : null}
+            {canPostTransfer(transfer.status) && remaining ? (
+              <Button disabled={!thisMove} onClick={() => void post()}>
+                Post
+              </Button>
+            ) : null}
             <Button variant="secondary" asChild>
-              <Link to={`/floor/putaway?from=${encodeURIComponent(transfer.fromBarcode || transfer.fromCode || "")}`}>
-                Floor
-              </Link>
+              <Link to={`/floor/putaway?id=${transfer.id}`}>Floor</Link>
             </Button>
           </>
         }
@@ -195,16 +220,33 @@ function TransferDetail({ id }: { id: string }) {
       <DocumentFrame
         rail={
           <DocumentRail>
-            <DocumentActivity refId={transfer.id} />
+            <DocumentActivity
+              refId={transfer.id}
+              refreshKey={`${transfer.status}:${(transfer.lines ?? []).map((line) => line.qtyMoved).join(",")}`}
+            />
           </DocumentRail>
         }
       >
-        <Table columns={["SKU", "Item", "Qty"]}>
+        <Table columns={["SKU", "Item", "Expected", "Moved", "This move"]}>
           {(transfer.lines ?? []).map((line) => (
             <tr key={line.id}>
               <td className="px-4 py-3 font-mono">{line.sku}</td>
               <td className="px-4 py-3">{line.itemName}</td>
               <td className="px-4 py-3 font-mono">{line.qty}</td>
+              <td className="px-4 py-3 font-mono">{line.qtyMoved ?? 0}</td>
+              <td className="px-4 py-3">
+                {(line.remaining ?? 0) > 0 ? (
+                  <Input
+                    type="number"
+                    min={0}
+                    max={line.remaining}
+                    value={moveQtys[line.id] ?? "0"}
+                    onChange={(e) => setMoveQtys((current) => ({ ...current, [line.id]: e.target.value }))}
+                  />
+                ) : (
+                  <span className="text-muted-foreground">Done</span>
+                )}
+              </td>
             </tr>
           ))}
         </Table>
