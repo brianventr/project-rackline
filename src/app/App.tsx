@@ -40,6 +40,7 @@ import { FloorKitPage } from "./pages/floor/FloorKitPage";
 import { WarehouseSetupPage } from "./pages/setup/WarehouseSetupPage";
 import { TeamPage } from "./pages/setup/TeamPage";
 import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
+import { CarriersPage } from "./pages/setup/CarriersPage";
 import { ClientsPage } from "./pages/setup/ClientsPage";
 import { ZonesPage } from "./pages/setup/ZonesPage";
 import { ReplenishmentsPage } from "./pages/ReplenishmentsPage";
@@ -170,6 +171,14 @@ export function App() {
                 <ShopifyPage me={me} />
               </OwnerOnly>
             ) : null
+          }
+        />
+        <Route
+          path="/setup/carriers"
+          element={
+            <OwnerOnly>
+              <CarriersPage />
+            </OwnerOnly>
           }
         />
         <Route

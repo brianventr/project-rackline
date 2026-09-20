@@ -102,6 +102,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
             label: "Setup",
             items: [
               { title: "Shopify", url: "/setup/shopify", icon: Store },
+              { title: "Carriers", url: "/setup/carriers", icon: Truck },
               { title: "Warehouse", url: "/setup/warehouse", icon: Settings2 },
               { title: "Clients", url: "/setup/clients", icon: Users },
               { title: "Zones", url: "/setup/zones", icon: BoxSelect },

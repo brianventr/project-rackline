@@ -9,7 +9,14 @@ import { chainPlans, planPick, type MovementDraft, type StockPlan } from "../dom
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { fulfillShopifyOrder } from "../domain/shopify-fulfill";
 import { canPackOrder, canPickOrder, canShipOrder, canStartPack, canStartPick, canCancelOrder, canUnpickOrder } from "../domain/status";
-import { buildShippingLabel, isCarrierService, resolveCarrier } from "../domain/shipping-label";
+import { buildShippingLabel } from "../domain/shipping-label";
+import {
+  canVoidLabel,
+  enabledServicesFromConnections,
+  quoteRates,
+  resolveLabelPurchase,
+} from "../domain/carriers";
+import { loadCarrierConnections, recordCarrierEvent } from "./carriers";
 import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import {
@@ -567,47 +574,98 @@ ordersRoute.post("/orders/:id/start-pack", async (c) => {
   return c.json(await orderWithLines(db, organizationId, order.id));
 });
 
+async function warehouseShipFrom(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  warehouseId: string,
+) {
+  const [row] = await db
+    .select()
+    .from(schema.warehouses)
+    .where(and(eq(schema.warehouses.id, warehouseId), eq(schema.warehouses.organizationId, organizationId)))
+    .limit(1);
+  return row?.shipFromAddress ?? null;
+}
+
+type LabelBody = {
+  trackingNumber?: string;
+  trackingCompany?: string;
+  trackingUrl?: string;
+  carrierService?: string;
+  carrierConnectionId?: string;
+  shipToAddress?: string;
+};
+
+async function purchaseOrderLabel(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  order: Awaited<ReturnType<typeof orderWithLines>>,
+  body: LabelBody,
+) {
+  const connections = await loadCarrierConnections(db, organizationId);
+  const purchase = resolveLabelPurchase({
+    connections,
+    serviceId: body.carrierService?.trim() || order.carrierService,
+    connectionId: body.carrierConnectionId?.trim() || order.carrierConnectionId,
+  });
+  if (!purchase.ok) badRequest(purchase.error);
+  const shipFromAddress = await warehouseShipFrom(db, organizationId, order.warehouseId);
+  const label = buildShippingLabel({
+    ...order,
+    shipToAddress: body.shipToAddress?.trim() || order.shipToAddress,
+    shipFromAddress,
+    trackingNumber: body.trackingNumber?.trim() || order.trackingNumber,
+    trackingCompany: body.trackingCompany?.trim() || order.trackingCompany || purchase.service.company,
+    trackingUrl: body.trackingUrl?.trim() || order.trackingUrl,
+    carrierService: purchase.service.id,
+    carrierConnectionId: purchase.connectionId,
+    labelStatus: "purchased",
+  });
+  return { label, purchase, shipFromAddress };
+}
+
 ordersRoute.get("/orders/:id/label", async (c) => {
-  const order = await orderWithLines(c.get("db"), c.get("organizationId")!, c.req.param("id"), { suggest: false });
-  return c.json(buildShippingLabel(order));
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
+  if (!order.trackingNumber) conflict("Buy a label before printing");
+  const shipFromAddress = await warehouseShipFrom(db, organizationId, order.warehouseId);
+  return c.json(buildShippingLabel({ ...order, shipFromAddress }));
+});
+
+ordersRoute.post("/orders/:id/rates", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
+  const connections = await loadCarrierConnections(db, organizationId);
+  const services = enabledServicesFromConnections(connections);
+  const shipFromAddress = await warehouseShipFrom(db, organizationId, order.warehouseId);
+  const rates = quoteRates({
+    services,
+    shipFrom: shipFromAddress,
+    shipTo: order.shipToAddress,
+  });
+  const defaultConnection = connections.find((row) => row.isDefault) ?? connections[0];
+  await recordCarrierEvent(db, {
+    organizationId,
+    connectionId: defaultConnection?.id ?? null,
+    orderId: order.id,
+    kind: "rates",
+    status: "ok",
+    request: { orderId: order.id, shipFromAddress, shipToAddress: order.shipToAddress },
+    response: { rates },
+  });
+  return c.json({ rates, shipFromAddress, shipToAddress: order.shipToAddress });
 });
 
 ordersRoute.post("/orders/:id/label", async (c) => {
-  const body = await c.req
-    .json<{
-      trackingNumber?: string;
-      trackingCompany?: string;
-      trackingUrl?: string;
-      carrierService?: string;
-      shipToAddress?: string;
-    }>()
-    .catch(
-      () =>
-        ({}) as {
-          trackingNumber?: string;
-          trackingCompany?: string;
-          trackingUrl?: string;
-          carrierService?: string;
-          shipToAddress?: string;
-        },
-    );
+  const body = await c.req.json<LabelBody>().catch(() => ({}) as LabelBody);
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   const status = order.status === "draft" ? "open" : order.status;
   if (status === "cancelled") conflict("Cancelled orders cannot take a label");
-  const carrierService = body.carrierService?.trim() || order.carrierService || "rackline_ground";
-  if (!isCarrierService(carrierService)) badRequest("Unknown carrier service");
-  const carrier = resolveCarrier(carrierService);
-  const shipToAddress = body.shipToAddress?.trim() || order.shipToAddress;
-  const label = buildShippingLabel({
-    ...order,
-    shipToAddress,
-    trackingNumber: body.trackingNumber?.trim() || order.trackingNumber,
-    trackingCompany: body.trackingCompany?.trim() || order.trackingCompany || carrier.company,
-    trackingUrl: body.trackingUrl?.trim() || order.trackingUrl,
-    carrierService,
-  });
+  const { label, purchase } = await purchaseOrderLabel(db, organizationId, order, body);
   await db
     .update(schema.orders)
     .set({
@@ -615,26 +673,64 @@ ordersRoute.post("/orders/:id/label", async (c) => {
       trackingCompany: label.carrierCompany,
       trackingUrl: label.trackingUrl,
       carrierService: label.carrierServiceId,
+      carrierConnectionId: purchase.connectionId,
+      labelStatus: "purchased",
       shipToAddress: label.shipToAddress,
     })
     .where(eq(schema.orders.id, order.id));
-  return c.json(buildShippingLabel(await orderWithLines(db, organizationId, order.id, { suggest: false })));
+  await recordCarrierEvent(db, {
+    organizationId,
+    connectionId: purchase.connectionId,
+    orderId: order.id,
+    kind: "buy",
+    status: "ok",
+    request: {
+      carrierService: purchase.service.id,
+      connectionId: purchase.connectionId,
+      mode: "demo",
+    },
+    response: {
+      trackingNumber: label.trackingNumber,
+      trackingUrl: label.trackingUrl,
+      message: "Label minted locally. Live carrier APIs are not called yet.",
+    },
+  });
+  const next = await orderWithLines(db, organizationId, order.id, { suggest: false });
+  const shipFromAddress = await warehouseShipFrom(db, organizationId, next.warehouseId);
+  return c.json(buildShippingLabel({ ...next, shipFromAddress }));
+});
+
+ordersRoute.post("/orders/:id/label/void", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
+  const decision = canVoidLabel({ status: order.status, labelStatus: order.labelStatus });
+  if (!decision.ok) {
+    if (decision.code === "SHIPPED" || decision.code === "CANCELLED") conflict(decision.error);
+    badRequest(decision.error);
+  }
+  await db
+    .update(schema.orders)
+    .set({
+      trackingNumber: null,
+      trackingUrl: null,
+      labelStatus: "voided",
+    })
+    .where(eq(schema.orders.id, order.id));
+  await recordCarrierEvent(db, {
+    organizationId,
+    connectionId: order.carrierConnectionId,
+    orderId: order.id,
+    kind: "void",
+    status: "ok",
+    request: { trackingNumber: order.trackingNumber, carrierService: order.carrierService },
+    response: { voided: true },
+  });
+  return c.json(await orderWithLines(db, organizationId, order.id, { suggest: false }));
 });
 
 ordersRoute.post("/orders/:id/ship", async (c) => {
-  const body = await c.req.json<{
-    trackingNumber?: string;
-    trackingCompany?: string;
-    trackingUrl?: string;
-    carrierService?: string;
-    shipToAddress?: string;
-  }>().catch(() => ({} as {
-    trackingNumber?: string;
-    trackingCompany?: string;
-    trackingUrl?: string;
-    carrierService?: string;
-    shipToAddress?: string;
-  }));
+  const body = await c.req.json<LabelBody>().catch(() => ({}) as LabelBody);
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
@@ -676,16 +772,7 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   });
   const plan: StockPlan = { balances: new Map(), movements };
   const now = Date.now();
-  const carrierService = body.carrierService?.trim() || order.carrierService || "rackline_ground";
-  if (!isCarrierService(carrierService)) badRequest("Unknown carrier service");
-  const label = buildShippingLabel({
-    ...order,
-    shipToAddress: body.shipToAddress?.trim() || order.shipToAddress,
-    trackingNumber: body.trackingNumber?.trim() || order.trackingNumber,
-    trackingCompany: body.trackingCompany?.trim() || order.trackingCompany,
-    trackingUrl: body.trackingUrl?.trim() || order.trackingUrl,
-    carrierService,
-  });
+  const { label, purchase } = await purchaseOrderLabel(db, organizationId, order, body);
   await persistStockPlan(db, {
     organizationId,
     createdBy: user.id,
@@ -702,6 +789,8 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
           trackingCompany: label.carrierCompany,
           trackingUrl: label.trackingUrl,
           carrierService: label.carrierServiceId,
+          carrierConnectionId: purchase.connectionId,
+          labelStatus: "purchased",
           shipToAddress: label.shipToAddress,
           shopifySyncStatus: order.source === "shopify" ? "pending_fulfill" : order.shopifySyncStatus,
         })

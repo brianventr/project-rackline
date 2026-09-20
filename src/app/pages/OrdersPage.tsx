@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type Item, type Location, type Order } from "../api";
+import { api, type CarrierHub, type CarrierRate, type CarrierServiceOption, type Item, type Location, type Order, type ShippingLabel } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
 import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
 import { ORDER_STEPS, canPackOrder, canPickOrder, canShipOrder, canStartPick, canCancelOrder, canUnpickOrder } from "@/domain/status";
@@ -112,19 +112,26 @@ function OrderDetail({ id }: { id: string }) {
   const [trackingNumber, setTrackingNumber] = useState("");
   const [trackingCompany, setTrackingCompany] = useState("");
   const [carrierService, setCarrierService] = useState("rackline_ground");
+  const [services, setServices] = useState<CarrierServiceOption[]>([]);
+  const [rates, setRates] = useState<CarrierRate[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
-    const [next, nextLocations] = await Promise.all([api<Order>(`/api/orders/${id}`), api<Location[]>("/api/locations")]);
+    const [next, nextLocations, hub] = await Promise.all([
+      api<Order>(`/api/orders/${id}`),
+      api<Location[]>("/api/locations"),
+      api<CarrierHub>("/api/carriers"),
+    ]);
     setOrder(next);
     setLocations(nextLocations);
+    setServices(hub.enabledServices);
     setPickLocation(defaultPickLocation(next, nextLocations));
     setQtys(qtyDefaults(next));
     setPackQtys(packQtyDefaults(next));
     setUnpickQtys(unpickQtyDefaults(next));
     setTrackingNumber(next.trackingNumber || "");
     setTrackingCompany(next.trackingCompany || "");
-    setCarrierService(next.carrierService || "rackline_ground");
+    setCarrierService(next.carrierService || hub.enabledServices.find((row) => row.isDefault)?.id || "rackline_ground");
   }
 
   useEffect(() => {
@@ -359,9 +366,13 @@ function OrderDetail({ id }: { id: string }) {
               </Field>
               <Field label="Carrier service">
                 <Select value={carrierService} onChange={(e) => setCarrierService(e.target.value)}>
-                  <option value="rackline_ground">Rackline Ground</option>
-                  <option value="ups_ground">UPS Ground</option>
-                  <option value="usps_priority">USPS Priority</option>
+                  {(services.length ? services : [{ id: "rackline_ground", company: "Rackline", service: "Ground" }]).map(
+                    (row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.company} {row.service}
+                      </option>
+                    ),
+                  )}
                 </Select>
               </Field>
               <Field label="Tracking">
@@ -371,19 +382,79 @@ function OrderDetail({ id }: { id: string }) {
                 <Input value={trackingCompany} onChange={(e) => setTrackingCompany(e.target.value)} />
               </Field>
               {order.shipToAddress ? <p className="whitespace-pre-line text-sm text-muted-foreground">{order.shipToAddress}</p> : null}
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  void api(`/api/orders/${id}/label`, {
-                    method: "POST",
-                    body: JSON.stringify({ carrierService, trackingNumber: trackingNumber || undefined }),
-                  })
-                    .then(() => load())
-                    .catch((err: Error) => setError(err.message))
-                }
-              >
-                Buy label
-              </Button>
+              {order.labelStatus ? (
+                <p className="text-sm">
+                  Label <StatusBadge status={order.labelStatus} />
+                </p>
+              ) : null}
+              {rates.length > 0 ? (
+                <ul className="space-y-1 text-sm">
+                  {rates.map((rate) => (
+                    <li key={rate.id}>
+                      <button
+                        type="button"
+                        className="underline-offset-4 hover:underline"
+                        onClick={() => {
+                          setCarrierService(rate.id);
+                          setTrackingCompany(rate.company);
+                        }}
+                      >
+                        {rate.company} {rate.service}
+                      </button>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · ${(rate.amountCents / 100).toFixed(2)} · {rate.transitDays}d
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    void api<{ rates: CarrierRate[] }>(`/api/orders/${id}/rates`, { method: "POST" })
+                      .then((result) => setRates(result.rates))
+                      .catch((err: Error) => setError(err.message))
+                  }
+                >
+                  Shop rates
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    void api<ShippingLabel>(`/api/orders/${id}/label`, {
+                      method: "POST",
+                      body: JSON.stringify({ carrierService, trackingNumber: trackingNumber || undefined }),
+                    })
+                      .then((label) => {
+                        setTrackingNumber(label.trackingNumber);
+                        setTrackingCompany(label.carrierCompany);
+                        return load();
+                      })
+                      .catch((err: Error) => setError(err.message))
+                  }
+                >
+                  Buy label
+                </Button>
+                {order.labelStatus === "purchased" && order.status !== "shipped" ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      void api(`/api/orders/${id}/label/void`, { method: "POST" })
+                        .then(() => load())
+                        .catch((err: Error) => setError(err.message))
+                    }
+                  >
+                    Void
+                  </Button>
+                ) : null}
+                {order.trackingNumber ? (
+                  <Button variant="secondary" asChild>
+                    <Link to={`/outbound/orders/${id}/shipping-label`}>Print label</Link>
+                  </Button>
+                ) : null}
+              </div>
             </Card>
             <DocumentActivity
               refId={order.id}
