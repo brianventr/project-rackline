@@ -13,6 +13,7 @@ import {
   consumeAllocations,
   InsufficientAtpError,
   isAtpRestrictedType,
+  matchingAllocation,
   planAllocations,
   type OpenAllocation,
 } from "../domain/allocations";
@@ -186,6 +187,60 @@ export function consumeAllocationStatements(
       )
       .where(eq(schema.inventoryAllocations.id, row.id)),
   );
+}
+
+export function restoreAllocationStatements(
+  db: AppDb,
+  input: {
+    organizationId: string;
+    warehouseId: string;
+    orderId: string;
+    allocations: OpenAllocation[];
+    orderLineId: string;
+    locationId: string;
+    itemId: string;
+    qty: number;
+    now: number;
+  },
+): BatchItem<"sqlite">[] {
+  if (!Number.isInteger(input.qty) || input.qty <= 0) return [];
+  const existing = matchingAllocation(input.allocations, input.orderLineId, input.locationId);
+  if (existing) {
+    const nextQty = existing.qty + input.qty;
+    existing.qty = nextQty;
+    return [
+      db
+        .update(schema.inventoryAllocations)
+        .set({ qty: nextQty, status: "open", releasedAt: null })
+        .where(eq(schema.inventoryAllocations.id, existing.id)),
+    ];
+  }
+  const id = newId();
+  input.allocations.push({
+    id,
+    orderId: input.orderId,
+    orderLineId: input.orderLineId,
+    locationId: input.locationId,
+    locationCode: "",
+    itemId: input.itemId,
+    sku: "",
+    qty: input.qty,
+  });
+  return [
+    db.insert(schema.inventoryAllocations).values({
+      id,
+      organizationId: input.organizationId,
+      warehouseId: input.warehouseId,
+      orderId: input.orderId,
+      orderLineId: input.orderLineId,
+      locationId: input.locationId,
+      itemId: input.itemId,
+      qty: input.qty,
+      status: "open",
+      createdAt: input.now,
+      releasedAt: null,
+    }),
+  ];
 }
 
 export function releaseAllocationStatements(db: AppDb, orderId: string, now: number): BatchItem<"sqlite">[] {

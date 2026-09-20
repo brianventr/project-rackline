@@ -772,6 +772,7 @@ catalogRoute.get("/dashboard", async (c) => {
       status: schema.replenishments.status,
       itemId: schema.replenishments.itemId,
       qty: schema.replenishments.qty,
+      qtyMoved: schema.replenishments.qtyMoved,
       fromLocationId: schema.replenishments.fromLocationId,
       toLocationId: schema.replenishments.toLocationId,
       fromCode: rplFrom.code,

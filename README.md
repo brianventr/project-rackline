@@ -24,7 +24,7 @@ Iteration 9 makes cycle counts blind: the floor and office hide system qty until
 
 Iteration 10 adds inventory holds: lock a bay, a location:item, or a lot so pick, replenish, kit, and move skip it. Qty stays on the ledger. Floor gets a Hold verb; Today lists what is locked. Receive, count, adjust, and ship still run.
 
-Iteration 11 reserves ATP when pick starts: location:item allocations (on-hand − held − allocated). A second order that would oversell returns HTTP 409 (`INSUFFICIENT_ATP`). Create and Shopify ingest stay promises until start. Leftover reservations release on ship or Shopify cancel.
+Iteration 11 reserves ATP when pick starts: location:item allocations (on-hand − held − allocated). A second order that would oversell returns HTTP 409 (`INSUFFICIENT_ATP`). Create and Shopify ingest stay promises until start. Leftover reservations release on ship, office/floor cancel, or Shopify cancel. Unpick restores the reservation.
 
 Iteration 12 lets a cycle count take an unexpected SKU: scan or add a catalog item that was not on the bay snapshot. Posting still adjusts against current on-hand, so a found SKU with system 0 becomes a +variance.
 
@@ -45,6 +45,10 @@ Iteration 19 adds vendor RTV: an outbound return-to-vendor document under Inboun
 Iteration 20 adds dekit: reverse a fully completed kit using its as-built lots and serials. Finished goods leave the output bay; components return to the source bay. Partial kits cannot be dekitted.
 
 Iteration 21 adds partial kit / work-order complete: headers track `qty_completed` vs qty, over-complete 409, and the document stays `in_progress` until the header qty is filled. Each complete posts BOM × this-complete qty and writes as-built for that slice.
+
+Iteration 22 adds partial replenish: tickets track moved vs expected qty, over-move 409, and the document stays `in_progress` until the pick face qty is filled.
+
+Iteration 23 adds unpick and office/floor cancel: unpacked qty returns to the bay (`unpick` movement), leftover ATP is restored, and cancel restores picked (including packed) qty then releases allocations. Shopify `orders/cancelled` uses the same restore.
 
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
@@ -70,7 +74,7 @@ Open [http://localhost:5173](http://localhost:5173). Guests see the landing page
 On the sign-in screen, either:
 
 - Create an organization, or
-- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt `RCP-DEMO1` (12× LED-BULB + 6× SHADE — partial receive is allowed), purchase order `PO-DEMO1` (Harbor Components), vendor return `RTV-DEMO1` (2× LED-BULB from `A-01-01` — partial return is allowed), return `RMA-DEMO1` (Harbor Workshop, restock), putaway ticket `XFR-DEMO1` (8× SHADE + 6× BASE from `A-01-01` to `A-02-02` — partial move is allowed), a floor order, Shopify order `#1004` (Maya Chen), work order `WO-DEMO1` (qty 4 — partial complete is allowed), and kit `KIT-DEMO1` (qty 2 — partial complete, then dekit). LED-BULB is lot-tracked (`LOT-2026-A` / `LOT-2026-B`) with pick min 20 on `A-01-02`; LAMP is serial-tracked (`LAMP-1001`–`LAMP-1014`) with pick min 12 on `B-01-01`; RESIN is catch-weight (6 bottles / 3000 g on `A-01-01`); GLUE is lot + expiry (`LOT-OLD` / `LOT-NEW` on `A-01-01`, expired `LOT-DEAD` on `A-01-03`). `LAMP-1001` is seeded with as-built component lots. Then open **Map** and **Move**.
+- Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt `RCP-DEMO1` (12× LED-BULB + 6× SHADE — partial receive is allowed), purchase order `PO-DEMO1` (Harbor Components), vendor return `RTV-DEMO1` (2× LED-BULB from `A-01-01` — partial return is allowed), return `RMA-DEMO1` (Harbor Workshop, restock), putaway ticket `XFR-DEMO1` (8× SHADE + 6× BASE from `A-01-01` to `A-02-02` — partial move is allowed), replenishment `RPL-DEMO1` (14× LED-BULB from `A-01-01` to `A-01-02` — partial move is allowed), a floor order, Shopify order `#1004` (Maya Chen), work order `WO-DEMO1` (qty 4 — partial complete is allowed), and kit `KIT-DEMO1` (qty 2 — partial complete, then dekit). LED-BULB is lot-tracked (`LOT-2026-A` / `LOT-2026-B`) with pick min 20 on `A-01-02`; LAMP is serial-tracked (`LAMP-1001`–`LAMP-1014`) with pick min 12 on `B-01-01`; RESIN is catch-weight (6 bottles / 3000 g on `A-01-01`); GLUE is lot + expiry (`LOT-OLD` / `LOT-NEW` on `A-01-01`, expired `LOT-DEAD` on `A-01-03`). `LAMP-1001` is seeded with as-built component lots. Then open **Map** and **Move**.
 
 `wrangler.jsonc` uses a placeholder `database_id`. Local D1 does not need a Cloudflare account. When you are ready to deploy:
 
@@ -109,20 +113,20 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 
 - **Receive** adds qty to a location (blank receipt, purchase order, or customer return). Lines track received vs expected; posting more than remaining returns HTTP 409 (`OVER_RECEIVE`); the document stays `receiving` until every unit is in. Return lines choose restock, scrap, or hold; scrap writes receive then scrap in one persist so on-hand is unchanged; hold opens a QC lock on the bay SKU after receive; unknown disposition is HTTP 400
 - **Move / transfer** decrements the from bin and increments the to bin in one ledger movement. Lines track moved vs expected; posting more than remaining returns HTTP 409 (`OVER_MOVE`); the document stays `in_progress` until every unit is moved. Dock, ship, and bench stock get a suggested bulk/storage bay (same idea as directed pick). Moves cannot steal qty reserved for an open pick
-- **Pick** decrements the pick bin. Starting pick reserves remaining qty against ATP (on-hand − held − allocated) on location:item. A second start that would oversell returns HTTP 409 (`INSUFFICIENT_ATP`). Lines track picked vs ordered; posting more than remaining returns HTTP 409 (`OVER_PICK`); the document stays `picking` until every unit is picked. The API suggests a pick-face bay that still covers remaining qty for this order
+- **Pick** decrements the pick bin. Starting pick reserves remaining qty against ATP (on-hand − held − allocated) on location:item. A second start that would oversell returns HTTP 409 (`INSUFFICIENT_ATP`). Lines track picked vs ordered; posting more than remaining returns HTTP 409 (`OVER_PICK`); the document stays `picking` until every unit is picked. The API suggests a pick-face bay that still covers remaining qty for this order. Unpick puts unpacked qty back on a bay (`unpick` movement) and restores ATP; posting more than unpacked remaining returns HTTP 409 (`OVER_UNPICK`). Cancel restores all picked qty (including packed), releases allocations, and marks the order `cancelled`. Shipped orders cannot be cancelled.
 - **Pack slip** prints ordered vs picked vs packed qty from the order record
 - **Pack** posts packed qty against picked qty. Posting more than remaining returns HTTP 409 (`OVER_PACK`); the document stays `packing` until every picked unit is in the box. Pack does not move the location:item ledger (qty already left at pick)
 - **Ship** writes an outbound movement (qty already left at pick), releases leftover allocations, and, for Shopify orders, creates a fulfillment
 - **Adjust** applies a signed delta with a reason
 - **Cycle count** snapshots a bin without showing system qty. Every SKU must be entered (0 is a real count); posting more than once is blocked. Empty bays can be confirmed empty. A SKU that was not on the snapshot can be scanned or added; posting still adjusts against *current* on-hand so concurrent movement is not double-applied; Today lists posted counts where counted ≠ system
 - **Hold** locks a bay, a SKU in a bay, or a lot. Pick, move, replenish, kit consume, work-order consume, and vendor RTV return HTTP 409 (`HELD_STOCK`). Receive, count, adjust, produce, ship, and scrap still post. FIFO skips held lots when other lots cover the qty. A return received as hold opens a QC lock on the bay SKU (or lot) after the receive
-- **Allocate** reserves remaining order qty on pick start against location:item ATP. Pick, move, replenish, kit consume, work-order consume, and vendor RTV return HTTP 409 (`INSUFFICIENT_ATP`) when they would take another order's reservation. Receive, count, adjust, produce, and ship still post
+- **Allocate** reserves remaining order qty on pick start against location:item ATP. Pick, move, replenish, kit consume, work-order consume, and vendor RTV return HTTP 409 (`INSUFFICIENT_ATP`) when they would take another order's reservation. Receive, count, adjust, produce, ship, and unpick still post. Leftover reservations release on ship, office/floor cancel, or Shopify cancel. Unpick restores the reservation on the bay the qty returned to.
 - **Work order complete** consumes `BOM qty × this-complete qty` from the source location and produces finished goods into the output location. Header `qty_completed` vs qty; posting more than remaining returns HTTP 409 (`OVER_COMPLETE`); the document stays `in_progress` until the header qty is filled. Short components return HTTP 409
 - **Kit complete** is the same explode, in one step, with `kit_consume` / `kit_produce` ledger types. Completing a kit or work order writes as-built links from each finished serial/lot to the component lots/serials consumed
 - **Dekit** reverses a fully completed kit from its as-built rows: consume finished from the output bay, restore components onto the source bay. In-progress kits cannot be dekitted. Status becomes `dekitted`
 - **Vendor RTV** decrements the from-bay (`rtv` movement). Lines track returned vs expected; posting more than remaining returns HTTP 409 (`OVER_RETURN`); the document stays `returning` until every unit is shipped back. Holds and ATP apply like pick
 - **As-built** is lookup, not a second qty ledger. Floor Lookup scans a serial (`LAMP-1001`) or lot (`LOT-2026-A`) and shows built-from / used-in. The office item, kit, and work-order records show the same links
-- **Replenish** moves bulk storage onto a pick face when on-hand is below the SKU's pick min
+- **Replenish** moves bulk storage onto a pick face when on-hand is below the SKU's pick min. Tickets track moved vs expected qty; posting more than remaining returns HTTP 409 (`OVER_MOVE`); the document stays `in_progress` until every unit is moved
 - **Lots / serials** overlay the location:item balance. Receive requires a vendor lot or matching serials; pick/move FIFO the oldest lot or serial if omitted
 - **Shipping label** mints `RL-` tracking (Rackline Ground / UPS Ground / USPS Priority) and prints from the order
 - **Print station** scans a bay, SKU, or order. Pack slips queue once picking has started; shipping labels once the ticket is picked. Floor **Print** and Setup **Labels** share that queue
@@ -131,6 +135,6 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 ## Roles
 
 - `owner` — full catalog, including deletes, and Shopify credentials
-- `operator` — floor actions (receive, transfer, pick, ship, complete WO, kit, dekit, vendor RTV, cycle count, hold, adjust) and Shopify order simulation. Cannot delete items, locations, or BOMs
+- `operator` — floor actions (receive, transfer, pick, unpick, cancel, ship, complete WO, kit, dekit, vendor RTV, cycle count, hold, adjust) and Shopify order simulation. Cannot delete items, locations, or BOMs
 
 Signup creates an organization plus a default **Main warehouse**.

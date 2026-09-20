@@ -316,6 +316,7 @@ export type OrderLine = {
   qtyPacked?: number;
   remaining: number;
   packRemaining?: number;
+  unpickRemaining?: number;
   allocatedQty?: number;
   allocations?: OrderAllocation[];
   sku: string;
@@ -429,6 +430,8 @@ export type Replenishment = {
   status: string;
   itemId: string;
   qty: number;
+  qtyMoved?: number;
+  remaining?: number;
   sku: string;
   itemName: string;
   fromLocationId: string;
@@ -438,6 +441,8 @@ export type Replenishment = {
   warehouseId?: string;
   notes?: string | null;
   createdAt: number;
+  trackLot?: boolean;
+  trackSerial?: boolean;
 };
 
 export type ReplenishSuggestion = {

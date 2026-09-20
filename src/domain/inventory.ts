@@ -9,7 +9,8 @@ export type MovementType =
   | "kit_consume"
   | "kit_produce"
   | "scrap"
-  | "rtv";
+  | "rtv"
+  | "unpick";
 
 export type MovementDraft = {
   type: MovementType;
@@ -159,6 +160,39 @@ export function planShip(input: {
         fromLocationId: input.locationId,
         refType: "order",
         refId: input.refId,
+        weightGrams: input.weightGrams ?? null,
+      },
+    ],
+  };
+}
+
+export function planUnpick(input: {
+  itemId: string;
+  sku: string;
+  locationId: string;
+  qty: number;
+  refId: string;
+  balances: Map<string, number>;
+  lotCode?: string | null;
+  serials?: string[] | null;
+  weightGrams?: number | null;
+}): StockPlan {
+  requirePositiveQty(input.qty);
+  const balances = new Map(input.balances);
+  applyDelta(balances, input.locationId, input.itemId, input.qty, input.sku);
+  return {
+    balances,
+    movements: [
+      {
+        type: "unpick",
+        itemId: input.itemId,
+        qty: input.qty,
+        toLocationId: input.locationId,
+        refType: "order",
+        refId: input.refId,
+        reason: "Unpick",
+        lotCode: input.lotCode ?? null,
+        serials: input.serials ?? null,
         weightGrams: input.weightGrams ?? null,
       },
     ],

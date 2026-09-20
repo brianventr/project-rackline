@@ -10,6 +10,7 @@ import { OverPackError } from "./domain/partial-pack";
 import { OverMoveError } from "./domain/partial-transfer";
 import { OverReturnError } from "./domain/partial-rtv";
 import { OverCompleteError } from "./domain/partial-complete";
+import { OverUnpickError } from "./domain/partial-unpick";
 import { HeldStockError } from "./domain/holds";
 import { ExpiredLotError } from "./domain/expiry";
 import { InsufficientAtpError } from "./domain/allocations";
@@ -116,6 +117,18 @@ app.onError((err, c) => {
       {
         error: err.message,
         code: "OVER_COMPLETE",
+        sku: err.sku,
+        remaining: err.remaining,
+        qty: err.qty,
+      },
+      409,
+    );
+  }
+  if (err instanceof OverUnpickError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "OVER_UNPICK",
         sku: err.sku,
         remaining: err.remaining,
         qty: err.qty,

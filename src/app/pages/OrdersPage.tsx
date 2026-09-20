@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Item, type Location, type Order } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
 import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
-import { ORDER_STEPS, canPackOrder, canPickOrder, canShipOrder, canStartPick } from "@/domain/status";
+import { ORDER_STEPS, canPackOrder, canPickOrder, canShipOrder, canStartPick, canCancelOrder, canUnpickOrder } from "@/domain/status";
 import { hasUnpicked } from "@/domain/partial-pick";
 import { hasUnpacked } from "@/domain/partial-pack";
 import { useWarehouse, inWarehouse } from "../warehouse";
@@ -104,6 +104,7 @@ function OrderDetail({ id }: { id: string }) {
   const [pickLocation, setPickLocation] = useState("");
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [packQtys, setPackQtys] = useState<Record<string, string>>({});
+  const [unpickQtys, setUnpickQtys] = useState<Record<string, string>>({});
   const [lots, setLots] = useState<Record<string, string>>({});
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
@@ -119,6 +120,7 @@ function OrderDetail({ id }: { id: string }) {
     setPickLocation(defaultPickLocation(next, nextLocations));
     setQtys(qtyDefaults(next));
     setPackQtys(packQtyDefaults(next));
+    setUnpickQtys(unpickQtyDefaults(next));
     setTrackingNumber(next.trackingNumber || "");
     setTrackingCompany(next.trackingCompany || "");
     setCarrierService(next.carrierService || "rackline_ground");
@@ -136,6 +138,7 @@ function OrderDetail({ id }: { id: string }) {
       setPickLocation(defaultPickLocation(next, locations));
       setQtys(qtyDefaults(next));
       setPackQtys(packQtyDefaults(next));
+      setUnpickQtys(unpickQtyDefaults(next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start pick");
     }
@@ -162,6 +165,7 @@ function OrderDetail({ id }: { id: string }) {
       setPickLocation(defaultPickLocation(next, locations));
       setQtys(qtyDefaults(next));
       setPackQtys(packQtyDefaults(next));
+      setUnpickQtys(unpickQtyDefaults(next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Pick failed");
     }
@@ -183,8 +187,46 @@ function OrderDetail({ id }: { id: string }) {
       });
       setOrder(next);
       setPackQtys(packQtyDefaults(next));
+      setUnpickQtys(unpickQtyDefaults(next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Pack failed");
+    }
+  }
+
+  async function unpick() {
+    if (!order) return;
+    setError(null);
+    try {
+      const lines = (order.lines ?? [])
+        .map((line) => ({
+          lineId: line.id,
+          qty: Number(unpickQtys[line.id] || 0),
+        }))
+        .filter((line) => line.qty > 0);
+      const next = await api<Order>(`/api/orders/${id}/unpick`, {
+        method: "POST",
+        body: JSON.stringify({ locationId: pickLocation || undefined, lines }),
+      });
+      setOrder(next);
+      setPickLocation(defaultPickLocation(next, locations));
+      setQtys(qtyDefaults(next));
+      setPackQtys(packQtyDefaults(next));
+      setUnpickQtys(unpickQtyDefaults(next));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unpick failed");
+    }
+  }
+
+  async function cancel() {
+    setError(null);
+    try {
+      const next = await api<Order>(`/api/orders/${id}/cancel`, { method: "POST" });
+      setOrder(next);
+      setQtys(qtyDefaults(next));
+      setPackQtys(packQtyDefaults(next));
+      setUnpickQtys(unpickQtyDefaults(next));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancel failed");
     }
   }
 
@@ -234,6 +276,8 @@ function OrderDetail({ id }: { id: string }) {
   );
   const thisPick = Object.values(qtys).some((value) => Number(value) > 0);
   const thisPack = Object.values(packQtys).some((value) => Number(value) > 0);
+  const thisUnpick = Object.values(unpickQtys).some((value) => Number(value) > 0);
+  const unpickable = (order.lines ?? []).some((line) => (line.unpickRemaining ?? 0) > 0);
 
   return (
     <div className="space-y-6">
@@ -261,6 +305,16 @@ function OrderDetail({ id }: { id: string }) {
             {canPackOrder(order.status) && unpacked ? (
               <Button disabled={!thisPack} onClick={() => void pack()}>
                 Pack
+              </Button>
+            ) : null}
+            {canUnpickOrder(order.status) && unpickable ? (
+              <Button variant="secondary" disabled={!thisUnpick} onClick={() => void unpick()}>
+                Unpick
+              </Button>
+            ) : null}
+            {canCancelOrder(order.status) ? (
+              <Button variant="secondary" onClick={() => void cancel()}>
+                Cancel
               </Button>
             ) : null}
             {canShipOrder(order.status) ? (
@@ -337,7 +391,7 @@ function OrderDetail({ id }: { id: string }) {
           </DocumentRail>
         }
       >
-        <Table columns={["SKU", "Item", "Ordered", "Picked", "Packed", "Allocated", "Bay", "This pick", "This pack", "Lot / serial"]}>
+        <Table columns={["SKU", "Item", "Ordered", "Picked", "Packed", "Allocated", "Bay", "This pick", "This pack", "This unpick", "Lot / serial"]}>
           {(order.lines ?? []).map((line) => (
             <tr key={line.id}>
               <td className="px-4 py-3 font-mono">{line.sku}</td>
@@ -393,6 +447,19 @@ function OrderDetail({ id }: { id: string }) {
                 )}
               </td>
               <td className="px-4 py-3">
+                {(line.unpickRemaining ?? 0) > 0 ? (
+                  <Input
+                    type="number"
+                    min={0}
+                    max={line.unpickRemaining}
+                    value={unpickQtys[line.id] ?? "0"}
+                    onChange={(e) => setUnpickQtys((current) => ({ ...current, [line.id]: e.target.value }))}
+                  />
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </td>
+              <td className="px-4 py-3">
                 {line.trackLot ? (
                   <Input
                     placeholder="Lot"
@@ -435,6 +502,10 @@ function qtyDefaults(order: Order): Record<string, string> {
 
 function packQtyDefaults(order: Order): Record<string, string> {
   return Object.fromEntries((order.lines ?? []).map((line) => [line.id, String(line.packRemaining ?? 0)]));
+}
+
+function unpickQtyDefaults(order: Order): Record<string, string> {
+  return Object.fromEntries((order.lines ?? []).map((line) => [line.id, String(line.unpickRemaining ?? 0)]));
 }
 
 function defaultPickLocation(order: Order, locations: Location[]): string {

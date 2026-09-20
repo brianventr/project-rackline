@@ -8,7 +8,7 @@ import { docNumber, newId } from "../lib/ids";
 import { chainPlans, planPick, type MovementDraft, type StockPlan } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { fulfillShopifyOrder } from "../domain/shopify-fulfill";
-import { canPackOrder, canPickOrder, canShipOrder, canStartPack, canStartPick } from "../domain/status";
+import { canPackOrder, canPickOrder, canShipOrder, canStartPack, canStartPick, canCancelOrder, canUnpickOrder } from "../domain/status";
 import { buildShippingLabel, isCarrierService, resolveCarrier } from "../domain/shipping-label";
 import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
@@ -37,6 +37,8 @@ import {
   loadOpenAllocations,
   releaseAllocationStatements,
 } from "../db/allocations";
+import { cancelOrderDocument, persistUnpick, remainingToUnpick } from "../db/unpick";
+import { OverUnpickError } from "../domain/partial-unpick";
 import type { OpenAllocation } from "../domain/allocations";
 
 export const ordersRoute = new Hono<AppEnv>();
@@ -82,6 +84,12 @@ function withRemaining<T extends { id: string; sku: string; qty: number; qtyPick
     ...line,
     remaining: remainingToPick(asPickLine(line)),
     packRemaining: remainingToPack(asPackLine(line)),
+    unpickRemaining: remainingToUnpick({
+      lineId: line.id,
+      sku: line.sku,
+      qtyPicked: line.qtyPicked,
+      qtyPacked: line.qtyPacked,
+    }),
   };
 }
 
@@ -123,6 +131,12 @@ async function withSuggestions<
       ...line,
       remaining,
       packRemaining: remainingToPack(asPackLine(line)),
+      unpickRemaining: remainingToUnpick({
+        lineId: line.id,
+        sku: line.sku,
+        qtyPicked: line.qtyPicked,
+        qtyPacked: line.qtyPacked,
+      }),
       suggestedLocation: suggested
         ? {
             locationId: suggested.locationId,
@@ -228,6 +242,33 @@ function resolveIncomingPack(
     });
   }
   return lines.filter((line) => line.packRemaining > 0).map((line) => ({ lineId: line.id, qty: line.packRemaining }));
+}
+
+function resolveIncomingUnpick(
+  lines: { id: string; itemId: string; sku: string; qtyPicked: number; qtyPacked: number }[],
+  bodyLines?: { lineId?: string; itemId?: string; qty?: number }[],
+): { lineId: string; qty: number }[] {
+  const decorated = lines.map((line) => ({
+    ...line,
+    unpickRemaining: remainingToUnpick({
+      lineId: line.id,
+      sku: line.sku,
+      qtyPicked: line.qtyPicked,
+      qtyPacked: line.qtyPacked,
+    }),
+  }));
+  if (Array.isArray(bodyLines) && bodyLines.length > 0) {
+    const byId = new Map(decorated.map((line) => [line.id, line]));
+    const byItem = new Map(decorated.map((line) => [line.itemId, line]));
+    return bodyLines.map((row) => {
+      const line =
+        (row.lineId ? byId.get(row.lineId) : undefined) ?? (row.itemId ? byItem.get(row.itemId) : undefined);
+      if (!line) badRequest("Line is not on this order");
+      const qty = row.qty === undefined || row.qty === null ? line.unpickRemaining : requireInt(row.qty, "qty");
+      return { lineId: line.id, qty };
+    });
+  }
+  return decorated.filter((line) => line.unpickRemaining > 0).map((line) => ({ lineId: line.id, qty: line.unpickRemaining }));
 }
 
 ordersRoute.get("/orders", async (c) => {
@@ -664,6 +705,63 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
     shopify = await fulfillShopifyOrder(db, organizationId, order.id);
   }
   return c.json({ ...(await orderWithLines(db, organizationId, order.id)), shopify });
+});
+
+ordersRoute.post("/orders/:id/unpick", async (c) => {
+  const body = await c.req
+    .json<{
+      locationId?: string;
+      lines?: { lineId?: string; itemId?: string; qty?: number }[];
+    }>()
+    .catch(() => ({}) as { locationId?: string; lines?: { lineId?: string; itemId?: string; qty?: number }[] });
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const user = c.get("user")!;
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
+  if (!canUnpickOrder(order.status)) conflict("Order cannot be unpicked");
+  const unpickLines = order.lines.map((line) => ({
+    lineId: line.id,
+    sku: line.sku,
+    qtyPicked: line.qtyPicked,
+    qtyPacked: line.qtyPacked,
+  }));
+  if (!unpickLines.some((line) => remainingToUnpick(line) > 0)) conflict("Order has nothing remaining to unpick");
+  if (body.locationId) await getOrgLocation(db, organizationId, body.locationId);
+
+  const incoming = resolveIncomingUnpick(order.lines, body.lines).filter((line) => line.qty > 0);
+  try {
+    await persistUnpick({
+      db,
+      organizationId,
+      createdBy: user.id,
+      warehouseId: order.warehouseId,
+      orderId: order.id,
+      pickLocationId: order.pickLocationId,
+      lines: order.lines,
+      incoming,
+      locationId: body.locationId || null,
+      restoreAllocations: true,
+    });
+  } catch (err) {
+    if (err instanceof OverUnpickError) throw err;
+    badRequest(err instanceof Error ? err.message : "Invalid unpick");
+  }
+  return c.json(await orderWithLines(db, organizationId, order.id));
+});
+
+ordersRoute.post("/orders/:id/cancel", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const user = c.get("user")!;
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
+  if (!canCancelOrder(order.status)) conflict("Order cannot be cancelled");
+  const cancelled = await cancelOrderDocument(db, {
+    organizationId,
+    orderId: order.id,
+    createdBy: user.id,
+  });
+  if (!cancelled) conflict("Order cannot be cancelled");
+  return c.json(await orderWithLines(db, organizationId, order.id));
 });
 
 ordersRoute.post("/orders/:id/shopify/fulfill", async (c) => {

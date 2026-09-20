@@ -7,6 +7,7 @@ import {
   consumeAllocations,
   InsufficientAtpError,
   isAtpRestrictedType,
+  matchingAllocation,
   planAllocations,
 } from "./allocations";
 import type { StockedBay } from "./partial-pick";
@@ -37,6 +38,7 @@ describe("isAtpRestrictedType", () => {
     expect(isAtpRestrictedType("move")).toBe(true);
     expect(isAtpRestrictedType("rtv")).toBe(true);
     expect(isAtpRestrictedType("receive")).toBe(false);
+    expect(isAtpRestrictedType("unpick")).toBe(false);
     expect(isAtpRestrictedType("ship")).toBe(false);
     expect(isAtpRestrictedType("scrap")).toBe(false);
   });
@@ -151,6 +153,25 @@ describe("consumeAllocations", () => {
       2,
     );
     expect(updates).toEqual([{ id: "a1", qty: 4 }]);
+  });
+});
+
+describe("matchingAllocation", () => {
+  it("finds the open row for a line and bay", () => {
+    const rows = [
+      {
+        id: "a1",
+        orderId: "ord",
+        orderLineId: "l1",
+        locationId: "a0102",
+        locationCode: "A-01-02",
+        itemId: "lamp",
+        sku: "LAMP",
+        qty: 1,
+      },
+    ];
+    expect(matchingAllocation(rows, "l1", "a0102")?.id).toBe("a1");
+    expect(matchingAllocation(rows, "l1", "a0101")).toBeUndefined();
   });
 });
 

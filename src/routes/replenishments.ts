@@ -13,6 +13,9 @@ import { canPostReplenishment } from "../domain/status";
 import { matchingHoldForMove } from "../domain/holds";
 import { loadOpenHolds } from "../db/holds";
 import { atpOnHand } from "../db/allocations";
+import { applyPartialReplenish, isFullyReplenished, remainingToReplenish } from "../domain/partial-replenish";
+import { OverMoveError } from "../domain/partial-transfer";
+import { parseSerialList } from "../domain/lots";
 
 export const replenishmentsRoute = new Hono<AppEnv>();
 
@@ -28,6 +31,7 @@ async function replenishmentWithItem(db: AppEnv["Variables"]["db"], organization
       status: schema.replenishments.status,
       itemId: schema.replenishments.itemId,
       qty: schema.replenishments.qty,
+      qtyMoved: schema.replenishments.qtyMoved,
       fromLocationId: schema.replenishments.fromLocationId,
       toLocationId: schema.replenishments.toLocationId,
       notes: schema.replenishments.notes,
@@ -35,6 +39,8 @@ async function replenishmentWithItem(db: AppEnv["Variables"]["db"], organization
       postedAt: schema.replenishments.postedAt,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      trackLot: schema.items.trackLot,
+      trackSerial: schema.items.trackSerial,
       fromCode: fromLoc.code,
       toCode: toLoc.code,
     })
@@ -45,7 +51,14 @@ async function replenishmentWithItem(db: AppEnv["Variables"]["db"], organization
     .where(and(eq(schema.replenishments.id, id), eq(schema.replenishments.organizationId, organizationId)))
     .limit(1);
   if (!row) notFound("Replenishment not found");
-  return row;
+  return withReplenishRemaining(row);
+}
+
+function withReplenishRemaining<T extends { qty: number; qtyMoved: number }>(row: T) {
+  return {
+    ...row,
+    remaining: remainingToReplenish(row.qty, row.qtyMoved),
+  };
 }
 
 replenishmentsRoute.get("/replenishments/suggestions", async (c) => {
@@ -118,6 +131,7 @@ replenishmentsRoute.get("/replenishments", async (c) => {
       status: schema.replenishments.status,
       itemId: schema.replenishments.itemId,
       qty: schema.replenishments.qty,
+      qtyMoved: schema.replenishments.qtyMoved,
       fromLocationId: schema.replenishments.fromLocationId,
       toLocationId: schema.replenishments.toLocationId,
       notes: schema.replenishments.notes,
@@ -134,7 +148,7 @@ replenishmentsRoute.get("/replenishments", async (c) => {
     .innerJoin(toLoc, eq(toLoc.id, schema.replenishments.toLocationId))
     .where(eq(schema.replenishments.organizationId, c.get("organizationId")!))
     .orderBy(desc(schema.replenishments.createdAt));
-  return c.json(rows);
+  return c.json(rows.map(withReplenishRemaining));
 });
 
 replenishmentsRoute.get("/replenishments/:id", async (c) => {
@@ -177,6 +191,7 @@ replenishmentsRoute.post("/replenishments", async (c) => {
       status: "draft",
       itemId,
       qty,
+      qtyMoved: 0,
       fromLocationId,
       toLocationId,
       notes: body.notes?.trim() || null,
@@ -197,27 +212,44 @@ replenishmentsRoute.post("/replenishments/:id/start", async (c) => {
 });
 
 replenishmentsRoute.post("/replenishments/:id/post", async (c) => {
+  const body = await c.req
+    .json<{ qty?: number; lotCode?: string; serials?: string | string[] }>()
+    .catch(() => ({}) as { qty?: number; lotCode?: string; serials?: string | string[] });
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
   const doc = await replenishmentWithItem(db, organizationId, c.req.param("id"));
   if (!canPostReplenishment(doc.status)) conflict("Replenishment already posted");
+  if (remainingToReplenish(doc.qty, doc.qtyMoved) <= 0) conflict("Replenishment has nothing remaining");
+
+  const thisQty = body.qty === undefined || body.qty === null ? remainingToReplenish(doc.qty, doc.qtyMoved) : requireInt(body.qty, "qty");
+  let applied;
+  try {
+    applied = applyPartialReplenish({ sku: doc.sku, qty: doc.qty, qtyMoved: doc.qtyMoved }, thisQty);
+  } catch (err) {
+    if (err instanceof OverMoveError) throw err;
+    badRequest(err instanceof Error ? err.message : "Invalid replenish qty");
+  }
 
   const loaded = await loadBalanceMap(db, organizationId, [
     { locationId: doc.fromLocationId, itemId: doc.itemId },
     { locationId: doc.toLocationId, itemId: doc.itemId },
   ]);
+  const serials = parseSerialList(body.serials);
   const plan = planMove({
     itemId: doc.itemId,
     sku: doc.sku,
     fromLocationId: doc.fromLocationId,
     toLocationId: doc.toLocationId,
-    qty: doc.qty,
+    qty: applied.postedQty,
     refId: doc.id,
     balances: qtyMap(loaded),
     refType: "replenishment",
+    lotCode: body.lotCode?.trim() || null,
+    serials: serials.length ? serials : null,
   });
   const now = Date.now();
+  const fully = isFullyReplenished(doc.qty, applied.qtyMoved);
   await persistStockPlan(db, {
     organizationId,
     createdBy: user.id,
@@ -227,7 +259,11 @@ replenishmentsRoute.post("/replenishments/:id/post", async (c) => {
     extra: [
       db
         .update(schema.replenishments)
-        .set({ status: "posted", postedAt: now })
+        .set({
+          status: fully ? "posted" : "in_progress",
+          qtyMoved: applied.qtyMoved,
+          postedAt: fully ? now : doc.postedAt,
+        })
         .where(eq(schema.replenishments.id, doc.id)),
     ],
   });

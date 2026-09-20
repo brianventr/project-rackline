@@ -4,6 +4,7 @@ import { api, type Item, type Location, type ReplenishSuggestion, type Replenish
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
 import { DocumentHeader, DocumentActivity } from "../components/document";
 import { REPLENISH_STEPS, canPostReplenishment } from "@/domain/status";
+import { remainingToReplenish } from "@/domain/partial-replenish";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
 export function ReplenishmentsPage() {
@@ -94,7 +95,7 @@ function ReplenishmentList() {
       <PageHeader
         eyebrow="Stock"
         title="Replenish"
-        description="Move bulk into a pick face when it drops below pick min. Distinct from dock putaway."
+        description="Move remaining qty from bulk into a pick face when it drops below pick min. Distinct from dock putaway."
         actions={
           <div className="flex gap-2">
             <Button variant="secondary">
@@ -166,7 +167,7 @@ function ReplenishmentList() {
           </ul>
         </Card>
       ) : null}
-      <Table columns={["Number", "Item", "Move", "Qty", "Status"]}>
+      <Table columns={["Number", "Item", "Move", "Moved", "Status"]}>
         {inWarehouse(rows, warehouseId).map((row) => (
           <tr key={row.id}>
             <td className="px-4 py-3 font-mono">
@@ -180,7 +181,9 @@ function ReplenishmentList() {
             <td className="px-4 py-3 font-mono text-sm">
               {row.fromCode} → {row.toCode}
             </td>
-            <td className="px-4 py-3 font-mono">{row.qty}</td>
+            <td className="px-4 py-3 font-mono">
+              {row.qtyMoved ?? 0}/{row.qty}
+            </td>
             <td className="px-4 py-3 capitalize">{row.status.replaceAll("_", " ")}</td>
           </tr>
         ))}
@@ -192,11 +195,15 @@ function ReplenishmentList() {
 function ReplenishmentDetail({ id }: { id: string }) {
   const navigate = useNavigate();
   const [doc, setDoc] = useState<Replenishment | null>(null);
+  const [thisQty, setThisQty] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api<Replenishment>(`/api/replenishments/${id}`)
-      .then(setDoc)
+      .then((next) => {
+        setDoc(next);
+        setThisQty(String(next.remaining ?? remainingToReplenish(next.qty, next.qtyMoved ?? 0)));
+      })
       .catch((err: Error) => setError(err.message));
   }, [id]);
 
@@ -212,20 +219,26 @@ function ReplenishmentDetail({ id }: { id: string }) {
   async function post() {
     setError(null);
     try {
-      setDoc(await api<Replenishment>(`/api/replenishments/${id}/post`, { method: "POST" }));
+      const next = await api<Replenishment>(`/api/replenishments/${id}/post`, {
+        method: "POST",
+        body: JSON.stringify({ qty: Number(thisQty) }),
+      });
+      setDoc(next);
+      setThisQty(String(next.remaining ?? remainingToReplenish(next.qty, next.qtyMoved ?? 0)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Post failed");
     }
   }
 
   if (!doc) return <ErrorBanner error={error} />;
+  const remaining = doc.remaining ?? remainingToReplenish(doc.qty, doc.qtyMoved ?? 0);
 
   return (
     <div className="space-y-6">
       <DocumentHeader
         eyebrow="Stock"
         title={doc.number}
-        description={`${doc.sku} × ${doc.qty} from ${doc.fromCode} to ${doc.toCode}`}
+        description={`${doc.sku} · moved ${doc.qtyMoved ?? 0}/${doc.qty} from ${doc.fromCode} to ${doc.toCode}`}
         status={doc.status}
         steps={REPLENISH_STEPS}
         actions={
@@ -234,7 +247,7 @@ function ReplenishmentDetail({ id }: { id: string }) {
               All replenishments
             </Button>
             {doc.status === "draft" ? <Button onClick={() => void start()}>Start</Button> : null}
-            {canPostReplenishment(doc.status) ? <Button onClick={() => void post()}>Post</Button> : null}
+            {canPostReplenishment(doc.status) && remaining > 0 ? <Button onClick={() => void post()}>Post</Button> : null}
             <Button variant="secondary">
               <Link to={`/floor/replenish?id=${doc.id}`}>Floor</Link>
             </Button>
@@ -242,7 +255,12 @@ function ReplenishmentDetail({ id }: { id: string }) {
         }
       />
       <ErrorBanner error={error} />
-      <DocumentActivity refId={doc.id} refreshKey={doc.status} />
+      {canPostReplenishment(doc.status) && remaining > 0 ? (
+        <Field label={`This move (remaining ${remaining})`}>
+          <Input type="number" min={1} max={remaining} value={thisQty} onChange={(e) => setThisQty(e.target.value)} />
+        </Field>
+      ) : null}
+      <DocumentActivity refId={doc.id} refreshKey={`${doc.status}:${doc.qtyMoved ?? 0}`} />
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   planReceive,
   planRtv,
   planScrap,
+  planUnpick,
 } from "./inventory";
 import { explodeBom, planCompleteKit, planCompleteWorkOrder } from "./manufacturing";
 
@@ -77,6 +78,19 @@ describe("inventory engine", () => {
         balances: picked.balances,
       }),
     ).toThrow(InsufficientStockError);
+
+    const restored = planUnpick({
+      itemId: "lamp",
+      sku: "LAMP",
+      locationId: "A-01-01",
+      qty: 2,
+      refId: "ord-1",
+      balances: picked.balances,
+      serials: ["LAMP-1", "LAMP-2"],
+    });
+    expect(restored.balances.get(balanceKey("A-01-01", "lamp"))).toBe(2);
+    expect(restored.movements[0]?.type).toBe("unpick");
+    expect(restored.movements[0]?.toLocationId).toBe("A-01-01");
   });
 
   it("chains multiple receipt lines onto the same bin", () => {

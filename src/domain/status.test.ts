@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  canCancelOrder,
   canPackOrder,
   canPickOrder,
+  canUnpickOrder,
   canReceive,
   canReceivePurchase,
   canReceiveReturn,
@@ -36,6 +38,16 @@ describe("order status", () => {
     expect(canPackOrder("picking")).toBe(false);
     expect(canShipOrder("picking")).toBe(false);
     expect(canPickOrder("picked")).toBe(false);
+  });
+
+  it("lets an unshipped ticket unpick or cancel", () => {
+    expect(canUnpickOrder("picking")).toBe(true);
+    expect(canUnpickOrder("packed")).toBe(true);
+    expect(canUnpickOrder("open")).toBe(false);
+    expect(canCancelOrder("picking")).toBe(true);
+    expect(canCancelOrder("packed")).toBe(true);
+    expect(canCancelOrder("shipped")).toBe(false);
+    expect(canCancelOrder("cancelled")).toBe(false);
   });
 
   it("labels in-progress statuses for people", () => {

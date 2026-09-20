@@ -4,8 +4,9 @@ import { api, type Location, type Order, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
-import { canPickOrder, canStartPick } from "@/domain/status";
+import { canPickOrder, canStartPick, canCancelOrder, canUnpickOrder } from "@/domain/status";
 import { hasUnpicked } from "@/domain/partial-pick";
+import { remainingToUnpick } from "@/domain/partial-unpick";
 
 export function FloorPickPage() {
   const [params] = useSearchParams();
@@ -14,6 +15,7 @@ export function FloorPickPage() {
   const [active, setActive] = useState<Order | null>(null);
   const [locationId, setLocationId] = useState("");
   const [qtys, setQtys] = useState<Record<string, string>>({});
+  const [unpickQtys, setUnpickQtys] = useState<Record<string, string>>({});
   const [lots, setLots] = useState<Record<string, string>>({});
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
@@ -23,6 +25,7 @@ export function FloorPickPage() {
     setActive(order);
     setLocationId(defaultPickLocation(order, nextLocations));
     setQtys(qtyDefaults(order));
+    setUnpickQtys(unpickQtyDefaults(order));
   }
 
   async function load() {
@@ -31,18 +34,27 @@ export function FloorPickPage() {
       api<Location[]>("/api/locations"),
     ]);
     setOrders(
-      nextOrders.filter(
-        (row) =>
-          canPickOrder(row.status) &&
-          hasUnpicked(
-            (row.lines ?? []).map((line) => ({
+      nextOrders.filter((row) => {
+        const lines = row.lines ?? [];
+        const stillToPick = hasUnpicked(
+          lines.map((line) => ({
+            lineId: line.id,
+            sku: line.sku,
+            qtyOrdered: line.qty,
+            qtyPicked: line.qtyPicked ?? 0,
+          })),
+        );
+        const stillToUnpick = lines.some(
+          (line) =>
+            remainingToUnpick({
               lineId: line.id,
               sku: line.sku,
-              qtyOrdered: line.qty,
               qtyPicked: line.qtyPicked ?? 0,
-            })),
-          ),
-      ),
+              qtyPacked: line.qtyPacked ?? 0,
+            }) > 0,
+        );
+        return (canPickOrder(row.status) && stillToPick) || (canUnpickOrder(row.status) && stillToUnpick);
+      }),
     );
     setLocations(nextLocations);
     const wanted = params.get("id");
@@ -114,6 +126,39 @@ export function FloorPickPage() {
     }
   }
 
+  async function unpick() {
+    if (!active) return;
+    setError(null);
+    try {
+      const lines = (active.lines ?? [])
+        .map((line) => ({
+          lineId: line.id,
+          qty: Number(unpickQtys[line.id] || 0),
+        }))
+        .filter((line) => line.qty > 0);
+      const next = await api<Order>(`/api/orders/${active.id}/unpick`, {
+        method: "POST",
+        body: JSON.stringify({ locationId, lines }),
+      });
+      applyOrder(next, locations);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unpick failed");
+    }
+  }
+
+  async function cancel() {
+    if (!active) return;
+    setError(null);
+    try {
+      const next = await api<Order>(`/api/orders/${active.id}/cancel`, { method: "POST" });
+      applyOrder(next, locations);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancel failed");
+    }
+  }
+
   const remaining = active
     ? hasUnpicked(
         (active.lines ?? []).map((line) => ({
@@ -125,9 +170,11 @@ export function FloorPickPage() {
       )
     : false;
   const thisPick = Object.values(qtys).some((value) => Number(value) > 0);
+  const thisUnpick = Object.values(unpickQtys).some((value) => Number(value) > 0);
+  const unpickable = (active?.lines ?? []).some((line) => (line.unpickRemaining ?? 0) > 0);
 
   return (
-    <FloorFrame title="Pick" description="Scan the order, go to the suggested bay, pick the qty, confirm." error={error}>
+    <FloorFrame title="Pick" description="Scan the order, go to the suggested bay, pick remaining qty, or unpick back onto the bay." error={error}>
       <FloorScanBox label="Scan order, bay, or SKU" placeholder="ORD-DEMO1, B-01-01, or LAMP" onScan={onScan} />
       {!active ? (
         <Card>
@@ -191,6 +238,17 @@ export function FloorPickPage() {
                 ) : (
                   <p className="text-muted-foreground">Picked</p>
                 )}
+                {(line.unpickRemaining ?? 0) > 0 ? (
+                  <Field label={`This unpick (remaining ${line.unpickRemaining})`}>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={line.unpickRemaining}
+                      value={unpickQtys[line.id] ?? "0"}
+                      onChange={(e) => setUnpickQtys((current) => ({ ...current, [line.id]: e.target.value }))}
+                    />
+                  </Field>
+                ) : null}
                 {line.trackLot ? (
                   <Input
                     placeholder="Lot code"
@@ -213,7 +271,7 @@ export function FloorPickPage() {
               </li>
             ))}
           </ul>
-          <Field label="Pick from">
+          <Field label="Bay">
             <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
               {locations.map((location) => (
                 <option key={location.id} value={location.id}>
@@ -222,20 +280,33 @@ export function FloorPickPage() {
               ))}
             </Select>
           </Field>
-          {canPickOrder(active.status) && remaining ? (
-            <Button disabled={!thisPick} onClick={() => void pick()}>
-              Pick from bay
-            </Button>
-          ) : (
-            <div className="flex flex-wrap gap-4">
-              <Link className="font-medium underline" to={`/floor/pack?id=${active.id}`}>
-                Go pack
-              </Link>
-              <Link className="font-medium underline" to={`/outbound/orders/${active.id}/pack-slip`}>
-                Pack slip
-              </Link>
-            </div>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {canPickOrder(active.status) && remaining ? (
+              <Button disabled={!thisPick} onClick={() => void pick()}>
+                Pick from bay
+              </Button>
+            ) : null}
+            {canUnpickOrder(active.status) && unpickable ? (
+              <Button variant="secondary" disabled={!thisUnpick} onClick={() => void unpick()}>
+                Unpick to bay
+              </Button>
+            ) : null}
+            {canCancelOrder(active.status) ? (
+              <Button variant="secondary" onClick={() => void cancel()}>
+                Cancel order
+              </Button>
+            ) : null}
+            {!remaining && !unpickable ? (
+              <div className="flex flex-wrap gap-4">
+                <Link className="font-medium underline" to={`/floor/pack?id=${active.id}`}>
+                  Go pack
+                </Link>
+                <Link className="font-medium underline" to={`/outbound/orders/${active.id}/pack-slip`}>
+                  Pack slip
+                </Link>
+              </div>
+            ) : null}
+          </div>
         </Card>
       )}
     </FloorFrame>
@@ -244,6 +315,10 @@ export function FloorPickPage() {
 
 function qtyDefaults(order: Order): Record<string, string> {
   return Object.fromEntries((order.lines ?? []).map((line) => [line.id, String(line.remaining ?? 0)]));
+}
+
+function unpickQtyDefaults(order: Order): Record<string, string> {
+  return Object.fromEntries((order.lines ?? []).map((line) => [line.id, String(line.unpickRemaining ?? 0)]));
 }
 
 function defaultPickLocation(order: Order, locations: Location[]): string {
