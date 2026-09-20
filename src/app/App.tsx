@@ -40,10 +40,10 @@ import { FloorKitPage } from "./pages/floor/FloorKitPage";
 import { WarehouseSetupPage } from "./pages/setup/WarehouseSetupPage";
 import { TeamPage } from "./pages/setup/TeamPage";
 import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
+import { CarriersPage } from "./pages/setup/CarriersPage";
 import { ClientsPage } from "./pages/setup/ClientsPage";
 import { ZonesPage } from "./pages/setup/ZonesPage";
 import { BillingPage } from "./pages/setup/BillingPage";
-import { CarriersPage } from "./pages/setup/CarriersPage";
 import { EdiPage } from "./pages/setup/EdiPage";
 import { ReplenishmentsPage } from "./pages/ReplenishmentsPage";
 import { KitsPage } from "./pages/KitsPage";
@@ -51,6 +51,7 @@ import { WavesPage } from "./pages/WavesPage";
 import { AsnsPage } from "./pages/AsnsPage";
 import { YardPage } from "./pages/YardPage";
 import { LaborPage } from "./pages/LaborPage";
+import { TrafficPage } from "./pages/TrafficPage";
 import { FloorWavePage } from "./pages/floor/FloorWavePage";
 import { FloorAsnPage } from "./pages/floor/FloorAsnPage";
 import { FloorYardPage } from "./pages/floor/FloorYardPage";
@@ -102,6 +103,7 @@ export function App() {
       <Route path="/signup" element={me ? <Navigate to={signedInHome} replace /> : <AuthPage mode="signup" />} />
       <Route element={<Guard me={me} />}>
         <Route path="/today" element={<TodayPage />} />
+        <Route path="/analytics/traffic" element={<TrafficPage />} />
         <Route path="/dashboard" element={<Navigate to="/today" replace />} />
         <Route path="/floor" element={<FloorLauncherPage />} />
         <Route path="/floor/lookup" element={<FloorLookupPage />} />
@@ -179,6 +181,14 @@ export function App() {
           }
         />
         <Route
+          path="/setup/carriers"
+          element={
+            <OwnerOnly>
+              <CarriersPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
           path="/setup/warehouse"
           element={
             <OwnerOnly>
@@ -231,14 +241,6 @@ export function App() {
           element={
             <OwnerOnly>
               <BillingPage />
-            </OwnerOnly>
-          }
-        />
-        <Route
-          path="/setup/carriers"
-          element={
-            <OwnerOnly>
-              <CarriersPage />
             </OwnerOnly>
           }
         />

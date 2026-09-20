@@ -148,6 +148,12 @@ export type WarehouseMapInfo = {
   mapWidth: number;
   mapDepth: number;
   mapHeight: number;
+  shipFromAddress?: string | null;
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
+  lat?: number | null;
+  lng?: number | null;
 };
 
 export type WarehouseMapData = {
@@ -354,7 +360,14 @@ export type Order = {
   trackingCompany?: string | null;
   trackingUrl?: string | null;
   shipToAddress?: string | null;
+  shipToCity?: string | null;
+  shipToRegion?: string | null;
+  shipToCountry?: string | null;
+  shipToLat?: number | null;
+  shipToLng?: number | null;
   carrierService?: string | null;
+  carrierConnectionId?: string | null;
+  labelStatus?: string | null;
   packedAt?: number | null;
   allocatedUnits?: number;
   allocations?: OrderAllocation[];
@@ -471,11 +484,79 @@ export type ShippingLabel = {
   orderNumber: string;
   customerName: string;
   shipToAddress: string;
+  shipFromAddress?: string | null;
   carrierCompany: string;
   carrierService: string;
   carrierServiceId: string;
   trackingNumber: string;
   trackingUrl: string;
+  connectionId?: string | null;
+  labelStatus?: string | null;
+};
+
+export type CarrierServiceOption = {
+  id: string;
+  company: string;
+  service: string;
+  connectionId: string | null;
+  provider: string;
+  isDefault?: boolean;
+};
+
+export type CarrierCatalogProvider = {
+  id: string;
+  name: string;
+  kind: string;
+  description: string;
+  credentialFields: string[];
+  services: { id: string; company: string; service: string }[];
+};
+
+export type CarrierConnection = {
+  id: string;
+  provider: string;
+  name: string;
+  kind: string;
+  nickname: string;
+  accountNumber: string | null;
+  mode: string;
+  status: string;
+  isDefault: boolean;
+  enabledServices: string[];
+  hasApiKey: boolean;
+  hasApiSecret: boolean;
+  hasMeterNumber: boolean;
+  apiKeyHint: string | null;
+  apiSecretHint: string | null;
+  meterHint: string | null;
+  lastTestedAt: number | null;
+  lastTestStatus: string | null;
+  lastTestError: string | null;
+};
+
+export type CarrierHub = {
+  catalog: CarrierCatalogProvider[];
+  connections: CarrierConnection[];
+  enabledServices: CarrierServiceOption[];
+  shipFromAddress: string | null;
+  warehouseId: string | null;
+};
+
+export type CarrierRate = CarrierServiceOption & {
+  amountCents: number;
+  currency: string;
+  transitDays: number;
+};
+
+export type CarrierOutbound = {
+  id: string;
+  connectionId: string | null;
+  orderId: string | null;
+  kind: string;
+  status: string;
+  createdAt: number;
+  request: unknown;
+  response: unknown;
 };
 
 export type PutawaySuggestion = {
@@ -939,3 +1020,12 @@ export type PrintJobAudit = {
   createdAt: number;
   sentAt: number | null;
 };
+
+export type {
+  TrafficDestination,
+  TrafficException,
+  TrafficFlight,
+  TrafficGrain,
+  TrafficHorizon,
+  TrafficSnapshot,
+} from "@/domain/traffic";

@@ -38,17 +38,17 @@ import { replenishmentsRoute } from "./routes/replenishments";
 import { kitsRoute } from "./routes/kits";
 import { holdsRoute } from "./routes/holds";
 import { vendorReturnsRoute } from "./routes/vendor-returns";
+import { carriersRoute } from "./routes/carriers";
 import { wavesRoute } from "./routes/waves";
 import { asnsRoute } from "./routes/asns";
 import { zonesRoute } from "./routes/zones";
 import { clientsRoute } from "./routes/clients";
 import { yardRoute } from "./routes/yard";
 import { laborRoute } from "./routes/labor";
-import { carriersRoute } from "./routes/carriers";
 import { printersRoute } from "./routes/printers";
 import { billingRoute } from "./routes/billing";
 import { ediRoute } from "./routes/edi";
-
+import { analyticsRoute } from "./routes/analytics";
 const app = new Hono<AppEnv>();
 
 app.onError((err, c) => {
@@ -283,15 +283,16 @@ app.route("/api", replenishmentsRoute);
 app.route("/api", kitsRoute);
 app.route("/api", holdsRoute);
 app.route("/api", vendorReturnsRoute);
+app.route("/api", carriersRoute);
 app.route("/api", wavesRoute);
 app.route("/api", asnsRoute);
 app.route("/api", zonesRoute);
 app.route("/api", clientsRoute);
 app.route("/api", yardRoute);
 app.route("/api", laborRoute);
-app.route("/api", carriersRoute);
 app.route("/api", printersRoute);
 app.route("/api", billingRoute);
 app.route("/api", ediRoute);
+app.route("/api", analyticsRoute);
 
 export default app;

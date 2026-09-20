@@ -1,42 +1,47 @@
-export const CARRIER_SERVICES = [
-  { id: "rackline_ground", company: "Rackline", service: "Ground", trackingPrefix: "RL-" },
-  { id: "ups_ground", company: "UPS", service: "Ground", trackingPrefix: "RL-" },
-  { id: "usps_priority", company: "USPS", service: "Priority", trackingPrefix: "RL-" },
-  { id: "fedex_ground", company: "FedEx", service: "Ground", trackingPrefix: "FE-" },
-  { id: "dhl_express", company: "DHL", service: "Express", trackingPrefix: "DHL-" },
-] as const;
+import {
+  CARRIER_SERVICES,
+  isCarrierService,
+  resolveService,
+  trackingPrefixFor,
+  trackingUrlForService,
+  type CarrierServiceId,
+} from "./carriers";
 
-export type CarrierServiceId = (typeof CARRIER_SERVICES)[number]["id"];
+export { CARRIER_SERVICES, isCarrierService };
+export type { CarrierServiceId };
 
 export type ShippingLabel = {
   orderId: string;
   orderNumber: string;
   customerName: string;
   shipToAddress: string;
+  shipFromAddress?: string | null;
   carrierCompany: string;
   carrierService: string;
   carrierServiceId: string;
   trackingNumber: string;
   trackingUrl: string;
+  connectionId?: string | null;
+  labelStatus?: string | null;
 };
 
-export function isCarrierService(value: string): value is CarrierServiceId {
-  return CARRIER_SERVICES.some((row) => row.id === value);
-}
-
 export function resolveCarrier(serviceId?: string | null) {
-  return CARRIER_SERVICES.find((row) => row.id === serviceId) ?? CARRIER_SERVICES[0];
+  return resolveService(serviceId) ?? CARRIER_SERVICES[0];
 }
 
 export function generateTrackingNumber(serviceId?: string | null, random?: () => string): string {
-  const carrier = resolveCarrier(serviceId);
   const mint = random ?? (() => crypto.randomUUID());
   const token = mint().replace(/-/g, "").slice(0, 10).toUpperCase();
-  return `${carrier.trackingPrefix}${token}`;
+  return `${trackingPrefixFor(serviceId)}${token}`;
 }
 
-export function trackingUrlFor(trackingNumber: string): string {
-  return `https://track.rackline.dev/${encodeURIComponent(trackingNumber)}`;
+export function trackingUrlFor(trackingNumber: string, serviceId?: string | null): string {
+  if (serviceId) return trackingUrlForService(trackingNumber, serviceId);
+  if (trackingNumber.startsWith("1Z")) return trackingUrlForService(trackingNumber, "ups_ground");
+  if (trackingNumber.startsWith("9400")) return trackingUrlForService(trackingNumber, "usps_priority");
+  if (trackingNumber.startsWith("FE-")) return trackingUrlForService(trackingNumber, "fedex_ground");
+  if (trackingNumber.startsWith("DHL-")) return trackingUrlForService(trackingNumber, "dhl_express");
+  return trackingUrlForService(trackingNumber, "rackline_ground");
 }
 
 export function buildShippingLabel(input: {
@@ -44,10 +49,13 @@ export function buildShippingLabel(input: {
   number: string;
   customerName: string;
   shipToAddress?: string | null;
+  shipFromAddress?: string | null;
   trackingNumber?: string | null;
   trackingCompany?: string | null;
   trackingUrl?: string | null;
   carrierService?: string | null;
+  carrierConnectionId?: string | null;
+  labelStatus?: string | null;
 }): ShippingLabel {
   const carrier = resolveCarrier(input.carrierService);
   const trackingNumber = input.trackingNumber?.trim() || generateTrackingNumber(carrier.id);
@@ -56,10 +64,13 @@ export function buildShippingLabel(input: {
     orderNumber: input.number,
     customerName: input.customerName,
     shipToAddress: input.shipToAddress?.trim() || input.customerName,
+    shipFromAddress: input.shipFromAddress?.trim() || null,
     carrierCompany: input.trackingCompany?.trim() || carrier.company,
     carrierService: carrier.service,
     carrierServiceId: carrier.id,
     trackingNumber,
-    trackingUrl: input.trackingUrl?.trim() || trackingUrlFor(trackingNumber),
+    trackingUrl: input.trackingUrl?.trim() || trackingUrlFor(trackingNumber, carrier.id),
+    connectionId: input.carrierConnectionId ?? null,
+    labelStatus: input.labelStatus ?? null,
   };
 }
