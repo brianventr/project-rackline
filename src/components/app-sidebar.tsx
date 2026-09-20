@@ -26,6 +26,7 @@ import {
   ArrowUpFromLine,
   Layers,
   ShieldAlert,
+  Forklift,
   Radar,
 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -55,6 +56,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
         { title: "Today", url: "/today", icon: LayoutDashboard },
         { title: "Floor", url: "/floor", icon: ScanLine },
         { title: "Map", url: "/map", icon: Map },
+        { title: "Equipment", url: "/equipment", icon: Forklift },
         ...(owner ? [{ title: "Build floor", url: "/map?edit=1", icon: BoxSelect }] : []),
       ],
     },

@@ -49,6 +49,16 @@ export function requireOwner(role: Role | undefined): void {
   if (role !== "owner") forbidden("Owner role required");
 }
 
+export async function getOrgWarehouse(db: AppDb, organizationId: string, warehouseId: string) {
+  const [warehouse] = await db
+    .select()
+    .from(schema.warehouses)
+    .where(and(eq(schema.warehouses.id, warehouseId), eq(schema.warehouses.organizationId, organizationId)))
+    .limit(1);
+  if (!warehouse) notFound("Warehouse not found");
+  return warehouse;
+}
+
 export async function getOrgItem(db: AppDb, organizationId: string, itemId: string) {
   const [item] = await db
     .select()

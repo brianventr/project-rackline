@@ -52,6 +52,11 @@ export function LabelsSetupPage() {
               </Link>
               <span className="text-muted-foreground"> · {items.length} items</span>
             </li>
+            <li>
+              <Link className="underline" to="/equipment?labels=1">
+                Print equipment labels
+              </Link>
+            </li>
           </ul>
         </Card>
         <Card className="space-y-3">
@@ -61,7 +66,8 @@ export function LabelsSetupPage() {
             <span className="font-mono">ORD:</span>, <span className="font-mono">RCP:</span>,{" "}
             <span className="font-mono">PO:</span>, <span className="font-mono">RMA:</span>,{" "}
             <span className="font-mono">WO:</span>, <span className="font-mono">RPL:</span>,{" "}
-            <span className="font-mono">KIT:</span>, <span className="font-mono">RTV:</span>
+            <span className="font-mono">KIT:</span>, <span className="font-mono">RTV:</span>,{" "}
+            <span className="font-mono">EQ:</span>
           </p>
           <p className="text-sm text-muted-foreground">USB and Bluetooth guns work on every screen. Camera scan is in the header.</p>
         </Card>

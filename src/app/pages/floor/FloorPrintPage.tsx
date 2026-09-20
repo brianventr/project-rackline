@@ -42,6 +42,9 @@ export function FloorPrintPage() {
       {hit?.kind === "item" ? (
         <PrintCard title={hit.item.sku} subtitle={hit.item.name} value={hit.item.barcode || hit.item.sku} jobs={jobs} />
       ) : null}
+      {hit?.kind === "equipment" ? (
+        <PrintCard title={hit.equipment.code} subtitle={hit.equipment.name} value={hit.equipment.barcode} jobs={jobs} />
+      ) : null}
       {hit?.kind === "order" ? (
         <Card className="space-y-3">
           <div className="flex items-center justify-between">
@@ -62,7 +65,7 @@ export function FloorPrintPage() {
           )}
         </Card>
       ) : null}
-      {hit && hit.kind !== "location" && hit.kind !== "item" && hit.kind !== "order" ? (
+      {hit && hit.kind !== "location" && hit.kind !== "item" && hit.kind !== "order" && hit.kind !== "equipment" ? (
         <p className="text-sm text-muted-foreground">Scan a bay, a SKU, or an order to print.</p>
       ) : null}
       {!hit ? <WaitingJobs /> : null}
@@ -154,6 +157,9 @@ function WaitingJobs() {
           </Link>
           <Link className="underline" to="/stock/items?labels=1">
             All SKU labels
+          </Link>
+          <Link className="underline" to="/equipment?labels=1">
+            All equipment labels
           </Link>
         </div>
       </Card>

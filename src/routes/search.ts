@@ -12,7 +12,7 @@ searchRoute.get("/search", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
 
-  const [items, locations, orders, receipts, transfers, workOrders, counts, purchases, returns, vendorReturns, replenishments, kits, holds, waves, asns, yard, serials] = await Promise.all([
+  const [items, locations, orders, receipts, transfers, workOrders, counts, purchases, returns, vendorReturns, replenishments, kits, holds, waves, asns, yard, equipment, serials] = await Promise.all([
     db
       .select({
         id: schema.items.id,
@@ -214,6 +214,27 @@ searchRoute.get("/search", async (c) => {
       .limit(8),
     db
       .select({
+        id: schema.equipment.id,
+        code: schema.equipment.code,
+        name: schema.equipment.name,
+        barcode: schema.equipment.barcode,
+        status: schema.equipment.status,
+        class: schema.equipment.class,
+      })
+      .from(schema.equipment)
+      .where(
+        and(
+          eq(schema.equipment.organizationId, organizationId),
+          or(
+            like(schema.equipment.code, needle),
+            like(schema.equipment.name, needle),
+            like(schema.equipment.barcode, needle),
+          ),
+        ),
+      )
+      .limit(8),
+    db
+      .select({
         serialCode: schema.serials.serialCode,
         itemId: schema.serials.itemId,
         sku: schema.items.sku,
@@ -243,6 +264,7 @@ searchRoute.get("/search", async (c) => {
     waves,
     asns,
     yard,
+    equipment,
     serials,
   });
 });

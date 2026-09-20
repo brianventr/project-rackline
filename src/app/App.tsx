@@ -53,6 +53,8 @@ import { TrafficPage } from "./pages/TrafficPage";
 import { FloorWavePage } from "./pages/floor/FloorWavePage";
 import { FloorAsnPage } from "./pages/floor/FloorAsnPage";
 import { FloorYardPage } from "./pages/floor/FloorYardPage";
+import { FloorCheckoutPage } from "./pages/floor/FloorCheckoutPage";
+import { EquipmentPage } from "./pages/EquipmentPage";
 import { ShippingLabelPage } from "./pages/ShippingLabelPage";
 import { PackSlipPage } from "./pages/PackSlipPage";
 import { ScannerProvider } from "./scanner/ScannerProvider";
@@ -106,6 +108,7 @@ export function App() {
         <Route path="/floor/receive" element={<FloorReceivePage />} />
         <Route path="/floor/asn" element={<FloorAsnPage />} />
         <Route path="/floor/yard" element={<FloorYardPage />} />
+        <Route path="/floor/checkout" element={<FloorCheckoutPage />} />
         <Route path="/floor/putaway" element={<FloorPutawayPage />} />
         <Route path="/floor/pick" element={<FloorPickPage />} />
         <Route path="/floor/wave" element={<FloorWavePage />} />
@@ -127,6 +130,8 @@ export function App() {
           }
         />
         <Route path="/map" element={me ? <MapPage me={me} /> : null} />
+        <Route path="/equipment" element={<EquipmentPage />} />
+        <Route path="/equipment/:id" element={<EquipmentPage />} />
         <Route path="/move" element={<Navigate to="/floor/putaway" replace />} />
         <Route path="/inbound/receipts" element={<ReceiptsPage />} />
         <Route path="/inbound/receipts/:id" element={<ReceiptsPage />} />
