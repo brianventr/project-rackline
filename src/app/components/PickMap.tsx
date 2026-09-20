@@ -5,7 +5,7 @@ import { Button, Card } from "./ui";
 import { buildPickMapStops, pickMapLocationIds, pickMapMarkers, type PickMapLine } from "@/domain/pick-map";
 import { useWarehouse } from "../warehouse";
 
-const COMPACT_MAP = "h-[min(42vh,420px)]";
+const COMPACT_MAP = "aspect-[3/2] h-auto max-h-[min(52vh,560px)] w-full";
 
 function asPickMapLines(lines: OrderLine[]): PickMapLine[] {
   return lines.map((line) => ({
@@ -67,16 +67,18 @@ export function PickMap({
 
   if (!open) {
     return (
-      <Card className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="font-medium">Pick map</p>
-          <p className="text-sm text-muted-foreground">
-            Optional floor plan of remaining grabs{plan.stops.length ? ` · ${plan.stops.length} stop${plan.stops.length === 1 ? "" : "s"}` : ""}.
-          </p>
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="font-medium">Pick map</p>
+            <p className="text-sm text-muted-foreground">
+              Optional floor plan of remaining grabs{plan.stops.length ? ` · ${plan.stops.length} stop${plan.stops.length === 1 ? "" : "s"}` : ""}.
+            </p>
+          </div>
+          <Button variant="secondary" onClick={() => setOpen(true)}>
+            Show pick map
+          </Button>
         </div>
-        <Button variant="secondary" onClick={() => setOpen(true)}>
-          Show pick map
-        </Button>
       </Card>
     );
   }

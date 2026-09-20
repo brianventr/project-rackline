@@ -197,7 +197,7 @@ export function FloorPickPage() {
           </ul>
         </Card>
       ) : (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,28rem)_minmax(0,1fr)] xl:items-start">
+        <>
         <Card className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">{active.number}</h2>
@@ -316,7 +316,7 @@ export function FloorPickPage() {
           selectedLocationId={locationId}
           onSelectLocation={setLocationId}
         />
-        </div>
+        </>
       )}
     </FloorFrame>
   );
