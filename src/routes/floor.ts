@@ -724,6 +724,7 @@ floorRoute.get("/scan", async (c) => {
           itemId: schema.orderLines.itemId,
           qty: schema.orderLines.qty,
           qtyPicked: schema.orderLines.qtyPicked,
+          qtyPacked: schema.orderLines.qtyPacked,
           sku: schema.items.sku,
           itemName: schema.items.name,
         })
@@ -732,7 +733,11 @@ floorRoute.get("/scan", async (c) => {
         .where(eq(schema.orderLines.orderId, order.id));
       return {
         ...order,
-        lines: lines.map((line) => ({ ...line, remaining: line.qty - line.qtyPicked })),
+        lines: lines.map((line) => ({
+          ...line,
+          remaining: line.qty - line.qtyPicked,
+          packRemaining: line.qtyPicked - line.qtyPacked,
+        })),
       };
     })() });
     if (parsed.kind === "order") notFound("No order matches that barcode");

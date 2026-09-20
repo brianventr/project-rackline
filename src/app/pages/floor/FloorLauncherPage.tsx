@@ -9,7 +9,7 @@ const verbs = [
   { to: "/floor/putaway", title: "Put away", body: "Scan the dock, then the suggested bulk bay." },
   { to: "/floor/replenish", title: "Replenish", body: "Move bulk onto a pick face below min." },
   { to: "/floor/pick", title: "Pick", body: "Go to the suggested bay and pick remaining qty." },
-  { to: "/floor/pack", title: "Pack", body: "Verify lines, print a pack slip, close the box." },
+  { to: "/floor/pack", title: "Pack", body: "Pack remaining qty, print a pack slip, close the box." },
   { to: "/floor/ship", title: "Ship", body: "Buy a label, close the order, fulfill Shopify." },
   { to: "/floor/return", title: "Return", body: "Receive an RMA: restock, scrap, or hold at the dock." },
   { to: "/floor/count", title: "Count", body: "Blind-count a bay. System qty stays hidden until you post." },

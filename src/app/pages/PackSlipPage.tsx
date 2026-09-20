@@ -76,6 +76,7 @@ export function PackSlipPage() {
             <th className="py-2 font-medium">Item</th>
             <th className="py-2 text-right font-medium">Ordered</th>
             <th className="py-2 text-right font-medium">Picked</th>
+            <th className="py-2 text-right font-medium">Packed</th>
           </tr>
         </thead>
         <tbody>
@@ -85,6 +86,7 @@ export function PackSlipPage() {
               <td className="py-3">{line.itemName}</td>
               <td className="py-3 text-right font-mono">{line.qty}</td>
               <td className="py-3 text-right font-mono">{line.qtyPicked ?? 0}</td>
+              <td className="py-3 text-right font-mono">{line.qtyPacked ?? 0}</td>
             </tr>
           ))}
         </tbody>
