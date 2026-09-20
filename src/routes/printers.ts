@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { and, desc, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
+import type { AppDb } from "../db/stock";
 import { badRequest, notFound, requireString } from "../lib/http";
 import { requireOwner } from "../lib/org";
 import { newId } from "../lib/ids";
@@ -41,10 +42,50 @@ function mapStation(row: typeof schema.printStations.$inferSelect) {
   };
 }
 
+async function ensureDefaultPrinters(db: AppDb, organizationId: string) {
+  const existing = await db.select().from(schema.printers).where(eq(schema.printers.organizationId, organizationId));
+  if (existing.length) return existing;
+  const now = Date.now();
+  const browserId = newId();
+  const downloadId = newId();
+  const stationId = newId();
+  await db.insert(schema.printers).values({
+    id: browserId,
+    organizationId,
+    name: "Browser (HTML)",
+    connection: "browser",
+    media: "letter",
+    dpi: 203,
+    isDefault: 1,
+    createdAt: now,
+  });
+  await db.insert(schema.printers).values({
+    id: downloadId,
+    organizationId,
+    name: "ZPL download",
+    connection: "download",
+    media: "4x6",
+    dpi: 203,
+    isDefault: 0,
+    createdAt: now,
+  });
+  await db.insert(schema.printStations).values({
+    id: stationId,
+    organizationId,
+    name: "Front desk",
+    warehouseId: null,
+    defaultPrinterId: browserId,
+    bayPrinterId: browserId,
+    shippingPrinterId: downloadId,
+    createdAt: now,
+  });
+  return db.select().from(schema.printers).where(eq(schema.printers.organizationId, organizationId));
+}
+
 printersRoute.get("/printers", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const rows = await db.select().from(schema.printers).where(eq(schema.printers.organizationId, organizationId));
+  const rows = await ensureDefaultPrinters(db, organizationId);
   return c.json(rows.map(mapPrinter));
 });
 
