@@ -3,12 +3,15 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, type ShippingLabel } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, ErrorBanner, PageHeader } from "../components/ui";
+import { usePrint } from "../print/PrintProvider";
 
 export function ShippingLabelPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const printer = usePrint();
   const [label, setLabel] = useState<ShippingLabel | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [needsBuy, setNeedsBuy] = useState(false);
 
   function load() {
@@ -53,9 +56,7 @@ export function ShippingLabelPage() {
       <div className="mx-auto max-w-xl space-y-6">
         <PageHeader eyebrow="Outbound" title="Shipping label" description="Buy a carrier label before printing." />
         <ErrorBanner error={error} />
-        {needsBuy ? (
-          <Button onClick={() => void buy()}>Buy label</Button>
-        ) : null}
+        {needsBuy ? <Button onClick={() => void buy()}>Buy label</Button> : null}
       </div>
     );
   }
@@ -65,20 +66,45 @@ export function ShippingLabelPage() {
       <PageHeader
         eyebrow="Outbound"
         title="Shipping label"
-        description={`${label.carrierCompany} ${label.carrierService}`}
+        description={`${label.carrierCompany} ${label.carrierService} · ${printer.statusLabel}`}
         actions={
-          <div className="flex gap-2 print:hidden">
+          <div className="flex flex-wrap gap-2 print:hidden">
             <Button variant="ghost" onClick={() => navigate(`/outbound/orders/${label.orderId}`)}>
               Order
             </Button>
             <Button variant="secondary" asChild>
               <Link to={`/floor/ship?id=${label.orderId}`}>Ship</Link>
             </Button>
-            <Button onClick={() => window.print()}>Print</Button>
+            <Button
+              onClick={() => {
+                void printer
+                  .print({
+                    kind: "shipping-label",
+                    title: label.orderNumber,
+                    data: {
+                      orderNumber: label.orderNumber,
+                      customerName: label.customerName,
+                      shipToAddress: label.shipToAddress,
+                      carrierCompany: label.carrierCompany,
+                      carrierService: label.carrierService,
+                      trackingNumber: label.trackingNumber,
+                    },
+                    refType: "order",
+                    refId: label.orderId,
+                  })
+                  .then((result) => {
+                    setMessage(result.message);
+                    if (!result.ok) setError(result.message);
+                  });
+              }}
+            >
+              Print
+            </Button>
           </div>
         }
       />
       <ErrorBanner error={error} />
+      {message ? <p className="print:hidden text-sm text-muted-foreground">{message}</p> : null}
       <div className="rounded-2xl border bg-card p-6">
         {label.shipFromAddress ? (
           <div className="mb-4">
@@ -95,7 +121,12 @@ export function ShippingLabelPage() {
           </p>
           <p className="mt-1 font-mono text-2xl font-semibold tracking-wide">{label.trackingNumber}</p>
           {label.trackingUrl ? (
-            <a className="mt-1 inline-block text-sm underline print:hidden" href={label.trackingUrl} target="_blank" rel="noreferrer">
+            <a
+              className="mt-1 inline-block text-sm underline print:hidden"
+              href={label.trackingUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
               Track shipment
             </a>
           ) : null}

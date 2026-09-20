@@ -4,6 +4,7 @@ import { api, type Location, type YardVisit } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit } from "../components/ui";
 import { DocumentHeader, DocumentActivity } from "../components/document";
 import { YARD_STEPS, canAssignDock, canCheckInYard, canCheckOutYard } from "@/domain/status";
+import { canReceiveLinkedAsn } from "@/domain/yard";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
 export function YardPage() {
@@ -151,6 +152,16 @@ function YardDetail({ id }: { id: string }) {
     }
   }
 
+  async function receiveAsn() {
+    setError(null);
+    try {
+      await api(`/api/yard/${id}/receive-asn`, { method: "POST" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not receive ASN");
+    }
+  }
+
   if (!visit) return <ErrorBanner error={error} />;
   const dock = locations.find((row) => row.id === (visit.dockLocationId || dockLocationId));
 
@@ -169,6 +180,11 @@ function YardDetail({ id }: { id: string }) {
             </Button>
             {canCheckInYard(visit.status) ? <Button onClick={() => void checkIn()}>Check in</Button> : null}
             {canAssignDock(visit.status) ? <Button onClick={() => void assignDock()}>Assign dock</Button> : null}
+            {canReceiveLinkedAsn(visit) ? (
+              <Button variant="secondary" onClick={() => void receiveAsn()}>
+                Receive ASN
+              </Button>
+            ) : null}
             {canCheckOutYard(visit.status) ? <Button onClick={() => void checkOut()}>Check out</Button> : null}
             <Button variant="secondary" asChild>
               <Link to={`/floor/yard?id=${visit.id}`}>Floor</Link>

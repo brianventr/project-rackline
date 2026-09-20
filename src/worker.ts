@@ -15,6 +15,7 @@ import { OverBatchPickError } from "./domain/waves";
 import { HeldStockError } from "./domain/holds";
 import { ExpiredLotError } from "./domain/expiry";
 import { InsufficientAtpError } from "./domain/allocations";
+import { ClientStockError } from "./domain/client-stock";
 import { JobClaimedError, JobNotReadyError, JobVerbDeniedError } from "./domain/jobs";
 import { EquipmentCustodyError } from "./domain/equipment";
 import { originFrom, type AppEnv } from "./lib/types";
@@ -46,9 +47,11 @@ import { zonesRoute } from "./routes/zones";
 import { clientsRoute } from "./routes/clients";
 import { yardRoute } from "./routes/yard";
 import { laborRoute } from "./routes/labor";
+import { printersRoute } from "./routes/printers";
+import { billingRoute } from "./routes/billing";
+import { ediRoute } from "./routes/edi";
 import { equipmentRoute } from "./routes/equipment";
 import { analyticsRoute } from "./routes/analytics";
-
 const app = new Hono<AppEnv>();
 
 app.onError((err, c) => {
@@ -198,6 +201,19 @@ app.onError((err, c) => {
       409,
     );
   }
+  if (err instanceof ClientStockError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "CLIENT_STOCK",
+        clientId: err.clientId,
+        itemId: err.itemId,
+        onHand: err.onHand,
+        needed: err.needed,
+      },
+      409,
+    );
+  }
   if (err instanceof JobClaimedError) {
     return c.json(
       {
@@ -305,6 +321,9 @@ app.route("/api", zonesRoute);
 app.route("/api", clientsRoute);
 app.route("/api", yardRoute);
 app.route("/api", laborRoute);
+app.route("/api", printersRoute);
+app.route("/api", billingRoute);
+app.route("/api", ediRoute);
 app.route("/api", equipmentRoute);
 app.route("/api", analyticsRoute);
 

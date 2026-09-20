@@ -12,6 +12,7 @@ import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
 import { recordLaborEvent } from "../db/labor";
+import { resolveLineStockQty, UomConversionError } from "../domain/uom";
 
 export const asnsRoute = new Hono<AppEnv>();
 
@@ -43,6 +44,7 @@ async function asnWithLines(db: AppEnv["Variables"]["db"], organizationId: strin
       trackSerial: schema.items.trackSerial,
       catchWeight: schema.items.catchWeight,
       trackExpiry: schema.items.trackExpiry,
+      altPerStock: schema.items.altPerStock,
     })
     .from(schema.asnLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.asnLines.itemId))
@@ -189,7 +191,15 @@ asnsRoute.post("/asns/:id/expect", async (c) => {
 asnsRoute.post("/asns/:id/receive", async (c) => {
   const body = await c.req.json<{
     locationId?: string;
-    lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number; expiresOn?: unknown }[];
+    lines?: {
+      itemId?: string;
+      qty?: number;
+      altQty?: number;
+      lotCode?: string;
+      serials?: string | string[];
+      weightGrams?: number;
+      expiresOn?: unknown;
+    }[];
   }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
@@ -214,10 +224,24 @@ asnsRoute.post("/asns/:id/receive", async (c) => {
           const itemId = requireString(row.itemId, "itemId");
           const line = asn.lines.find((l) => l.itemId === itemId);
           if (!line) badRequest("Line is not on this ASN");
+          let qty: number;
+          if (row.qty == null && row.altQty == null) badRequest("qty or altQty is required");
+          else {
+            try {
+              qty = resolveLineStockQty({
+                qty: row.qty == null ? undefined : requireInt(row.qty, "qty"),
+                altQty: row.altQty == null ? undefined : requireInt(row.altQty, "altQty"),
+                altPerStock: line.altPerStock,
+              });
+            } catch (err) {
+              if (err instanceof UomConversionError) badRequest(err.message);
+              throw err;
+            }
+          }
           return {
             itemId,
             sku: line.sku,
-            qty: requireInt(row.qty, "qty"),
+            qty,
             lotCode: row.lotCode?.trim() || null,
             serials: parseSerialList(row.serials),
             weightGrams: lineCatchWeight(line.catchWeight, line.sku, row.weightGrams),
@@ -259,6 +283,7 @@ asnsRoute.post("/asns/:id/receive", async (c) => {
     locationId,
     refType: "asn",
     refId: asn.id,
+    clientId: asn.clientId,
     lines: posted.map((row) => ({
       itemId: row.itemId,
       sku: row.sku,

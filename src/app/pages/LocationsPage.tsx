@@ -4,6 +4,7 @@ import { api, type Location, type Me } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
 import { useWarehouse } from "../warehouse";
+import { usePrint } from "../print/PrintProvider";
 
 const types = ["receiving", "storage", "production", "shipping"];
 
@@ -89,6 +90,7 @@ function LocationList({ me }: { me: Me }) {
   const [labels, setLabels] = useState(params.get("labels") === "1");
   const [ready, setReady] = useState(false);
   const { warehouseId } = useWarehouse();
+  const printer = usePrint();
 
   async function load() {
     setLocations(await api<Location[]>("/api/locations"));
@@ -154,6 +156,32 @@ function LocationList({ me }: { me: Me }) {
                 }}
               >
                 Back
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void printer.print({
+                    kind: "sheet",
+                    title: "bay-labels",
+                    forceConnection: "download",
+                    data: {
+                      labelsJson: JSON.stringify(
+                        locations
+                          .filter((location) => !warehouseId || location.warehouseId === warehouseId)
+                          .map((location) => ({
+                            kind: "bay",
+                            code: location.code,
+                            name: location.name,
+                            barcode: location.barcode,
+                          })),
+                      ),
+                    },
+                  }).then((result) => {
+                    if (!result.ok) setError(result.message);
+                  });
+                }}
+              >
+                Download ZPL
               </Button>
               <Button onClick={() => window.print()}>Print</Button>
             </div>

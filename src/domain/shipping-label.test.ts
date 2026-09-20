@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildShippingLabel, generateTrackingNumber, isCarrierService } from "./shipping-label";
+import {
+  buildShippingLabel,
+  generateTrackingNumber,
+  isCarrierService,
+  resolveCarrier,
+} from "./shipping-label";
 
 describe("shipping labels", () => {
   it("mints RL tracking numbers", () => {
@@ -14,6 +19,7 @@ describe("shipping labels", () => {
     expect(generateTrackingNumber("usps_priority", random)).toBe("9400AAAAAAAABB");
     expect(generateTrackingNumber("fedex_ground", random)).toBe("FE-AAAAAAAABB");
     expect(generateTrackingNumber("dhl_express", random)).toBe("DHL-AAAAAAAABB");
+    expect(resolveCarrier("fedex_ground").company).toBe("FedEx");
   });
 
   it("fills carrier and ship-to from the order", () => {

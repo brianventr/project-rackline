@@ -5,26 +5,36 @@ import { BarcodeLabel } from "../../components/BarcodeLabel";
 import { Button, Card, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { jobsForScan, packSlipJobs, shippingLabelJobs, type PrintJob } from "@/domain/print-station";
+import { usePrint } from "../../print/PrintProvider";
+import { useScanner } from "../../scanner/ScannerProvider";
 
 export function FloorPrintPage() {
   const [params] = useSearchParams();
+  const printer = usePrint();
+  const scanner = useScanner();
   const [hit, setHit] = useState<ScanHit | null>(null);
   const [jobs, setJobs] = useState<PrintJob[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
-  const onScan = useCallback((raw: string) => {
-    setError(null);
-    api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
-      .then((next) => {
-        setHit(next);
-        setJobs(jobsForScan(next));
-      })
-      .catch((err: Error) => {
-        setHit(null);
-        setJobs([]);
-        setError(err.message);
-      });
-  }, []);
+  const onScan = useCallback(
+    (raw: string) => {
+      setError(null);
+      setMessage(null);
+      api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
+        .then((next) => {
+          setHit(next);
+          setJobs(jobsForScan(next));
+        })
+        .catch((err: Error) => {
+          setHit(null);
+          setJobs([]);
+          setError(err.message);
+          scanner.emitScanError();
+        });
+    },
+    [scanner],
+  );
 
   useEffect(() => {
     const code = params.get("code");
@@ -32,18 +42,86 @@ export function FloorPrintPage() {
   }, [params, onScan]);
 
   return (
-    <FloorFrame title="Print" description="Scan a bay, SKU, or order. Print the matching label or slip." error={error}>
+    <FloorFrame
+      title="Print"
+      description={`${printer.statusLabel}. Scan a bay, SKU, or order.`}
+      error={error}
+    >
       <div className="print:hidden">
         <FloorScanBox label="Scan bay, SKU, or order" placeholder="B-01-01, LAMP, or ORD-DEMO1" onScan={onScan} />
+        {message ? <p className="mt-2 text-sm text-muted-foreground">{message}</p> : null}
       </div>
       {hit?.kind === "location" ? (
-        <PrintCard title={hit.location.code} subtitle={hit.location.name} value={hit.location.barcode} jobs={jobs} />
+        <PrintCard
+          title={hit.location.code}
+          subtitle={hit.location.name}
+          value={hit.location.barcode}
+          jobs={jobs}
+          onPrint={async () => {
+            const result = await printer.print({
+              kind: "bay",
+              title: hit.location.code,
+              href: `/stock/locations/${hit.location.id}`,
+              data: {
+                code: hit.location.code,
+                name: hit.location.name,
+                barcode: hit.location.barcode,
+              },
+              refType: "location",
+              refId: hit.location.id,
+            });
+            setMessage(result.message);
+            if (!result.ok) setError(result.message);
+          }}
+        />
       ) : null}
       {hit?.kind === "item" ? (
-        <PrintCard title={hit.item.sku} subtitle={hit.item.name} value={hit.item.barcode || hit.item.sku} jobs={jobs} />
+        <PrintCard
+          title={hit.item.sku}
+          subtitle={hit.item.name}
+          value={hit.item.barcode || hit.item.sku}
+          jobs={jobs}
+          onPrint={async () => {
+            const result = await printer.print({
+              kind: "item",
+              title: hit.item.sku,
+              href: `/stock/items/${hit.item.id}`,
+              data: {
+                sku: hit.item.sku,
+                name: hit.item.name,
+                barcode: hit.item.barcode || hit.item.sku,
+              },
+              refType: "item",
+              refId: hit.item.id,
+            });
+            setMessage(result.message);
+            if (!result.ok) setError(result.message);
+          }}
+        />
       ) : null}
       {hit?.kind === "equipment" ? (
-        <PrintCard title={hit.equipment.code} subtitle={hit.equipment.name} value={hit.equipment.barcode} jobs={jobs} />
+        <PrintCard
+          title={hit.equipment.code}
+          subtitle={hit.equipment.name}
+          value={hit.equipment.barcode}
+          jobs={jobs}
+          onPrint={async () => {
+            const result = await printer.print({
+              kind: "equipment",
+              title: hit.equipment.code,
+              href: `/equipment/${hit.equipment.id}`,
+              data: {
+                code: hit.equipment.code,
+                name: hit.equipment.name,
+                barcode: hit.equipment.barcode,
+              },
+              refType: "equipment",
+              refId: hit.equipment.id,
+            });
+            setMessage(result.message);
+            if (!result.ok) setError(result.message);
+          }}
+        />
       ) : null}
       {hit?.kind === "order" ? (
         <Card className="space-y-3">
@@ -55,8 +133,25 @@ export function FloorPrintPage() {
           {jobs.length ? (
             <div className="flex flex-wrap gap-2">
               {jobs.map((job) => (
-                <Button key={job.href} variant={job.kind === "pack-slip" ? "primary" : "secondary"} asChild>
-                  <Link to={job.href}>{job.kind === "pack-slip" ? "Pack slip" : "Shipping label"}</Link>
+                <Button
+                  key={job.href}
+                  variant={job.kind === "pack-slip" ? "primary" : "secondary"}
+                  onClick={() => {
+                    void printer
+                      .print({
+                        kind: job.kind,
+                        title: job.title,
+                        href: job.href,
+                        refType: "order",
+                        refId: hit.order.id,
+                      })
+                      .then((result) => {
+                        setMessage(result.message);
+                        if (!result.ok) setError(result.message);
+                      });
+                  }}
+                >
+                  {job.kind === "pack-slip" ? "Pack slip" : "Shipping label"}
                 </Button>
               ))}
             </div>
@@ -78,11 +173,13 @@ function PrintCard({
   subtitle,
   value,
   jobs,
+  onPrint,
 }: {
   title: string;
   subtitle: string;
   value: string;
   jobs: PrintJob[];
+  onPrint: () => void | Promise<void>;
 }) {
   return (
     <Card className="space-y-4">
@@ -92,7 +189,7 @@ function PrintCard({
       </div>
       <BarcodeLabel value={value} className="w-full" />
       <div className="flex flex-wrap gap-2 print:hidden">
-        <Button onClick={() => window.print()}>Print label</Button>
+        <Button onClick={() => void onPrint()}>Print label</Button>
         {jobs[0] ? (
           <Button variant="secondary" asChild>
             <Link to={jobs[0].href}>Open record</Link>

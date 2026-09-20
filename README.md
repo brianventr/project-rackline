@@ -73,6 +73,24 @@ Iteration 29 adds floor jobs on top of the existing documents: assign, claim, an
 
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
+Iteration 25 deepens logistics on the same location:item ledger (qty stays integer stock units):
+
+- **3PL client stock** — `client_balances` overlay per location:item:client; receive/pick/ship stamp `client_id` on movements; outbound checks client qty (409 `CLIENT_STOCK`)
+- **Zone-directed picks** — wave `zoneId` prefers bays in that zone when suggesting pick faces
+- **Labor clocks** — clock in/out on a ref posts duration to labor events; GET `/api/labor` includes open clocks
+- **Yard ↔ ASN** — dock assign ties linked ASN to the dock bay; floor/office **Receive ASN** receives at dock
+- **Multi-WH ATP/holds** — `persistStockPlan` scopes holds and ATP checks to warehouses touched by the movement
+- **Carriers** — FedEx/DHL services and account numbers; tracking prefixes `FE-` / `DHL-`
+- **Supplier EDI (thin)** — POST `/api/edi/asn` creates expected ASN + `edi_inbox` row
+- **Dual UoM (thin)** — optional `alt_uom` / `alt_per_stock`; receive/pick accept `altQty` converted to stock pieces
+- **Billing (thin)** — 3PL plan stub; generate draft invoice = client count × $5
+
+Iteration 26 adds hardware support for the floor:
+
+- **Scanner** — HID guns stay global; typed FloorScanBox emits `typed` scans; camera uses Chromium `BarcodeDetector` with **ZXing** fallback; GS1 AI `(01)/(10)/(21)` parse; lookup shows wave/ASN/yard
+- **Printers** — org `printers` + `print_stations` + `print_jobs`; Setup → Printers binds this workstation; Floor Print / shipping labels dispatch via **browser**, **QZ Tray**, or **ZPL download**
+- **ZPL** — bay, SKU, and 4×6 shipping templates; sheet pages can download a ZPL batch
+
 ## Stack
 
 - Cloudflare Workers + [Hono](https://hono.dev) API
