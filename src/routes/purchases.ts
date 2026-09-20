@@ -68,6 +68,9 @@ purchasesRoute.get("/purchases", async (c) => {
       qtyReceived: schema.purchaseLines.qtyReceived,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      trackLot: schema.items.trackLot,
+      trackSerial: schema.items.trackSerial,
+      catchWeight: schema.items.catchWeight,
     })
     .from(schema.purchaseLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.purchaseLines.itemId))

@@ -44,7 +44,7 @@ export function FloorReturnPage() {
     if (dock) setLocationId(dock.id);
     const wanted = params.get("id");
     if (wanted) {
-      const match = nextReturns.find((row) => row.id === wanted) ?? (await api<Rma>(`/api/returns/${wanted}`));
+      const match = await api<Rma>(`/api/returns/${wanted}`);
       openRma(match);
     }
   }

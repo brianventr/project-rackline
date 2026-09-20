@@ -60,13 +60,12 @@ export function FloorReceivePage() {
     const receiptId = params.get("id");
     const purchaseId = params.get("purchase");
     if (purchaseId) {
-      const match =
-        nextPurchases.find((row) => row.id === purchaseId) ?? (await api<Purchase>(`/api/purchases/${purchaseId}`));
+      const match = await api<Purchase>(`/api/purchases/${purchaseId}`);
       setActivePurchase(match);
       setActiveReceipt(null);
       setQtys(Object.fromEntries((match.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
     } else if (receiptId) {
-      const match = nextReceipts.find((row) => row.id === receiptId) ?? (await api<Receipt>(`/api/receipts/${receiptId}`));
+      const match = await api<Receipt>(`/api/receipts/${receiptId}`);
       setActiveReceipt(match);
       setActivePurchase(null);
       setQtys(Object.fromEntries((match.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));

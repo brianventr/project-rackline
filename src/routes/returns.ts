@@ -96,6 +96,9 @@ returnsRoute.get("/returns", async (c) => {
       qtyReceived: schema.rmaLines.qtyReceived,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      trackLot: schema.items.trackLot,
+      trackSerial: schema.items.trackSerial,
+      catchWeight: schema.items.catchWeight,
     })
     .from(schema.rmaLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.rmaLines.itemId))
