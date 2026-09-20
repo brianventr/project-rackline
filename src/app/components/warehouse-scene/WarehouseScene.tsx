@@ -15,6 +15,8 @@ import {
   type LocationLike,
   type RackSpec,
 } from "@/domain/rack-builder";
+import type { PickMapMarker } from "@/domain/pick-map";
+import { cn } from "@/lib/utils";
 import { readSceneTheme, type SceneTheme } from "./theme";
 import { cartonGeometry, PALLET_HEIGHT, PALLET_LIFT, RackFrames, RackPallets, loadFootprint } from "./rack-meshes";
 
@@ -32,6 +34,9 @@ type Props = {
   highlightBay?: string | null;
   fromId?: string | null;
   toId?: string | null;
+  pickIds?: string[];
+  pickMarkers?: PickMapMarker[];
+  className?: string;
   mode: "view" | "build";
   cameraMode: CameraMode;
   placing?: boolean;
@@ -66,11 +71,13 @@ function binColor(
   from: boolean,
   to: boolean,
   baySection: boolean,
+  pick = false,
 ) {
   if (from) return theme.from;
   if (to) return theme.to;
   if (selected) return theme.selected;
   if (hovered) return theme.hover;
+  if (pick) return theme.pick;
   if (baySection) return theme.bayHighlight;
   if ((location.unitsOnHand ?? 0) > 0) return theme.occupied;
   if (location.type === "receiving") return theme.areaRecv;
@@ -87,6 +94,7 @@ function InstancedBins({
   hoveredId,
   fromId,
   toId,
+  pickIds,
   highlightBay,
   ghost,
   pickable,
@@ -102,6 +110,7 @@ function InstancedBins({
   hoveredId?: string | null;
   fromId?: string | null;
   toId?: string | null;
+  pickIds?: ReadonlySet<string>;
   highlightBay?: string | null;
   ghost?: { valid: boolean };
   pickable: boolean;
@@ -122,10 +131,11 @@ function InstancedBins({
         row.id === hoveredId ||
         row.id === fromId ||
         row.id === toId ||
+        Boolean(row.id && pickIds?.has(row.id)) ||
         Boolean(highlightBay && row.bay === highlightBay)
       );
     });
-  }, [source, levelFilter, ghost, selectedLocationId, hoveredId, fromId, toId, highlightBay]);
+  }, [source, levelFilter, ghost, selectedLocationId, hoveredId, fromId, toId, pickIds, highlightBay]);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const color = useMemo(() => new THREE.Color(), []);
 
@@ -163,6 +173,7 @@ function InstancedBins({
             row.id === fromId,
             row.id === toId,
             Boolean(highlightBay) && row.bay === highlightBay,
+            Boolean(row.id && pickIds?.has(row.id)),
           ),
         );
       }
@@ -170,7 +181,7 @@ function InstancedBins({
     });
     inst.instanceMatrix.needsUpdate = true;
     if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-  }, [rows, theme, selectedLocationId, hoveredId, fromId, toId, highlightBay, ghost, dummy, color, explode]);
+  }, [rows, theme, selectedLocationId, hoveredId, fromId, toId, pickIds, highlightBay, ghost, dummy, color, explode]);
 
   if (rows.length === 0) return null;
   return (
@@ -216,6 +227,7 @@ function AreaBox({
   theme,
   selected,
   hovered,
+  pick,
   pickable,
   ghost,
   onHover,
@@ -225,6 +237,7 @@ function AreaBox({
   theme: SceneTheme;
   selected: boolean;
   hovered: boolean;
+  pick?: boolean;
   pickable: boolean;
   ghost?: boolean;
   onHover?: (id: string | null) => void;
@@ -255,7 +268,7 @@ function AreaBox({
     >
       <boxGeometry args={[location.sizeX, Math.max(0.4, location.sizeZ * 0.45), location.sizeY]} />
       <meshStandardMaterial
-        color={binColor(location, theme, selected, hovered, false, false, false)}
+        color={binColor(location, theme, selected, hovered, false, false, false, pick)}
         roughness={0.7}
         metalness={0.04}
         transparent={ghost || !selected}
@@ -319,6 +332,48 @@ function FootprintLine({ box, color }: { box: { posX: number; posY: number; size
   const x1 = box.posX + box.sizeX;
   const z1 = box.posY + box.sizeY;
   return <Line points={[[x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], [x0, y, z0]]} color={color} lineWidth={1.6} />;
+}
+
+function PickMarkers({
+  locations,
+  markers,
+  explode,
+  levelFilter,
+}: {
+  locations: MapLocation[];
+  markers?: PickMapMarker[];
+  explode: boolean;
+  levelFilter: "all" | number;
+}) {
+  if (!markers?.length) return null;
+  const byId = new Map(locations.map((row) => [row.id, row]));
+  return (
+    <>
+      {markers.map((marker) => {
+        const loc = byId.get(marker.locationId);
+        if (!loc) return null;
+        if (levelFilter !== "all" && loc.level !== levelFilter) return null;
+        const center = worldCenter(loc);
+        const lift = explodeLift(loc.level ?? 1, { levelHeight: Math.max(1, loc.sizeZ) }, explode);
+        return (
+          <Html
+            key={marker.locationId}
+            position={[center.x, loc.posZ + loc.sizeZ + lift + 0.35, center.z]}
+            center
+            zIndexRange={[40, 0]}
+            style={{ pointerEvents: "none" }}
+          >
+            <div className="flex items-center gap-1 rounded-full bg-background/90 px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap text-foreground shadow-sm ring-1 ring-border">
+              <span className="grid size-4 place-items-center rounded-full bg-[#3d8b6e] text-[9px] font-semibold text-white">
+                {marker.step}
+              </span>
+              <span className="max-w-[8rem] truncate font-mono">{marker.label}</span>
+            </div>
+          </Html>
+        );
+      })}
+    </>
+  );
 }
 
 function WarehouseCurb({ warehouse, theme }: { warehouse: WarehouseMapInfo; theme: SceneTheme }) {
@@ -435,6 +490,7 @@ function SceneContents(
     theme: SceneTheme;
     hoveredId: string | null;
     setHoveredId: (id: string | null) => void;
+    pickIdSet?: ReadonlySet<string>;
   },
 ) {
   const w = props.warehouse.mapWidth;
@@ -475,6 +531,7 @@ function SceneContents(
                 hoveredId={props.hoveredId}
                 fromId={props.fromId}
                 toId={props.toId}
+                pickIds={props.pickIdSet}
                 highlightBay={selected ? props.highlightBay : null}
                 pickable={pickable}
                 explode={explode}
@@ -529,6 +586,7 @@ function SceneContents(
             theme={props.theme}
             selected={object.id === props.selectedObjectId || loc.id === props.selectedLocationId}
             hovered={props.hoveredId === loc.id}
+            pick={Boolean(props.pickIdSet?.has(loc.id))}
             pickable={pickable}
             onHover={props.setHoveredId}
             onPointerDown={() => {
@@ -539,6 +597,12 @@ function SceneContents(
         );
       })}
       {selectedFootprint && !props.ghost ? <FootprintLine box={selectedFootprint} color={props.theme.outline} /> : null}
+      <PickMarkers
+        locations={props.locations}
+        markers={props.pickMarkers}
+        explode={explode}
+        levelFilter={levelFilter}
+      />
       {props.ghost?.kind === "rack" ? (
         <group>
           <RackFrames spec={props.ghost.spec} theme={props.theme} ghost explode={explode} />
@@ -594,7 +658,7 @@ function CameraRig({ warehouse, cameraMode }: { warehouse: WarehouseMapInfo; cam
   return null;
 }
 
-class WebGLBoundary extends Component<{ children: ReactNode }, { message: string | null }> {
+class WebGLBoundary extends Component<{ children: ReactNode; className?: string }, { message: string | null }> {
   state = { message: null as string | null };
   static getDerivedStateFromError(error: Error) {
     return { message: error.message };
@@ -605,7 +669,12 @@ class WebGLBoundary extends Component<{ children: ReactNode }, { message: string
   render() {
     if (this.state.message) {
       return (
-        <div className="grid h-[min(74vh,820px)] place-items-center rounded-xl border bg-muted px-6 text-center text-sm text-muted-foreground">
+        <div
+          className={cn(
+            "grid h-[min(74vh,820px)] place-items-center rounded-xl border bg-muted px-6 text-center text-sm text-muted-foreground",
+            this.props.className,
+          )}
+        >
           WebGL could not start on this machine. Use Floor plan, or enable hardware/software WebGL in the browser.
         </div>
       );
@@ -640,13 +709,15 @@ export function WarehouseScene(props: Props) {
   const w = props.warehouse.mapWidth;
   const d = props.warehouse.mapDepth;
   const status = props.cameraMode === "top" ? "Plan · orthographic" : "Orbit · perspective";
+  const pickIdSet = useMemo(() => new Set(props.pickIds ?? []), [props.pickIds]);
+  const frameClass = cn(
+    "relative h-[min(74vh,820px)] w-full touch-none overflow-hidden rounded-xl border bg-bay",
+    props.className,
+  );
 
   return (
-    <div
-      className="relative h-[min(74vh,820px)] w-full touch-none overflow-hidden rounded-xl border bg-bay"
-      onContextMenu={(event) => event.preventDefault()}
-    >
-      <WebGLBoundary>
+    <div className={frameClass} onContextMenu={(event) => event.preventDefault()}>
+      <WebGLBoundary className={props.className}>
         <Canvas
           dpr={[1, 2]}
           gl={{
@@ -697,6 +768,7 @@ export function WarehouseScene(props: Props) {
             theme={theme}
             hoveredId={hoveredId}
             setHoveredId={setHoveredId}
+            pickIdSet={pickIdSet}
             onTranslateBegin={(id, x, y) => {
               dragging.current = true;
               props.onTranslateBegin?.(id, x, y);

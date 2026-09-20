@@ -10,7 +10,7 @@ const verbs = [
   { to: "/floor/yard", title: "Yard", body: "Scan a YRD- visit to check in, dock, or check out." },
   { to: "/floor/putaway", title: "Put away", body: "Post remaining on a putaway ticket, or scan the dock to a bulk bay." },
   { to: "/floor/replenish", title: "Replenish", body: "Move remaining qty from bulk onto a pick face below min." },
-  { to: "/floor/pick", title: "Pick", body: "Go to the suggested bay, pick remaining qty, or unpick / cancel." },
+  { to: "/floor/pick", title: "Pick", body: "Go to the suggested bay, open a pick map, pick remaining qty, or unpick / cancel." },
   { to: "/floor/wave", title: "Wave", body: "Scan a WAV- wave; batch-pick aggregated SKUs when mode is batch." },
   { to: "/floor/pack", title: "Pack", body: "Pack remaining qty, print a pack slip, close the box." },
   { to: "/floor/ship", title: "Ship", body: "Buy a label, close the order, fulfill Shopify." },
