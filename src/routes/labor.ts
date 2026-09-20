@@ -118,12 +118,11 @@ laborRoute.get("/labor/skus/:itemId", async (c) => {
     warehouseId,
     from: window.from,
     to: window.to,
-    itemId,
     userId: role === "owner" ? undefined : user.id,
   });
   const board = buildLaborKpis(input);
   return c.json({
     range: window,
-    ...laborSkuDetail(board, itemId),
+    ...laborSkuDetail(board, input.facts, itemId),
   });
 });

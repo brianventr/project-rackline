@@ -344,13 +344,37 @@ export function laborStaffDetail(board: LaborKpiBoard, facts: LaborFact[], userI
   };
 }
 
-export function laborSkuDetail(board: LaborKpiBoard, itemId: string): LaborSkuDetail {
+export function laborSkuDetail(board: LaborKpiBoard, facts: LaborFact[], itemId: string): LaborSkuDetail {
   const sku = board.skus.find((row) => row.itemId === itemId) ?? null;
-  const handlerIds = new Set(board.matrix.filter((cell) => cell.itemId === itemId && cell.units > 0).map((cell) => cell.userId));
-  return {
-    sku,
-    handlers: board.staff.filter((row) => handlerIds.has(row.userId)),
-  };
+  const handlers: LaborStaffRow[] = [];
+  for (const staff of board.staff) {
+    const mine = facts.filter((fact) => fact.userId === staff.userId && fact.itemId === itemId);
+    if (mine.length === 0) continue;
+    let lines = 0;
+    let units = 0;
+    let exceptionUnits = 0;
+    for (const fact of mine) {
+      const classified = classifyLaborFact(fact);
+      if (classified.kind === "throughput") {
+        lines += 1;
+        units += Math.abs(fact.qty);
+      } else if (classified.kind === "exception") {
+        exceptionUnits += Math.abs(fact.qty);
+      }
+    }
+    if (lines === 0 && exceptionUnits === 0) continue;
+    const cell = board.matrix.find((row) => row.userId === staff.userId && row.itemId === itemId);
+    const top = staff.topSkus.find((row) => row.itemId === itemId);
+    handlers.push({
+      ...staff,
+      lines,
+      units,
+      exceptionUnits,
+      exceptionRate: rate(exceptionUnits, units + exceptionUnits),
+      pace: cell?.pace ?? top?.pace ?? sku?.pace ?? 5,
+    });
+  }
+  return { sku, handlers };
 }
 
 function annotateFacts(

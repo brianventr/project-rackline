@@ -3,6 +3,7 @@ import {
   buildLaborKpis,
   classifyLaborFact,
   expectedLineMs,
+  laborSkuDetail,
   manhattanTravel,
   paceScore,
   sessionActiveMs,
@@ -215,6 +216,28 @@ describe("labor KPIs", () => {
     expect(utcDay(t0)).toBe("2026-09-18");
     expect(board.daily[0]?.day).toBe("2026-09-18");
     expect(glue.hard).toBe(true);
+  });
+
+  it("keeps SKU handler pace from the full document, not a filtered slice", () => {
+    const t0 = Date.parse("2026-09-20T16:00:00Z");
+    const facts = [
+      fact({ userId: "maya", type: "pick", itemId: "glue", qty: 1, createdAt: t0 }),
+      fact({ userId: "maya", type: "pick", itemId: "base", qty: 40, createdAt: t0 + 90_000 }),
+      fact({ userId: "maya", type: "pack", itemId: "glue", qty: 1, createdAt: t0 + 180_000 }),
+    ];
+    const full = buildLaborKpis({ members, items, locations, facts });
+    const glueOnly = buildLaborKpis({
+      members,
+      items,
+      locations,
+      facts: facts.filter((row) => row.itemId === "glue"),
+    });
+    const detail = laborSkuDetail(full, facts, "glue");
+    const matrixPace = full.matrix.find((cell) => cell.userId === "maya" && cell.sku === "GLUE")?.pace;
+    expect(detail.handlers).toHaveLength(1);
+    expect(detail.handlers[0]!.units).toBe(2);
+    expect(detail.handlers[0]!.pace).toBe(matrixPace);
+    expect(detail.handlers[0]!.pace).toBeGreaterThan(glueOnly.skus.find((row) => row.sku === "GLUE")!.pace);
   });
 
   it("does not count idle time between documents as active hours", () => {
