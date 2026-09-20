@@ -150,7 +150,7 @@ export function TodayPage() {
               id: row.id,
               to: `/stock/replenish/${row.id}`,
               title: row.number,
-              meta: `${row.sku} ${row.fromCode ?? "bulk"} → ${row.toCode ?? "pick"}`,
+              meta: `${row.sku} ${row.qtyMoved ?? 0}/${row.qty} · ${row.fromCode ?? "bulk"} → ${row.toCode ?? "pick"}`,
               status: row.status,
               actionTo: `/floor/replenish?id=${row.id}`,
               action: "Replenish",

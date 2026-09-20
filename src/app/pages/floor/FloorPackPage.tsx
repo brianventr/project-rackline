@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, type Order, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
-import { canPackOrder, canStartPack } from "@/domain/status";
+import { canPackOrder, canStartPack, canCancelOrder } from "@/domain/status";
 import { hasUnpacked } from "@/domain/partial-pack";
 
 export function FloorPackPage() {
@@ -92,6 +92,18 @@ export function FloorPackPage() {
     }
   }
 
+  async function cancel() {
+    if (!active) return;
+    setError(null);
+    try {
+      const next = await api<Order>(`/api/orders/${active.id}/cancel`, { method: "POST" });
+      applyOrder(next);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancel failed");
+    }
+  }
+
   const remaining =
     active &&
     hasUnpacked(
@@ -165,6 +177,11 @@ export function FloorPackPage() {
               <Button disabled={!thisPack} onClick={() => void pack()}>
                 Pack remaining
               </Button>
+              {canCancelOrder(active.status) ? (
+                <Button variant="secondary" onClick={() => void cancel()}>
+                  Cancel order
+                </Button>
+              ) : null}
               <Link className="font-medium underline" to={`/outbound/orders/${active.id}/pack-slip`}>
                 Print pack slip
               </Link>

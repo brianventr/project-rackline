@@ -13,7 +13,7 @@ import {
   type ShopifyFulfillmentOrderNode,
 } from "./shopify";
 import { createShopifyGraphqlClient, fetchOrderFulfillmentOrders } from "../lib/shopify-client";
-import { releaseOpenAllocations } from "../db/allocations";
+import { cancelOrderDocument } from "../db/unpick";
 
 export class ShopifyIngestError extends Error {
   constructor(
@@ -197,12 +197,15 @@ export async function cancelShopifyDraft(
     .from(schema.orders)
     .where(and(eq(schema.orders.organizationId, organizationId), eq(schema.orders.shopifyOrderId, shopifyOrderId)))
     .limit(1);
-  if (!order || (order.status !== "open" && order.status !== "draft" && order.status !== "picking")) return false;
-  const now = Date.now();
-  await releaseOpenAllocations(db, order.id, now);
-  await db
-    .update(schema.orders)
-    .set({ status: "cancelled", shopifySyncStatus: "inbound" })
-    .where(eq(schema.orders.id, order.id));
-  return true;
+  if (!order) return false;
+  const [member] = await db
+    .select({ userId: schema.memberships.userId })
+    .from(schema.memberships)
+    .where(eq(schema.memberships.organizationId, organizationId))
+    .limit(1);
+  return cancelOrderDocument(db, {
+    organizationId,
+    orderId: order.id,
+    createdBy: member?.userId ?? order.id,
+  });
 }

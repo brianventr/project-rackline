@@ -122,6 +122,14 @@ export function planAllocations(input: {
   return { drafts, short };
 }
 
+export function matchingAllocation(
+  allocations: OpenAllocation[],
+  orderLineId: string,
+  locationId: string,
+): OpenAllocation | undefined {
+  return allocations.find((row) => row.orderLineId === orderLineId && row.locationId === locationId);
+}
+
 export function consumeAllocations(
   allocations: OpenAllocation[],
   orderLineId: string,

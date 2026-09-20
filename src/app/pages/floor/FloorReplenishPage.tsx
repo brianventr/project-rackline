@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, type ReplenishSuggestion, type Replenishment, type ScanHit } from "../../api";
-import { Button, Card, StatusBadge } from "../../components/ui";
+import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { canPostReplenishment } from "@/domain/status";
+import { remainingToReplenish } from "@/domain/partial-replenish";
 import { useWarehouse } from "../../warehouse";
 
 export function FloorReplenishPage() {
@@ -12,8 +13,16 @@ export function FloorReplenishPage() {
   const [docs, setDocs] = useState<Replenishment[]>([]);
   const [suggestions, setSuggestions] = useState<ReplenishSuggestion[]>([]);
   const [active, setActive] = useState<Replenishment | null>(null);
+  const [thisQty, setThisQty] = useState("");
+  const [lotCode, setLotCode] = useState("");
+  const [serials, setSerials] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+
+  function applyDoc(doc: Replenishment) {
+    setActive(doc);
+    setThisQty(String(doc.remaining ?? remainingToReplenish(doc.qty, doc.qtyMoved ?? 0)));
+  }
 
   async function load() {
     const query = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : "";
@@ -25,7 +34,7 @@ export function FloorReplenishPage() {
     setSuggestions(nextSuggestions);
     const wanted = params.get("id");
     if (wanted) {
-      setActive(nextDocs.find((row) => row.id === wanted) ?? (await api<Replenishment>(`/api/replenishments/${wanted}`)));
+      applyDoc(nextDocs.find((row) => row.id === wanted) ?? (await api<Replenishment>(`/api/replenishments/${wanted}`)));
     }
   }
 
@@ -38,7 +47,7 @@ export function FloorReplenishPage() {
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
       .then((hit) => {
         if (hit.kind === "replenishment") {
-          void api<Replenishment>(`/api/replenishments/${hit.replenishment.id}`).then(setActive);
+          void api<Replenishment>(`/api/replenishments/${hit.replenishment.id}`).then(applyDoc);
           return;
         }
         setError("Scan a replenishment document, or pick a suggestion.");
@@ -59,7 +68,7 @@ export function FloorReplenishPage() {
           toLocationId: row.toLocationId,
         }),
       });
-      setActive(created);
+      applyDoc(created);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not queue");
     }
@@ -72,17 +81,26 @@ export function FloorReplenishPage() {
       if (active.status === "draft") {
         await api(`/api/replenishments/${active.id}/start`, { method: "POST" });
       }
-      const posted = await api<Replenishment>(`/api/replenishments/${active.id}/post`, { method: "POST" });
-      setActive(posted);
-      setDone(`${posted.number} posted ${posted.qty} ${posted.sku} ${posted.fromCode} → ${posted.toCode}.`);
+      const posted = await api<Replenishment>(`/api/replenishments/${active.id}/post`, {
+        method: "POST",
+        body: JSON.stringify({
+          qty: Number(thisQty),
+          lotCode: lotCode || undefined,
+          serials: serials || undefined,
+        }),
+      });
+      applyDoc(posted);
+      setDone(`${posted.number} moved ${thisQty} ${posted.sku} ${posted.fromCode} → ${posted.toCode}.`);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Post failed");
     }
   }
 
+  const remaining = active ? (active.remaining ?? remainingToReplenish(active.qty, active.qtyMoved ?? 0)) : 0;
+
   return (
-    <FloorFrame title="Replenish" description="Pull bulk down onto a pick face that's below pick min." error={error}>
+    <FloorFrame title="Replenish" description="Pull remaining qty from bulk onto a pick face that's below pick min." error={error}>
       <FloorScanBox label="Scan replenishment" placeholder="RPL-…" onScan={onScan} />
       {done ? <p className="text-sm text-emerald-700">{done}</p> : null}
       {!active ? (
@@ -92,8 +110,8 @@ export function FloorReplenishPage() {
             <ul className="space-y-2 text-sm">
               {docs.map((row) => (
                 <li key={row.id}>
-                  <button className="w-full text-left" onClick={() => setActive(row)}>
-                    <span className="font-mono">{row.number}</span> {row.sku} × {row.qty}{" "}
+                  <button className="w-full text-left" onClick={() => applyDoc(row)}>
+                    <span className="font-mono">{row.number}</span> {row.sku} × {row.qtyMoved ?? 0}/{row.qty}{" "}
                     <StatusBadge status={row.status} />
                   </button>
                 </li>
@@ -125,13 +143,24 @@ export function FloorReplenishPage() {
             <StatusBadge status={active.status} />
           </div>
           <p>
-            {active.sku} × {active.qty}
+            {active.sku} · moved {active.qtyMoved ?? 0}/{active.qty}
           </p>
           <p className="font-mono text-sm">
             {active.fromCode} → {active.toCode}
           </p>
-          {canPostReplenishment(active.status) ? (
-            <Button onClick={() => void post()}>Post replenishment</Button>
+          {canPostReplenishment(active.status) && remaining > 0 ? (
+            <>
+              <Field label={`This move (remaining ${remaining})`}>
+                <Input type="number" min={1} max={remaining} value={thisQty} onChange={(e) => setThisQty(e.target.value)} />
+              </Field>
+              {active.trackLot ? (
+                <Input placeholder="Lot (FIFO if blank)" value={lotCode} onChange={(e) => setLotCode(e.target.value)} />
+              ) : null}
+              {active.trackSerial ? (
+                <Input placeholder="Serials" value={serials} onChange={(e) => setSerials(e.target.value)} />
+              ) : null}
+              <Button onClick={() => void post()}>Move remaining</Button>
+            </>
           ) : (
             <p>Already posted.</p>
           )}

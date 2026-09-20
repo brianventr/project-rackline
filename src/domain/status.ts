@@ -103,6 +103,15 @@ export function isOpenOrder(status: string): boolean {
   return value !== "shipped" && value !== "cancelled";
 }
 
+export function canCancelOrder(status: string): boolean {
+  return isOpenOrder(status);
+}
+
+export function canUnpickOrder(status: string): boolean {
+  const value = normalizeOrderStatus(status);
+  return value === "picking" || value === "picked" || value === "packing" || value === "packed";
+}
+
 export function isOpenReceipt(status: string): boolean {
   return canReceive(status);
 }

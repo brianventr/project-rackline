@@ -588,6 +588,7 @@ export const replenishments = sqliteTable("replenishments", {
     .notNull()
     .references(() => items.id),
   qty: integer("qty").notNull(),
+  qtyMoved: integer("qty_moved").notNull().default(0),
   fromLocationId: text("from_location_id")
     .notNull()
     .references(() => locations.id),
@@ -731,5 +732,6 @@ export type MovementType =
   | "kit_consume"
   | "kit_produce"
   | "scrap"
-  | "rtv";
+  | "rtv"
+  | "unpick";
 export type ReturnDisposition = "restock" | "scrap" | "hold";

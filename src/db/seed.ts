@@ -274,6 +274,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
   const woId = newId();
   const kitId = newId();
   const transferId = newId();
+  const rplId = newId();
   const shopifyOrderRowId = newId();
   const shopifyLineId = "8801";
   await db.batch([
@@ -412,6 +413,20 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       itemId: item.base,
       qty: 6,
       qtyMoved: 0,
+    }),
+    db.insert(schema.replenishments).values({
+      id: rplId,
+      organizationId,
+      warehouseId,
+      number: "RPL-DEMO1",
+      status: "draft",
+      itemId: item.bulb,
+      qty: 14,
+      qtyMoved: 0,
+      fromLocationId: locIds.a0101!,
+      toLocationId: locIds.a0102!,
+      notes: "Pick face A-01-02 is below min — pull bulbs from bulk",
+      createdAt: now,
     }),
     db.insert(schema.shopifyConnections).values({
       id: newId(),
