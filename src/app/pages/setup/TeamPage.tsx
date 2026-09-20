@@ -1,17 +1,29 @@
 import { useEffect, useState } from "react";
-import { api, type TeamMember } from "../../api";
+import { api, type OperatorCertification, type TeamMember } from "../../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../../components/ui";
+import { EQUIPMENT_CLASSES, equipmentClassLabel } from "@/domain/equipment";
+import { formatExpiresOn } from "@/domain/expiry";
 
 export function TeamPage() {
   const [members, setMembers] = useState<TeamMember[]>([]);
+  const [certs, setCerts] = useState<OperatorCertification[]>([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("operator");
+  const [certUserId, setCertUserId] = useState("");
+  const [certClass, setCertClass] = useState<(typeof EQUIPMENT_CLASSES)[number]>("sit_down");
+  const [expiresOn, setExpiresOn] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
-    setMembers(await api<TeamMember[]>("/api/team"));
+    const [nextMembers, nextCerts] = await Promise.all([
+      api<TeamMember[]>("/api/team"),
+      api<OperatorCertification[]>("/api/certifications"),
+    ]);
+    setMembers(nextMembers);
+    setCerts(nextCerts);
+    if (!certUserId && nextMembers[0]) setCertUserId(nextMembers[0].userId);
   }
 
   useEffect(() => {
@@ -34,12 +46,36 @@ export function TeamPage() {
     }
   }
 
+  async function addCert() {
+    setError(null);
+    try {
+      await api("/api/certifications", {
+        method: "POST",
+        body: JSON.stringify({ userId: certUserId, class: certClass, expiresOn }),
+      });
+      setExpiresOn("");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add certification");
+    }
+  }
+
+  async function removeCert(id: string) {
+    setError(null);
+    try {
+      await api(`/api/certifications/${id}`, { method: "DELETE" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove certification");
+    }
+  }
+
   return (
     <div>
       <PageHeader
         eyebrow="Setup"
         title="Team"
-        description="Owners see setup. Operators land on the floor. Invite someone with an email and a starter password."
+        description="Owners see setup. Operators land on the floor. Certifications gate forklift checkout."
       />
       <ErrorBanner error={error} />
       <Card className="mb-6">
@@ -73,6 +109,54 @@ export function TeamPage() {
           </tr>
         ))}
       </Table>
+      <div className="mt-10">
+        <h2 className="mb-3 text-lg font-semibold">Equipment certifications</h2>
+        <Card className="mb-6">
+          <form className="grid gap-3 md:grid-cols-4" onSubmit={onSubmit(addCert)}>
+            <Field label="Teammate">
+              <Select value={certUserId} onChange={(e) => setCertUserId(e.target.value)}>
+                {members.map((member) => (
+                  <option key={member.userId} value={member.userId}>
+                    {member.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Class">
+              <Select
+                value={certClass}
+                onChange={(e) => setCertClass(e.target.value as (typeof EQUIPMENT_CLASSES)[number])}
+              >
+                {EQUIPMENT_CLASSES.map((value) => (
+                  <option key={value} value={value}>
+                    {equipmentClassLabel(value)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Expires">
+              <Input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} required />
+            </Field>
+            <div className="flex items-end">
+              <Button type="submit">Add cert</Button>
+            </div>
+          </form>
+        </Card>
+        <Table columns={["Teammate", "Class", "Expires", ""]}>
+          {certs.map((cert) => (
+            <tr key={cert.id}>
+              <td className="px-4 py-3">{cert.userName}</td>
+              <td className="px-4 py-3">{equipmentClassLabel(cert.class)}</td>
+              <td className="px-4 py-3 font-mono text-sm">{formatExpiresOn(cert.expiresOn)}</td>
+              <td className="px-4 py-3">
+                <Button variant="ghost" onClick={() => void removeCert(cert.id)}>
+                  Remove
+                </Button>
+              </td>
+            </tr>
+          ))}
+        </Table>
+      </div>
     </div>
   );
 }

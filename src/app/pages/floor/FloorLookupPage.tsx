@@ -21,7 +21,7 @@ export function FloorLookupPage() {
   }, []);
 
   return (
-    <FloorFrame title="Lookup" description="Scan a SKU, item barcode, bay, document, serial, or lot." error={error}>
+    <FloorFrame title="Lookup" description="Scan a SKU, bay, document, serial, lot, or EQ: truck." error={error}>
       <FloorScanBox label="Scan" placeholder="Bay, SKU, LAMP-1001, LOT-2026-A" onScan={onScan} />
       {hit ? <LookupResult hit={hit} /> : null}
     </FloorFrame>
@@ -165,6 +165,35 @@ function LookupResult({ hit }: { hit: ScanHit }) {
         <AsBuiltList title="Used in" empty="This lot was not consumed into a build." rows={hit.usedIn} mode="into" />
         <AsBuiltList title="Built from" empty="No genealogy for this finished lot." rows={hit.builtFrom} mode="from" />
       </div>
+    );
+  }
+
+  if (hit.kind === "equipment") {
+    return (
+      <Card>
+        <p className="font-mono text-xs uppercase text-muted-foreground">Equipment</p>
+        <h2 className="text-2xl font-semibold">{hit.equipment.code}</h2>
+        <p className="text-muted-foreground">{hit.equipment.name}</p>
+        <p className="mt-2">
+          <StatusBadge status={hit.equipment.status} />
+          {hit.equipment.currentAssignment ? (
+            <span className="ml-2 text-sm">
+              {hit.equipment.currentAssignment.operatorName} · {hit.equipment.currentAssignment.number}
+            </span>
+          ) : null}
+        </p>
+        <div className="mt-4 flex gap-2">
+          <Button>
+            <Link to={`/floor/checkout?id=${hit.equipment.id}`}>Check out</Link>
+          </Button>
+          <Button variant="secondary" asChild>
+            <Link to={`/floor/print?code=${encodeURIComponent(hit.equipment.barcode)}`}>Print label</Link>
+          </Button>
+          <Button variant="secondary">
+            <Link to={`/equipment/${hit.equipment.id}`}>Open record</Link>
+          </Button>
+        </div>
+      </Card>
     );
   }
 

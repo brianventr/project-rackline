@@ -16,6 +16,7 @@ import { HeldStockError } from "./domain/holds";
 import { ExpiredLotError } from "./domain/expiry";
 import { InsufficientAtpError } from "./domain/allocations";
 import { ClientStockError } from "./domain/client-stock";
+import { EquipmentCustodyError } from "./domain/equipment";
 import type { AppEnv } from "./lib/types";
 import { originFrom } from "./lib/types";
 import { registerRoute } from "./routes/register";
@@ -48,6 +49,7 @@ import { laborRoute } from "./routes/labor";
 import { printersRoute } from "./routes/printers";
 import { billingRoute } from "./routes/billing";
 import { ediRoute } from "./routes/edi";
+import { equipmentRoute } from "./routes/equipment";
 import { analyticsRoute } from "./routes/analytics";
 const app = new Hono<AppEnv>();
 
@@ -211,6 +213,16 @@ app.onError((err, c) => {
       409,
     );
   }
+  if (err instanceof EquipmentCustodyError) {
+    return c.json(
+      {
+        error: err.message,
+        code: err.code,
+        ...err.extras,
+      },
+      409,
+    );
+  }
   if (err instanceof ShopifyIngestError) {
     return c.json({ error: err.message }, err.status as 400 | 409);
   }
@@ -293,6 +305,7 @@ app.route("/api", laborRoute);
 app.route("/api", printersRoute);
 app.route("/api", billingRoute);
 app.route("/api", ediRoute);
+app.route("/api", equipmentRoute);
 app.route("/api", analyticsRoute);
 
 export default app;

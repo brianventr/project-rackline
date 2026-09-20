@@ -99,6 +99,30 @@ export function FloorPrintPage() {
           }}
         />
       ) : null}
+      {hit?.kind === "equipment" ? (
+        <PrintCard
+          title={hit.equipment.code}
+          subtitle={hit.equipment.name}
+          value={hit.equipment.barcode}
+          jobs={jobs}
+          onPrint={async () => {
+            const result = await printer.print({
+              kind: "equipment",
+              title: hit.equipment.code,
+              href: `/equipment/${hit.equipment.id}`,
+              data: {
+                code: hit.equipment.code,
+                name: hit.equipment.name,
+                barcode: hit.equipment.barcode,
+              },
+              refType: "equipment",
+              refId: hit.equipment.id,
+            });
+            setMessage(result.message);
+            if (!result.ok) setError(result.message);
+          }}
+        />
+      ) : null}
       {hit?.kind === "order" ? (
         <Card className="space-y-3">
           <div className="flex items-center justify-between">
@@ -136,7 +160,7 @@ export function FloorPrintPage() {
           )}
         </Card>
       ) : null}
-      {hit && hit.kind !== "location" && hit.kind !== "item" && hit.kind !== "order" ? (
+      {hit && hit.kind !== "location" && hit.kind !== "item" && hit.kind !== "order" && hit.kind !== "equipment" ? (
         <p className="text-sm text-muted-foreground">Scan a bay, a SKU, or an order to print.</p>
       ) : null}
       {!hit ? <WaitingJobs /> : null}
@@ -230,6 +254,9 @@ function WaitingJobs() {
           </Link>
           <Link className="underline" to="/stock/items?labels=1">
             All SKU labels
+          </Link>
+          <Link className="underline" to="/equipment?labels=1">
+            All equipment labels
           </Link>
         </div>
       </Card>

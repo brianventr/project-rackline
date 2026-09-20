@@ -27,7 +27,7 @@ import {
   clientKeysFromMovements,
   loadClientBalanceMap,
 } from "./client-stock";
-
+import { loadOpenAssignmentForOperator } from "./equipment";
 export type AppDb = DrizzleD1Database<typeof import("./schema")>;
 
 export async function loadBalanceMap(
@@ -133,7 +133,7 @@ export async function persistStockPlan(
       next: clientApplied.next,
     }),
   );
-
+  const custody = await loadOpenAssignmentForOperator(db, input.organizationId, input.createdBy);
   for (const [key, qty] of input.plan.balances) {
     const { locationId, itemId } = parseBalanceKey(key);
     const existing = input.loaded.get(key);
@@ -178,6 +178,8 @@ export async function persistStockPlan(
         weightGrams: movement.weightGrams ?? null,
         expiresOn: movement.expiresOn ?? null,
         clientId: movement.clientId ?? null,
+        equipmentId: custody?.equipmentId ?? null,
+        assignmentId: custody?.id ?? null,
       }),
     );
   }

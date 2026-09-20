@@ -11,7 +11,7 @@ export const printersRoute = new Hono<AppEnv>();
 
 const CONNECTIONS = new Set(["browser", "qz", "download"]);
 const MEDIA = new Set(["letter", "4x6", "2x1"]);
-const JOB_KINDS = new Set(["bay", "item", "pack-slip", "shipping-label", "sheet"]);
+const JOB_KINDS = new Set(["bay", "item", "pack-slip", "shipping-label", "sheet", "equipment"]);
 const PAYLOAD_FORMATS = new Set(["html", "zpl"]);
 const JOB_STATUSES = new Set(["queued", "sent", "failed"]);
 

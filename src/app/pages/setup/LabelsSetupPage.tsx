@@ -240,6 +240,11 @@ export function LabelsSetupPage() {
               </Link>
               <span className="text-muted-foreground"> · {items.length} items</span>
             </li>
+            <li>
+              <Link className="underline" to="/equipment?labels=1">
+                Print equipment labels
+              </Link>
+            </li>
           </ul>
         </Card>
         <Card className="space-y-3">

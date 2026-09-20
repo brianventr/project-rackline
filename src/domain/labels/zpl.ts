@@ -1,6 +1,6 @@
 export type LabelMedia = "letter" | "4x6" | "2x1";
 
-export type LabelKind = "bay" | "item" | "shipping-label" | "sheet";
+export type LabelKind = "bay" | "item" | "shipping-label" | "sheet" | "equipment";
 
 export type LabelPayload = {
   format: "zpl" | "html";
@@ -99,13 +99,13 @@ export function buildLabelPayload(
   media: LabelMedia = "4x6",
   dpi = 203,
 ): LabelPayload {
-  if (kind === "bay") {
+  if (kind === "bay" || kind === "equipment") {
     const body = zplBayLabel(
       { code: data.code || "", name: data.name || "", barcode: data.barcode || data.code || "" },
       media,
       dpi,
     );
-    return { format: "zpl", body, filename: `${data.code || "bay"}.zpl` };
+    return { format: "zpl", body, filename: `${data.code || (kind === "equipment" ? "equipment" : "bay")}.zpl` };
   }
   if (kind === "item") {
     const body = zplItemLabel(
