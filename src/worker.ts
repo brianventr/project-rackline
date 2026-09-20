@@ -15,6 +15,7 @@ import { OverBatchPickError } from "./domain/waves";
 import { HeldStockError } from "./domain/holds";
 import { ExpiredLotError } from "./domain/expiry";
 import { InsufficientAtpError } from "./domain/allocations";
+import { EquipmentCustodyError } from "./domain/equipment";
 import type { AppEnv } from "./lib/types";
 import { originFrom } from "./lib/types";
 import { registerRoute } from "./routes/register";
@@ -43,6 +44,7 @@ import { zonesRoute } from "./routes/zones";
 import { clientsRoute } from "./routes/clients";
 import { yardRoute } from "./routes/yard";
 import { laborRoute } from "./routes/labor";
+import { equipmentRoute } from "./routes/equipment";
 
 const app = new Hono<AppEnv>();
 
@@ -193,6 +195,16 @@ app.onError((err, c) => {
       409,
     );
   }
+  if (err instanceof EquipmentCustodyError) {
+    return c.json(
+      {
+        error: err.message,
+        code: err.code,
+        ...err.extras,
+      },
+      409,
+    );
+  }
   if (err instanceof ShopifyIngestError) {
     return c.json({ error: err.message }, err.status as 400 | 409);
   }
@@ -271,5 +283,6 @@ app.route("/api", zonesRoute);
 app.route("/api", clientsRoute);
 app.route("/api", yardRoute);
 app.route("/api", laborRoute);
+app.route("/api", equipmentRoute);
 
 export default app;

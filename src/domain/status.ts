@@ -9,6 +9,7 @@ export const VENDOR_RETURN_STEPS = ["open", "returning", "returned"] as const;
 export const REPLENISH_STEPS = ["draft", "in_progress", "posted"] as const;
 export const KIT_STEPS = ["draft", "in_progress", "completed"] as const;
 export const HOLD_STEPS = ["open", "released"] as const;
+export const EQUIPMENT_ASSIGNMENT_STEPS = ["open", "closed"] as const;
 export const WAVE_STEPS = ["draft", "released", "picking", "completed"] as const;
 export const ASN_STEPS = ["draft", "expected", "receiving", "received"] as const;
 export const YARD_STEPS = ["expected", "checked_in", "at_dock", "checked_out"] as const;
@@ -145,6 +146,14 @@ export function isOpenVendorReturn(status: string): boolean {
 
 export function isOpenHoldStatus(status: string): boolean {
   return canReleaseHold(status);
+}
+
+export function canCheckInEquipment(status: string): boolean {
+  return status === "open";
+}
+
+export function canReturnEquipmentToService(status: string): boolean {
+  return status === "out_of_service";
 }
 
 export function canReleaseWave(status: string): boolean {
