@@ -738,6 +738,42 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     }),
   ]);
 
+  const browserPrinterId = newId();
+  const downloadPrinterId = newId();
+  const stationId = newId();
+  await db.batch([
+    db.insert(schema.printers).values({
+      id: browserPrinterId,
+      organizationId,
+      name: "Browser (HTML)",
+      connection: "browser",
+      media: "letter",
+      dpi: 203,
+      isDefault: 1,
+      createdAt: now,
+    }),
+    db.insert(schema.printers).values({
+      id: downloadPrinterId,
+      organizationId,
+      name: "ZPL download",
+      connection: "download",
+      media: "4x6",
+      dpi: 203,
+      isDefault: 0,
+      createdAt: now,
+    }),
+    db.insert(schema.printStations).values({
+      id: stationId,
+      organizationId,
+      name: "Front desk",
+      warehouseId,
+      defaultPrinterId: browserPrinterId,
+      bayPrinterId: browserPrinterId,
+      shippingPrinterId: downloadPrinterId,
+      createdAt: now,
+    }),
+  ]);
+
   return { organizationId };
 }
 

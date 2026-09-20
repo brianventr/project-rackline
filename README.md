@@ -74,6 +74,12 @@ Iteration 25 deepens logistics on the same location:item ledger (qty stays integ
 - **Dual UoM (thin)** — optional `alt_uom` / `alt_per_stock`; receive/pick accept `altQty` converted to stock pieces
 - **Billing (thin)** — 3PL plan stub; generate draft invoice = client count × $5
 
+Iteration 26 adds hardware support for the floor:
+
+- **Scanner** — HID guns stay global; typed FloorScanBox emits `typed` scans; camera uses Chromium `BarcodeDetector` with **ZXing** fallback; GS1 AI `(01)/(10)/(21)` parse; lookup shows wave/ASN/yard
+- **Printers** — org `printers` + `print_stations` + `print_jobs`; Setup → Printers binds this workstation; Floor Print / shipping labels dispatch via **browser**, **QZ Tray**, or **ZPL download**
+- **ZPL** — bay, SKU, and 4×6 shipping templates; sheet pages can download a ZPL batch
+
 ## Stack
 
 - Cloudflare Workers + [Hono](https://hono.dev) API

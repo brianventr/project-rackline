@@ -5,6 +5,7 @@ import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
 import { formatExpiresOn } from "@/domain/expiry";
 import { formatAsBuiltPart } from "@/domain/as-built";
+import { usePrint } from "../print/PrintProvider";
 
 const types = ["raw", "wip", "finished", "packaging"];
 
@@ -31,6 +32,7 @@ function ItemList() {
   const [error, setError] = useState<string | null>(null);
   const [labels, setLabels] = useState(params.get("labels") === "1");
   const [ready, setReady] = useState(false);
+  const printer = usePrint();
 
   async function load() {
     setItems(await api<Item[]>("/api/items"));
@@ -91,6 +93,32 @@ function ItemList() {
                 }}
               >
                 Back
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void printer
+                    .print({
+                      kind: "sheet",
+                      title: "sku-labels",
+                      forceConnection: "download",
+                      data: {
+                        labelsJson: JSON.stringify(
+                          items.map((item) => ({
+                            kind: "item",
+                            sku: item.sku,
+                            name: item.name,
+                            barcode: item.barcode || item.sku,
+                          })),
+                        ),
+                      },
+                    })
+                    .then((result) => {
+                      if (!result.ok) setError(result.message);
+                    });
+                }}
+              >
+                Download ZPL
               </Button>
               <Button onClick={() => window.print()}>Print</Button>
             </div>
