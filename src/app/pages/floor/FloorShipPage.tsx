@@ -10,10 +10,14 @@ import {
   type ShippingLabel,
 } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { canShipOrder } from "@/domain/status";
+import { useSession } from "../../session";
+import { jobForRef, useOpenJobs } from "../../jobs";
 
 export function FloorShipPage() {
+  const me = useSession();
+  const { jobs, reload: reloadJobs } = useOpenJobs("ship");
   const [params] = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);
   const [active, setActive] = useState<Order | null>(null);
@@ -29,15 +33,18 @@ export function FloorShipPage() {
     const [next, hub] = await Promise.all([api<Order[]>("/api/orders"), api<CarrierHub>("/api/carriers")]);
     setOrders(next.filter((row) => canShipOrder(row.status)));
     setServices(hub.enabledServices);
+    const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
       const found = next.find((row) => row.id === wanted) ?? (await api<Order>(`/api/orders/${wanted}`));
-      setActive(found);
-      setTrackingNumber(found.trackingNumber || "");
-      setTrackingCompany(found.trackingCompany || "");
-      setCarrierService(
-        found.carrierService || hub.enabledServices.find((row) => row.isDefault)?.id || "rackline_ground",
-      );
+      openFloorRow(found, me.user.id, jobForRef(nextJobs, "order", found.id, "ship"), (order) => {
+        setActive(order);
+        setTrackingNumber(order.trackingNumber || "");
+        setTrackingCompany(order.trackingCompany || "");
+        setCarrierService(
+          order.carrierService || hub.enabledServices.find((row) => row.isDefault)?.id || "rackline_ground",
+        );
+      }, setError);
     }
   }
 
@@ -49,11 +56,19 @@ export function FloorShipPage() {
     setError(null);
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
       .then((hit) => {
-        if (hit.kind === "order") void api<Order>(`/api/orders/${hit.order.id}`).then(setActive);
-        else setError("Scan a packed order.");
+        if (hit.kind === "order") {
+          void api<Order>(`/api/orders/${hit.order.id}`).then((order) =>
+            openFloorRow(order, me.user.id, jobForRef(jobs, "order", order.id, "ship"), (next) => {
+              setActive(next);
+              setTrackingNumber(next.trackingNumber || "");
+              setTrackingCompany(next.trackingCompany || "");
+              setCarrierService(next.carrierService || services.find((row) => row.isDefault)?.id || "rackline_ground");
+            }, setError),
+          );
+        } else setError("Scan a packed order.");
       })
       .catch((err: Error) => setError(err.message));
-  }, []);
+  }, [jobs, me.user.id, services]);
 
   async function ship() {
     if (!active) return;
@@ -84,19 +99,32 @@ export function FloorShipPage() {
       <FloorScanBox label="Scan packed order" placeholder="ORD-…" onScan={onScan} />
       {done ? <p className="text-sm text-emerald-700">{done}</p> : null}
       {!active ? (
-        <Card>
-          <p className="mb-3 font-medium">Packed, ready to ship</p>
-          <ul className="space-y-2 text-sm">
-            {orders.map((row) => (
-              <li key={row.id}>
-                <button className="w-full text-left" onClick={() => setActive(row)}>
-                  <span className="font-mono">{row.number}</span> {row.customerName} <StatusBadge status={row.status} />
-                </button>
-              </li>
-            ))}
-            {orders.length === 0 ? <li className="text-muted-foreground">Nothing packed yet.</li> : null}
-          </ul>
-        </Card>
+        <ClaimList
+          title="Packed, ready to ship"
+          empty="Nothing packed yet."
+          rows={orders}
+          userId={me.user.id}
+          jobFor={(row) => jobForRef(jobs, "order", row.id, "ship")}
+          onOpen={(row) =>
+            openFloorRow(
+              row,
+              me.user.id,
+              jobForRef(jobs, "order", row.id, "ship"),
+              (order) => {
+                setActive(order);
+                setTrackingNumber(order.trackingNumber || "");
+                setTrackingCompany(order.trackingCompany || "");
+                setCarrierService(order.carrierService || services.find((s) => s.isDefault)?.id || "rackline_ground");
+              },
+              setError,
+            )
+          }
+          render={(row) => (
+            <>
+              <span className="font-mono">{row.number}</span> {row.customerName} <StatusBadge status={row.status} />
+            </>
+          )}
+        />
       ) : (
         <Card className="space-y-4">
           <div className="flex items-center justify-between">

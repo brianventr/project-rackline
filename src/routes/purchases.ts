@@ -11,6 +11,30 @@ import { canReceivePurchase, canStartPurchase } from "../domain/status";
 import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
+import { guardFloorJob, syncDocumentJob, type DocumentJobInput } from "../db/jobs";
+
+function purchaseJob(row: {
+  id: string;
+  organizationId: string;
+  warehouseId: string;
+  status: string;
+  number: string;
+  vendorName: string;
+  locationId: string | null;
+  createdAt: number;
+}): DocumentJobInput {
+  return {
+    organizationId: row.organizationId,
+    warehouseId: row.warehouseId,
+    refType: "purchase",
+    refId: row.id,
+    status: row.status,
+    number: row.number,
+    title: row.vendorName,
+    fromLocationId: row.locationId,
+    createdAt: row.createdAt,
+  };
+}
 
 export const purchasesRoute = new Hono<AppEnv>();
 
@@ -147,7 +171,9 @@ purchasesRoute.post("/purchases", async (c) => {
     ...lines.map((line) => db.insert(schema.purchaseLines).values(line)),
   ]);
 
-  return c.json(await purchaseWithLines(db, organizationId, id), 201);
+  const created = await purchaseWithLines(db, organizationId, id);
+  await syncDocumentJob(db, purchaseJob(created));
+  return c.json(created, 201);
 });
 
 purchasesRoute.post("/purchases/:id/start", async (c) => {
@@ -155,11 +181,19 @@ purchasesRoute.post("/purchases/:id/start", async (c) => {
   const organizationId = c.get("organizationId")!;
   const purchase = await purchaseWithLines(db, organizationId, c.req.param("id"));
   if (!canStartPurchase(purchase.status)) conflict("Purchase is not a draft");
+  await guardFloorJob(db, {
+    ...purchaseJob(purchase),
+    userId: c.get("user")!.id,
+    role: c.get("role")!,
+    verb: "receive",
+  });
   await db
     .update(schema.purchases)
     .set({ status: "ordered", orderedAt: Date.now() })
     .where(eq(schema.purchases.id, purchase.id));
-  return c.json(await purchaseWithLines(db, organizationId, purchase.id));
+  const started = await purchaseWithLines(db, organizationId, purchase.id);
+  await syncDocumentJob(db, purchaseJob(started));
+  return c.json(started);
 });
 
 purchasesRoute.post("/purchases/:id/receive", async (c) => {
@@ -173,6 +207,13 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
   const user = c.get("user")!;
   let purchase = await purchaseWithLines(db, organizationId, c.req.param("id"));
   if (!canReceivePurchase(purchase.status)) conflict("Purchase is already received");
+  await guardFloorJob(db, {
+    ...purchaseJob(purchase),
+    userId: user.id,
+    role: c.get("role")!,
+    verb: "receive",
+    fromLocationId: locationId,
+  });
   if (!hasRemaining(purchase.lines.map(asExpected))) conflict("Purchase has nothing remaining");
   await getOrgLocation(db, organizationId, locationId);
 
@@ -256,5 +297,7 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
     ],
   });
 
-  return c.json(await purchaseWithLines(db, organizationId, purchase.id));
+  const received = await purchaseWithLines(db, organizationId, purchase.id);
+  await syncDocumentJob(db, purchaseJob(received));
+  return c.json(received);
 });

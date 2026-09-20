@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ScanLine } from "lucide-react";
 import { useScanner } from "../../scanner/ScannerProvider";
-import { Button, ErrorBanner, Input } from "../../components/ui";
+import { Button, Card, ErrorBanner, Input } from "../../components/ui";
+import type { FloorJob } from "../../api";
+import { claimedByMessage, jobClaimedByOther, splitByClaim } from "../../jobs";
 
 export function FloorScanBox({
   label,
@@ -85,4 +87,86 @@ export function FloorFrame({
       {children}
     </div>
   );
+}
+
+export function ClaimList<T extends { id?: string }>({
+  title,
+  empty,
+  rows,
+  userId,
+  jobFor,
+  onOpen,
+  render,
+  footer,
+}: {
+  title: string;
+  empty: string;
+  rows: T[];
+  userId: string;
+  jobFor: (row: T) => FloorJob | undefined;
+  onOpen: (row: T) => void;
+  render: (row: T) => ReactNode;
+  footer?: ReactNode;
+}) {
+  const { mine, pool, others } = splitByClaim(rows, userId, jobFor);
+
+  function section(label: string, items: T[], disabled: boolean) {
+    if (items.length === 0) return null;
+    return (
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+        <ul className="space-y-2 text-sm">
+          {items.map((row, index) => {
+            const job = jobFor(row);
+            const key = (row as { id?: string }).id || job?.id || String(index);
+            return (
+              <li key={key}>
+                <button
+                  type="button"
+                  className="w-full text-left disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={disabled}
+                  onClick={() => onOpen(row)}
+                >
+                  {render(row)}
+                  {job?.assigneeName ? (
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {disabled ? claimedByMessage(job) : job.reason ? job.reason : `Assigned to ${job.assigneeName}`}
+                    </span>
+                  ) : job?.reason ? (
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{job.reason}</span>
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
+  }
+
+  return (
+    <Card className="space-y-4">
+      <p className="font-medium">{title}</p>
+      {rows.length === 0 ? <p className="text-sm text-muted-foreground">{empty}</p> : null}
+      {section("Mine", mine, false)}
+      {section("Unassigned", pool, false)}
+      {section("Claimed by others", others, true)}
+      {footer}
+    </Card>
+  );
+}
+
+export function openFloorRow<T>(
+  row: T,
+  userId: string,
+  job: FloorJob | undefined,
+  onOpen: (row: T) => void,
+  setError: (message: string | null) => void,
+): void {
+  if (jobClaimedByOther(job, userId)) {
+    setError(claimedByMessage(job));
+    return;
+  }
+  setError(null);
+  onOpen(row);
 }

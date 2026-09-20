@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type MapContent, type ScanHit, type ScanLocationHit, type Transfer, type WarehouseMapData } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { WarehouseMap } from "../components/WarehouseMap";
@@ -7,6 +7,9 @@ import { Button, Card, ErrorBanner, PageHeader, StatusBadge } from "../component
 import { useScanner } from "../scanner/ScannerProvider";
 import { canPostTransfer } from "@/domain/status";
 import { hasUnmoved } from "@/domain/partial-transfer";
+import { ClaimList, openFloorRow } from "./floor/floor-ui";
+import { useSession } from "../session";
+import { jobForRef, useOpenJobs } from "../jobs";
 
 type Slot = {
   barcode: string;
@@ -248,7 +251,11 @@ export function MovePage() {
 }
 
 function OpenTransferTickets() {
+  const me = useSession();
+  const navigate = useNavigate();
+  const { jobs } = useOpenJobs("putaway");
   const [tickets, setTickets] = useState<Transfer[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api<Transfer[]>("/api/transfers")
@@ -274,19 +281,27 @@ function OpenTransferTickets() {
   if (!tickets.length) return null;
 
   return (
-    <Card className="mb-6">
-      <p className="mb-3 font-medium">Open putaway tickets</p>
-      <ul className="space-y-2 text-sm">
-        {tickets.map((row) => (
-          <li key={row.id}>
-            <Link className="hover:underline" to={`/floor/putaway?id=${row.id}`}>
-              <span className="font-mono">{row.number}</span> {row.fromCode} → {row.toCode}{" "}
-              <StatusBadge status={row.status} />
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </Card>
+    <div className="mb-6">
+      <ErrorBanner error={error} />
+      <ClaimList
+        title="Open putaway tickets"
+        empty="No open putaway tickets."
+        rows={tickets}
+        userId={me.user.id}
+        jobFor={(row) => jobForRef(jobs, "transfer", row.id, "putaway")}
+        onOpen={(row) =>
+          openFloorRow(row, me.user.id, jobForRef(jobs, "transfer", row.id, "putaway"), () => {
+            navigate(`/floor/putaway?id=${row.id}`);
+          }, setError)
+        }
+        render={(row) => (
+          <>
+            <span className="font-mono">{row.number}</span> {row.fromCode} → {row.toCode}{" "}
+            <StatusBadge status={row.status} />
+          </>
+        )}
+      />
+    </div>
   );
 }
 

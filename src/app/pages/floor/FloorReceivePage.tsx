@@ -2,13 +2,17 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Location, type Purchase, type Receipt, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
 import { canReceive, canReceivePurchase } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
+import { useSession } from "../../session";
+import { jobForRef, useOpenJobs } from "../../jobs";
 
 export function FloorReceivePage() {
+  const me = useSession();
+  const { jobs, reload: reloadJobs } = useOpenJobs("receive");
   const [params] = useSearchParams();
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
@@ -59,18 +63,23 @@ export function FloorReceivePage() {
     setLocations(nextLocations);
     const dock = nextLocations.find((row) => row.type === "receiving") ?? nextLocations[0];
     if (dock) setLocationId(dock.id);
+    const nextJobs = await reloadJobs();
     const receiptId = params.get("id");
     const purchaseId = params.get("purchase");
     if (purchaseId) {
       const match = await api<Purchase>(`/api/purchases/${purchaseId}`);
-      setActivePurchase(match);
-      setActiveReceipt(null);
-      setQtys(Object.fromEntries((match.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+      openFloorRow(match, me.user.id, jobForRef(nextJobs, "purchase", match.id, "receive"), (purchase) => {
+        setActivePurchase(purchase);
+        setActiveReceipt(null);
+        setQtys(Object.fromEntries((purchase.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+      }, setError);
     } else if (receiptId) {
       const match = await api<Receipt>(`/api/receipts/${receiptId}`);
-      setActiveReceipt(match);
-      setActivePurchase(null);
-      setQtys(Object.fromEntries((match.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+      openFloorRow(match, me.user.id, jobForRef(nextJobs, "receipt", match.id, "receive"), (receipt) => {
+        setActiveReceipt(receipt);
+        setActivePurchase(null);
+        setQtys(Object.fromEntries((receipt.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+      }, setError);
     }
   }
 
@@ -85,17 +94,21 @@ export function FloorReceivePage() {
       .then((hit) => {
         if (hit.kind === "receipt") {
           void api<Receipt>(`/api/receipts/${hit.receipt.id}`).then((receipt) => {
-            setActiveReceipt(receipt);
-            setActivePurchase(null);
-            setQtys(Object.fromEntries((receipt.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+            openFloorRow(receipt, me.user.id, jobForRef(jobs, "receipt", receipt.id, "receive"), (next) => {
+              setActiveReceipt(next);
+              setActivePurchase(null);
+              setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+            }, setError);
           });
           return;
         }
         if (hit.kind === "purchase") {
           void api<Purchase>(`/api/purchases/${hit.purchase.id}`).then((purchase) => {
-            setActivePurchase(purchase);
-            setActiveReceipt(null);
-            setQtys(Object.fromEntries((purchase.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+            openFloorRow(purchase, me.user.id, jobForRef(jobs, "purchase", purchase.id, "receive"), (next) => {
+              setActivePurchase(next);
+              setActiveReceipt(null);
+              setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+            }, setError);
           });
           return;
         }
@@ -106,7 +119,7 @@ export function FloorReceivePage() {
         setError("Scan a receipt, purchase order, or a dock / bay barcode.");
       })
       .catch((err: Error) => setError(err.message));
-  }, []);
+  }, [jobs, me.user.id]);
 
   async function receiveReceipt() {
     if (!activeReceipt) return;
@@ -178,48 +191,46 @@ export function FloorReceivePage() {
       ) : null}
       {!activeReceipt && !activePurchase ? (
         <div className="grid gap-4 md:grid-cols-2">
-          <Card>
-            <p className="mb-3 font-medium">Open receipts</p>
-            <ul className="space-y-2 text-sm">
-              {receipts.map((row) => (
-                <li key={row.id}>
-                  <button
-                    className="w-full text-left"
-                    onClick={() =>
-                      void api<Receipt>(`/api/receipts/${row.id}`).then((receipt) => {
-                        setActiveReceipt(receipt);
-                        setQtys(Object.fromEntries((receipt.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
-                      })
-                    }
-                  >
-                    <span className="font-mono">{row.number}</span> <StatusBadge status={row.status} />
-                  </button>
-                </li>
-              ))}
-              {receipts.length === 0 ? <li className="text-muted-foreground">No blank receipts.</li> : null}
-            </ul>
-          </Card>
-          <Card>
-            <p className="mb-3 font-medium">Purchase orders</p>
-            <ul className="space-y-2 text-sm">
-              {purchases.map((row) => (
-                <li key={row.id}>
-                  <button
-                    className="w-full text-left"
-                    onClick={() =>
-                      void api<Purchase>(`/api/purchases/${row.id}`).then((purchase) => {
-                        setActivePurchase(purchase);
-                        setQtys(Object.fromEntries((purchase.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
-                      })
-                    }
-                  >
-                    <span className="font-mono">{row.number}</span> {row.vendorName} <StatusBadge status={row.status} />
-                  </button>
-                </li>
-              ))}
-              {purchases.length === 0 ? <li className="text-muted-foreground">No open purchases.</li> : null}
-            </ul>
-          </Card>
+          <ClaimList
+            title="Open receipts"
+            empty="No blank receipts."
+            rows={receipts}
+            userId={me.user.id}
+            jobFor={(row) => jobForRef(jobs, "receipt", row.id, "receive")}
+            onOpen={(row) =>
+              openFloorRow(row, me.user.id, jobForRef(jobs, "receipt", row.id, "receive"), (receipt) => {
+                void api<Receipt>(`/api/receipts/${receipt.id}`).then((next) => {
+                  setActiveReceipt(next);
+                  setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+                });
+              }, setError)
+            }
+            render={(row) => (
+              <>
+                <span className="font-mono">{row.number}</span> <StatusBadge status={row.status} />
+              </>
+            )}
+          />
+          <ClaimList
+            title="Purchase orders"
+            empty="No open purchases."
+            rows={purchases}
+            userId={me.user.id}
+            jobFor={(row) => jobForRef(jobs, "purchase", row.id, "receive")}
+            onOpen={(row) =>
+              openFloorRow(row, me.user.id, jobForRef(jobs, "purchase", row.id, "receive"), (purchase) => {
+                void api<Purchase>(`/api/purchases/${purchase.id}`).then((next) => {
+                  setActivePurchase(next);
+                  setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+                });
+              }, setError)
+            }
+            render={(row) => (
+              <>
+                <span className="font-mono">{row.number}</span> {row.vendorName} <StatusBadge status={row.status} />
+              </>
+            )}
+          />
         </div>
       ) : activePurchase ? (
         <Card className="space-y-4">

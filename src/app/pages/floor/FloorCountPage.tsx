@@ -2,13 +2,17 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, type CycleCount, type Location, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { FloorFrame, FloorScanBox, ClaimList, openFloorRow } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { useWarehouse } from "../../warehouse";
 import { canPostCount } from "@/domain/status";
 import { allLinesEntered, countVariance, formatCountVariance, isBlindCount } from "@/domain/blind-count";
+import { useSession } from "../../session";
+import { jobForRef, useOpenJobs } from "../../jobs";
 
 export function FloorCountPage() {
+  const me = useSession();
+  const { jobs, reload: reloadJobs } = useOpenJobs("count");
   const [params] = useSearchParams();
   const { warehouseId } = useWarehouse();
   const [counts, setCounts] = useState<CycleCount[]>([]);
@@ -28,7 +32,11 @@ export function FloorCountPage() {
     const storage = nextLocations.find((row) => row.type === "storage") ?? nextLocations[0];
     if (storage) setLocationId(storage.id);
     const wanted = params.get("id");
-    if (wanted) setActive(await api<CycleCount>(`/api/cycle-counts/${wanted}`));
+    if (wanted) {
+      const match = await api<CycleCount>(`/api/cycle-counts/${wanted}`);
+      const nextJobs = await reloadJobs();
+      openFloorRow(match, me.user.id, jobForRef(nextJobs, "cycleCount", match.id, "count"), setActive, setError);
+    }
     const locationWanted = params.get("location");
     if (!wanted && locationWanted) {
       const match = nextLocations.find((row) => row.id === locationWanted);
@@ -46,7 +54,8 @@ export function FloorCountPage() {
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
         .then(async (hit) => {
           if (hit.kind === "cycleCount") {
-            setActive(await api<CycleCount>(`/api/cycle-counts/${hit.cycleCount.id}`));
+            const match = await api<CycleCount>(`/api/cycle-counts/${hit.cycleCount.id}`);
+            openFloorRow(match, me.user.id, jobForRef(jobs, "cycleCount", match.id, "count"), setActive, setError);
             return;
           }
           if (hit.kind === "location") {
@@ -80,7 +89,7 @@ export function FloorCountPage() {
         })
         .catch((err: Error) => setError(err.message));
     },
-    [warehouseId, active],
+    [warehouseId, active, jobs, me.user.id],
   );
 
   async function post() {
@@ -113,6 +122,7 @@ export function FloorCountPage() {
     <FloorFrame title="Count" description="Scan a bay, then count what you see. Scan a SKU that was not on the snapshot to add it. System qty stays hidden until you post." error={error}>
       <FloorScanBox label="Scan bay or found SKU" placeholder="A-01-01 or LAMP" onScan={onScan} />
       {!active ? (
+        <>
         <Card className="space-y-3">
           <Field label="Or choose a bay">
             <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
@@ -130,16 +140,25 @@ export function FloorCountPage() {
           >
             Start count
           </Button>
-          <ul className="space-y-2 text-sm">
-            {counts.map((row) => (
-              <li key={row.id}>
-                <button onClick={() => void api<CycleCount>(`/api/cycle-counts/${row.id}`).then(setActive)}>
-                  {row.number} <StatusBadge status={row.status} />
-                </button>
-              </li>
-            ))}
-          </ul>
         </Card>
+          <ClaimList
+            title="Open counts"
+            empty="No open cycle counts."
+            rows={counts}
+            userId={me.user.id}
+            jobFor={(row) => jobForRef(jobs, "cycleCount", row.id, "count")}
+            onOpen={(row) =>
+              openFloorRow(row, me.user.id, jobForRef(jobs, "cycleCount", row.id, "count"), (count) => {
+                void api<CycleCount>(`/api/cycle-counts/${count.id}`).then(setActive);
+              }, setError)
+            }
+            render={(row) => (
+              <>
+                {row.number} <StatusBadge status={row.status} />
+              </>
+            )}
+          />
+        </>
       ) : (
         <Card className="space-y-4">
           <div className="flex items-center justify-between">

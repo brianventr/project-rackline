@@ -5,6 +5,7 @@ import type { AppDb } from "./stock";
 import { newId } from "../lib/ids";
 import { chainPlans, planReceive } from "../domain/inventory";
 import { persistStockPlan } from "./stock";
+import { seedAssignedJobs } from "./jobs";
 import { provisionOrganization } from "../lib/org";
 import { demoFulfillmentOrderId } from "../domain/shopify";
 import { areaForType, gridPosition } from "../domain/map-layout";
@@ -573,6 +574,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     }),
   ]);
 
+
   const clientId = newId();
   const zoneA = newId();
   const zoneB = newId();
@@ -1089,6 +1091,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     }),
     ...(trafficInserts as typeof trafficInserts),
   ] as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+
+  await seedAssignedJobs(db, organizationId, userId, orderId, woId);
 
   return { organizationId };
 }
