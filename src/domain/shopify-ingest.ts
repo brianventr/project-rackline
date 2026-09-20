@@ -114,6 +114,12 @@ export async function persistInboundOrder(
       shopifyFulfillmentOrderId: foId,
       shopifySyncStatus: "inbound",
       shopifyShopDomain: connection.shopDomain,
+      shipToAddress: inbound.shipToAddress,
+      shipToCity: inbound.dest.shipToCity,
+      shipToRegion: inbound.dest.shipToRegion,
+      shipToCountry: inbound.dest.shipToCountry,
+      shipToLat: inbound.dest.shipToLat,
+      shipToLng: inbound.dest.shipToLng,
     }),
     ...lines.map((line) => db.insert(schema.orderLines).values(line)),
   ]);

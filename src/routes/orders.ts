@@ -9,6 +9,7 @@ import { chainPlans, planPick, type MovementDraft, type StockPlan } from "../dom
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { fulfillShopifyOrder } from "../domain/shopify-fulfill";
 import { canPackOrder, canPickOrder, canShipOrder, canStartPack, canStartPick, canCancelOrder, canUnpickOrder } from "../domain/status";
+import { destPatchFromAddress } from "../domain/geo";
 import { buildShippingLabel } from "../domain/shipping-label";
 import {
   canVoidLabel,
@@ -382,8 +383,8 @@ ordersRoute.post("/orders", async (c) => {
       customerName,
       status: "open",
       createdAt: Date.now(),
-      shipToAddress: body.shipToAddress?.trim() || null,
       clientId: body.clientId || null,
+      ...destPatchFromAddress(body.shipToAddress),
     }),
     ...lines.map((line) => db.insert(schema.orderLines).values(line)),
   ]);
@@ -675,7 +676,7 @@ ordersRoute.post("/orders/:id/label", async (c) => {
       carrierService: label.carrierServiceId,
       carrierConnectionId: purchase.connectionId,
       labelStatus: "purchased",
-      shipToAddress: label.shipToAddress,
+      ...destPatchFromAddress(label.shipToAddress),
     })
     .where(eq(schema.orders.id, order.id));
   await recordCarrierEvent(db, {
@@ -791,7 +792,7 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
           carrierService: label.carrierServiceId,
           carrierConnectionId: purchase.connectionId,
           labelStatus: "purchased",
-          shipToAddress: label.shipToAddress,
+          ...destPatchFromAddress(label.shipToAddress),
           shopifySyncStatus: order.source === "shopify" ? "pending_fulfill" : order.shopifySyncStatus,
         })
         .where(eq(schema.orders.id, order.id)),

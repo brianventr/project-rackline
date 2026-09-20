@@ -1,3 +1,5 @@
+import { destColumns, formatShipToAddress, resolveFromText, resolvePlace, type DestColumns } from "./geo";
+
 export async function shopifyHmac(secret: string, body: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -67,6 +69,15 @@ query OrderFulfillmentOrders($id: ID!) {
         id
         status
         requestStatus
+        destination {
+          firstName
+          lastName
+          address1
+          city
+          province
+          countryCode
+          zip
+        }
         lineItems(first: 50) {
           nodes {
             id
@@ -100,6 +111,11 @@ query AssignedFulfillmentOrders {
         destination {
           firstName
           lastName
+          address1
+          city
+          province
+          countryCode
+          zip
         }
         lineItems(first: 50) {
           nodes {
@@ -160,6 +176,14 @@ export type ShopifyRestOrder = {
     name?: string | null;
     first_name?: string | null;
     last_name?: string | null;
+    address1?: string | null;
+    address2?: string | null;
+    city?: string | null;
+    province?: string | null;
+    province_code?: string | null;
+    country?: string | null;
+    country_code?: string | null;
+    zip?: string | null;
   } | null;
   line_items?: ShopifyRestLineItem[];
 };
@@ -178,6 +202,8 @@ export type MappedInboundOrder = {
   shopifyOrderGid: string;
   shopifyOrderName: string;
   customerName: string;
+  shipToAddress: string | null;
+  dest: DestColumns;
   lines: MappedInboundLine[];
 };
 
@@ -188,7 +214,15 @@ export type ShopifyFulfillmentOrderNode = {
   status?: string | null;
   requestStatus?: string | null;
   order?: { id?: string | null; name?: string | null } | null;
-  destination?: { firstName?: string | null; lastName?: string | null } | null;
+  destination?: {
+    firstName?: string | null;
+    lastName?: string | null;
+    address1?: string | null;
+    city?: string | null;
+    province?: string | null;
+    countryCode?: string | null;
+    zip?: string | null;
+  } | null;
   lineItems?: {
     nodes?: Array<{
       id: string;
@@ -236,6 +270,47 @@ export function orderGid(id: string | number): string {
 export function numericIdFromGid(gid: string): string {
   const parts = gid.split("/");
   return parts[parts.length - 1] || gid;
+}
+
+function destFromRestAddress(addr: ShopifyRestOrder["shipping_address"]): { shipToAddress: string | null; dest: DestColumns } {
+  if (!addr) return { shipToAddress: null, dest: destColumns(null) };
+  const formatted = formatShipToAddress({
+    address1: addr.address1,
+    address2: addr.address2,
+    city: addr.city,
+    region: addr.province_code || addr.province,
+    postal: addr.zip,
+    country: addr.country_code || addr.country,
+  });
+  const place =
+    resolvePlace({
+      city: addr.city ?? undefined,
+      region: addr.province_code || addr.province || undefined,
+      postal: addr.zip ?? undefined,
+      country: addr.country_code || addr.country || undefined,
+    }) ?? resolveFromText(formatted);
+  return { shipToAddress: formatted, dest: destColumns(place) };
+}
+
+function destFromFulfillmentDestination(
+  dest: ShopifyFulfillmentOrderNode["destination"],
+): { shipToAddress: string | null; dest: DestColumns } {
+  if (!dest) return { shipToAddress: null, dest: destColumns(null) };
+  const formatted = formatShipToAddress({
+    address1: dest.address1,
+    city: dest.city,
+    region: dest.province,
+    postal: dest.zip,
+    country: dest.countryCode,
+  });
+  const place =
+    resolvePlace({
+      city: dest.city ?? undefined,
+      region: dest.province ?? undefined,
+      postal: dest.zip ?? undefined,
+      country: dest.countryCode ?? undefined,
+    }) ?? resolveFromText(formatted);
+  return { shipToAddress: formatted, dest: destColumns(place) };
 }
 
 function customerNameFrom(order: ShopifyRestOrder): string {
@@ -299,6 +374,7 @@ export function mapRestOrder(order: ShopifyRestOrder): MappedInboundOrder | Skip
     shopifyOrderGid: order.admin_graphql_api_id || orderGid(shopifyOrderId),
     shopifyOrderName: order.name?.trim() || `#${shopifyOrderId}`,
     customerName: customerNameFrom(order),
+    ...destFromRestAddress(order.shipping_address),
     lines,
   };
 }
@@ -334,6 +410,7 @@ export function mapFulfillmentOrder(node: ShopifyFulfillmentOrderNode): MappedIn
     shopifyOrderGid: orderGidValue || orderGid(shopifyOrderId),
     shopifyOrderName: node.order?.name?.trim() || `#${shopifyOrderId}`,
     customerName,
+    ...destFromFulfillmentDestination(node.destination),
     lines,
   };
 }
@@ -410,6 +487,11 @@ export function buildDemoOrderPayload(input: {
   name?: string;
   customerName: string;
   email?: string;
+  address1?: string;
+  city?: string;
+  region?: string;
+  postal?: string;
+  country?: string;
   lines: Array<{ sku: string; title?: string; qty: number; lineId?: number }>;
 }): ShopifyRestOrder {
   const id = input.id ?? Math.floor(Date.now() % 1_000_000_000);
@@ -424,7 +506,16 @@ export function buildDemoOrderPayload(input: {
     fulfillment_status: null,
     financial_status: "paid",
     customer: { first_name: firstName, last_name: lastName },
-    shipping_address: { name: input.customerName, first_name: firstName, last_name: lastName },
+    shipping_address: {
+      name: input.customerName,
+      first_name: firstName,
+      last_name: lastName,
+      address1: input.address1 ?? null,
+      city: input.city ?? null,
+      province_code: input.region ?? null,
+      zip: input.postal ?? null,
+      country_code: input.country ?? null,
+    },
     line_items: input.lines.map((line, index) => ({
       id: line.lineId ?? id * 10 + index + 1,
       sku: line.sku,

@@ -44,6 +44,7 @@ import { zonesRoute } from "./routes/zones";
 import { clientsRoute } from "./routes/clients";
 import { yardRoute } from "./routes/yard";
 import { laborRoute } from "./routes/labor";
+import { analyticsRoute } from "./routes/analytics";
 
 const app = new Hono<AppEnv>();
 
@@ -273,5 +274,6 @@ app.route("/api", zonesRoute);
 app.route("/api", clientsRoute);
 app.route("/api", yardRoute);
 app.route("/api", laborRoute);
+app.route("/api", analyticsRoute);
 
 export default app;

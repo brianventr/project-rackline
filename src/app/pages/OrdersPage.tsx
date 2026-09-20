@@ -10,6 +10,7 @@ import { useWarehouse, inWarehouse } from "../warehouse";
 import { LineFields } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { PickMap } from "../components/PickMap";
+import { Textarea } from "@/components/ui/textarea";
 
 type Line = { itemId: string; qty: string };
 
@@ -25,6 +26,7 @@ function OrderList() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [customerName, setCustomerName] = useState("");
+  const [shipToAddress, setShipToAddress] = useState("");
   const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +49,7 @@ function OrderList() {
         body: JSON.stringify({
           warehouseId,
           customerName,
+          shipToAddress: shipToAddress || undefined,
           lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
         }),
       });
@@ -70,6 +73,14 @@ function OrderList() {
           <form className="space-y-4" onSubmit={onSubmit(create)}>
             <Field label="Customer">
               <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
+            </Field>
+            <Field label="Ship to">
+              <Textarea
+                value={shipToAddress}
+                onChange={(e) => setShipToAddress(e.target.value)}
+                placeholder={"14 Dock Street\nPortland, OR 97201"}
+                rows={3}
+              />
             </Field>
             <LineFields items={items} lines={lines} setLines={setLines} />
             <Button type="submit">Create floor order</Button>
