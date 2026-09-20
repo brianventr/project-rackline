@@ -18,7 +18,7 @@ export function TransfersPage() {
 
 function TransferList() {
   const navigate = useNavigate();
-  const { warehouseId } = useWarehouse();
+  const { warehouseId, warehouses } = useWarehouse();
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -38,7 +38,8 @@ function TransferList() {
     setTransfers(nextTransfers);
     setItems(nextItems);
     setLocations(nextLocations);
-    const recv = nextLocations.find((location) => location.type === "receiving") ?? nextLocations[0];
+    const fromPool = inWarehouse(nextLocations, warehouseId);
+    const recv = fromPool.find((location) => location.type === "receiving") ?? fromPool[0] ?? nextLocations[0];
     const bulk =
       nextLocations.find((location) => location.slotRole === "bulk") ??
       nextLocations.find((location) => location.type === "storage") ??
@@ -49,7 +50,10 @@ function TransferList() {
 
   useEffect(() => {
     load().catch((err: Error) => setError(err.message));
-  }, []);
+  }, [warehouseId]);
+
+  const fromLocations = inWarehouse(locations, warehouseId);
+  const warehouseName = (id: string) => warehouses.find((row) => row.id === id)?.name ?? id;
 
   async function create() {
     setError(null);
@@ -75,7 +79,7 @@ function TransferList() {
       <PageHeader
         eyebrow="Inbound"
         title="Putaway"
-        description="Documented bin-to-bin moves. Scan-to-move lives on the floor."
+        description="Documented bin-to-bin moves. Destination can be any warehouse. Scan-to-move lives on the floor."
         actions={
           <div className="flex gap-2">
             <Button variant="secondary" asChild>
@@ -92,18 +96,18 @@ function TransferList() {
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="From">
                 <Select value={fromLocationId} onChange={(e) => setFromLocationId(e.target.value)}>
-                  {locations.map((location) => (
+                  {fromLocations.map((location) => (
                     <option key={location.id} value={location.id}>
                       {location.code} — {location.name}
                     </option>
                   ))}
                 </Select>
               </Field>
-              <Field label="To">
+              <Field label="To (any warehouse)">
                 <Select value={toLocationId} onChange={(e) => setToLocationId(e.target.value)}>
                   {locations.map((location) => (
                     <option key={location.id} value={location.id}>
-                      {location.code} — {location.name}
+                      {location.warehouseName || warehouseName(location.warehouseId)} · {location.code} — {location.name}
                     </option>
                   ))}
                 </Select>
@@ -117,7 +121,7 @@ function TransferList() {
           </form>
         </Card>
       ) : null}
-      <Table columns={["Number", "From", "To", "Lines", "Status"]}>
+      <Table columns={["Number", "From", "To", "To WH", "Lines", "Status"]}>
         {inWarehouse(transfers, warehouseId).map((transfer) => (
           <tr key={transfer.id}>
             <td className="px-4 py-3 font-mono">
@@ -127,6 +131,16 @@ function TransferList() {
             </td>
             <td className="px-4 py-3 font-mono">{transfer.fromCode}</td>
             <td className="px-4 py-3 font-mono">{transfer.toCode}</td>
+            <td className="px-4 py-3 text-sm text-muted-foreground">
+              {(() => {
+                if (transfer.toWarehouseId) return warehouseName(transfer.toWarehouseId);
+                const toLoc = locations.find((row) => row.id === transfer.toLocationId);
+                if (toLoc && toLoc.warehouseId !== transfer.warehouseId) {
+                  return toLoc.warehouseName || warehouseName(toLoc.warehouseId);
+                }
+                return "—";
+              })()}
+            </td>
             <td className="px-4 py-3 text-sm">{summarizeLines(transfer.lines)}</td>
             <td className="px-4 py-3">
               <StatusBadge status={transfer.status} />
@@ -140,7 +154,9 @@ function TransferList() {
 
 function TransferDetail({ id }: { id: string }) {
   const navigate = useNavigate();
+  const { warehouses } = useWarehouse();
   const [transfer, setTransfer] = useState<Transfer | null>(null);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [moveQtys, setMoveQtys] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
@@ -150,8 +166,11 @@ function TransferDetail({ id }: { id: string }) {
   }
 
   useEffect(() => {
-    api<Transfer>(`/api/transfers/${id}`)
-      .then(applyTransfer)
+    Promise.all([api<Transfer>(`/api/transfers/${id}`), api<Location[]>("/api/locations")])
+      .then(([next, nextLocations]) => {
+        applyTransfer(next);
+        setLocations(nextLocations);
+      })
       .catch((err: Error) => setError(err.message));
   }, [id]);
 
@@ -190,13 +209,16 @@ function TransferDetail({ id }: { id: string }) {
     })),
   );
   const thisMove = Object.values(moveQtys).some((value) => Number(value) > 0);
+  const toLoc = locations.find((row) => row.id === transfer.toLocationId);
+  const toWhId = transfer.toWarehouseId || (toLoc && toLoc.warehouseId !== transfer.warehouseId ? toLoc.warehouseId : null);
+  const toWh = toWhId ? warehouses.find((row) => row.id === toWhId)?.name ?? toLoc?.warehouseName ?? toWhId : null;
 
   return (
     <div className="space-y-6">
       <DocumentHeader
         eyebrow="Putaway"
         title={transfer.number}
-        description={`${transfer.fromCode ?? transfer.fromLocationId} → ${transfer.toCode ?? transfer.toLocationId}`}
+        description={`${transfer.fromCode ?? transfer.fromLocationId} → ${transfer.toCode ?? transfer.toLocationId}${toWh ? ` · to ${toWh}` : ""}`}
         status={transfer.status}
         steps={TRANSFER_STEPS}
         actions={

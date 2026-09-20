@@ -148,6 +148,12 @@ function pathForScan(hit: ScanHit): string | null {
       return documentPath("kit", hit.kit.id);
     case "hold":
       return documentPath("hold", hit.hold.id);
+    case "wave":
+      return documentPath("wave", hit.wave.id);
+    case "asn":
+      return documentPath("asn", hit.asn.id);
+    case "yard":
+      return documentPath("yard", hit.yard.id);
     case "serial":
       return `/stock/items/${hit.item.id}`;
     case "lot":
@@ -287,6 +293,21 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               Hold {row.number}
             </button>
           ))}
+          {results?.waves?.map((row) => (
+            <button key={row.id} className="block w-full text-left" onClick={() => go(`/outbound/waves/${row.id}`)}>
+              Wave {row.number}
+            </button>
+          ))}
+          {results?.asns?.map((row) => (
+            <button key={row.id} className="block w-full text-left" onClick={() => go(`/inbound/asns/${row.id}`)}>
+              ASN {row.number} · {row.vendorName}
+            </button>
+          ))}
+          {results?.yard?.map((row) => (
+            <button key={row.id} className="block w-full text-left" onClick={() => go(`/inbound/yard/${row.id}`)}>
+              Yard {row.number} · {row.carrierName}
+            </button>
+          ))}
           {results?.serials?.map((row) => (
             <button
               key={`${row.itemId}:${row.serialCode}`}
@@ -310,6 +331,9 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           !results.replenishments?.length &&
           !results.kits?.length &&
           !results.holds?.length &&
+          !results.waves?.length &&
+          !results.asns?.length &&
+          !results.yard?.length &&
           !results.serials?.length ? (
             <p className="text-muted-foreground">Nothing matches that search.</p>
           ) : null}
