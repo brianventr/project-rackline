@@ -6,6 +6,7 @@ import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
 import { getOrgItem, getOrgLocation, getOrgLocationByScan, getOrgItemByScan } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
+import { countCatchWeight } from "../lib/catch-weight";
 import { chainPlans, planCycleCount, planMove } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { parseScan } from "../domain/barcodes";
@@ -249,8 +250,10 @@ async function countWithLines(db: AppEnv["Variables"]["db"], organizationId: str
       systemQty: schema.cycleCountLines.systemQty,
       countedQty: schema.cycleCountLines.countedQty,
       entered: schema.cycleCountLines.entered,
+      weightGrams: schema.cycleCountLines.weightGrams,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      catchWeight: schema.items.catchWeight,
     })
     .from(schema.cycleCountLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.cycleCountLines.itemId))
@@ -388,8 +391,8 @@ floorRoute.post("/cycle-counts/:id/start", async (c) => {
 });
 
 floorRoute.post("/cycle-counts/:id/post", async (c) => {
-  const body = await c.req.json<{ lines?: { id?: string; countedQty?: number }[] }>().catch(() => ({
-    lines: [] as { id?: string; countedQty?: number }[],
+  const body = await c.req.json<{ lines?: { id?: string; countedQty?: number; weightGrams?: number }[] }>().catch(() => ({
+    lines: [] as { id?: string; countedQty?: number; weightGrams?: number }[],
   }));
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -397,12 +400,17 @@ floorRoute.post("/cycle-counts/:id/post", async (c) => {
   const count = await countWithLines(db, organizationId, c.req.param("id"));
   if (!canPostCount(count.status)) conflict("Cycle count already posted");
 
-  const incoming: { id: string; countedQty: number }[] = [];
+  const incoming: { id: string; countedQty: number; weightGrams: number | null }[] = [];
   for (const line of body.lines ?? []) {
     if (!line.id) continue;
     const countedQty = requireInt(line.countedQty, "countedQty");
     if (countedQty < 0) badRequest("countedQty must be a non-negative integer");
-    incoming.push({ id: line.id, countedQty });
+    const stored = count.lines.find((row) => row.id === line.id);
+    incoming.push({
+      id: line.id,
+      countedQty,
+      weightGrams: countCatchWeight(stored?.catchWeight, stored?.sku ?? "SKU", countedQty, line.weightGrams),
+    });
   }
 
   const resolved = applyCountEntries(
@@ -414,11 +422,18 @@ floorRoute.post("/cycle-counts/:id/post", async (c) => {
   }
 
   const countedById = new Map(resolved.map((line) => [line.id, line.countedQty]));
-  const postedLines = count.lines.map((line) => ({
-    ...line,
-    countedQty: countedById.get(line.id) ?? line.countedQty,
-    entered: true,
-  }));
+  const weightById = new Map(incoming.map((line) => [line.id, line.weightGrams]));
+  const postedLines = count.lines.map((line) => {
+    const countedQty = countedById.get(line.id) ?? line.countedQty;
+    return {
+      ...line,
+      countedQty,
+      entered: true,
+      weightGrams: weightById.has(line.id)
+        ? weightById.get(line.id)!
+        : countCatchWeight(line.catchWeight, line.sku, countedQty, line.weightGrams),
+    };
+  });
 
   const loaded = await loadBalanceMap(
     db,
@@ -435,6 +450,7 @@ floorRoute.post("/cycle-counts/:id/post", async (c) => {
       sku: line.sku,
       systemQty: current.get(`${count.locationId}:${line.itemId}`) ?? 0,
       countedQty: line.countedQty,
+      weightGrams: line.weightGrams,
     })),
   });
 
@@ -453,6 +469,7 @@ floorRoute.post("/cycle-counts/:id/post", async (c) => {
             countedQty: line.countedQty,
             systemQty: current.get(`${count.locationId}:${line.itemId}`) ?? 0,
             entered: 1,
+            weightGrams: line.weightGrams,
           })
           .where(eq(schema.cycleCountLines.id, line.id)),
       ),

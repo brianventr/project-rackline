@@ -13,6 +13,7 @@ import {
   normalizeLotCode,
   normalizeSerials,
 } from "../domain/lots";
+import { splitCatchWeight } from "../domain/catch-weight";
 import { badRequest } from "../lib/http";
 import { newId } from "../lib/ids";
 import {
@@ -28,6 +29,7 @@ type TrackedItem = {
   sku: string;
   trackLot: boolean;
   trackSerial: boolean;
+  catchWeight: boolean;
 };
 
 function isProduce(type: string): boolean {
@@ -56,6 +58,7 @@ export async function expandMovementsForTraceability(
       sku: schema.items.sku,
       trackLot: schema.items.trackLot,
       trackSerial: schema.items.trackSerial,
+      catchWeight: schema.items.catchWeight,
     })
     .from(schema.items)
     .where(and(eq(schema.items.organizationId, organizationId), inArray(schema.items.id, itemIds)));
@@ -93,6 +96,12 @@ async function expandOne(
     }
   }
 
+  if (item.catchWeight && (movement.type === "receive" || movement.type === "pick")) {
+    if (movement.weightGrams == null || movement.weightGrams <= 0) {
+      badRequest(`${item.sku} is catch-weight; enter weight in grams`);
+    }
+  }
+
   if (item.trackLot && !lotCode && isInbound(movement)) {
     if (isProduce(movement.type) || movement.type === "adjust") {
       lotCode = builtLotCode();
@@ -121,9 +130,20 @@ async function expandOne(
       throw new HeldStockError(item.sku, hit?.locationCode ?? movement.fromLocationId, hit?.number ?? "hold", hit?.reason ?? "QC");
     }
     const allocated = allocateFifoLots(available, movement.qty, item.sku);
+    const grams = splitCatchWeight(
+      movement.weightGrams ?? null,
+      allocated.map((row) => row.qty),
+    );
     const split: MovementDraft[] = [];
-    for (const row of allocated) {
-      const piece: MovementDraft = { ...movement, qty: row.qty, lotCode: row.lotCode, serials: null };
+    for (let index = 0; index < allocated.length; index += 1) {
+      const row = allocated[index]!;
+      const piece: MovementDraft = {
+        ...movement,
+        qty: row.qty,
+        lotCode: row.lotCode,
+        serials: null,
+        weightGrams: grams[index],
+      };
       const withSerials = await attachOutboundSerials(db, organizationId, item, piece, []);
       split.push(...withSerials);
     }

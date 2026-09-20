@@ -24,6 +24,7 @@ function ItemList() {
   const [pickMin, setPickMin] = useState("0");
   const [trackLot, setTrackLot] = useState(false);
   const [trackSerial, setTrackSerial] = useState(false);
+  const [catchWeight, setCatchWeight] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [labels, setLabels] = useState(params.get("labels") === "1");
   const [ready, setReady] = useState(false);
@@ -52,6 +53,7 @@ function ItemList() {
           pickMin: Number(pickMin),
           trackLot,
           trackSerial,
+          catchWeight,
         }),
       });
       setSku("");
@@ -61,6 +63,7 @@ function ItemList() {
       setPickMin("0");
       setTrackLot(false);
       setTrackSerial(false);
+      setCatchWeight(false);
       navigate(`/stock/items/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create item");
@@ -148,6 +151,10 @@ function ItemList() {
             <input type="checkbox" checked={trackSerial} onChange={(e) => setTrackSerial(e.target.checked)} />
             Serials
           </label>
+          <label className="flex items-end gap-2 pb-2 text-sm">
+            <input type="checkbox" checked={catchWeight} onChange={(e) => setCatchWeight(e.target.checked)} />
+            Catch-weight
+          </label>
           <div className="flex items-end">
             <Button type="submit">Add item</Button>
           </div>
@@ -182,6 +189,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
   const [pickMin, setPickMin] = useState("0");
   const [trackLot, setTrackLot] = useState(false);
   const [trackSerial, setTrackSerial] = useState(false);
+  const [catchWeight, setCatchWeight] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -194,6 +202,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
         setPickMin(String(next.pickMin ?? 0));
         setTrackLot(Boolean(next.trackLot));
         setTrackSerial(Boolean(next.trackSerial));
+        setCatchWeight(Boolean(next.catchWeight));
       })
       .catch((err: Error) => setError(err.message));
   }, [id]);
@@ -211,6 +220,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
             pickMin: Number(pickMin),
             trackLot,
             trackSerial,
+            catchWeight,
           }),
         }),
       );
@@ -278,6 +288,10 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={trackSerial} onChange={(e) => setTrackSerial(e.target.checked)} />
           Track serials
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={catchWeight} onChange={(e) => setCatchWeight(e.target.checked)} />
+          Catch-weight
         </label>
       </Card>
       <Table columns={["Location", "On hand", "Allocated", "ATP"]}>

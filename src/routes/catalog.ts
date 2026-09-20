@@ -387,6 +387,7 @@ catalogRoute.post("/items", async (c) => {
     pickMin?: number;
     trackLot?: boolean;
     trackSerial?: boolean;
+    catchWeight?: boolean;
   }>();
   const sku = requireString(body.sku, "sku").toUpperCase();
   const name = requireString(body.name, "name");
@@ -413,6 +414,7 @@ catalogRoute.post("/items", async (c) => {
         pickMin,
         trackLot: Boolean(body.trackLot),
         trackSerial: Boolean(body.trackSerial),
+        catchWeight: Boolean(body.catchWeight),
       })
       .returning();
     return c.json(row, 201);
@@ -429,6 +431,7 @@ catalogRoute.patch("/items/:id", async (c) => {
     pickMin?: number;
     trackLot?: boolean;
     trackSerial?: boolean;
+    catchWeight?: boolean;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -439,6 +442,7 @@ catalogRoute.patch("/items/:id", async (c) => {
     pickMin?: number;
     trackLot?: boolean;
     trackSerial?: boolean;
+    catchWeight?: boolean;
   } = {};
   if (body.reorderPoint !== undefined) {
     const reorderPoint = requireInt(body.reorderPoint, "reorderPoint");
@@ -455,6 +459,7 @@ catalogRoute.patch("/items/:id", async (c) => {
   if (barcode) patch.barcode = barcode.toUpperCase();
   if (body.trackLot !== undefined) patch.trackLot = Boolean(body.trackLot);
   if (body.trackSerial !== undefined) patch.trackSerial = Boolean(body.trackSerial);
+  if (body.catchWeight !== undefined) patch.catchWeight = Boolean(body.catchWeight);
   if (Object.keys(patch).length === 0) badRequest("Nothing to update");
   try {
     const [row] = await db
@@ -532,6 +537,7 @@ catalogRoute.get("/movements", async (c) => {
       toLocationCode: toLoc.code,
       lotCode: schema.inventoryMovements.lotCode,
       serialsJson: schema.inventoryMovements.serialsJson,
+      weightGrams: schema.inventoryMovements.weightGrams,
     })
     .from(schema.inventoryMovements)
     .innerJoin(schema.items, eq(schema.items.id, schema.inventoryMovements.itemId))

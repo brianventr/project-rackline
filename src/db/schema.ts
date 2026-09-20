@@ -132,6 +132,7 @@ export const items = sqliteTable(
     pickMin: integer("pick_min").notNull().default(0),
     trackLot: integer("track_lot", { mode: "boolean" }).notNull().default(false),
     trackSerial: integer("track_serial", { mode: "boolean" }).notNull().default(false),
+    catchWeight: integer("catch_weight", { mode: "boolean" }).notNull().default(false),
   },
   (t) => [
     uniqueIndex("items_org_sku").on(t.organizationId, t.sku),
@@ -177,6 +178,7 @@ export const inventoryMovements = sqliteTable("inventory_movements", {
   createdBy: text("created_by").notNull(),
   lotCode: text("lot_code"),
   serialsJson: text("serials_json"),
+  weightGrams: integer("weight_grams"),
 });
 
 export const receipts = sqliteTable("receipts", {
@@ -422,6 +424,7 @@ export const cycleCountLines = sqliteTable("cycle_count_lines", {
   systemQty: integer("system_qty").notNull(),
   countedQty: integer("counted_qty").notNull(),
   entered: integer("entered").notNull().default(0),
+  weightGrams: integer("weight_grams"),
 });
 
 export const purchases = sqliteTable("purchases", {

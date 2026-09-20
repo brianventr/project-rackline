@@ -9,6 +9,7 @@ import { postReceiveLines } from "../db/stock";
 import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError } from "../domain/partial-receive";
 import { canReceivePurchase, canStartPurchase } from "../domain/status";
 import { parseSerialList } from "../domain/lots";
+import { lineCatchWeight } from "../lib/catch-weight";
 
 export const purchasesRoute = new Hono<AppEnv>();
 
@@ -38,6 +39,7 @@ async function purchaseWithLines(db: AppEnv["Variables"]["db"], organizationId: 
       itemName: schema.items.name,
       trackLot: schema.items.trackLot,
       trackSerial: schema.items.trackSerial,
+      catchWeight: schema.items.catchWeight,
     })
     .from(schema.purchaseLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.purchaseLines.itemId))
@@ -66,6 +68,9 @@ purchasesRoute.get("/purchases", async (c) => {
       qtyReceived: schema.purchaseLines.qtyReceived,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      trackLot: schema.items.trackLot,
+      trackSerial: schema.items.trackSerial,
+      catchWeight: schema.items.catchWeight,
     })
     .from(schema.purchaseLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.purchaseLines.itemId))
@@ -157,7 +162,7 @@ purchasesRoute.post("/purchases/:id/start", async (c) => {
 purchasesRoute.post("/purchases/:id/receive", async (c) => {
   const body = await c.req.json<{
     locationId?: string;
-    lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[] }[];
+    lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number }[];
   }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
@@ -178,14 +183,26 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
 
   const incoming =
     Array.isArray(body.lines) && body.lines.length > 0
-      ? body.lines.map((line) => ({
-          itemId: requireString(line.itemId, "itemId"),
-          qty: requireInt(line.qty, "qty"),
-          lotCode: line.lotCode?.trim() || null,
-          serials: parseSerialList(line.serials),
-        }))
+      ? body.lines.map((line) => {
+          const itemId = requireString(line.itemId, "itemId");
+          const docLine = purchase.lines.find((row) => row.itemId === itemId);
+          if (!docLine) badRequest("Line is not on this purchase");
+          return {
+            itemId: docLine.itemId,
+            qty: requireInt(line.qty, "qty"),
+            lotCode: line.lotCode?.trim() || null,
+            serials: parseSerialList(line.serials),
+            weightGrams: lineCatchWeight(docLine.catchWeight, docLine.sku, line.weightGrams),
+          };
+        })
       : purchase.lines
-          .map((line) => ({ itemId: line.itemId, qty: line.remaining, lotCode: null as string | null, serials: [] as string[] }))
+          .map((line) => ({
+            itemId: line.itemId,
+            qty: line.remaining,
+            lotCode: null as string | null,
+            serials: [] as string[],
+            weightGrams: lineCatchWeight(line.catchWeight, line.sku, undefined),
+          }))
           .filter((line) => line.qty > 0);
 
   let applied;
@@ -212,6 +229,7 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
         ...line,
         lotCode: extra?.lotCode,
         serials: extra?.serials.length ? extra.serials : null,
+        weightGrams: extra?.weightGrams,
       };
     }),
     extra: [

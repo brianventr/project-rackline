@@ -26,6 +26,16 @@ describe("inventory engine", () => {
     expect(plan.movements[0]?.type).toBe("receive");
     expect(plan.movements[0]?.refType).toBe("receipt");
 
+    const weighed = planReceive({
+      itemId: "resin",
+      locationId: "RECV",
+      qty: 4,
+      refId: "rcp-w",
+      balances: new Map(),
+      weightGrams: 2000,
+    });
+    expect(weighed.movements[0]?.weightGrams).toBe(2000);
+
     const tagged = planReceive({
       itemId: "bulb",
       locationId: "RECV",

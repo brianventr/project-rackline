@@ -6,6 +6,7 @@ import { DocumentHeader, DocumentActivity } from "../components/document";
 import { COUNT_STEPS, canPostCount } from "@/domain/status";
 import { allLinesEntered, countVariance, formatCountVariance, isBlindCount } from "@/domain/blind-count";
 import { useWarehouse, inWarehouse } from "../warehouse";
+import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 
 export function CycleCountsPage() {
   const { id } = useParams();
@@ -95,6 +96,7 @@ function CountDetail({ id }: { id: string }) {
   const [active, setActive] = useState<CycleCount | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [foundItemId, setFoundItemId] = useState("");
+  const [weights, setWeights] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -126,7 +128,11 @@ function CountDetail({ id }: { id: string }) {
           body: JSON.stringify({
             lines: (active.lines ?? [])
               .filter((line) => line.entered)
-              .map((line) => ({ id: line.id, countedQty: line.countedQty })),
+              .map((line) => ({
+                id: line.id,
+                countedQty: line.countedQty,
+                weightGrams: parseWeightGrams(weights[line.id]),
+              })),
           }),
         }),
       );
@@ -217,7 +223,7 @@ function CountDetail({ id }: { id: string }) {
           <p className="text-sm">Nothing on the snapshot. Confirm the bay is empty, or add a SKU you found.</p>
         </Card>
       ) : (
-        <Table columns={["SKU", "System", "Counted", "Variance"]}>
+        <Table columns={["SKU", "System", "Counted", "Weight", "Variance"]}>
           {lines.map((line) => (
             <tr key={line.id}>
               <td className="px-4 py-3">
@@ -247,6 +253,13 @@ function CountDetail({ id }: { id: string }) {
                         : current,
                     );
                   }}
+                />
+              </td>
+              <td className="px-4 py-3">
+                <CatchWeightInput
+                  show={line.catchWeight}
+                  value={weights[line.id] ?? (line.weightGrams != null ? String(line.weightGrams) : "")}
+                  onChange={(value) => setWeights((current) => ({ ...current, [line.id]: value }))}
                 />
               </td>
               <td className="px-4 py-3 font-mono">
