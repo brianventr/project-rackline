@@ -226,7 +226,15 @@ function LookupResult({ hit }: { hit: ScanHit }) {
               : hit.kind === "wave"
                 ? { title: hit.wave.number, status: hit.wave.status, to: documentPath("wave", hit.wave.id), floor: `/floor/wave?id=${hit.wave.id}` }
                 : hit.kind === "asn"
-                  ? { title: hit.asn.number, status: hit.asn.status, to: documentPath("asn", hit.asn.id), floor: `/floor/asn?id=${hit.asn.id}` }
+                  ? {
+                      title: hit.package ? `${hit.asn.number} ${hit.package.number}` : hit.asn.number,
+                      status: hit.package?.putawayAt ? "put away" : hit.package?.receivedAt ? "received" : hit.asn.status,
+                      to: documentPath("asn", hit.asn.id),
+                      floor:
+                        hit.package?.receivedAt && !hit.package.putawayAt
+                          ? `/floor/putaway?carton=${encodeURIComponent(hit.package.number)}`
+                          : `/floor/asn?id=${hit.asn.id}`,
+                    }
                   : hit.kind === "yard"
                     ? { title: hit.yard.number, status: hit.yard.status, to: documentPath("yard", hit.yard.id), floor: `/floor/yard?id=${hit.yard.id}` }
                     : hit.kind === "cycleCount"

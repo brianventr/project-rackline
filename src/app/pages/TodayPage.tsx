@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, type Dashboard, type FloorJob, type Purchase, type TeamMember } from "../api";
+import { api, type Dashboard, type FloorJob, type Purchase, type TeamMember, type TrackerException } from "../api";
 import { Button, ErrorBanner, PageHeader, Select, StatusBadge } from "../components/ui";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useWarehouse } from "../warehouse";
@@ -74,6 +74,19 @@ export function TodayPage() {
       setError(err instanceof Error ? err.message : "Could not draft PO");
     } finally {
       setDrafting(false);
+    }
+  }
+
+  async function relabelException(row: TrackerException) {
+    setError(null);
+    try {
+      const path = row.packageNumber
+        ? `/api/orders/${row.orderId}/packages/${row.id}/relabel`
+        : `/api/orders/${row.orderId}/relabel`;
+      await api(path, { method: "POST" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not relabel");
     }
   }
 
@@ -170,6 +183,15 @@ export function TodayPage() {
               actionTo: `/floor/putaway?from=${encodeURIComponent(row.fromBarcode)}`,
               action: "Put away",
               job: jobForSuggestion(jobs, "putawaySuggestion", row.fromLocationId, row.itemId, row.toLocationId),
+            })),
+            ...(data?.cartonPutaways ?? queues?.cartonPutaways ?? []).map((row) => ({
+              id: row.packageId,
+              to: `/inbound/asns/${row.asnId}`,
+              title: `${row.asnNumber} ${row.packageNumber}`,
+              meta: `${row.fromCode} → ${row.lines.map((line) => line.toCode || "bay").filter(Boolean).join(", ") || "suggested bay"}`,
+              status: "carton",
+              actionTo: `/floor/putaway?carton=${encodeURIComponent(row.packageNumber)}`,
+              action: "Put away",
             })),
           ]}
         />
@@ -434,7 +456,8 @@ export function TodayPage() {
             meta: row.trackingNumber ? `${row.trackingNumber} · ${row.trackerStatus}` : row.trackerStatus,
             status: "exception",
             actionTo: `/outbound/orders/${row.orderId}`,
-            action: "Open",
+            action: "Relabel",
+            onAction: () => void relabelException(row),
           }))}
         />
         <Card>
@@ -553,6 +576,7 @@ function QueueCard({
     status: string;
     actionTo: string;
     action: string;
+    onAction?: () => void;
     job?: FloorJob;
   }[];
 }) {
@@ -606,9 +630,19 @@ function QueueCard({
                   ) : dispatch ? (
                     <span className="text-xs text-muted-foreground">Unassigned</span>
                   ) : null}
-                  <Link className="text-xs font-semibold underline-offset-4 hover:underline" to={row.actionTo}>
-                    {row.action}
-                  </Link>
+                  {row.onAction ? (
+                    <button
+                      type="button"
+                      className="text-xs font-semibold underline-offset-4 hover:underline"
+                      onClick={() => row.onAction?.()}
+                    >
+                      {row.action}
+                    </button>
+                  ) : (
+                    <Link className="text-xs font-semibold underline-offset-4 hover:underline" to={row.actionTo}>
+                      {row.action}
+                    </Link>
+                  )}
                 </div>
               </li>
             ))}

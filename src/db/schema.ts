@@ -1078,6 +1078,7 @@ export const asnPackages = sqliteTable(
     seq: integer("seq").notNull(),
     sscc: text("sscc"),
     receivedAt: integer("received_at"),
+    putawayAt: integer("putaway_at"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [
@@ -1100,6 +1101,10 @@ export const asnPackageLines = sqliteTable(
       .notNull()
       .references(() => items.id),
     qty: integer("qty").notNull(),
+    lotCode: text("lot_code"),
+    serialsJson: text("serials_json"),
+    weightGrams: integer("weight_grams"),
+    expiresOn: integer("expires_on"),
   },
   (t) => [uniqueIndex("asn_package_lines_pkg_line").on(t.packageId, t.asnLineId)],
 );
