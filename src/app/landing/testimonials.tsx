@@ -25,10 +25,10 @@ const testimonials = [
     rating: 5,
   },
   {
-    name: "Maker-owner",
-    role: "Bench and warehouse",
+    name: "Founder",
+    role: "Garage Mode",
     content:
-      "The Desk Lamp BOM lives in the same building as the parts. Work orders consume components and produce finished goods without a second system.",
+      "We started on the bench: receive, make, pick, and ship. The full warehouse opened on the same ledger when the garage ran out of room.",
     rating: 5,
   },
   {

@@ -34,8 +34,8 @@ const features = [
     icon: Store,
   },
   {
-    title: "Maker to manufacturer",
-    body: "BOMs and work orders consume components and produce finished goods in the same warehouse that stores the parts.",
+    title: "Garage Mode",
+    body: "The founder bench. Receive, make, pick, and ship without a yard, waves, or a 3PL. Open the full warehouse on the same ledger when you lease a floor.",
     icon: Factory,
   },
   {

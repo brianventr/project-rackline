@@ -10,6 +10,7 @@ import { ModeToggle } from "@/components/mode-toggle";
 import { useScanner } from "@/app/scanner/ScannerProvider";
 import { useSession } from "@/app/session";
 import { homePath, useWarehouse } from "@/app/warehouse";
+import { GARAGE_MODE_LABEL, isGarageMode } from "@/domain/operating-mode";
 import { api, type ScanHit, type SearchResults } from "@/app/api";
 import { documentPath } from "@/domain/barcodes";
 import {
@@ -69,6 +70,21 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
             </option>
           ))}
         </select>
+        {isGarageMode(me.organization.operatingMode) ? (
+          me.role === "owner" ? (
+            <Link
+              to="/setup/warehouse"
+              className="hidden rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary sm:inline"
+              title="Founder bench. Open the full warehouse from Setup."
+            >
+              {GARAGE_MODE_LABEL}
+            </Link>
+          ) : (
+            <span className="hidden rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary sm:inline">
+              {GARAGE_MODE_LABEL}
+            </span>
+          )
+        ) : null}
         <div className="ml-auto flex items-center gap-1.5">
           <ToggleGroup
             type="single"

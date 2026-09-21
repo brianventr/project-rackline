@@ -1,6 +1,6 @@
 # Rackline WMS
 
-Cloudflare-native warehouse management for makers who grow into manufacturers.
+Cloudflare-native warehouse management. Start in Garage Mode, then open the full warehouse.
 
 The public site is a marketing landing page. After sign-in, the floor board, rack map, scan-to-move, Shopify channel, and classic WMS loops run in a shadcn/ui shell (from `shadcn-dashboard-landing-v1/vite-version`).
 
@@ -119,6 +119,8 @@ Iteration 52 buys, voids, and shops rates on live UPS, FedEx, USPS, and DHL acco
 
 Iteration 53 drafts one invoice per 3PL client from warehouse activity: 2¢ per on-hand piece, 25¢ per unit picked in the last 30 days, and $1.50 per carton shipped in that period. House stock is not billed. No activity returns HTTP 409 (`NOTHING_TO_BILL`). This replaces the $5-per-client stub in iteration 25.
 
+Iteration 55 names the founder bench **Garage Mode**. New organizations start there: receive, make, pick, pack, ship, recipes, and runway. Yard, waves, ASN, equipment, replenishment, holds, counts, 3PL clients, EDI, and traffic stay packed away until Setup → Warehouse opens the full warehouse on the same ledger. Northwind stays a full warehouse so the seeded shop is unchanged. Invalid mode is HTTP 400.
+
 Iteration 54 adds one photo per SKU and numbered kitting steps on the recipe. Floor Kit and Assemble show the photo, steps, and components; Pick and Lookup use the same thumbnail. Paste a URL or upload to R2 (`MEDIA`). Shopify copies a line image onto a new or photo-less SKU only. Complete is still one-step explode. Qty stays integer pieces on location:item.
 
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
@@ -162,7 +164,7 @@ Open [http://localhost:5173](http://localhost:5173). Guests see the landing page
 
 On the sign-in screen, either:
 
-- Create an organization, or
+- Create an organization (starts in Garage Mode), or
 - Click **Load Northwind Makers demo** (`demo@northwind.makers` / `rackline-demo`) to get a stocked shop: Desk Lamp BOM with photos and four kitting steps, dock / aisle A (two racks, two levels) / aisle B / shop / outbound, reorder points, an open receipt `RCP-DEMO1` (12× LED-BULB + 6× SHADE — partial receive is allowed), purchase order `PO-DEMO1` (Harbor Components), ASN `ASN-DEMO1` (expected Harbor notice with vendor `BOX-1` 10× LED-BULB `LOT-2026-A` and `BOX-2` 10× LED-BULB + 8× SHADE), yard visit `YRD-DEMO1` (UPS Freight / TRL-4421), wave `WAV-DEMO1` (batch mode for Acme `ORD-WAVE1` / `ORD-WAVE2`), 3PL client `ACME`, zones A/B on Main, a second warehouse **West shop** with `XFR-WEST1` (4× SHADE cross-building), vendor return `RTV-DEMO1` (2× LED-BULB from `A-01-01` — partial return is allowed), return `RMA-DEMO1` (Harbor Workshop, restock), putaway ticket `XFR-DEMO1` (8× SHADE + 6× BASE from `A-01-01` to `A-02-02` — partial move is allowed), replenishment `RPL-DEMO1` (14× LED-BULB from `A-01-01` to `A-01-02` — partial move is allowed), a floor order (`ORD-DEMO1` pick assigned to you), Shopify order `#1004` (Maya Chen), work order `WO-DEMO1` (qty 4 — assigned to assemble; partial complete is allowed), kit `KIT-DEMO1` (qty 2 — partial complete, then dekit), sit-down `FL-01` checked out on days against `XFR-DEMO1` (`CST-DEMO1`), pallet jack `PJ-01` with a closed yesterday assignment, `FL-02` out of service after a failed horn/leak inspection, shipped `ORD-KPI1` (Maya pick/pack of BASE / GLUE / LAMP plus an unpick), Jordan Dock inbound BASE and RESIN, and in-flight demo tickets on **Analytics → Traffic** (packed `ORD-DFW1` split into labeled `BOX-1` / `BOX-2` — `BOX-1` is a tracker exception; `ORD-MIA1` is an order-level tracker exception). LED-BULB is lot-tracked (`LOT-2026-A` / `LOT-2026-B`) with pick min 20 on `A-01-02`; LAMP is serial-tracked (`LAMP-1001`–`LAMP-1014`) with pick min 12 on `B-01-01`; RESIN is catch-weight (6 bottles / 3000 g on `A-01-01`); GLUE is lot + expiry (`LOT-OLD` / `LOT-NEW` on `A-01-01`, expired `LOT-DEAD` on `A-01-03`). `LAMP-1001` is seeded with as-built component lots. Setup → Carriers has demo UPS `A1B2C3` and USPS accounts plus Rackline Ground. Then open **Today** for the dispatch board, **Floor** for next job, **Map**, **Traffic**, **Runway**, **Performance**, and **Move**. CORD ships at a baseline of 5/day so Today’s **Runs out this week** card has a velocity row even while the draft `PO-CORD` covers the static reorder gap.
 
 

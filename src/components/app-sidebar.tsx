@@ -46,10 +46,12 @@ import {
 } from "@/components/ui/sidebar";
 import { useSession } from "@/app/session";
 import { homePath } from "@/app/warehouse";
+import { GARAGE_MODE_LABEL, garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 
 export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
   const me = useSession();
   const owner = me.role === "owner";
+  const garage = isGarageMode(me.organization.operatingMode);
 
   const navGroups = [
     {
@@ -138,6 +140,19 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
       : []),
   ];
 
+  const visibleGroups = garage
+    ? navGroups
+        .map((group) => ({
+          ...group,
+          items: group.items.flatMap((item) => {
+            const children = item.items?.filter((child) => garageAllowsPath(child.url));
+            if (!garageAllowsPath(item.url) && !children?.length) return [];
+            return [{ ...item, items: item.items ? children : undefined }];
+          }),
+        }))
+        .filter((group) => group.items.length > 0)
+    : navGroups;
+
   return (
     <Sidebar {...props}>
       <SidebarHeader>
@@ -150,7 +165,9 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
                 </div>
                 <div className="grid flex-1 text-left text-xs leading-tight">
                   <span className="truncate font-semibold">Rackline</span>
-                  <span className="truncate text-[11px] opacity-80">{me.organization.name}</span>
+                  <span className="truncate text-[11px] opacity-80">
+                    {garage ? `${GARAGE_MODE_LABEL} · ${me.organization.name}` : me.organization.name}
+                  </span>
                 </div>
               </Link>
             </SidebarMenuButton>
@@ -158,7 +175,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {navGroups.map((group) => (
+        {visibleGroups.map((group) => (
           <NavMain key={group.label} label={group.label} items={group.items} />
         ))}
       </SidebarContent>

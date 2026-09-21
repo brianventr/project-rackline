@@ -35,7 +35,7 @@ export function LandingFooter() {
                 Rackline
               </Link>
               <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">
-                Cloudflare-native warehouse management for makers who grow into manufacturers.
+                Cloudflare-native warehouse management. Start in Garage Mode, then open the full warehouse.
               </p>
             </div>
 

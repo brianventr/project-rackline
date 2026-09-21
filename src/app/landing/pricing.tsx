@@ -27,6 +27,7 @@ const plans = [
     href: "/signup" as const,
     cta: "Open a warehouse",
     features: [
+      "Garage Mode — the founder bench",
       "One inventory ledger",
       "Shopify checkouts to pick tickets",
       "Floor map and scan-to-move",

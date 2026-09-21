@@ -4,17 +4,21 @@ import type { AppDb } from "../db/stock";
 import { newId } from "./ids";
 import { forbidden, notFound } from "./http";
 import type { Role } from "../db/schema";
+import type { OperatingMode } from "../domain/operating-mode";
 
 export async function provisionOrganization(
   db: AppDb,
   userId: string,
   name: string,
+  options?: { operatingMode?: OperatingMode; warehouseName?: string },
 ): Promise<{ organizationId: string; warehouseId: string }> {
   const now = Date.now();
   const organizationId = newId();
   const warehouseId = newId();
+  const operatingMode = options?.operatingMode ?? "garage";
+  const warehouseName = options?.warehouseName ?? (operatingMode === "garage" ? "Garage" : "Main warehouse");
   await db.batch([
-    db.insert(schema.organizations).values({ id: organizationId, name, createdAt: now }),
+    db.insert(schema.organizations).values({ id: organizationId, name, operatingMode, createdAt: now }),
     db.insert(schema.memberships).values({
       id: newId(),
       organizationId,
@@ -24,7 +28,7 @@ export async function provisionOrganization(
     db.insert(schema.warehouses).values({
       id: warehouseId,
       organizationId,
-      name: "Main warehouse",
+      name: warehouseName,
       createdAt: now,
     }),
   ]);

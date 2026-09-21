@@ -57,11 +57,12 @@ const accordionItems = [
     ),
   },
   {
-    title: "Can it grow from one aisle?",
+    title: "What is Garage Mode?",
     content: (
       <div className="text-muted-foreground">
-        That is the point. Start with receive, pick, and ship. Add a map, Shopify, BOMs, a second
-        warehouse, waves, and 3PL clients without changing the location:item ledger.
+        New organizations start in Garage Mode — the bench founders and inventors use before a
+        warehouse. Receive, make, pick, and ship. Setup → Warehouse opens the full floor (yard,
+        waves, ASN, equipment, 3PL) on the same location:item ledger.
       </div>
     ),
   },

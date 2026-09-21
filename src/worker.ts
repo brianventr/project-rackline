@@ -24,6 +24,7 @@ import { originFrom, type AppEnv } from "./lib/types";
 import { registerRoute } from "./routes/register";
 import { demoRoute } from "./routes/demo";
 import { meRoute } from "./routes/me";
+import { organizationRoute } from "./routes/organization";
 import { catalogRoute } from "./routes/catalog";
 import { receiptsRoute } from "./routes/receipts";
 import { purchasesRoute } from "./routes/purchases";
@@ -339,6 +340,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.route("/api", meRoute);
+app.route("/api", organizationRoute);
 app.route("/api", mediaRoute);
 app.route("/api", catalogRoute);
 app.route("/api", receiptsRoute);

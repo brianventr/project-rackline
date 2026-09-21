@@ -60,7 +60,7 @@ export async function uploadFile<T>(path: string, file: File): Promise<T> {
 
 export type Me = {
   user: { id: string; name: string; email: string };
-  organization: { id: string; name: string };
+  organization: { id: string; name: string; operatingMode?: "garage" | "warehouse" };
   role: "owner" | "operator";
   floorVerbs?: string[];
   warehouses: { id: string; name: string }[];

@@ -53,6 +53,7 @@ export const verification = sqliteTable("verification", {
 export const organizations = sqliteTable("organizations", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  operatingMode: text("operating_mode").notNull().default("warehouse"),
   createdAt: integer("created_at").notNull(),
 });
 
