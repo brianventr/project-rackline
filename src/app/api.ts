@@ -333,6 +333,8 @@ export type OrderLine = {
   remaining: number;
   packRemaining?: number;
   unpickRemaining?: number;
+  qtyCartoned?: number;
+  cartonRemaining?: number;
   allocatedQty?: number;
   allocations?: OrderAllocation[];
   sku: string;
@@ -376,11 +378,42 @@ export type Order = {
   packageWidthIn?: number | null;
   packageHeightIn?: number | null;
   postageCents?: number | null;
+  trackerStatus?: string | null;
   packedAt?: number | null;
   allocatedUnits?: number;
   allocations?: OrderAllocation[];
+  packages?: OrderPackage[];
   shopify?: { status?: string; fulfillmentId?: string | null; error?: string | null };
   lines?: OrderLine[];
+};
+
+export type OrderPackageLine = {
+  id: string;
+  packageId: string;
+  orderLineId: string;
+  itemId: string;
+  qty: number;
+  sku: string;
+  itemName: string;
+};
+
+export type OrderPackage = {
+  id: string;
+  number: string;
+  seq: number;
+  weightOz?: number | null;
+  lengthIn?: number | null;
+  widthIn?: number | null;
+  heightIn?: number | null;
+  trackingNumber?: string | null;
+  trackingCompany?: string | null;
+  trackingUrl?: string | null;
+  carrierService?: string | null;
+  labelStatus?: string | null;
+  postageCents?: number | null;
+  trackerStatus?: string | null;
+  units?: number;
+  lines?: OrderPackageLine[];
 };
 
 export type ShopifyConnection = {
@@ -535,6 +568,7 @@ export type ShippingLabel = {
   trackingUrl: string;
   connectionId?: string | null;
   labelStatus?: string | null;
+  packageNumber?: string | null;
 };
 
 export type CarrierServiceOption = {
@@ -575,6 +609,8 @@ export type CarrierConnection = {
   lastTestedAt: number | null;
   lastTestStatus: string | null;
   lastTestError: string | null;
+  hasWebhookSecret?: boolean;
+  webhookSecretHint?: string | null;
 };
 
 export type CarrierHub = {
@@ -583,6 +619,7 @@ export type CarrierHub = {
   enabledServices: CarrierServiceOption[];
   shipFromAddress: string | null;
   warehouseId: string | null;
+  trackerWebhookUrl?: string;
 };
 
 export type CarrierRate = CarrierServiceOption & {
@@ -836,9 +873,24 @@ export type Purchase = {
   status: string;
   notes: string | null;
   createdAt: number;
+  orderedAt?: number | null;
   locationId: string | null;
   warehouseId?: string;
+  asns?: Asn[];
+  send?: PurchaseSend | null;
+  sends?: PurchaseSend[];
+  mintedAsnId?: string | null;
   lines?: PurchaseLine[];
+};
+
+export type PurchaseSend = {
+  id: string;
+  purchaseId: string;
+  toAddress: string | null;
+  subject: string | null;
+  body: string;
+  mode: string;
+  createdAt: number;
 };
 
 export type RmaLine = {

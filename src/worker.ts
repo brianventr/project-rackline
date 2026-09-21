@@ -7,6 +7,7 @@ import { InsufficientStockError } from "./domain/inventory";
 import { OverReceiveError } from "./domain/partial-receive";
 import { OverPickError } from "./domain/partial-pick";
 import { OverPackError } from "./domain/partial-pack";
+import { OverCartonError } from "./domain/cartons";
 import { OverMoveError } from "./domain/partial-transfer";
 import { OverReturnError } from "./domain/partial-rtv";
 import { OverCompleteError } from "./domain/partial-complete";
@@ -32,6 +33,7 @@ import { adjustmentsRoute } from "./routes/adjustments";
 import { manufacturingRoute } from "./routes/manufacturing";
 import { shopifyPublicRoute, shopifyRoute } from "./routes/shopify";
 import { ShopifyIngestError } from "./domain/shopify-ingest";
+import { carriersRoute, carriersPublicRoute } from "./routes/carriers";
 import { floorRoute } from "./routes/floor";
 import { searchRoute } from "./routes/search";
 import { teamRoute } from "./routes/team";
@@ -41,7 +43,6 @@ import { kitsRoute } from "./routes/kits";
 import { holdsRoute } from "./routes/holds";
 import { vendorReturnsRoute } from "./routes/vendor-returns";
 import { jobsRoute } from "./routes/jobs";
-import { carriersRoute } from "./routes/carriers";
 import { wavesRoute } from "./routes/waves";
 import { asnsRoute } from "./routes/asns";
 import { zonesRoute } from "./routes/zones";
@@ -97,6 +98,18 @@ app.onError((err, c) => {
       {
         error: err.message,
         code: "OVER_PACK",
+        sku: err.sku,
+        remaining: err.remaining,
+        qty: err.qty,
+      },
+      409,
+    );
+  }
+  if (err instanceof OverCartonError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "OVER_CARTON",
         sku: err.sku,
         remaining: err.remaining,
         qty: err.qty,
@@ -272,6 +285,7 @@ app.on(["GET", "POST"], "/api/auth/*", (c) => {
 app.route("/api", registerRoute);
 app.route("/api", demoRoute);
 app.route("/api", shopifyPublicRoute);
+app.route("/api", carriersPublicRoute);
 
 app.use("/api/*", async (c, next) => {
   const path = new URL(c.req.url).pathname;
@@ -280,7 +294,8 @@ app.use("/api/*", async (c, next) => {
     path === "/api/register" ||
     path === "/api/demo/seed" ||
     path === "/api/shopify/webhooks" ||
-    path === "/api/shopify/fulfillment_order_notification"
+    path === "/api/shopify/fulfillment_order_notification" ||
+    path === "/api/carriers/trackers/webhooks"
   ) {
     return next();
   }

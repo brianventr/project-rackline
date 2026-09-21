@@ -5,6 +5,7 @@ import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { canPackOrder, canStartPack, canCancelOrder } from "@/domain/status";
 import { hasUnpacked } from "@/domain/partial-pack";
+import { cartonShipGate, hasUncartoned } from "@/domain/cartons";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 
@@ -15,6 +16,10 @@ export function FloorPackPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [active, setActive] = useState<Order | null>(null);
   const [qtys, setQtys] = useState<Record<string, string>>({});
+  const [weightOz, setWeightOz] = useState("16");
+  const [lengthIn, setLengthIn] = useState("12");
+  const [widthIn, setWidthIn] = useState("9");
+  const [heightIn, setHeightIn] = useState("6");
   const [error, setError] = useState<string | null>(null);
 
   function applyOrder(order: Order) {
@@ -102,6 +107,58 @@ export function FloorPackPage() {
     }
   }
 
+  async function packIntoCarton() {
+    if (!active) return;
+    setError(null);
+    try {
+      if (canStartPack(active.status)) {
+        const started = await api<Order>(`/api/orders/${active.id}/start-pack`, { method: "POST" });
+        applyOrder(started);
+      }
+      const lines = (active.lines ?? [])
+        .map((line) => ({
+          lineId: line.id,
+          qty: Number(qtys[line.id] || 0),
+        }))
+        .filter((line) => line.qty > 0);
+      const packed = await api<Order>(`/api/orders/${active.id}/packages`, {
+        method: "POST",
+        body: JSON.stringify({
+          pack: true,
+          lines,
+          weightOz: Number(weightOz),
+          lengthIn: Number(lengthIn),
+          widthIn: Number(widthIn),
+          heightIn: Number(heightIn),
+        }),
+      });
+      applyOrder(packed);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Carton failed");
+    }
+  }
+
+  async function addCarton() {
+    if (!active) return;
+    setError(null);
+    try {
+      const packed = await api<Order>(`/api/orders/${active.id}/packages`, {
+        method: "POST",
+        body: JSON.stringify({
+          weightOz: Number(weightOz),
+          lengthIn: Number(lengthIn),
+          widthIn: Number(widthIn),
+          heightIn: Number(heightIn),
+        }),
+      });
+      applyOrder(packed);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Carton failed");
+    }
+  }
+
   async function cancel() {
     if (!active) return;
     setError(null);
@@ -124,10 +181,20 @@ export function FloorPackPage() {
         qtyPacked: line.qtyPacked ?? 0,
       })),
     );
+  const uncartoned =
+    active &&
+    hasUncartoned(
+      (active.lines ?? []).map((line) => ({
+        lineId: line.id,
+        sku: line.sku,
+        qtyPacked: line.qtyPacked ?? 0,
+        qtyCartoned: line.qtyCartoned ?? 0,
+      })),
+    );
   const thisPack = Object.values(qtys).some((value) => Number(value) > 0);
 
   return (
-    <FloorFrame title="Pack" description="Scan the tote, pack remaining qty, print a pack slip, close the box." error={error}>
+    <FloorFrame title="Pack" description="Scan the tote, pack remaining qty into BOX-1 / BOX-2, print a pack slip." error={error}>
       <FloorScanBox label="Scan order or SKU" placeholder="ORD-… or LAMP" onScan={onScan} />
       {!active ? (
         <ClaimList
@@ -162,6 +229,7 @@ export function FloorPackPage() {
                     <span className="text-muted-foreground">
                       {" "}
                       · picked {line.qtyPicked ?? 0} · packed {line.qtyPacked ?? 0}
+                      {(line.qtyCartoned ?? 0) > 0 ? ` · boxed ${line.qtyCartoned}` : ""}
                     </span>
                   </span>
                 </div>
@@ -186,6 +254,14 @@ export function FloorPackPage() {
               <Button disabled={!thisPack} onClick={() => void pack()}>
                 Pack remaining
               </Button>
+              <Button disabled={!thisPack} variant="secondary" onClick={() => void packIntoCarton()}>
+                Pack into carton
+              </Button>
+              {uncartoned ? (
+                <Button variant="secondary" onClick={() => void addCarton()}>
+                  Box remaining
+                </Button>
+              ) : null}
               {canCancelOrder(active.status) ? (
                 <Button variant="secondary" onClick={() => void cancel()}>
                   Cancel order
@@ -197,6 +273,9 @@ export function FloorPackPage() {
             </div>
           ) : (
             <div className="flex flex-wrap gap-4">
+              {uncartoned ? (
+                <Button onClick={() => void addCarton()}>Box remaining</Button>
+              ) : null}
               <Link className="font-medium underline" to={`/floor/ship?id=${active.id}`}>
                 Go ship
               </Link>
@@ -205,6 +284,49 @@ export function FloorPackPage() {
               </Link>
             </div>
           )}
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Carton weight oz">
+              <Input type="number" min={1} value={weightOz} onChange={(e) => setWeightOz(e.target.value)} />
+            </Field>
+            <Field label="L in">
+              <Input type="number" min={1} value={lengthIn} onChange={(e) => setLengthIn(e.target.value)} />
+            </Field>
+            <Field label="W in">
+              <Input type="number" min={1} value={widthIn} onChange={(e) => setWidthIn(e.target.value)} />
+            </Field>
+            <Field label="H in">
+              <Input type="number" min={1} value={heightIn} onChange={(e) => setHeightIn(e.target.value)} />
+            </Field>
+          </div>
+          {(active.packages ?? []).length > 0 ? (
+            <ul className="space-y-2 text-sm">
+              {(active.packages ?? []).map((pkg) => (
+                <li key={pkg.id} className="rounded-md border px-3 py-2">
+                  <span className="font-mono">{pkg.number}</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {pkg.units ?? 0} units
+                    {pkg.trackingNumber ? ` · ${pkg.trackingNumber}` : " · no label"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Cartons are optional until the first box. After BOX-1 exists, every packed unit needs a labeled carton
+              before ship.
+            </p>
+          )}
+          {active.status === "packed" &&
+          cartonShipGate({
+            packedUnits: (active.lines ?? []).reduce((sum, line) => sum + (line.qtyPacked ?? 0), 0),
+            packages: (active.packages ?? []).map((pkg) => ({
+              units: pkg.units ?? 0,
+              trackingNumber: pkg.trackingNumber ?? null,
+            })),
+          }).ok === false ? (
+            <p className="text-sm text-muted-foreground">Label each carton on Ship before closing the order.</p>
+          ) : null}
         </Card>
       )}
     </FloorFrame>

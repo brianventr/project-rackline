@@ -221,6 +221,35 @@ function OrderDetail({ id }: { id: string }) {
     }
   }
 
+  async function packIntoCarton() {
+    if (!order) return;
+    setError(null);
+    try {
+      const lines = (order.lines ?? [])
+        .map((line) => ({
+          lineId: line.id,
+          qty: Number(packQtys[line.id] || 0),
+        }))
+        .filter((line) => line.qty > 0);
+      const next = await api<Order>(`/api/orders/${id}/packages`, {
+        method: "POST",
+        body: JSON.stringify({
+          pack: true,
+          lines,
+          weightOz: Number(weightOz),
+          lengthIn: Number(lengthIn),
+          widthIn: Number(widthIn),
+          heightIn: Number(heightIn),
+        }),
+      });
+      setOrder(next);
+      setPackQtys(packQtyDefaults(next));
+      setUnpickQtys(unpickQtyDefaults(next));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Carton failed");
+    }
+  }
+
   async function unpick() {
     if (!order) return;
     setError(null);
@@ -336,9 +365,14 @@ function OrderDetail({ id }: { id: string }) {
               </Button>
             ) : null}
             {canPackOrder(order.status) && unpacked ? (
-              <Button disabled={!thisPack} onClick={() => void pack()}>
-                Pack
-              </Button>
+              <>
+                <Button disabled={!thisPack} onClick={() => void pack()}>
+                  Pack
+                </Button>
+                <Button variant="secondary" disabled={!thisPack} onClick={() => void packIntoCarton()}>
+                  Pack into carton
+                </Button>
+              </>
             ) : null}
             {canUnpickOrder(order.status) && unpickable ? (
               <Button variant="secondary" disabled={!thisUnpick} onClick={() => void unpick()}>
@@ -516,6 +550,51 @@ function OrderDetail({ id }: { id: string }) {
                 ) : null}
               </div>
             </Card>
+            {(order.packages ?? []).length > 0 ? (
+              <Card className="space-y-3">
+                <h3 className="font-medium">Cartons</h3>
+                <ul className="space-y-2 text-sm">
+                  {(order.packages ?? []).map((pkg) => (
+                    <li key={pkg.id} className="flex flex-wrap items-center justify-between gap-2">
+                      <span>
+                        <span className="font-mono">{pkg.number}</span>
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · {pkg.units ?? 0}
+                          {pkg.trackingNumber ? ` · ${pkg.trackingNumber}` : " · no label"}
+                        </span>
+                      </span>
+                      <span className="flex gap-2">
+                        <Button
+                          variant="secondary"
+                          onClick={() =>
+                            void api<ShippingLabel>(`/api/orders/${id}/packages/${pkg.id}/label`, {
+                              method: "POST",
+                              body: JSON.stringify({
+                                carrierService,
+                                weightOz: pkg.weightOz || Number(weightOz),
+                                lengthIn: pkg.lengthIn || Number(lengthIn),
+                                widthIn: pkg.widthIn || Number(widthIn),
+                                heightIn: pkg.heightIn || Number(heightIn),
+                              }),
+                            })
+                              .then(() => load())
+                              .catch((err: Error) => setError(err.message))
+                          }
+                        >
+                          Buy
+                        </Button>
+                        {pkg.trackingNumber ? (
+                          <Button variant="secondary" asChild>
+                            <Link to={`/outbound/orders/${id}/packages/${pkg.id}/shipping-label`}>Print</Link>
+                          </Button>
+                        ) : null}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            ) : null}
             <DocumentActivity
               refId={order.id}
               refreshKey={`${order.status}:${(order.lines ?? []).map((line) => `${line.qtyPicked}:${line.qtyPacked}`).join(",")}`}

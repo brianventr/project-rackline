@@ -23,6 +23,7 @@ export type ShippingLabel = {
   trackingUrl: string;
   connectionId?: string | null;
   labelStatus?: string | null;
+  packageNumber?: string | null;
 };
 
 export function resolveCarrier(serviceId?: string | null) {
@@ -56,12 +57,13 @@ export function buildShippingLabel(input: {
   carrierService?: string | null;
   carrierConnectionId?: string | null;
   labelStatus?: string | null;
+  packageNumber?: string | null;
 }): ShippingLabel {
   const carrier = resolveCarrier(input.carrierService);
   const trackingNumber = input.trackingNumber?.trim() || generateTrackingNumber(carrier.id);
   return {
     orderId: input.id,
-    orderNumber: input.number,
+    orderNumber: input.packageNumber ? `${input.number} · ${input.packageNumber}` : input.number,
     customerName: input.customerName,
     shipToAddress: input.shipToAddress?.trim() || input.customerName,
     shipFromAddress: input.shipFromAddress?.trim() || null,
@@ -72,5 +74,6 @@ export function buildShippingLabel(input: {
     trackingUrl: input.trackingUrl?.trim() || trackingUrlFor(trackingNumber, carrier.id),
     connectionId: input.carrierConnectionId ?? null,
     labelStatus: input.labelStatus ?? null,
+    packageNumber: input.packageNumber ?? null,
   };
 }

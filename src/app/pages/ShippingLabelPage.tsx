@@ -6,7 +6,7 @@ import { Button, ErrorBanner, PageHeader } from "../components/ui";
 import { usePrint } from "../print/PrintProvider";
 
 export function ShippingLabelPage() {
-  const { id } = useParams();
+  const { id, packageId } = useParams();
   const navigate = useNavigate();
   const printer = usePrint();
   const [label, setLabel] = useState<ShippingLabel | null>(null);
@@ -17,7 +17,8 @@ export function ShippingLabelPage() {
   function load() {
     if (!id) return;
     setError(null);
-    api<ShippingLabel>(`/api/orders/${id}/label`)
+    const path = packageId ? `/api/orders/${id}/packages/${packageId}/label` : `/api/orders/${id}/label`;
+    api<ShippingLabel>(path)
       .then((next) => {
         setLabel(next);
         setNeedsBuy(false);
@@ -34,16 +35,19 @@ export function ShippingLabelPage() {
 
   useEffect(() => {
     load();
-  }, [id]);
+  }, [id, packageId]);
 
   async function buy() {
     if (!id) return;
     setError(null);
     try {
-      const next = await api<ShippingLabel>(`/api/orders/${id}/label`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
+      const next = await api<ShippingLabel>(
+        packageId ? `/api/orders/${id}/packages/${packageId}/label` : `/api/orders/${id}/label`,
+        {
+          method: "POST",
+          body: JSON.stringify({}),
+        },
+      );
       setLabel(next);
       setNeedsBuy(false);
     } catch (err) {

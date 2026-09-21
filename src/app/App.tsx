@@ -188,6 +188,7 @@ export function App() {
         <Route path="/outbound/orders" element={<OrdersPage />} />
         <Route path="/outbound/orders/:id" element={<OrdersPage />} />
         <Route path="/outbound/orders/:id/shipping-label" element={<ShippingLabelPage />} />
+        <Route path="/outbound/orders/:id/packages/:packageId/shipping-label" element={<ShippingLabelPage />} />
         <Route path="/outbound/orders/:id/pack-slip" element={<PackSlipPage />} />
         <Route path="/outbound/waves" element={<WavesPage />} />
         <Route path="/outbound/waves/:id" element={<WavesPage />} />

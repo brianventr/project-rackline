@@ -154,6 +154,7 @@ export type CarrierConnectionLike = {
   lastTestedAt?: number | null;
   lastTestStatus?: string | null;
   lastTestError?: string | null;
+  webhookSecret?: string | null;
   createdAt?: number;
   updatedAt?: number;
 };
@@ -300,6 +301,8 @@ export function serializeCarrierConnection(row: CarrierConnectionLike) {
     lastTestedAt: row.lastTestedAt ?? null,
     lastTestStatus: row.lastTestStatus ?? null,
     lastTestError: row.lastTestError ?? null,
+    hasWebhookSecret: Boolean(row.webhookSecret),
+    webhookSecretHint: maskSecret(row.webhookSecret),
     createdAt: row.createdAt ?? null,
     updatedAt: row.updatedAt ?? null,
   };
