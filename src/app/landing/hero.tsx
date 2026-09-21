@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 
 export function LandingHero() {
   return (
-    <div className="relative items-center justify-center">
+    <div className="relative overflow-hidden items-center justify-center">
       <section className="mx-auto flex max-w-(--breakpoint-xl) flex-col items-center justify-center gap-12 px-4 py-28 md:px-8">
         <motion.div
           initial={{ y: 20, opacity: 0 }}
@@ -26,9 +26,7 @@ export function LandingHero() {
             Receive parts, pick Shopify orders, scan bins on a live map, and complete work orders
             against a real inventory ledger. Built for shops that grow into manufacturers.
           </p>
-          <motion.div
-            className="items-center justify-center gap-x-3 space-y-3 sm:flex sm:space-y-0"
-          >
+          <div className="flex w-full max-w-sm flex-col items-stretch justify-center gap-3 sm:max-w-none sm:flex-row sm:items-center">
             <Button asChild className="shadow-lg">
               <Link to="/signup">
                 Get started
@@ -38,7 +36,7 @@ export function LandingHero() {
             <Button asChild variant="outline">
               <Link to="/login">Load the Northwind demo</Link>
             </Button>
-          </motion.div>
+          </div>
         </motion.div>
       </section>
       <motion.div

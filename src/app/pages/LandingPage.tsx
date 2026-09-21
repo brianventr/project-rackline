@@ -10,7 +10,7 @@ import { LandingFooter } from "../landing/footer";
 
 export function LandingPage() {
   return (
-    <div className="min-h-dvh bg-background">
+    <div className="min-h-dvh overflow-x-hidden bg-background">
       <LandingNavbar />
       <main className="flex min-h-dvh flex-col">
         <LandingHero />

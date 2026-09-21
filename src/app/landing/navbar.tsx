@@ -67,9 +67,11 @@ export function LandingNavbar() {
   return (
     <nav
       className={`sticky top-0 z-50 w-full transition-[background-color,backdrop-filter] duration-300 ease-out ${
-        showNavbarBlur
-          ? "backdrop-blur supports-backdrop-filter:bg-background/60"
-          : "backdrop-blur-0 supports-backdrop-filter:bg-background/0"
+        isMenuOpen
+          ? "border-b bg-background"
+          : showNavbarBlur
+            ? "backdrop-blur supports-backdrop-filter:bg-background/60"
+            : "backdrop-blur-0 supports-backdrop-filter:bg-background/0"
       }`}
     >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">

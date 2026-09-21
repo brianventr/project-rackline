@@ -1,4 +1,4 @@
-import { Cloud, Database, Package, ScanLine, Store, Truck } from "lucide-react";
+import { Cloud, Database, Package, ScanBarcode, Store, Truck } from "lucide-react";
 import { motion } from "motion/react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -8,7 +8,7 @@ const integrations = [
   { name: "D1", icon: Database, color: "#2563EB" },
   { name: "EasyPost", icon: Package, color: "#E16522" },
   { name: "ShipEngine", icon: Truck, color: "#5C43F5" },
-  { name: "HID scanners", icon: ScanLine, color: "#df6035" },
+  { name: "HID scanners", icon: ScanBarcode, color: "#c2410c" },
 ];
 
 export function LandingPartners() {
@@ -51,7 +51,7 @@ export function LandingPartners() {
                     className="flex size-12 items-center justify-center rounded-xl border border-border bg-card"
                     aria-label={item.name}
                   >
-                    <item.icon className="size-8" style={{ color: item.color }} />
+                    <item.icon className="size-8" strokeWidth={2.25} style={{ color: item.color }} />
                   </motion.div>
                 </div>
               </TooltipTrigger>
