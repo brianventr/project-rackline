@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Location, type Order, type ScanHit } from "../../api";
+import { api, type Location, type Order, type ScanHit, type Wave } from "../../api";
 import { BarcodeLabel } from "../../components/BarcodeLabel";
 import { Button, Card, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
-import { jobsForScan, packSlipJobs, shippingLabelJobs, type PrintJob } from "@/domain/print-station";
+import {
+  isHtmlPrintKind,
+  jobsForScan,
+  packSlipJobs,
+  pickListJobs,
+  printJobButtonLabel,
+  shippingLabelJobs,
+  wavePickListJobs,
+  type PrintJob,
+} from "@/domain/print-station";
 import { usePrint } from "../../print/PrintProvider";
 import { useScanner } from "../../scanner/ScannerProvider";
 
@@ -44,11 +53,11 @@ export function FloorPrintPage() {
   return (
     <FloorFrame
       title="Print"
-      description={`${printer.statusLabel}. Scan a bay, SKU, or order.`}
+      description={`${printer.statusLabel}. Scan a bay, SKU, order, or wave.`}
       error={error}
     >
       <div className="print:hidden">
-        <FloorScanBox label="Scan bay, SKU, or order" placeholder="B-01-01, LAMP, or ORD-DEMO1" onScan={onScan} />
+        <FloorScanBox label="Scan bay, SKU, order, or wave" placeholder="B-01-01, LAMP, ORD-DEMO1, or WAV-DEMO1" onScan={onScan} />
         {message ? <p className="mt-2 text-sm text-muted-foreground">{message}</p> : null}
       </div>
       {hit?.kind === "location" ? (
@@ -135,7 +144,7 @@ export function FloorPrintPage() {
               {jobs.map((job) => (
                 <Button
                   key={job.href}
-                  variant={job.kind === "pack-slip" ? "primary" : "secondary"}
+                  variant={isHtmlPrintKind(job.kind) ? "primary" : "secondary"}
                   onClick={() => {
                     void printer
                       .print({
@@ -151,17 +160,59 @@ export function FloorPrintPage() {
                       });
                   }}
                 >
-                  {job.kind === "pack-slip" ? "Pack slip" : "Shipping label"}
+                  {printJobButtonLabel(job.kind)}
                 </Button>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">Nothing to print until this order is picking or picked.</p>
+            <p className="text-sm text-muted-foreground">Nothing to print for this order yet.</p>
           )}
         </Card>
       ) : null}
-      {hit && hit.kind !== "location" && hit.kind !== "item" && hit.kind !== "order" && hit.kind !== "equipment" ? (
-        <p className="text-sm text-muted-foreground">Scan a bay, a SKU, or an order to print.</p>
+      {hit?.kind === "wave" ? (
+        <Card className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">{hit.wave.number}</h2>
+            <StatusBadge status={hit.wave.status} />
+          </div>
+          <p className="capitalize">{hit.wave.mode}</p>
+          {jobs.length ? (
+            <div className="flex flex-wrap gap-2">
+              {jobs.map((job) => (
+                <Button
+                  key={job.href}
+                  variant="primary"
+                  onClick={() => {
+                    void printer
+                      .print({
+                        kind: job.kind,
+                        title: job.title,
+                        href: job.href,
+                        refType: "wave",
+                        refId: hit.wave.id,
+                      })
+                      .then((result) => {
+                        setMessage(result.message);
+                        if (!result.ok) setError(result.message);
+                      });
+                  }}
+                >
+                  {printJobButtonLabel(job.kind)}
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">This wave is complete.</p>
+          )}
+        </Card>
+      ) : null}
+      {hit &&
+      hit.kind !== "location" &&
+      hit.kind !== "item" &&
+      hit.kind !== "order" &&
+      hit.kind !== "equipment" &&
+      hit.kind !== "wave" ? (
+        <p className="text-sm text-muted-foreground">Scan a bay, a SKU, an order, or a wave to print.</p>
       ) : null}
       {!hit ? <WaitingJobs /> : null}
     </FloorFrame>
@@ -202,22 +253,43 @@ function PrintCard({
 
 function WaitingJobs() {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [waves, setWaves] = useState<Wave[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
 
   useEffect(() => {
-    Promise.all([api<Order[]>("/api/orders"), api<Location[]>("/api/locations")])
-      .then(([nextOrders, nextLocations]) => {
+    Promise.all([
+      api<Order[]>("/api/orders"),
+      api<Wave[]>("/api/waves").catch(() => [] as Wave[]),
+      api<Location[]>("/api/locations"),
+    ])
+      .then(([nextOrders, nextWaves, nextLocations]) => {
         setOrders(nextOrders);
+        setWaves(nextWaves);
         setLocations(nextLocations);
       })
       .catch(() => {});
   }, []);
 
+  const lists = [...pickListJobs(orders), ...wavePickListJobs(waves)];
   const slips = packSlipJobs(orders);
   const labels = shippingLabelJobs(orders);
 
   return (
     <div className="grid gap-3 sm:grid-cols-2 print:hidden">
+      <Card>
+        <p className="mb-2 font-medium">Pick lists</p>
+        <ul className="space-y-2 text-sm">
+          {lists.map((job) => (
+            <li key={job.href}>
+              <Link className="underline" to={job.href}>
+                {job.title}
+              </Link>{" "}
+              <span className="text-muted-foreground">{job.subtitle}</span>
+            </li>
+          ))}
+          {lists.length === 0 ? <li className="text-muted-foreground">None waiting.</li> : null}
+        </ul>
+      </Card>
       <Card>
         <p className="mb-2 font-medium">Pack slips</p>
         <ul className="space-y-2 text-sm">

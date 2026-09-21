@@ -387,7 +387,12 @@ function OrderDetail({ id }: { id: string }) {
             {canShipOrder(order.status) ? (
               <Button onClick={() => void ship()}>{order.source === "shopify" ? "Ship & fulfill" : "Ship"}</Button>
             ) : null}
-            <Button variant="secondary">
+            {canPickOrder(order.status) ? (
+              <Button variant="secondary" asChild>
+                <Link to={`/outbound/orders/${order.id}/pick-list`}>Pick list</Link>
+              </Button>
+            ) : null}
+            <Button variant="secondary" asChild>
               <Link to={`/outbound/orders/${order.id}/pack-slip`}>Pack slip</Link>
             </Button>
             <Button variant="secondary">

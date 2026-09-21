@@ -339,11 +339,15 @@ export type OrderLine = {
   allocations?: OrderAllocation[];
   sku: string;
   itemName: string;
+  barcode?: string | null;
   shopifyLineItemId?: string | null;
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;
   trackExpiry?: boolean;
+  stockUom?: string | null;
+  altUom?: string | null;
+  altPerStock?: number | null;
   suggestedLocation?: SuggestedLocation | null;
 };
 
@@ -380,6 +384,8 @@ export type Order = {
   postageCents?: number | null;
   trackerStatus?: string | null;
   packedAt?: number | null;
+  waveId?: string | null;
+  clientId?: string | null;
   allocatedUnits?: number;
   allocations?: OrderAllocation[];
   packages?: OrderPackage[];
