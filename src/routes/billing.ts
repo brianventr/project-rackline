@@ -97,17 +97,24 @@ billingRoute.post("/billing/invoices/generate", async (c) => {
     .from(schema.invoices)
     .where(eq(schema.invoices.organizationId, organizationId));
   const touched: string[] = [];
+  let cleared = false;
   for (const draft of drafts) {
+    const draftsForClient = existing
+      .filter((row) => row.clientId === draft.clientId && row.status === "draft")
+      .sort((a, b) => b.createdAt - a.createdAt);
     const issued = existing.some(
       (row) =>
         row.clientId === draft.clientId &&
         row.status === "issued" &&
         overlaps(periodStart, periodEnd, row.periodStart, row.periodEnd),
     );
-    if (issued) continue;
-    const draftsForClient = existing
-      .filter((row) => row.clientId === draft.clientId && row.status === "draft")
-      .sort((a, b) => b.createdAt - a.createdAt);
+    if (issued) {
+      for (const stale of draftsForClient) {
+        await db.delete(schema.invoices).where(eq(schema.invoices.id, stale.id));
+        cleared = true;
+      }
+      continue;
+    }
     const current = draftsForClient[0];
     if (current) {
       await db
@@ -119,6 +126,9 @@ billingRoute.post("/billing/invoices/generate", async (c) => {
           linesJson: JSON.stringify(draft.lines),
         })
         .where(eq(schema.invoices.id, current.id));
+      for (const extra of draftsForClient.slice(1)) {
+        await db.delete(schema.invoices).where(eq(schema.invoices.id, extra.id));
+      }
       touched.push(current.id);
       continue;
     }
@@ -137,7 +147,7 @@ billingRoute.post("/billing/invoices/generate", async (c) => {
       createdAt: now,
     });
   }
-  if (touched.length === 0) conflict("Issued invoices already cover this period", "NOTHING_TO_BILL");
+  if (touched.length === 0 && !cleared) conflict("Issued invoices already cover this period", "NOTHING_TO_BILL");
   const invoices = await db
     .select()
     .from(schema.invoices)
