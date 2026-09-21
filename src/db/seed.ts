@@ -12,6 +12,8 @@ import { areaForType, gridPosition } from "../domain/map-layout";
 import { addUtcDays, utcYyyymmdd } from "../domain/expiry";
 import { checklistForClass, equipmentBarcode } from "../domain/equipment";
 import { destPatchFromAddress, originColumns, resolveOrigin } from "../domain/geo";
+import { demoInventoryItemGid, demoShopifyLocationGid } from "../domain/shopify-sellable";
+import { syncShopifySellable } from "./shopify-sellable";
 
 export const DEMO_EMAIL = "demo@northwind.makers";
 export const DEMO_PASSWORD = "rackline-demo";
@@ -148,6 +150,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       reorderPoint: 24,
       pickMin: 20,
       trackLot: true,
+      shopifyInventoryItemGid: demoInventoryItemGid("LED-BULB"),
     }),
     db.insert(schema.items).values({
       id: item.shade,
@@ -158,6 +161,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       barcode: "SHADE",
       createdAt: now,
       reorderPoint: 10,
+      shopifyInventoryItemGid: demoInventoryItemGid("SHADE"),
     }),
     db.insert(schema.items).values({
       id: item.base,
@@ -168,6 +172,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       barcode: "BASE",
       createdAt: now,
       reorderPoint: 8,
+      shopifyInventoryItemGid: demoInventoryItemGid("BASE"),
     }),
     db.insert(schema.items).values({
       id: item.cord,
@@ -177,7 +182,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       type: "raw",
       barcode: "CORD",
       createdAt: now,
-      reorderPoint: 10,
+      reorderPoint: 40,
+      shopifyInventoryItemGid: demoInventoryItemGid("CORD"),
     }),
     db.insert(schema.items).values({
       id: item.lamp,
@@ -190,6 +196,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       reorderPoint: 4,
       pickMin: 12,
       trackSerial: true,
+      shopifyInventoryItemGid: demoInventoryItemGid("LAMP"),
     }),
     db.insert(schema.items).values({
       id: item.resin,
@@ -203,6 +210,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       catchWeight: true,
       altUom: "case",
       altPerStock: 6,
+      shopifyInventoryItemGid: demoInventoryItemGid("RESIN"),
     }),
     db.insert(schema.items).values({
       id: item.glue,
@@ -216,6 +224,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       pickMin: 4,
       trackLot: true,
       trackExpiry: true,
+      shopifyInventoryItemGid: demoInventoryItemGid("GLUE"),
     }),
   ]);
 
@@ -260,6 +269,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     now,
     loaded: new Map(),
     plan,
+    skipShopifySync: true,
   });
 
   const bomId = newId();
@@ -445,6 +455,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       accessToken: null,
       webhookSecret: "rackline-demo-shopify-secret",
       apiVersion: "2026-07",
+      shopifyLocationGid: demoShopifyLocationGid(),
       mode: "demo",
       createdAt: now,
       updatedAt: now,
@@ -1101,6 +1112,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     ownerUserId: userId,
   });
   await seedAssignedJobs(db, organizationId, userId, orderId, woId);
+  await syncShopifySellable(db, organizationId);
 
   return { organizationId };
 }
@@ -1115,7 +1127,7 @@ async function applyLabor(
 ) {
   const loaded = await loadBalanceMap(db, organizationId, pairs);
   const plan = build(qtyMap(loaded));
-  await persistStockPlan(db, { organizationId, createdBy: userId, now: when, loaded, plan });
+  await persistStockPlan(db, { organizationId, createdBy: userId, now: when, loaded, plan, skipShopifySync: true });
 }
 
 async function seedLaborHistory(

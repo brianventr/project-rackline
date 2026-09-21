@@ -534,4 +534,65 @@ export const REQUIRED_SCOPES = [
   "write_merchant_managed_fulfillment_orders",
   "read_assigned_fulfillment_orders",
   "write_assigned_fulfillment_orders",
+  "read_inventory",
+  "write_inventory",
+  "read_locations",
+  "read_products",
 ];
+
+export const LOCATIONS_QUERY = `#graphql
+query RacklineLocations {
+  locations(first: 20) {
+    nodes {
+      id
+      name
+      fulfillsOnlineOrders
+    }
+  }
+}
+`;
+
+export const VARIANT_INVENTORY_QUERY = `#graphql
+query RacklineVariantInventory($query: String!) {
+  productVariants(first: 1, query: $query) {
+    nodes {
+      id
+      sku
+      inventoryItem {
+        id
+      }
+    }
+  }
+}
+`;
+
+export const INVENTORY_SET_QUANTITIES_MUTATION = `#graphql
+mutation RacklineInventorySetQuantities($input: InventorySetQuantitiesInput!) {
+  inventorySetQuantities(input: $input) {
+    inventoryAdjustmentGroup {
+      createdAt
+      reason
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+`;
+
+export function buildInventorySetQuantitiesInput(input: {
+  locationId: string;
+  quantities: Array<{ inventoryItemId: string; quantity: number }>;
+}) {
+  return {
+    name: "available",
+    reason: "correction",
+    ignoreCompareQuantity: true,
+    quantities: input.quantities.map((row) => ({
+      inventoryItemId: row.inventoryItemId,
+      locationId: input.locationId,
+      quantity: row.quantity,
+    })),
+  };
+}

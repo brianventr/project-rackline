@@ -19,6 +19,8 @@ import {
   type CarrierConnectionLike,
   type CarrierCredentials,
 } from "../domain/carriers";
+import { asCarrierLiveError, pingAggregator } from "../lib/carrier-client";
+import { isLiveAggregator } from "../domain/carrier-live";
 
 export const carriersRoute = new Hono<AppEnv>();
 
@@ -305,7 +307,7 @@ carriersRoute.post("/carriers/:id/test", async (c) => {
     .limit(1);
   if (!existing) notFound("Carrier account not found");
   const now = Date.now();
-  const result = testConnectionResult({
+  let result: { ok: true; message: string } | { ok: false; error: string } = testConnectionResult({
     provider: existing.provider,
     mode: existing.mode,
     credentials: {
@@ -315,6 +317,13 @@ carriersRoute.post("/carriers/:id/test", async (c) => {
       meterNumber: existing.meterNumber,
     },
   });
+  if (result.ok && isLiveAggregator(existing.provider, existing.mode) && existing.apiKey) {
+    try {
+      result = await pingAggregator(existing.provider as "easypost" | "shipengine", existing.apiKey);
+    } catch (err) {
+      result = { ok: false, error: asCarrierLiveError(err).message };
+    }
+  }
   const ok = result.ok;
   await db
     .update(schema.carrierConnections)

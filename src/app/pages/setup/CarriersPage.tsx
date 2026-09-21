@@ -170,7 +170,7 @@ export function CarriersPage() {
       <PageHeader
         eyebrow="Setup"
         title="Carriers"
-        description="Connect your own UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine account. Demo mints tracking; live stores credentials without buying postage yet."
+        description="Connect your own UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine account. Demo mints tracking. Live EasyPost or ShipEngine shops rates and buys postage; direct carrier APIs are not called."
       />
       <ErrorBanner error={error} />
       {notice ? (
@@ -286,7 +286,7 @@ export function CarriersPage() {
               <Field label="Mode">
                 <Select value={mode} onChange={(e) => setMode(e.target.value)}>
                   <option value="demo">Demo — mint tracking locally</option>
-                  <option value="live">Live — store credentials (no postage purchase yet)</option>
+                  <option value="live">Live — EasyPost / ShipEngine buy postage</option>
                 </Select>
               </Field>
               <div>

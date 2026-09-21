@@ -168,6 +168,7 @@ export type CarrierRateQuote = EnabledCarrierService & {
   amountCents: number;
   currency: "USD";
   transitDays: number;
+  liveRateId?: string | null;
 };
 
 export type LabelPurchase =
@@ -449,10 +450,17 @@ export function testConnectionResult(input: {
   const mode = input.mode === "live" ? "live" : "demo";
   const valid = validateConnectionCredentials(input.provider, { ...input.credentials, mode });
   if (!valid.ok) return valid;
+  const provider = resolveProvider(input.provider);
   if (mode === "live") {
+    if (provider?.kind === "aggregator") {
+      return {
+        ok: true,
+        message: "Credentials look complete. Test pings EasyPost or ShipEngine; Buy label purchases postage.",
+      };
+    }
     return {
       ok: true,
-      message: "Credentials stored. Live carrier APIs are not called yet — postage is not purchased.",
+      message: "Credentials stored. Direct carrier APIs are not called — connect EasyPost or ShipEngine for live postage.",
     };
   }
   return { ok: true, message: "Demo connection is ready. Labels mint tracking without calling the carrier." };

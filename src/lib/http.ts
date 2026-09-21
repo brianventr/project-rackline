@@ -2,6 +2,7 @@ export class HttpError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code?: string,
   ) {
     super(message);
     this.name = "HttpError";
@@ -24,8 +25,8 @@ export function forbidden(message = "Forbidden"): never {
   throw new HttpError(403, message);
 }
 
-export function conflict(message: string): never {
-  throw new HttpError(409, message);
+export function conflict(message: string, code?: string): never {
+  throw new HttpError(409, message, code);
 }
 
 export function requireString(value: unknown, field: string): string {

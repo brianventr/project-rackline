@@ -145,6 +145,7 @@ export const items = sqliteTable(
     stockUom: text("stock_uom").notNull().default("ea"),
     altUom: text("alt_uom"),
     altPerStock: integer("alt_per_stock"),
+    shopifyInventoryItemGid: text("shopify_inventory_item_gid"),
   },
   (t) => [
     uniqueIndex("items_org_sku").on(t.organizationId, t.sku),
@@ -282,6 +283,13 @@ export const orders = sqliteTable(
     shipToCountry: text("ship_to_country"),
     shipToLat: real("ship_to_lat"),
     shipToLng: real("ship_to_lng"),
+    packageWeightOz: integer("package_weight_oz"),
+    packageLengthIn: integer("package_length_in"),
+    packageWidthIn: integer("package_width_in"),
+    packageHeightIn: integer("package_height_in"),
+    carrierShipmentId: text("carrier_shipment_id"),
+    carrierLabelId: text("carrier_label_id"),
+    postageCents: integer("postage_cents"),
   },
   (t) => [
     uniqueIndex("shopify_orders_org_order").on(t.organizationId, t.shopifyOrderId),

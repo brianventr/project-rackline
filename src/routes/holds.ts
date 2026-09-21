@@ -10,6 +10,7 @@ import { normalizeLotCode } from "../domain/lots";
 import { canReleaseHold } from "../domain/status";
 import { loadOpenHolds } from "../db/holds";
 import { guardFloorJob, syncDocumentJob } from "../db/jobs";
+import { scheduleShopifySellableSync } from "../db/shopify-sellable";
 
 export const holdsRoute = new Hono<AppEnv>();
 
@@ -137,6 +138,11 @@ holdsRoute.post("/holds", async (c) => {
     itemId: created.itemId,
     createdAt: created.createdAt,
   });
+  if (created.itemId) {
+    await scheduleShopifySellableSync(db, organizationId, [created.itemId]);
+  } else {
+    await scheduleShopifySellableSync(db, organizationId);
+  }
   return c.json(created, 201);
 });
 
@@ -176,5 +182,10 @@ holdsRoute.post("/holds/:id/release", async (c) => {
     itemId: released.itemId,
     createdAt: released.createdAt,
   });
+  if (released.itemId) {
+    await scheduleShopifySellableSync(db, organizationId, [released.itemId]);
+  } else {
+    await scheduleShopifySellableSync(db, organizationId);
+  }
   return c.json(released);
 });

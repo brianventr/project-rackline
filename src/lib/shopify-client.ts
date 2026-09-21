@@ -3,7 +3,11 @@ import {
   ORDER_FULFILLMENT_ORDERS_QUERY,
   ASSIGNED_FULFILLMENT_ORDERS_QUERY,
   ACCEPT_FULFILLMENT_REQUEST_MUTATION,
+  INVENTORY_SET_QUANTITIES_MUTATION,
+  LOCATIONS_QUERY,
+  VARIANT_INVENTORY_QUERY,
   SHOPIFY_API_VERSION,
+  buildInventorySetQuantitiesInput,
   type ShopifyFulfillmentOrderNode,
 } from "../domain/shopify";
 
@@ -118,4 +122,42 @@ export async function createShopifyFulfillment(
     throw new ShopifyApiError("Shopify did not return a fulfillment", undefined, data);
   }
   return created;
+}
+
+export type ShopifyLocationNode = { id: string; name: string; fulfillsOnlineOrders?: boolean | null };
+
+export async function fetchShopifyLocations(client: ShopifyGraphqlClient): Promise<ShopifyLocationNode[]> {
+  const data = await client.graphql<{ locations?: { nodes?: ShopifyLocationNode[] } }>(LOCATIONS_QUERY);
+  return data.locations?.nodes ?? [];
+}
+
+export async function lookupInventoryItemBySku(
+  client: ShopifyGraphqlClient,
+  sku: string,
+): Promise<string | null> {
+  const data = await client.graphql<{
+    productVariants?: { nodes?: Array<{ sku?: string | null; inventoryItem?: { id?: string | null } | null }> };
+  }>(VARIANT_INVENTORY_QUERY, { query: `sku:${sku}` });
+  return data.productVariants?.nodes?.[0]?.inventoryItem?.id ?? null;
+}
+
+export async function setShopifyAvailableQuantities(
+  client: ShopifyGraphqlClient,
+  input: { locationId: string; quantities: Array<{ inventoryItemId: string; quantity: number }> },
+): Promise<{ createdAt?: string | null; userErrors: Array<{ field?: string[] | null; message?: string | null }> }> {
+  const payload = buildInventorySetQuantitiesInput(input);
+  const data = await client.graphql<{
+    inventorySetQuantities?: {
+      inventoryAdjustmentGroup?: { createdAt?: string | null; reason?: string | null } | null;
+      userErrors?: Array<{ field?: string[] | null; message?: string | null }>;
+    };
+  }>(INVENTORY_SET_QUANTITIES_MUTATION, { input: payload });
+  const errors = data.inventorySetQuantities?.userErrors ?? [];
+  if (errors[0]?.message) {
+    throw new ShopifyApiError(errors[0].message, undefined, data);
+  }
+  return {
+    createdAt: data.inventorySetQuantities?.inventoryAdjustmentGroup?.createdAt ?? null,
+    userErrors: errors,
+  };
 }

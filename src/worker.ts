@@ -18,6 +18,7 @@ import { InsufficientAtpError } from "./domain/allocations";
 import { ClientStockError } from "./domain/client-stock";
 import { JobClaimedError, JobNotReadyError, JobVerbDeniedError } from "./domain/jobs";
 import { EquipmentCustodyError } from "./domain/equipment";
+import { CarrierLiveError } from "./domain/carrier-live";
 import { originFrom, type AppEnv } from "./lib/types";
 import { registerRoute } from "./routes/register";
 import { demoRoute } from "./routes/demo";
@@ -235,6 +236,9 @@ app.onError((err, c) => {
       409,
     );
   }
+  if (err instanceof CarrierLiveError) {
+    return c.json({ error: err.message, code: err.code }, 409);
+  }
   if (err instanceof JobNotReadyError) {
     return c.json({ error: err.message, code: "JOB_NOT_READY", notBefore: err.notBefore }, 409);
   }
@@ -245,7 +249,10 @@ app.onError((err, c) => {
     return c.json({ error: err.message }, err.status as 400 | 409);
   }
   if (err instanceof HttpError) {
-    return c.json({ error: err.message }, err.status as 400 | 401 | 403 | 404 | 409);
+    return c.json(
+      err.code ? { error: err.message, code: err.code } : { error: err.message },
+      err.status as 400 | 401 | 403 | 404 | 409,
+    );
   }
   console.error(err);
   return c.json({ error: err instanceof Error ? err.message : "Internal error" }, 500);

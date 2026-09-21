@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { api, type Dashboard, type FloorJob, type TeamMember } from "../api";
-import { ErrorBanner, PageHeader, Select, StatusBadge } from "../components/ui";
+import { Link, useNavigate } from "react-router-dom";
+import { api, type Dashboard, type FloorJob, type Purchase, type TeamMember } from "../api";
+import { Button, ErrorBanner, PageHeader, Select, StatusBadge } from "../components/ui";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
@@ -14,10 +14,12 @@ import { jobForRef, jobForSuggestion } from "../jobs";
 export function TodayPage() {
   const { warehouseId } = useWarehouse();
   const me = useSession();
+  const navigate = useNavigate();
   const [data, setData] = useState<Dashboard | null>(null);
   const [jobs, setJobs] = useState<FloorJob[]>([]);
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
 
   async function load() {
     const query = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : "";
@@ -52,6 +54,26 @@ export function TodayPage() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not pin");
+    }
+  }
+
+  async function draftReorderPo() {
+    if (!warehouseId) {
+      setError("Select a warehouse before drafting a PO");
+      return;
+    }
+    setError(null);
+    setDrafting(true);
+    try {
+      const created = await api<Purchase>("/api/purchases/from-reorder", {
+        method: "POST",
+        body: JSON.stringify({ warehouseId }),
+      });
+      navigate(`/inbound/purchases/${created.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not draft PO");
+    } finally {
+      setDrafting(false);
     }
   }
 
@@ -423,9 +445,14 @@ export function TodayPage() {
           </ul>
         </Card>
         <Card>
-          <CardHeader>
-            <CardTitle>Below reorder point</CardTitle>
-            <CardDescription>SKUs at or under their threshold.</CardDescription>
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+            <div>
+              <CardTitle>Below reorder point</CardTitle>
+              <CardDescription>SKUs at or under their threshold. Draft a PO for the gap using the last vendor.</CardDescription>
+            </div>
+            <Button variant="secondary" disabled={drafting || !data?.lowStock.length} onClick={() => void draftReorderPo()}>
+              {drafting ? "Drafting…" : "Draft PO"}
+            </Button>
           </CardHeader>
           <ul className="space-y-2 px-6 pb-6 text-sm">
             {data?.lowStock.length ? (
@@ -433,9 +460,16 @@ export function TodayPage() {
                 <li key={row.itemId} className="flex justify-between gap-4 border-b py-2 last:border-0">
                   <Link className="hover:underline" to={`/stock/items/${row.itemId}`}>
                     <span className="font-mono">{row.sku}</span> {row.name}
+                    {row.lastVendorName ? (
+                      <span className="ml-2 text-xs text-muted-foreground">{row.lastVendorName}</span>
+                    ) : null}
+                    {row.coveredByOpenPo ? (
+                      <span className="ml-2 text-xs text-muted-foreground">open PO</span>
+                    ) : null}
                   </Link>
                   <span className="font-mono tabular-nums">
                     {row.onHand}/{row.reorderPoint}
+                    {row.suggestedQty ? ` · +${row.suggestedQty}` : ""}
                   </span>
                 </li>
               ))
