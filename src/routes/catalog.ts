@@ -3,7 +3,7 @@ import { and, desc, eq, gt, inArray, lte, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
-import { requireOwner, isItemType, isLocationType, isSlotRole, getOrgLocation } from "../lib/org";
+import { requireOwner, isItemType, isLocationType, isSlotRole, getOrgLocation, getOrgItem } from "../lib/org";
 import { badRequest, requireInt, requireString, optionalInt, optionalString, optionalFloat } from "../lib/http";
 import { newId } from "../lib/ids";
 import { suggestPlacement } from "../domain/map-layout";
@@ -22,6 +22,8 @@ import { loadDocumentNumber } from "../db/equipment";
 import { originColumns, resolveOrigin } from "../domain/geo";
 import { loadReorderQueue } from "../db/reorder";
 import { loadRunwayThisWeek } from "../db/runway";
+import { mediaItemKey, normalizeImageUrl } from "../domain/media";
+import { deleteManagedMedia, putMediaFile, readUploadedFile } from "../lib/media-store";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -427,6 +429,7 @@ catalogRoute.get("/locations/:id", async (c) => {
       sku: schema.items.sku,
       itemName: schema.items.name,
       itemType: schema.items.type,
+      imageUrl: schema.items.imageUrl,
       qty: schema.inventoryBalances.qty,
     })
     .from(schema.inventoryBalances)
@@ -453,6 +456,7 @@ catalogRoute.post("/items", async (c) => {
     trackSerial?: boolean;
     catchWeight?: boolean;
     trackExpiry?: boolean;
+    imageUrl?: string | null;
   }>();
   const sku = requireString(body.sku, "sku").toUpperCase();
   const name = requireString(body.name, "name");
@@ -464,6 +468,8 @@ catalogRoute.post("/items", async (c) => {
   const pickMin = body.pickMin === undefined ? 0 : requireInt(body.pickMin, "pickMin");
   if (pickMin < 0) badRequest("Pick min cannot be negative");
   const baselineShipRate = parseBaselineShipRate(body.baselineShipRate);
+  let imageUrl: string | null = null;
+  if ("imageUrl" in body) imageUrl = normalizeImageUrl(body.imageUrl);
   try {
     const [row] = await c
       .get("db")
@@ -483,6 +489,7 @@ catalogRoute.post("/items", async (c) => {
         trackSerial: Boolean(body.trackSerial),
         catchWeight: Boolean(body.catchWeight),
         trackExpiry: Boolean(body.trackExpiry),
+        imageUrl,
       })
       .returning();
     return c.json(row, 201);
@@ -505,9 +512,11 @@ catalogRoute.patch("/items/:id", async (c) => {
     altUom?: string | null;
     altPerStock?: number | null;
     baselineShipRate?: number | null;
+    imageUrl?: string | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  const existing = await getOrgItem(db, organizationId, c.req.param("id"));
   const patch: {
     reorderPoint?: number;
     name?: string;
@@ -521,6 +530,7 @@ catalogRoute.patch("/items/:id", async (c) => {
     altUom?: string | null;
     altPerStock?: number | null;
     baselineShipRate?: number | null;
+    imageUrl?: string | null;
   } = {};
   if (body.reorderPoint !== undefined) {
     const reorderPoint = requireInt(body.reorderPoint, "reorderPoint");
@@ -555,7 +565,11 @@ catalogRoute.patch("/items/:id", async (c) => {
       patch.altPerStock = altPerStock;
     }
   }
+  if ("imageUrl" in body) patch.imageUrl = normalizeImageUrl(body.imageUrl);
   if (Object.keys(patch).length === 0) badRequest("Nothing to update");
+  if (patch.imageUrl !== undefined && existing.imageUrl && existing.imageUrl !== patch.imageUrl) {
+    await deleteManagedMedia(c.env.MEDIA, existing.imageUrl);
+  }
   try {
     const [row] = await db
       .update(schema.items)
@@ -569,10 +583,43 @@ catalogRoute.patch("/items/:id", async (c) => {
   }
 });
 
+catalogRoute.post("/items/:id/image", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const item = await getOrgItem(db, organizationId, c.req.param("id"));
+  const file = await readUploadedFile(c.req.raw);
+  const key = mediaItemKey(organizationId, item.id);
+  const imageUrl = await putMediaFile(c.env.MEDIA, key, file);
+  if (item.imageUrl && item.imageUrl !== imageUrl) {
+    await deleteManagedMedia(c.env.MEDIA, item.imageUrl);
+  }
+  const [row] = await db
+    .update(schema.items)
+    .set({ imageUrl })
+    .where(and(eq(schema.items.id, item.id), eq(schema.items.organizationId, organizationId)))
+    .returning();
+  return c.json(row);
+});
+
+catalogRoute.delete("/items/:id/image", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const item = await getOrgItem(db, organizationId, c.req.param("id"));
+  await deleteManagedMedia(c.env.MEDIA, item.imageUrl);
+  const [row] = await db
+    .update(schema.items)
+    .set({ imageUrl: null })
+    .where(and(eq(schema.items.id, item.id), eq(schema.items.organizationId, organizationId)))
+    .returning();
+  return c.json(row);
+});
+
 catalogRoute.delete("/items/:id", async (c) => {
   requireOwner(c.get("role"));
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  const item = await getOrgItem(db, organizationId, c.req.param("id")).catch(() => null);
+  if (item) await deleteManagedMedia(c.env.MEDIA, item.imageUrl);
   await db
     .delete(schema.items)
     .where(and(eq(schema.items.id, c.req.param("id")), eq(schema.items.organizationId, organizationId)));
@@ -591,6 +638,7 @@ catalogRoute.get("/inventory", async (c) => {
         itemId: schema.items.id,
         sku: schema.items.sku,
         itemName: schema.items.name,
+        imageUrl: schema.items.imageUrl,
         locationId: schema.locations.id,
         locationCode: schema.locations.code,
         locationName: schema.locations.name,
@@ -614,6 +662,7 @@ catalogRoute.get("/inventory", async (c) => {
       sku: schema.items.sku,
       itemName: schema.items.name,
       itemType: schema.items.type,
+      imageUrl: schema.items.imageUrl,
       locationId: schema.locations.id,
       locationCode: schema.locations.code,
       locationName: schema.locations.name,

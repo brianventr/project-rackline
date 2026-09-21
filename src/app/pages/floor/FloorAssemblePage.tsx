@@ -5,6 +5,7 @@ import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { canCompleteWorkOrder } from "@/domain/status";
 import { AsBuiltList } from "../../components/as-built";
+import { KitRecipeCard } from "../../components/kit-recipe";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 
@@ -100,6 +101,14 @@ export function FloorAssemblePage() {
           <p>
             Build {active.sku} · completed {active.qtyCompleted ?? 0}/{active.qty}
           </p>
+          <KitRecipeCard
+            sku={active.sku}
+            itemName={active.itemName}
+            imageUrl={active.imageUrl}
+            components={active.components}
+            steps={active.steps}
+            checkable
+          />
           {canCompleteWorkOrder(active.status) && remaining > 0 ? (
             <>
               <Field label={`This complete (remaining ${remaining})`}>

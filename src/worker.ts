@@ -33,6 +33,8 @@ import { adjustmentsRoute } from "./routes/adjustments";
 import { manufacturingRoute } from "./routes/manufacturing";
 import { shopifyPublicRoute, shopifyRoute } from "./routes/shopify";
 import { ShopifyIngestError } from "./domain/shopify-ingest";
+import { ImageUrlError } from "./domain/media";
+import { BomStepError } from "./domain/bom-steps";
 import { carriersRoute, carriersPublicRoute } from "./routes/carriers";
 import { floorRoute } from "./routes/floor";
 import { searchRoute } from "./routes/search";
@@ -54,6 +56,8 @@ import { billingRoute } from "./routes/billing";
 import { ediRoute } from "./routes/edi";
 import { equipmentRoute } from "./routes/equipment";
 import { analyticsRoute } from "./routes/analytics";
+import { mediaRoute } from "./routes/media";
+
 const app = new Hono<AppEnv>();
 
 app.onError((err, c) => {
@@ -273,6 +277,9 @@ app.onError((err, c) => {
   if (err instanceof ShopifyIngestError) {
     return c.json({ error: err.message }, err.status as 400 | 409);
   }
+  if (err instanceof ImageUrlError || err instanceof BomStepError) {
+    return c.json({ error: err.message }, 400);
+  }
   if (err instanceof HttpError) {
     return c.json(
       err.code ? { error: err.message, code: err.code } : { error: err.message },
@@ -332,6 +339,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.route("/api", meRoute);
+app.route("/api", mediaRoute);
 app.route("/api", catalogRoute);
 app.route("/api", receiptsRoute);
 app.route("/api", purchasesRoute);

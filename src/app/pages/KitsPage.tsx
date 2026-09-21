@@ -4,6 +4,7 @@ import { api, type Item, type KitBuild, type Location } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
 import { DocumentHeader, DocumentActivity } from "../components/document";
 import { AsBuiltList } from "../components/as-built";
+import { KitRecipeCard } from "../components/kit-recipe";
 import { KIT_STEPS, canCompleteKit, canDekit } from "@/domain/status";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
@@ -206,16 +207,13 @@ function KitDetail({ id }: { id: string }) {
           <Input value={serials} onChange={(e) => setSerials(e.target.value)} placeholder="LAMP-2001" />
         </Field>
       ) : null}
-      <Table columns={["Component", "Qty each"]}>
-        {(kit.components ?? []).map((line) => (
-          <tr key={line.itemId}>
-            <td className="px-2.5 py-1.5">
-              <span className="font-mono">{line.sku}</span> {line.itemName}
-            </td>
-            <td className="px-2.5 py-1.5 font-mono">{line.qty}</td>
-          </tr>
-        ))}
-      </Table>
+      <KitRecipeCard
+        sku={kit.sku}
+        itemName={kit.itemName}
+        imageUrl={kit.imageUrl}
+        components={kit.components}
+        steps={kit.steps}
+      />
       {(kit.asBuilt ?? []).length ? (
         <AsBuiltList title="As-built" empty="No component lots were recorded." rows={kit.asBuilt ?? []} mode="from" />
       ) : null}

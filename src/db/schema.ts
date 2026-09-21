@@ -147,6 +147,7 @@ export const items = sqliteTable(
     altUom: text("alt_uom"),
     altPerStock: integer("alt_per_stock"),
     shopifyInventoryItemGid: text("shopify_inventory_item_gid"),
+    imageUrl: text("image_url"),
   },
   (t) => [
     uniqueIndex("items_org_sku").on(t.organizationId, t.sku),
@@ -502,6 +503,22 @@ export const bomLines = sqliteTable(
     qty: integer("qty").notNull(),
   },
   (t) => [uniqueIndex("bom_lines_bom_item").on(t.bomId, t.itemId)],
+);
+
+export const bomSteps = sqliteTable(
+  "bom_steps",
+  {
+    id: text("id").primaryKey(),
+    bomId: text("bom_id")
+      .notNull()
+      .references(() => boms.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    title: text("title").notNull().default(""),
+    body: text("body").notNull().default(""),
+    imageUrl: text("image_url"),
+    componentItemId: text("component_item_id").references(() => items.id, { onDelete: "set null" }),
+  },
+  (t) => [uniqueIndex("bom_steps_bom_seq").on(t.bomId, t.seq)],
 );
 
 export const workOrders = sqliteTable("work_orders", {

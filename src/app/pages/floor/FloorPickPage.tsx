@@ -4,6 +4,7 @@ import { api, type Location, type Order, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
+import { SkuThumb } from "../../components/sku-thumb";
 import { PickMap } from "../../components/PickMap";
 import { canPickOrder, canStartPick, canCancelOrder, canUnpickOrder } from "@/domain/status";
 import { hasUnpicked } from "@/domain/partial-pick";
@@ -220,7 +221,9 @@ export function FloorPickPage() {
             {(active.lines ?? []).map((line) => (
               <li key={line.id} className="space-y-2">
                 <div className="flex justify-between gap-3">
-                  <span>
+                  <span className="flex items-center gap-2">
+                    <SkuThumb sku={line.sku} name={line.itemName} imageUrl={line.imageUrl} size="sm" />
+                    <span>
                     {line.sku} × {line.qty}
                     {line.qtyPicked ? <span className="text-muted-foreground"> · picked {line.qtyPicked}</span> : null}
                     {(line.allocations ?? []).length ? (
@@ -228,6 +231,7 @@ export function FloorPickPage() {
                         Allocated {(line.allocations ?? []).map((row) => `${row.locationCode} ×${row.qty}`).join(", ")}
                       </span>
                     ) : null}
+                    </span>
                   </span>
                   <button
                     type="button"

@@ -4,6 +4,7 @@ import { api, type Location, type Purchase, type Receipt, type ScanHit } from ".
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
+import { SkuThumb } from "../../components/sku-thumb";
 import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
 import { canReceive, canReceivePurchase } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
@@ -245,8 +246,11 @@ export function FloorReceivePage() {
             {(activePurchase.lines ?? []).map((line) => (
               <li key={line.id} className="space-y-2">
                 <div className="grid grid-cols-[1fr_6rem] items-center gap-2">
-                <span>
+                <span className="flex items-center gap-2">
+                  <SkuThumb sku={line.sku} name={line.itemName} imageUrl={line.imageUrl} size="sm" />
+                  <span>
                   {line.sku} · {line.qtyReceived}/{line.qtyOrdered}
+                  </span>
                 </span>
                 {line.remaining > 0 ? (
                   <Input
@@ -333,8 +337,11 @@ export function FloorReceivePage() {
             {(activeReceipt!.lines ?? []).map((line) => (
               <li key={line.id} className="space-y-2">
                 <div className="grid grid-cols-[1fr_6rem] items-center gap-2">
-                <span>
+                <span className="flex items-center gap-2">
+                  <SkuThumb sku={line.sku} name={line.itemName} imageUrl={line.imageUrl} size="sm" />
+                  <span>
                   {line.sku} · {line.qtyReceived}/{line.qty}
+                  </span>
                 </span>
                 {line.remaining > 0 ? (
                   <Input

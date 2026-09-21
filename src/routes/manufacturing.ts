@@ -11,6 +11,10 @@ import { canCompleteWorkOrder } from "../domain/status";
 import { loadAsBuiltForRef } from "../db/as-built";
 import { applyPartialComplete, isFullyCompleted, remainingToComplete, OverCompleteError } from "../domain/partial-complete";
 import { guardFloorJob, syncDocumentJob } from "../db/jobs";
+import { loadBomRecipe, loadBomSteps } from "../db/bom-recipe";
+import { normalizeBomSteps } from "../domain/bom-steps";
+import { mediaStepKey } from "../domain/media";
+import { deleteManagedMedia, putMediaFile, readUploadedFile } from "../lib/media-store";
 
 export const manufacturingRoute = new Hono<AppEnv>();
 
@@ -22,6 +26,7 @@ async function bomWithLines(db: AppEnv["Variables"]["db"], organizationId: strin
       createdAt: schema.boms.createdAt,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      imageUrl: schema.items.imageUrl,
     })
     .from(schema.boms)
     .innerJoin(schema.items, eq(schema.items.id, schema.boms.itemId))
@@ -35,11 +40,13 @@ async function bomWithLines(db: AppEnv["Variables"]["db"], organizationId: strin
       qty: schema.bomLines.qty,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      imageUrl: schema.items.imageUrl,
     })
     .from(schema.bomLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.bomLines.itemId))
     .where(eq(schema.bomLines.bomId, id));
-  return { ...bom, lines };
+  const steps = await loadBomSteps(db, id);
+  return { ...bom, lines, steps };
 }
 
 manufacturingRoute.get("/boms", async (c) => {
@@ -51,6 +58,7 @@ manufacturingRoute.get("/boms", async (c) => {
       itemId: schema.boms.itemId,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      imageUrl: schema.items.imageUrl,
       createdAt: schema.boms.createdAt,
     })
     .from(schema.boms)
@@ -108,11 +116,59 @@ manufacturingRoute.post("/boms", async (c) => {
   return c.json(await bomWithLines(db, organizationId, id), 201);
 });
 
+manufacturingRoute.put("/boms/:id/steps", async (c) => {
+  const body = await c.req.json<{ steps?: unknown }>();
+  if (!Array.isArray(body.steps)) badRequest("steps is required");
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const bom = await bomWithLines(db, organizationId, c.req.param("id"));
+  const normalized = normalizeBomSteps(
+    body.steps,
+    bom.lines.map((line) => line.itemId),
+  );
+  const existingIds = new Set(bom.steps.map((step) => step.id));
+  const next = normalized.map((step) => ({
+    id: step.id && existingIds.has(step.id) ? step.id : newId(),
+    bomId: bom.id,
+    seq: step.seq,
+    title: step.title,
+    body: step.body,
+    imageUrl: step.imageUrl,
+    componentItemId: step.componentItemId,
+  }));
+  const keepIds = new Set(next.map((step) => step.id));
+  for (const step of bom.steps) {
+    if (!keepIds.has(step.id)) await deleteManagedMedia(c.env.MEDIA, step.imageUrl);
+  }
+  await db.delete(schema.bomSteps).where(eq(schema.bomSteps.bomId, bom.id));
+  if (next.length) {
+    await db.insert(schema.bomSteps).values(next);
+  }
+  return c.json(await bomWithLines(db, organizationId, bom.id));
+});
+
+manufacturingRoute.post("/boms/:id/steps/:stepId/image", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const bom = await bomWithLines(db, organizationId, c.req.param("id"));
+  const step = bom.steps.find((row) => row.id === c.req.param("stepId"));
+  if (!step) notFound("Step not found");
+  const file = await readUploadedFile(c.req.raw);
+  const key = mediaStepKey(organizationId, bom.id, step.id);
+  const imageUrl = await putMediaFile(c.env.MEDIA, key, file);
+  if (step.imageUrl && step.imageUrl !== imageUrl) {
+    await deleteManagedMedia(c.env.MEDIA, step.imageUrl);
+  }
+  await db.update(schema.bomSteps).set({ imageUrl }).where(eq(schema.bomSteps.id, step.id));
+  return c.json(await bomWithLines(db, organizationId, bom.id));
+});
+
 manufacturingRoute.delete("/boms/:id", async (c) => {
   requireOwner(c.get("role"));
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  await bomWithLines(db, organizationId, c.req.param("id"));
+  const bom = await bomWithLines(db, organizationId, c.req.param("id"));
+  for (const step of bom.steps) await deleteManagedMedia(c.env.MEDIA, step.imageUrl);
   await db
     .delete(schema.boms)
     .where(and(eq(schema.boms.id, c.req.param("id")), eq(schema.boms.organizationId, organizationId)));
@@ -135,6 +191,7 @@ async function workOrderWithItem(db: AppEnv["Variables"]["db"], organizationId: 
       completedAt: schema.workOrders.completedAt,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      imageUrl: schema.items.imageUrl,
     })
     .from(schema.workOrders)
     .innerJoin(schema.items, eq(schema.items.id, schema.workOrders.itemId))
@@ -142,7 +199,14 @@ async function workOrderWithItem(db: AppEnv["Variables"]["db"], organizationId: 
     .limit(1);
   if (!row) notFound("Work order not found");
   const asBuilt = await loadAsBuiltForRef(db, organizationId, row.id);
-  return { ...row, remaining: remainingToComplete(row.qty, row.qtyCompleted), asBuilt };
+  const recipe = await loadBomRecipe(db, organizationId, row.itemId);
+  return {
+    ...row,
+    remaining: remainingToComplete(row.qty, row.qtyCompleted),
+    asBuilt,
+    components: recipe.lines,
+    steps: recipe.steps,
+  };
 }
 
 manufacturingRoute.get("/work-orders", async (c) => {
@@ -163,6 +227,7 @@ manufacturingRoute.get("/work-orders", async (c) => {
       completedAt: schema.workOrders.completedAt,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      imageUrl: schema.items.imageUrl,
     })
     .from(schema.workOrders)
     .innerJoin(schema.items, eq(schema.items.id, schema.workOrders.itemId))

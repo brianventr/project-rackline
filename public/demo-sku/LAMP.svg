@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Desk lamp">
+  <rect width="64" height="64" rx="12" fill="#f4efe6"/>
+  <ellipse cx="32" cy="54" rx="16" ry="5" fill="#3f3a36"/>
+  <rect x="29" y="36" width="6" height="18" rx="2" fill="#5c534c"/>
+  <path d="M32 38c-10 0-16-8-16-16 0-2 8-4 16-4s16 2 16 4c0 8-6 16-16 16z" fill="#d4a017"/>
+  <circle cx="32" cy="24" r="4" fill="#fff4c2"/>
+</svg>

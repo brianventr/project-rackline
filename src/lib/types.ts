@@ -10,6 +10,7 @@ export type Bindings = {
   MAIL_FROM?: string;
   SHOPIFY_API_KEY?: string;
   SHOPIFY_API_SECRET?: string;
+  MEDIA?: R2Bucket;
 };
 
 export type Variables = {

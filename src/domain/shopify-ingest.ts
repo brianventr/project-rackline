@@ -16,6 +16,7 @@ import { createShopifyGraphqlClient, fetchOrderFulfillmentOrders } from "../lib/
 import { cancelOrderDocument } from "../db/unpick";
 import { orderJobInput, syncDocumentJob } from "../db/jobs";
 import { scheduleShopifySellableSync } from "../db/shopify-sellable";
+import { copyIfEmptyImageUrl } from "../domain/media";
 
 export class ShopifyIngestError extends Error {
   constructor(
@@ -41,13 +42,27 @@ async function firstWarehouse(db: AppDb, organizationId: string) {
   return warehouse;
 }
 
-async function resolveItem(db: AppDb, organizationId: string, sku: string, title: string, now: number) {
+async function resolveItem(
+  db: AppDb,
+  organizationId: string,
+  sku: string,
+  title: string,
+  now: number,
+  imageUrl: string | null,
+) {
   const [existing] = await db
     .select()
     .from(schema.items)
     .where(and(eq(schema.items.organizationId, organizationId), sql`lower(${schema.items.sku}) = ${sku.toLowerCase()}`))
     .limit(1);
-  if (existing) return existing;
+  const nextImage = copyIfEmptyImageUrl(existing?.imageUrl, imageUrl);
+  if (existing) {
+    if (nextImage && nextImage !== existing.imageUrl) {
+      await db.update(schema.items).set({ imageUrl: nextImage }).where(eq(schema.items.id, existing.id));
+      return { ...existing, imageUrl: nextImage };
+    }
+    return existing;
+  }
   const item = {
     id: newId(),
     organizationId,
@@ -56,6 +71,7 @@ async function resolveItem(db: AppDb, organizationId: string, sku: string, title
     type: "finished" as const,
     barcode: sku,
     createdAt: now,
+    imageUrl: nextImage,
   };
   await db.insert(schema.items).values(item);
   return item;
@@ -89,7 +105,7 @@ export async function persistInboundOrder(
     (connection.mode === "demo" ? demoFulfillmentOrderId(inbound.shopifyOrderId) : null);
   const lines = [];
   for (const line of inbound.lines) {
-    const item = await resolveItem(db, connection.organizationId, line.sku, line.title, now);
+    const item = await resolveItem(db, connection.organizationId, line.sku, line.title, now, line.imageUrl);
     lines.push({
       id: newId(),
       orderId,
