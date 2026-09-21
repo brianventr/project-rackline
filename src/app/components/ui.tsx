@@ -192,7 +192,7 @@ export function StatStrip({
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-wrap items-stretch border-b bg-card", className)}>
+    <div className={cn("flex flex-nowrap items-stretch overflow-x-auto border-b bg-card", className)}>
       {items.map((item) => {
         const quiet = item.value === 0 || item.value === "—" || item.value === "0";
         const toneClass =
@@ -204,8 +204,10 @@ export function StatStrip({
                 ? "text-ok"
                 : "text-amber-600 dark:text-chart-4";
         const content = (
-          <div className="min-w-[4.25rem] px-2.5 py-1.5">
-            <p className="text-[10px] leading-none uppercase tracking-wide text-muted-foreground">{item.label}</p>
+          <div className="min-w-[4.75rem] shrink-0 px-2.5 py-1.5">
+            <p className="whitespace-nowrap text-[10px] leading-none uppercase tracking-wide text-muted-foreground">
+              {item.label}
+            </p>
             <p className={cn("mt-0.5 text-sm font-semibold tabular-nums leading-tight", toneClass)}>{item.value}</p>
           </div>
         );
