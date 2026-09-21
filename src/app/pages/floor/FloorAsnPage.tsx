@@ -31,6 +31,7 @@ export function FloorAsnPage() {
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [activePkgId, setActivePkgId] = useState<string | null>(null);
+  const [putawayCarton, setPutawayCarton] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,6 +39,24 @@ export function FloorAsnPage() {
     setActive(asn);
     setActivePkgId(pkgId ?? null);
     setQtys(Object.fromEntries((asn.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+    const pkg = (asn.packages ?? []).find((row) => row.id === pkgId);
+    const nextLots: Record<string, string> = {};
+    const nextSerials: Record<string, string> = {};
+    const nextWeights: Record<string, string> = {};
+    const nextExpiries: Record<string, string> = {};
+    for (const line of pkg?.lines ?? []) {
+      if (line.lotCode) nextLots[line.itemId] = line.lotCode;
+      if (line.serials?.length) nextSerials[line.itemId] = line.serials.join(", ");
+      if (line.weightGrams != null) nextWeights[line.itemId] = String(line.weightGrams);
+      if (line.expiresOn != null) {
+        const raw = String(line.expiresOn);
+        nextExpiries[line.itemId] = raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}` : raw;
+      }
+    }
+    setLots(nextLots);
+    setSerials(nextSerials);
+    setWeights(nextWeights);
+    setExpiries(nextExpiries);
   }
 
   async function load() {
@@ -92,7 +111,7 @@ export function FloorAsnPage() {
           );
         });
       if (onActive && active) {
-        setActivePkgId(onActive.id);
+        applyAsn(active, onActive.id);
         return;
       }
       void api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
@@ -132,6 +151,7 @@ export function FloorAsnPage() {
       });
       applyAsn(posted);
       setDone(`${posted.number} posted to the dock.`);
+      setPutawayCarton(null);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Receive failed");
@@ -142,11 +162,13 @@ export function FloorAsnPage() {
     if (!active || !activePkgId) return;
     setError(null);
     try {
+      const carton = (active.packages ?? []).find((pkg) => pkg.id === activePkgId);
       const posted = await api<Asn>(`/api/asns/${active.id}/packages/${activePkgId}/receive`, {
         method: "POST",
         body: JSON.stringify({ locationId, lots, serials }),
       });
       applyAsn(posted, (posted.packages ?? []).find((pkg) => !pkg.receivedAt)?.id ?? null);
+      setPutawayCarton(carton?.sscc || carton?.number || null);
       setDone(`${posted.number} carton posted to the dock.`);
       await load();
     } catch (err) {
@@ -162,7 +184,11 @@ export function FloorAsnPage() {
           {done}{" "}
           <Link
             className="font-medium underline"
-            to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
+            to={
+              putawayCarton
+                ? `/floor/putaway?carton=${encodeURIComponent(putawayCarton)}`
+                : `/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`
+            }
           >
             Put away
           </Link>
@@ -243,14 +269,18 @@ export function FloorAsnPage() {
                 <li key={pkg.id}>
                   <button
                     className={`w-full rounded-md border px-3 py-2 text-left ${activePkgId === pkg.id ? "border-primary" : ""}`}
-                    onClick={() => setActivePkgId(pkg.id)}
+                    onClick={() => {
+                      setActivePkgId(pkg.id);
+                      applyAsn(active, pkg.id);
+                    }}
                   >
                     <span className="font-mono">{pkg.number}</span>
                     {pkg.sscc ? <span className="text-muted-foreground"> · {pkg.sscc}</span> : null}
                     <span className="text-muted-foreground">
                       {" "}
-                      · {(pkg.lines ?? []).map((line) => `${line.sku} × ${line.qty}`).join(", ")}
-                      {pkg.receivedAt ? " · received" : ""}
+                      · {(pkg.lines ?? []).map((line) => `${line.sku} × ${line.qty}${line.lotCode ? ` ${line.lotCode}` : ""}`).join(", ")}
+                      {pkg.receivedAt && !pkg.putawayAt ? " · received" : ""}
+                      {pkg.putawayAt ? " · put away" : ""}
                     </span>
                   </button>
                 </li>

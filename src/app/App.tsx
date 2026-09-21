@@ -61,6 +61,7 @@ import { FloorCheckoutPage } from "./pages/floor/FloorCheckoutPage";
 import { EquipmentPage } from "./pages/EquipmentPage";
 import { ShippingLabelPage } from "./pages/ShippingLabelPage";
 import { PackSlipPage } from "./pages/PackSlipPage";
+import { OrderPickListPage, WavePickListPage } from "./pages/PickListPage";
 import { ScannerProvider } from "./scanner/ScannerProvider";
 import { PrintProvider } from "./print/PrintProvider";
 import { homePath, OwnerOnly } from "./warehouse";
@@ -192,8 +193,10 @@ export function App() {
         <Route path="/outbound/orders/:id/shipping-label" element={<ShippingLabelPage />} />
         <Route path="/outbound/orders/:id/packages/:packageId/shipping-label" element={<ShippingLabelPage />} />
         <Route path="/outbound/orders/:id/pack-slip" element={<PackSlipPage />} />
+        <Route path="/outbound/orders/:id/pick-list" element={<OrderPickListPage />} />
         <Route path="/outbound/waves" element={<WavesPage />} />
         <Route path="/outbound/waves/:id" element={<WavesPage />} />
+        <Route path="/outbound/waves/:id/pick-list" element={<WavePickListPage />} />
         <Route path="/outbound/returns" element={<ReturnsPage />} />
         <Route path="/outbound/returns/:id" element={<ReturnsPage />} />
         <Route

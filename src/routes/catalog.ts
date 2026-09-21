@@ -8,8 +8,9 @@ import { badRequest, requireInt, requireString, optionalInt, optionalString, opt
 import { newId } from "../lib/ids";
 import { suggestPlacement } from "../domain/map-layout";
 import { suggestReplenishments } from "../domain/replenishment";
-import { suggestPutawayJobs } from "../domain/directed-putaway";
+import { suggestPutawayJobs, suggestPutawayBay } from "../domain/directed-putaway";
 import { loadPutawayBaysByItem } from "../db/putaway-bays";
+import { loadUnputawayReceivedCartons } from "../db/asn-packages";
 import { countVariance } from "../domain/blind-count";
 import { applyHoldsToOnHand, matchingHoldForMove } from "../domain/holds";
 import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
@@ -1134,6 +1135,46 @@ catalogRoute.get("/dashboard", async (c) => {
     }
   }
 
+  const cartonPutaways = [];
+  const unputawayCartons = await loadUnputawayReceivedCartons(db, organizationId, warehouseId ? { warehouseId } : {});
+  const cartonFromLocations = new Set(unputawayCartons.map((row) => row.locationId));
+  if (unputawayCartons.length > 0) {
+    const cartonItemIds = [...new Set(unputawayCartons.flatMap((row) => row.lines.map((line) => line.itemId)))];
+    const cartonWarehouseIds = [...new Set(unputawayCartons.map((row) => row.warehouseId))];
+    const baysByWarehouse = new Map<string, Awaited<ReturnType<typeof loadPutawayBaysByItem>>>();
+    for (const whId of cartonWarehouseIds) {
+      baysByWarehouse.set(whId, await loadPutawayBaysByItem(db, organizationId, whId, cartonItemIds));
+    }
+    for (const pkg of unputawayCartons) {
+      const baysByItem = baysByWarehouse.get(pkg.warehouseId) ?? new Map();
+      const lines = pkg.lines.map((line) => {
+        const suggested = suggestPutawayBay(baysByItem.get(line.itemId) ?? [], pkg.locationId);
+        return {
+          itemId: line.itemId,
+          sku: line.sku,
+          itemName: line.itemName,
+          qty: line.qty,
+          lotCode: line.lotCode,
+          toLocationId: suggested?.locationId ?? null,
+          toCode: suggested?.locationCode ?? null,
+          toBarcode: suggested?.barcode ?? null,
+        };
+      });
+      cartonPutaways.push({
+        asnId: pkg.asnId,
+        asnNumber: pkg.asnNumber,
+        packageId: pkg.id,
+        packageNumber: pkg.number,
+        sscc: pkg.sscc,
+        fromLocationId: pkg.locationId,
+        fromCode: pkg.fromCode,
+        fromBarcode: pkg.fromBarcode,
+        warehouseId: pkg.warehouseId,
+        lines,
+      });
+    }
+  }
+
   const shopifyExceptions = await db
     .select()
     .from(schema.orders)
@@ -1303,7 +1344,7 @@ catalogRoute.get("/dashboard", async (c) => {
     openWorkOrders: openWorkOrderRows.length,
     shopifyOpenOrders: Number(shopifyOpen?.n ?? 0),
     openTransfers: openTransferRows.length,
-    putawayDue: putawaySuggestions.length,
+    putawayDue: putawaySuggestions.filter((row) => !cartonFromLocations.has(row.fromLocationId)).length + cartonPutaways.length,
     openCycleCounts: openCountRows.length,
     countVariances: countVariances.length,
     openHolds: openHoldRows.length,
@@ -1346,8 +1387,10 @@ catalogRoute.get("/dashboard", async (c) => {
       shopifyExceptions,
       trackerExceptions,
       expiringLots,
+      cartonPutaways,
     },
     replenishSuggestions,
-    putawaySuggestions,
+    putawaySuggestions: putawaySuggestions.filter((row) => !cartonFromLocations.has(row.fromLocationId)),
+    cartonPutaways,
   });
 });

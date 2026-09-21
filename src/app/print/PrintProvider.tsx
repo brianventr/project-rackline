@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { buildLabelPayload, type LabelKind, type LabelMedia } from "@/domain/labels/zpl";
-import { resolvePrinterForKind, type PrintKind } from "@/domain/print-station";
+import { isHtmlPrintKind, resolvePrinterForKind, withPrintQuery, type PrintKind } from "@/domain/print-station";
 
 export type PrinterRecord = {
   id: string;
@@ -188,19 +188,21 @@ export function PrintProvider({ children }: { children: ReactNode }) {
       const printerId = resolvePrinterForKind(station, printers, job.kind);
       const printer = printers.find((row) => row.id === printerId) ?? null;
       const connection = job.forceConnection ?? printer?.connection ?? "browser";
-      const media = printer?.media ?? (job.kind === "shipping-label" ? "4x6" : job.kind === "pack-slip" ? "letter" : "2x1");
+      const media =
+        printer?.media ??
+        (job.kind === "shipping-label" ? "4x6" : isHtmlPrintKind(job.kind) ? "letter" : "2x1");
       const dpi = printer?.dpi ?? 203;
 
       let zpl = job.zpl ?? null;
-      if (!zpl && job.data && job.kind !== "pack-slip") {
+      if (!zpl && job.data && !isHtmlPrintKind(job.kind)) {
         const payload = buildLabelPayload(job.kind as LabelKind, job.data, media, dpi);
         zpl = payload.body;
       }
 
       try {
-        if (job.kind === "pack-slip" || (connection === "browser" && job.kind !== "sheet")) {
-          if (job.href && job.kind === "pack-slip") {
-            window.open(job.href, "_blank", "noopener,noreferrer");
+        if (isHtmlPrintKind(job.kind) || (connection === "browser" && job.kind !== "sheet")) {
+          if (job.href && isHtmlPrintKind(job.kind)) {
+            window.open(withPrintQuery(job.href), "_blank", "noopener,noreferrer");
           } else if (job.href && !zpl) {
             window.open(job.href, "_blank", "noopener,noreferrer");
           } else {

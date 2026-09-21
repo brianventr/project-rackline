@@ -211,6 +211,9 @@ export function FloorWavePage() {
           <button className="text-sm underline" onClick={() => setActive(null)}>
             Back to list
           </button>
+          <Link className="block text-sm underline" to={`/outbound/waves/${active.id}/pick-list`}>
+            Print pick list
+          </Link>
           <Link className="block text-sm underline" to="/outbound/waves">
             Office waves
           </Link>

@@ -753,6 +753,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       asnLineId: asnBulbLineId,
       itemId: item.bulb,
       qty: 10,
+      lotCode: "LOT-2026-A",
     }),
     db.insert(schema.asnPackages).values({
       id: asnBox2Id,
@@ -1121,6 +1122,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
         trackingNumber: row.tracking,
         trackingCompany: row.carrier === "usps_priority" ? "USPS" : row.carrier === "ups_ground" ? "UPS" : "Rackline",
         carrierService: row.carrier,
+        labelStatus: "purchased",
         trackerStatus: "tracker" in row ? (row as { tracker?: string }).tracker ?? null : null,
         trackerUpdatedAt: "tracker" in row && (row as { tracker?: string }).tracker ? shippedAt : null,
         ...destPatchFromAddress(row.address),
@@ -1148,6 +1150,9 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       source: "manual",
       trackingNumber: "RL-DFW001",
       carrierService: "ups_ground",
+      labelStatus: "purchased",
+      trackerStatus: "exception",
+      trackerUpdatedAt: now - hour,
       ...destPatchFromAddress("2803 Main St\nDallas, TX 75226"),
     }),
     db.insert(schema.orderLines).values({
@@ -1172,6 +1177,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       trackingCompany: "UPS",
       carrierService: "ups_ground",
       labelStatus: "purchased",
+      trackerStatus: "exception",
+      trackerUpdatedAt: now - hour,
       createdAt: now - hour,
     }),
     db.insert(schema.orderPackageLines).values({

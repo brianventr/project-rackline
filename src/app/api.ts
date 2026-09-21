@@ -340,11 +340,15 @@ export type OrderLine = {
   allocations?: OrderAllocation[];
   sku: string;
   itemName: string;
+  barcode?: string | null;
   shopifyLineItemId?: string | null;
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;
   trackExpiry?: boolean;
+  stockUom?: string | null;
+  altUom?: string | null;
+  altPerStock?: number | null;
   suggestedLocation?: SuggestedLocation | null;
 };
 
@@ -381,6 +385,8 @@ export type Order = {
   postageCents?: number | null;
   trackerStatus?: string | null;
   packedAt?: number | null;
+  waveId?: string | null;
+  clientId?: string | null;
   allocatedUnits?: number;
   allocations?: OrderAllocation[];
   packages?: OrderPackage[];
@@ -655,6 +661,28 @@ export type PutawaySuggestion = {
   warehouseId: string;
 };
 
+export type CartonPutawaySuggestion = {
+  asnId: string;
+  asnNumber: string;
+  packageId: string;
+  packageNumber: string;
+  sscc?: string | null;
+  fromLocationId: string;
+  fromCode: string;
+  fromBarcode: string;
+  warehouseId: string;
+  lines: {
+    itemId: string;
+    sku: string;
+    itemName: string;
+    qty: number;
+    lotCode?: string | null;
+    toLocationId?: string | null;
+    toCode?: string | null;
+    toBarcode?: string | null;
+  }[];
+};
+
 export type Dashboard = {
   onHandUnits: number;
   binRows: number;
@@ -708,6 +736,7 @@ export type Dashboard = {
   hotBays: { locationId: string; locationCode: string; locationName: string; units: number }[];
   replenishSuggestions?: ReplenishSuggestion[];
   putawaySuggestions?: PutawaySuggestion[];
+  cartonPutaways?: CartonPutawaySuggestion[];
   queues: {
     receipts: Receipt[];
     orders: Order[];
@@ -729,6 +758,7 @@ export type Dashboard = {
     expiringCerts?: OperatorCertification[];
     shopifyExceptions: Order[];
     trackerExceptions?: TrackerException[];
+    cartonPutaways?: CartonPutawaySuggestion[];
     expiringLots?: {
       locationId: string;
       locationCode: string;
@@ -1092,6 +1122,10 @@ export type AsnPackageLine = {
   qty: number;
   sku: string;
   itemName: string;
+  lotCode?: string | null;
+  serials?: string[];
+  weightGrams?: number | null;
+  expiresOn?: number | null;
 };
 
 export type AsnPackage = {
@@ -1100,6 +1134,7 @@ export type AsnPackage = {
   seq: number;
   sscc?: string | null;
   receivedAt?: number | null;
+  putawayAt?: number | null;
   units?: number;
   lines?: AsnPackageLine[];
 };

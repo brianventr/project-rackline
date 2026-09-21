@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Item, type Location, type Order, type WarehouseMapInfo } from "../../api";
+import { api, type Item, type Location, type Order, type WarehouseMapInfo, type Wave } from "../../api";
 import { Button, Card, ErrorBanner, Input, PageHeader, Select } from "../../components/ui";
-import { packSlipJobs, shippingLabelJobs } from "@/domain/print-station";
+import { packSlipJobs, pickListJobs, shippingLabelJobs, wavePickListJobs } from "@/domain/print-station";
 import { SCAN_PREFIX_CHEATSHEET } from "@/domain/barcodes";
 import { usePrint, type PrinterRecord, type PrintStationRecord } from "../../print/PrintProvider";
 import { useScanner } from "../../scanner/ScannerProvider";
@@ -20,6 +20,7 @@ export function LabelsSetupPage() {
   const printerCtx = usePrint();
   const scanner = useScanner();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [waves, setWaves] = useState<Wave[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseMapInfo[]>([]);
@@ -39,14 +40,16 @@ export function LabelsSetupPage() {
   const [stationShipping, setStationShipping] = useState("");
 
   async function loadQueues() {
-    const [nextOrders, nextItems, nextLocations, nextWarehouses, nextJobs] = await Promise.all([
+    const [nextOrders, nextWaves, nextItems, nextLocations, nextWarehouses, nextJobs] = await Promise.all([
       api<Order[]>("/api/orders"),
+      api<Wave[]>("/api/waves").catch(() => [] as Wave[]),
       api<Item[]>("/api/items"),
       api<Location[]>("/api/locations"),
       api<WarehouseMapInfo[]>("/api/warehouses").catch(() => [] as WarehouseMapInfo[]),
       api<PrintJobRow[]>("/api/print-jobs?limit=20"),
     ]);
     setOrders(nextOrders);
+    setWaves(nextWaves);
     setItems(nextItems);
     setLocations(nextLocations);
     setWarehouses(nextWarehouses);
@@ -58,6 +61,7 @@ export function LabelsSetupPage() {
       .catch((err: Error) => setError(err.message));
   }, []);
 
+  const lists = [...pickListJobs(orders), ...wavePickListJobs(waves)];
   const slips = packSlipJobs(orders);
   const labels = shippingLabelJobs(orders);
 
@@ -262,6 +266,20 @@ export function LabelsSetupPage() {
         </Card>
       </div>
 
+      <Card>
+        <p className="mb-3 font-medium">Pick lists</p>
+        <ul className="space-y-2 text-sm">
+          {lists.map((job) => (
+            <li key={job.href}>
+              <Link className="font-mono underline" to={job.href}>
+                {job.title}
+              </Link>
+              <span className="text-muted-foreground"> · {job.subtitle}</span>
+            </li>
+          ))}
+          {lists.length === 0 ? <li className="text-muted-foreground">No open or picking tickets.</li> : null}
+        </ul>
+      </Card>
       <Card>
         <p className="mb-3 font-medium">Pack slips</p>
         <ul className="space-y-2 text-sm">

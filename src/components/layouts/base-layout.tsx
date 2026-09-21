@@ -33,10 +33,12 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
     >
       {floor ? null : <AppSidebar variant={config.variant} collapsible={config.collapsible} side={config.side} />}
       <SidebarInset>
-        <SiteHeader floor={floor} />
+        <div className="print:hidden">
+          <SiteHeader floor={floor} />
+        </div>
         <div className="flex flex-1 flex-col">
           <div className="@container/main flex flex-1 flex-col gap-2">
-            <div className={`flex flex-col gap-4 px-4 py-4 md:gap-6 md:px-6 md:py-6 ${floor ? "max-w-3xl mx-auto w-full" : ""}`}>
+            <div className={`flex flex-col gap-4 px-4 py-4 md:gap-6 md:px-6 md:py-6 print:p-0 ${floor ? "max-w-3xl mx-auto w-full print:max-w-none" : ""}`}>
               {title ? (
                 <div className="flex flex-col gap-1">
                   <h1 className="text-2xl font-bold tracking-tight">{title}</h1>

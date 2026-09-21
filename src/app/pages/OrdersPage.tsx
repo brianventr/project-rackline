@@ -4,6 +4,7 @@ import { api, type CarrierHub, type CarrierRate, type CarrierServiceOption, type
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
 import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
 import { ORDER_STEPS, canPackOrder, canPickOrder, canShipOrder, canStartPick, canCancelOrder, canUnpickOrder } from "@/domain/status";
+import { canRelabelException } from "@/domain/tracker";
 import { hasUnpicked } from "@/domain/partial-pick";
 import { hasUnpacked } from "@/domain/partial-pack";
 import { useWarehouse, inWarehouse } from "../warehouse";
@@ -319,6 +320,19 @@ function OrderDetail({ id }: { id: string }) {
     }
   }
 
+  async function relabel(pkgId?: string) {
+    setError(null);
+    try {
+      const path = pkgId ? `/api/orders/${id}/packages/${pkgId}/relabel` : `/api/orders/${id}/relabel`;
+      const label = await api<ShippingLabel>(path, { method: "POST" });
+      setTrackingNumber(label.trackingNumber);
+      setTrackingCompany(label.carrierCompany);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not relabel");
+    }
+  }
+
   if (!order) return <ErrorBanner error={error} />;
   const remaining = hasUnpicked(
     (order.lines ?? []).map((line) => ({
@@ -387,7 +401,12 @@ function OrderDetail({ id }: { id: string }) {
             {canShipOrder(order.status) ? (
               <Button onClick={() => void ship()}>{order.source === "shopify" ? "Ship & fulfill" : "Ship"}</Button>
             ) : null}
-            <Button variant="secondary">
+            {canPickOrder(order.status) ? (
+              <Button variant="secondary" asChild>
+                <Link to={`/outbound/orders/${order.id}/pick-list`}>Pick list</Link>
+              </Button>
+            ) : null}
+            <Button variant="secondary" asChild>
               <Link to={`/outbound/orders/${order.id}/pack-slip`}>Pack slip</Link>
             </Button>
             <Button variant="secondary">
@@ -458,6 +477,11 @@ function OrderDetail({ id }: { id: string }) {
               {order.labelStatus ? (
                 <p className="text-sm">
                   Label <StatusBadge status={order.labelStatus} />
+                </p>
+              ) : null}
+              {order.trackerStatus ? (
+                <p className="text-sm">
+                  Tracker <StatusBadge status={order.trackerStatus} />
                 </p>
               ) : null}
               {order.postageCents ? (
@@ -543,6 +567,16 @@ function OrderDetail({ id }: { id: string }) {
                     Void
                   </Button>
                 ) : null}
+                {canRelabelException({
+                  status: order.status,
+                  trackerStatus: order.trackerStatus,
+                  labelStatus: order.labelStatus,
+                  trackingNumber: order.trackingNumber,
+                }).ok && !(order.packages ?? []).length ? (
+                  <Button variant="secondary" onClick={() => void relabel()}>
+                    Relabel
+                  </Button>
+                ) : null}
                 {order.trackingNumber ? (
                   <Button variant="secondary" asChild>
                     <Link to={`/outbound/orders/${id}/shipping-label`}>Print label</Link>
@@ -562,6 +596,7 @@ function OrderDetail({ id }: { id: string }) {
                           {" "}
                           · {pkg.units ?? 0}
                           {pkg.trackingNumber ? ` · ${pkg.trackingNumber}` : " · no label"}
+                          {pkg.trackerStatus ? ` · ${pkg.trackerStatus}` : ""}
                         </span>
                       </span>
                       <span className="flex gap-2">
@@ -584,6 +619,16 @@ function OrderDetail({ id }: { id: string }) {
                         >
                           Buy
                         </Button>
+                        {canRelabelException({
+                          status: order.status,
+                          trackerStatus: pkg.trackerStatus,
+                          labelStatus: pkg.labelStatus,
+                          trackingNumber: pkg.trackingNumber,
+                        }).ok ? (
+                          <Button variant="secondary" onClick={() => void relabel(pkg.id)}>
+                            Relabel
+                          </Button>
+                        ) : null}
                         {pkg.trackingNumber ? (
                           <Button variant="secondary" asChild>
                             <Link to={`/outbound/orders/${id}/packages/${pkg.id}/shipping-label`}>Print</Link>
