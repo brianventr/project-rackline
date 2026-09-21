@@ -24,14 +24,22 @@ export function FloorAssemblePage() {
     setThisQty(String(order.remaining ?? Math.max(0, order.qty - (order.qtyCompleted ?? 0))));
   }
 
+  async function openOrder(id: string, nextJobs = jobs) {
+    try {
+      const order = await api<WorkOrder>(`/api/work-orders/${id}`);
+      openFloorRow(order, me.user.id, jobForRef(nextJobs, "workOrder", order.id, "assemble"), applyOrder, setError);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load work order");
+    }
+  }
+
   async function load() {
     const next = await api<WorkOrder[]>("/api/work-orders");
     setOrders(next.filter((row) => canCompleteWorkOrder(row.status)));
     const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
-      const match = next.find((row) => row.id === wanted) ?? (await api<WorkOrder>(`/api/work-orders/${wanted}`));
-      openFloorRow(match, me.user.id, jobForRef(nextJobs, "workOrder", match.id, "assemble"), applyOrder, setError);
+      await openOrder(wanted, nextJobs);
     }
   }
 
@@ -44,9 +52,7 @@ export function FloorAssemblePage() {
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
       .then((hit) => {
         if (hit.kind === "workOrder") {
-          void api<WorkOrder>(`/api/work-orders/${hit.workOrder.id}`).then((order) =>
-            openFloorRow(order, me.user.id, jobForRef(jobs, "workOrder", order.id, "assemble"), applyOrder, setError),
-          );
+          void openOrder(hit.workOrder.id);
         } else setError("Scan a work order.");
       })
       .catch((err: Error) => setError(err.message));
@@ -84,7 +90,7 @@ export function FloorAssemblePage() {
           rows={orders}
           userId={me.user.id}
           jobFor={(row) => jobForRef(jobs, "workOrder", row.id, "assemble")}
-          onOpen={(row) => openFloorRow(row, me.user.id, jobForRef(jobs, "workOrder", row.id, "assemble"), applyOrder, setError)}
+          onOpen={(row) => void openOrder(row.id)}
           render={(row) => (
             <>
               <span className="font-mono">{row.number}</span> {row.sku} {row.qtyCompleted ?? 0}/{row.qty}{" "}

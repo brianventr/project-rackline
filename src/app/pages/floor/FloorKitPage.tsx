@@ -25,14 +25,22 @@ export function FloorKitPage() {
     setThisQty(String(kit.remaining ?? Math.max(0, kit.qty - (kit.qtyCompleted ?? 0))));
   }
 
+  async function openKit(id: string, nextJobs = jobs) {
+    try {
+      const kit = await api<KitBuild>(`/api/kits/${id}`);
+      openFloorRow(kit, me.user.id, jobForRef(nextJobs, "kit", kit.id, "kit"), applyKit, setError);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load kit");
+    }
+  }
+
   async function load() {
     const next = await api<KitBuild[]>("/api/kits");
     setKits(next.filter((row) => canCompleteKit(row.status) || canDekit(row.status)));
     const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
-      const match = next.find((row) => row.id === wanted) ?? (await api<KitBuild>(`/api/kits/${wanted}`));
-      openFloorRow(match, me.user.id, jobForRef(nextJobs, "kit", match.id, "kit"), applyKit, setError);
+      await openKit(wanted, nextJobs);
     }
   }
 
@@ -45,9 +53,7 @@ export function FloorKitPage() {
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
       .then((hit) => {
         if (hit.kind === "kit") {
-          void api<KitBuild>(`/api/kits/${hit.kit.id}`).then((kit) =>
-            openFloorRow(kit, me.user.id, jobForRef(jobs, "kit", kit.id, "kit"), applyKit, setError),
-          );
+          void openKit(hit.kit.id);
         } else setError("Scan a kit document.");
       })
       .catch((err: Error) => setError(err.message));
@@ -95,7 +101,7 @@ export function FloorKitPage() {
           rows={kits}
           userId={me.user.id}
           jobFor={(row) => jobForRef(jobs, "kit", row.id, "kit")}
-          onOpen={(row) => openFloorRow(row, me.user.id, jobForRef(jobs, "kit", row.id, "kit"), applyKit, setError)}
+          onOpen={(row) => void openKit(row.id)}
           render={(row) => (
             <>
               <span className="font-mono">{row.number}</span> {row.sku} {row.qtyCompleted ?? 0}/{row.qty}{" "}
