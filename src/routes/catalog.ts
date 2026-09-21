@@ -1130,6 +1130,63 @@ catalogRoute.get("/dashboard", async (c) => {
     )
     .orderBy(desc(schema.orders.createdAt));
 
+  const trackerPackageExceptions = await db
+    .select({
+      id: schema.orderPackages.id,
+      orderId: schema.orders.id,
+      number: schema.orders.number,
+      packageNumber: schema.orderPackages.number,
+      trackingNumber: schema.orderPackages.trackingNumber,
+      trackerStatus: schema.orderPackages.trackerStatus,
+      warehouseId: schema.orders.warehouseId,
+    })
+    .from(schema.orderPackages)
+    .innerJoin(schema.orders, eq(schema.orders.id, schema.orderPackages.orderId))
+    .where(
+      and(
+        eq(schema.orderPackages.organizationId, organizationId),
+        eq(schema.orderPackages.trackerStatus, "exception"),
+        warehouseId ? eq(schema.orders.warehouseId, warehouseId) : undefined,
+      ),
+    );
+  const trackerOrderExceptions = await db
+    .select({
+      id: schema.orders.id,
+      orderId: schema.orders.id,
+      number: schema.orders.number,
+      trackingNumber: schema.orders.trackingNumber,
+      trackerStatus: schema.orders.trackerStatus,
+    })
+    .from(schema.orders)
+    .where(
+      and(
+        eq(schema.orders.organizationId, organizationId),
+        eq(schema.orders.trackerStatus, "exception"),
+        warehouseId ? eq(schema.orders.warehouseId, warehouseId) : undefined,
+      ),
+    );
+  const packagedExceptionOrders = new Set(trackerPackageExceptions.map((row) => row.orderId));
+  const trackerExceptions = [
+    ...trackerPackageExceptions.map((row) => ({
+      id: row.id,
+      orderId: row.orderId,
+      number: row.number,
+      packageNumber: row.packageNumber,
+      trackingNumber: row.trackingNumber,
+      trackerStatus: row.trackerStatus ?? "exception",
+    })),
+    ...trackerOrderExceptions
+      .filter((row) => !packagedExceptionOrders.has(row.orderId))
+      .map((row) => ({
+        id: row.id,
+        orderId: row.orderId,
+        number: row.number,
+        packageNumber: null as string | null,
+        trackingNumber: row.trackingNumber,
+        trackerStatus: row.trackerStatus ?? "exception",
+      })),
+  ];
+
   const [shopifyOpen] = await db
     .select({ n: sql<number>`count(*)` })
     .from(schema.orders)
@@ -1268,6 +1325,7 @@ catalogRoute.get("/dashboard", async (c) => {
       outOfService: outOfServiceRows,
       expiringCerts,
       shopifyExceptions,
+      trackerExceptions,
       expiringLots,
     },
     replenishSuggestions,

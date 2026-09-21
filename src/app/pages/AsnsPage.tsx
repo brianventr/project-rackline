@@ -112,6 +112,7 @@ function AsnDetail({ id }: { id: string }) {
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
+  const [paste, setPaste] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -161,6 +162,38 @@ function AsnDetail({ id }: { id: string }) {
     }
   }
 
+  async function pasteCartons() {
+    if (!asn) return;
+    setError(null);
+    try {
+      const parsed = JSON.parse(paste) as unknown;
+      const cartons = Array.isArray(parsed) ? parsed : parsed && typeof parsed === "object" && "cartons" in parsed ? (parsed as { cartons: unknown }).cartons : null;
+      if (!Array.isArray(cartons)) throw new Error("Paste a JSON array of cartons");
+      const next = await api<Asn>(`/api/asns/${id}/packages`, {
+        method: "POST",
+        body: JSON.stringify({ cartons }),
+      });
+      setAsn(next);
+      setPaste("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not paste cartons");
+    }
+  }
+
+  async function receiveCarton(pkgId: string) {
+    setError(null);
+    try {
+      const next = await api<Asn>(`/api/asns/${id}/packages/${pkgId}/receive`, {
+        method: "POST",
+        body: JSON.stringify({ locationId, lots, serials }),
+      });
+      setAsn(next);
+      setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not receive carton");
+    }
+  }
+
   if (!asn) return <ErrorBanner error={error} />;
   const remaining = hasRemaining(
     (asn.lines ?? []).map((line) => ({
@@ -184,7 +217,9 @@ function AsnDetail({ id }: { id: string }) {
               All ASNs
             </Button>
             {canExpectAsn(asn.status) ? <Button onClick={() => void expect()}>Mark expected</Button> : null}
-            {canReceiveAsn(asn.status) && remaining ? <Button onClick={() => void receive()}>Receive</Button> : null}
+            {canReceiveAsn(asn.status) && remaining && !(asn.packages ?? []).length ? (
+              <Button onClick={() => void receive()}>Receive</Button>
+            ) : null}
             {canReceiveAsn(asn.status) && remaining ? (
               <Button variant="secondary" asChild>
                 <Link to={`/floor/asn?id=${asn.id}`}>Floor</Link>
@@ -215,6 +250,47 @@ function AsnDetail({ id }: { id: string }) {
           </DocumentRail>
         }
       >
+        <Card className="mb-4 space-y-3">
+          <p className="font-medium">Vendor cartons</p>
+          <p className="text-sm text-muted-foreground">
+            Paste JSON boxes from the vendor (no X12). Floor then receives one carton at a time. Cartons are optional
+            until the first box exists.
+          </p>
+          <textarea
+            value={paste}
+            onChange={(e) => setPaste(e.target.value)}
+            rows={4}
+            className="border-input w-full rounded-md border bg-transparent px-3 py-2 font-mono text-xs shadow-xs outline-none"
+            placeholder='[{"sscc":"00012345678901234567","lines":[{"sku":"LED-BULB","qty":10}]}]'
+          />
+          <Button variant="secondary" disabled={!paste.trim()} onClick={() => void pasteCartons()}>
+            Paste vendor cartons
+          </Button>
+          {(asn.packages ?? []).length > 0 ? (
+            <ul className="space-y-2 text-sm">
+              {(asn.packages ?? []).map((pkg) => (
+                <li key={pkg.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2">
+                  <span>
+                    <span className="font-mono">{pkg.number}</span>
+                    {pkg.sscc ? <span className="text-muted-foreground"> · {pkg.sscc}</span> : null}
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {(pkg.lines ?? []).map((line) => `${line.sku} × ${line.qty}`).join(", ")}
+                      {pkg.receivedAt ? " · received" : " · expected"}
+                    </span>
+                  </span>
+                  {canReceiveAsn(asn.status) && !pkg.receivedAt ? (
+                    <Button variant="secondary" onClick={() => void receiveCarton(pkg.id)}>
+                      Receive carton
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">No vendor boxes yet. Loose receive still works.</p>
+          )}
+        </Card>
         <Table columns={["SKU", "Item", "Expected", "Received", "This receive", "Lot / serial"]}>
           {(asn.lines ?? []).map((line) => (
             <tr key={line.id}>

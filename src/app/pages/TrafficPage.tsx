@@ -199,6 +199,7 @@ export function TrafficPage() {
               <Kpi label="Arrived" value={data.kpis.arrived} />
               <Kpi label="Destinations" value={data.kpis.destCount} />
               <Kpi label="Units" value={data.kpis.units} />
+              {data.kpis.exceptions ? <Kpi label="Exceptions" value={data.kpis.exceptions} warn /> : null}
               {data.kpis.unmapped ? <Kpi label="Unmapped" value={data.kpis.unmapped} warn /> : null}
             </div>
           ) : null}
@@ -241,7 +242,11 @@ export function TrafficPage() {
                     <Link className="underline decoration-amber-100/40" to={`/outbound/orders/${row.orderId}`}>
                       {row.number}
                     </Link>{" "}
-                    {row.reason === "unmapped_dest" ? "needs a city/state" : "warehouse has no origin city"}
+                    {row.reason === "tracker_exception"
+                      ? "tracker failed or returned"
+                      : row.reason === "unmapped_dest"
+                        ? "needs a city/state"
+                        : "warehouse has no origin city"}
                   </p>
                 ))}
               </div>

@@ -3,6 +3,7 @@ import * as schema from "../db/schema";
 import type { AppDb } from "../db/stock";
 import { newId } from "../lib/ids";
 import { FULFILLMENT_CREATE_MUTATION, buildFulfillmentCreateInput, demoFulfillmentOrderId } from "./shopify";
+import { loadPackagesForOrders } from "../db/packages";
 import {
   ShopifyApiError,
   createShopifyGraphqlClient,
@@ -123,6 +124,7 @@ export async function fulfillShopifyOrder(
     }));
   }
 
+  const packages = (await loadPackagesForOrders(db, [order.id])).get(order.id) ?? [];
   const fulfillment = buildFulfillmentCreateInput({
     fulfillmentOrderId,
     lineItems,
@@ -131,6 +133,7 @@ export async function fulfillShopifyOrder(
       url: order.trackingUrl,
       company: order.trackingCompany,
     },
+    packages,
     notifyCustomer: true,
   });
   const request = { query: FULFILLMENT_CREATE_MUTATION, variables: { fulfillment } };

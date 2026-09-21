@@ -233,14 +233,36 @@ export type ShopifyFulfillmentOrderNode = {
   } | null;
 };
 
+export type FulfillmentTrackingInfo = { number?: string; url?: string; company?: string };
+
 export type FulfillmentCreateInput = {
   notifyCustomer: boolean;
-  trackingInfo?: { number?: string; url?: string; company?: string };
+  trackingInfo?: FulfillmentTrackingInfo[];
   lineItemsByFulfillmentOrder: Array<{
     fulfillmentOrderId: string;
     fulfillmentOrderLineItems?: Array<{ id: string; quantity: number }>;
   }>;
 };
+
+export function shopifyTrackingInfo(input: {
+  packages?: Array<{ trackingNumber?: string | null; trackingUrl?: string | null; trackingCompany?: string | null }>;
+  tracking?: { number?: string | null; url?: string | null; company?: string | null };
+}): FulfillmentTrackingInfo[] {
+  const fromPackages = (input.packages ?? [])
+    .filter((row) => row.trackingNumber)
+    .map((row) => {
+      const info: FulfillmentTrackingInfo = { number: row.trackingNumber! };
+      if (row.trackingUrl) info.url = row.trackingUrl;
+      if (row.trackingCompany) info.company = row.trackingCompany;
+      return info;
+    });
+  if (fromPackages.length > 0) return fromPackages;
+  if (!input.tracking?.number) return [];
+  const info: FulfillmentTrackingInfo = { number: input.tracking.number };
+  if (input.tracking.url) info.url = input.tracking.url;
+  if (input.tracking.company) info.company = input.tracking.company;
+  return [info];
+}
 
 export function normalizeShopDomain(input: string): string {
   let value = input.trim().toLowerCase();
@@ -458,12 +480,10 @@ export function buildFulfillmentCreateInput(input: {
   fulfillmentOrderId: string;
   lineItems: Array<{ id: string; quantity: number }>;
   tracking?: { number?: string | null; url?: string | null; company?: string | null };
+  packages?: Array<{ trackingNumber?: string | null; trackingUrl?: string | null; trackingCompany?: string | null }>;
   notifyCustomer?: boolean;
 }): FulfillmentCreateInput {
-  const trackingInfo: { number?: string; url?: string; company?: string } = {};
-  if (input.tracking?.number) trackingInfo.number = input.tracking.number;
-  if (input.tracking?.url) trackingInfo.url = input.tracking.url;
-  if (input.tracking?.company) trackingInfo.company = input.tracking.company;
+  const trackingInfo = shopifyTrackingInfo({ packages: input.packages, tracking: input.tracking });
   const fulfillment: FulfillmentCreateInput = {
     notifyCustomer: input.notifyCustomer ?? true,
     lineItemsByFulfillmentOrder: [
@@ -476,7 +496,7 @@ export function buildFulfillmentCreateInput(input: {
       },
     ],
   };
-  if (Object.keys(trackingInfo).length > 0) {
+  if (trackingInfo.length > 0) {
     fulfillment.trackingInfo = trackingInfo;
   }
   return fulfillment;

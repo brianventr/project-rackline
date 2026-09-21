@@ -1,9 +1,10 @@
 import type { TrafficFlightStatus } from "./traffic";
 
-export const TRACKER_STATUSES = ["pre_transit", "in_transit", "delivered"] as const;
+export const TRACKER_STATUSES = ["pre_transit", "in_transit", "delivered", "exception"] as const;
 export type TrackerStatus = (typeof TRACKER_STATUSES)[number];
 
 const RANK: Record<TrackerStatus, number> = {
+  exception: -1,
   pre_transit: 0,
   in_transit: 1,
   delivered: 2,
@@ -33,6 +34,20 @@ const IN_TRANSIT = new Set([
 
 const DELIVERED = new Set(["delivered", "available_for_pickup", "availableforpickup", "de"]);
 
+const EXCEPTION = new Set([
+  "failure",
+  "error",
+  "cancelled",
+  "canceled",
+  "return_to_sender",
+  "returntosender",
+  "returned",
+  "undeliverable",
+  "expired",
+  "exception",
+  "ex",
+]);
+
 export type ParsedTrackerWebhook = {
   provider: "easypost" | "shipengine" | "demo";
   trackingNumber: string;
@@ -43,13 +58,17 @@ export type ParsedTrackerWebhook = {
 export function normalizeTrackerStatus(raw: string | null | undefined): TrackerStatus | null {
   if (!raw) return null;
   const value = raw.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (EXCEPTION.has(value)) return "exception";
   if (DELIVERED.has(value)) return "delivered";
   if (IN_TRANSIT.has(value)) return "in_transit";
   if (PRE_TRANSIT.has(value)) return "pre_transit";
   return null;
 }
 
-export function trackerToFlight(status: TrackerStatus): Exclude<TrafficFlightStatus, "unmapped" | "arrived_estimate"> {
+export function trackerToFlight(
+  status: TrackerStatus,
+): Exclude<TrafficFlightStatus, "unmapped" | "arrived_estimate"> {
+  if (status === "exception") return "exception";
   if (status === "delivered") return "arrived";
   if (status === "in_transit") return "in_flight";
   return "at_gate";
@@ -63,7 +82,9 @@ export function laggingTrackerStatus(statuses: (string | null | undefined)[]): T
 
 export function rollupOrderTracker(packages: { trackerStatus: string | null }[]): string | null {
   if (packages.length === 0) return null;
-  if (packages.some((row) => !row.trackerStatus)) return null;
+  const mapped = packages.map((row) => normalizeTrackerStatus(row.trackerStatus));
+  if (mapped.some((status) => status === "exception")) return "exception";
+  if (mapped.some((status) => !status)) return null;
   return laggingTrackerStatus(packages.map((row) => row.trackerStatus));
 }
 
