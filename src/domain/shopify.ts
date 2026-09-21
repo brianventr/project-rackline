@@ -1,4 +1,5 @@
 import { destColumns, formatShipToAddress, resolveFromText, resolvePlace, type DestColumns } from "./geo";
+import { copyIfEmptyImageUrl } from "./media";
 
 export async function shopifyHmac(secret: string, body: string): Promise<string> {
   const key = await crypto.subtle.importKey(
@@ -160,6 +161,7 @@ export type ShopifyRestLineItem = {
   quantity?: number;
   fulfillable_quantity?: number;
   fulfillment_status?: string | null;
+  image?: { src?: string | null } | null;
 };
 
 export type ShopifyRestOrder = {
@@ -195,6 +197,7 @@ export type MappedInboundLine = {
   shopifyLineItemId: string;
   shopifyLineItemGid: string | null;
   shopifyFulfillmentLineItemId: string | null;
+  imageUrl: string | null;
 };
 
 export type MappedInboundOrder = {
@@ -384,6 +387,7 @@ export function mapRestOrder(order: ShopifyRestOrder): MappedInboundOrder | Skip
       shopifyLineItemId: id,
       shopifyLineItemGid: line.admin_graphql_api_id ?? null,
       shopifyFulfillmentLineItemId: null,
+      imageUrl: copyIfEmptyImageUrl(null, line.image?.src ?? null),
     });
   }
 
@@ -422,6 +426,7 @@ export function mapFulfillmentOrder(node: ShopifyFulfillmentOrderNode): MappedIn
       shopifyLineItemId: line.lineItem?.id ? numericIdFromGid(line.lineItem.id) : numericIdFromGid(line.id),
       shopifyLineItemGid: line.lineItem?.id ?? null,
       shopifyFulfillmentLineItemId: line.id,
+      imageUrl: null,
     });
   }
   if (lines.length === 0) {

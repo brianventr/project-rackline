@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="LED bulb">
+  <rect width="64" height="64" rx="12" fill="#eef6ff"/>
+  <path d="M32 10c-8 0-14 6-14 14 0 6 4 10 6 14h16c2-4 6-8 6-14 0-8-6-14-14-14z" fill="#f5d76e"/>
+  <rect x="24" y="38" width="16" height="10" rx="2" fill="#c5ccd6"/>
+  <rect x="26" y="48" width="12" height="6" rx="1" fill="#8b93a0"/>
+</svg>

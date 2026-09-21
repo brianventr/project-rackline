@@ -107,6 +107,21 @@ describe("inbound mapping", () => {
     ]);
   });
 
+  it("copies a line image onto the mapped SKU when present", () => {
+    const mapped = mapRestOrder({
+      ...paidLampOrder,
+      line_items: [
+        {
+          ...paidLampOrder.line_items[0]!,
+          image: { src: "https://cdn.shopify.com/lamp.jpg" },
+        },
+      ],
+    });
+    expect("skip" in mapped).toBe(false);
+    if ("skip" in mapped) return;
+    expect(mapped.lines[0]?.imageUrl).toBe("https://cdn.shopify.com/lamp.jpg");
+  });
+
   it("maps an assigned fulfillment order, including FO line ids", () => {
     const mapped = mapFulfillmentOrder({
       id: "gid://shopify/FulfillmentOrder/55",

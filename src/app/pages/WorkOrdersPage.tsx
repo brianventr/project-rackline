@@ -4,6 +4,7 @@ import { api, type Item, type Location, type WorkOrder } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit } from "../components/ui";
 import { DocumentHeader, DocumentActivity } from "../components/document";
 import { AsBuiltList } from "../components/as-built";
+import { KitRecipeCard } from "../components/kit-recipe";
 import { WORK_ORDER_STEPS, canCompleteWorkOrder } from "@/domain/status";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
@@ -202,6 +203,13 @@ function WorkOrderDetail({ id }: { id: string }) {
           <Input type="number" min={1} max={remaining} value={thisQty} onChange={(e) => setThisQty(e.target.value)} />
         </Field>
       ) : null}
+      <KitRecipeCard
+        sku={order.sku}
+        itemName={order.itemName}
+        imageUrl={order.imageUrl}
+        components={order.components}
+        steps={order.steps}
+      />
       {(order.asBuilt ?? []).length ? (
         <AsBuiltList title="As-built" empty="No component lots were recorded." rows={order.asBuilt ?? []} mode="from" />
       ) : null}

@@ -13,6 +13,7 @@ import { parseSerialList } from "../domain/lots";
 import { loadAsBuiltForRef } from "../db/as-built";
 import { applyPartialComplete, isFullyCompleted, remainingToComplete, OverCompleteError } from "../domain/partial-complete";
 import { guardFloorJob, syncDocumentJob } from "../db/jobs";
+import { loadBomRecipe } from "../db/bom-recipe";
 
 export const kitsRoute = new Hono<AppEnv>();
 
@@ -32,6 +33,7 @@ async function kitWithItem(db: AppEnv["Variables"]["db"], organizationId: string
       completedAt: schema.kitBuilds.completedAt,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      imageUrl: schema.items.imageUrl,
       trackLot: schema.items.trackLot,
       trackSerial: schema.items.trackSerial,
     })
@@ -40,25 +42,15 @@ async function kitWithItem(db: AppEnv["Variables"]["db"], organizationId: string
     .where(and(eq(schema.kitBuilds.id, id), eq(schema.kitBuilds.organizationId, organizationId)))
     .limit(1);
   if (!row) notFound("Kit build not found");
-  const [bom] = await db
-    .select()
-    .from(schema.boms)
-    .where(and(eq(schema.boms.organizationId, organizationId), eq(schema.boms.itemId, row.itemId)))
-    .limit(1);
-  const components = bom
-    ? await db
-        .select({
-          itemId: schema.bomLines.itemId,
-          qty: schema.bomLines.qty,
-          sku: schema.items.sku,
-          itemName: schema.items.name,
-        })
-        .from(schema.bomLines)
-        .innerJoin(schema.items, eq(schema.items.id, schema.bomLines.itemId))
-        .where(eq(schema.bomLines.bomId, bom.id))
-    : [];
+  const recipe = await loadBomRecipe(db, organizationId, row.itemId);
   const asBuilt = await loadAsBuiltForRef(db, organizationId, row.id);
-  return { ...row, remaining: remainingToComplete(row.qty, row.qtyCompleted), components, asBuilt };
+  return {
+    ...row,
+    remaining: remainingToComplete(row.qty, row.qtyCompleted),
+    components: recipe.lines,
+    steps: recipe.steps,
+    asBuilt,
+  };
 }
 
 kitsRoute.get("/kits", async (c) => {
@@ -79,6 +71,7 @@ kitsRoute.get("/kits", async (c) => {
       completedAt: schema.kitBuilds.completedAt,
       sku: schema.items.sku,
       itemName: schema.items.name,
+      imageUrl: schema.items.imageUrl,
     })
     .from(schema.kitBuilds)
     .innerJoin(schema.items, eq(schema.items.id, schema.kitBuilds.itemId))

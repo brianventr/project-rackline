@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, type Item, type Me } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
+import { SkuThumb } from "../components/sku-thumb";
+import { api, uploadFile, type Item, type Me } from "../api";
 import { formatExpiresOn } from "@/domain/expiry";
 import { formatAsBuiltPart } from "@/domain/as-built";
 import { SkuHandlers } from "./LaborPage";
@@ -210,9 +211,12 @@ function ItemList() {
           </div>
         </form>
       </Card>
-      <Table columns={["SKU", "Barcode", "Name", "Type", "Reorder", "Baseline / day", "Pick min"]}>
+      <Table columns={["", "SKU", "Barcode", "Name", "Type", "Reorder", "Baseline / day", "Pick min"]}>
         {items.map((item) => (
           <tr key={item.id}>
+            <td className="px-2.5 py-1.5">
+              <SkuThumb sku={item.sku} name={item.name} imageUrl={item.imageUrl} size="sm" />
+            </td>
             <td className="px-2.5 py-1.5 font-mono text-sm">
               <Link className="hover:underline" to={`/stock/items/${item.id}`}>
                 {item.sku}
@@ -245,6 +249,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
   const [trackSerial, setTrackSerial] = useState(false);
   const [catchWeight, setCatchWeight] = useState(false);
   const [trackExpiry, setTrackExpiry] = useState(false);
+  const [imageUrl, setImageUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -260,6 +265,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
         setTrackSerial(Boolean(next.trackSerial));
         setCatchWeight(Boolean(next.catchWeight));
         setTrackExpiry(Boolean(next.trackExpiry));
+        setImageUrl(next.imageUrl ?? "");
       })
       .catch((err: Error) => setError(err.message));
   }, [id]);
@@ -280,6 +286,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
             trackSerial,
             catchWeight,
             trackExpiry,
+            imageUrl: imageUrl || null,
           }),
         }),
       );
@@ -324,8 +331,53 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
         }
       />
       <ErrorBanner error={error} />
-      <div className="max-w-sm rounded-lg border p-3">
-        <BarcodeLabel value={item.barcode || item.sku} className="mx-auto h-16" />
+      <div className="flex flex-wrap items-start gap-4">
+        <SkuThumb sku={item.sku} name={item.name} imageUrl={item.imageUrl} size="lg" />
+        <div className="max-w-sm flex-1 space-y-2">
+          <Field label="Photo URL">
+            <Input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://… or /demo-sku/LAMP.svg" />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <label className="inline-flex cursor-pointer items-center rounded-md border px-3 py-1.5 text-sm">
+              Upload
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="sr-only"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!file) return;
+                  uploadFile<Item>(`/api/items/${id}/image`, file)
+                    .then((next) => {
+                      setItem(next);
+                      setImageUrl(next.imageUrl ?? "");
+                    })
+                    .catch((err: Error) => setError(err.message));
+                }}
+              />
+            </label>
+            {item.imageUrl ? (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  api<Item>(`/api/items/${id}/image`, { method: "DELETE" })
+                    .then((next) => {
+                      setItem(next);
+                      setImageUrl("");
+                    })
+                    .catch((err: Error) => setError(err.message));
+                }}
+              >
+                Clear photo
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        <div className="max-w-sm rounded-lg border p-3">
+          <BarcodeLabel value={item.barcode || item.sku} className="mx-auto h-16" />
+        </div>
       </div>
       <Card className="grid gap-3 md:grid-cols-3">
         <Field label="Name">

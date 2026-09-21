@@ -153,6 +153,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       trackLot: true,
       baselineShipRate: 4,
       shopifyInventoryItemGid: demoInventoryItemGid("LED-BULB"),
+      imageUrl: "/demo-sku/LED-BULB.svg",
     }),
     db.insert(schema.items).values({
       id: item.shade,
@@ -165,6 +166,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       reorderPoint: 10,
       baselineShipRate: 2,
       shopifyInventoryItemGid: demoInventoryItemGid("SHADE"),
+      imageUrl: "/demo-sku/SHADE.svg",
     }),
     db.insert(schema.items).values({
       id: item.base,
@@ -176,6 +178,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       createdAt: now,
       reorderPoint: 8,
       shopifyInventoryItemGid: demoInventoryItemGid("BASE"),
+      imageUrl: "/demo-sku/BASE.svg",
     }),
     db.insert(schema.items).values({
       id: item.cord,
@@ -188,6 +191,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       reorderPoint: 40,
       baselineShipRate: 5,
       shopifyInventoryItemGid: demoInventoryItemGid("CORD"),
+      imageUrl: "/demo-sku/CORD.svg",
     }),
     db.insert(schema.items).values({
       id: item.lamp,
@@ -202,6 +206,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       trackSerial: true,
       baselineShipRate: 1.5,
       shopifyInventoryItemGid: demoInventoryItemGid("LAMP"),
+      imageUrl: "/demo-sku/LAMP.svg",
     }),
     db.insert(schema.items).values({
       id: item.resin,
@@ -289,6 +294,38 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     db.insert(schema.bomLines).values({ id: newId(), bomId, itemId: item.shade, qty: 1 }),
     db.insert(schema.bomLines).values({ id: newId(), bomId, itemId: item.base, qty: 1 }),
     db.insert(schema.bomLines).values({ id: newId(), bomId, itemId: item.cord, qty: 1 }),
+    db.insert(schema.bomSteps).values({
+      id: newId(),
+      bomId,
+      seq: 1,
+      title: "Seat the base",
+      body: "Place BASE on the bench, felt feet down.",
+      componentItemId: item.base,
+    }),
+    db.insert(schema.bomSteps).values({
+      id: newId(),
+      bomId,
+      seq: 2,
+      title: "Fit the shade",
+      body: "Seat SHADE on the BASE collar until it sits flush.",
+      componentItemId: item.shade,
+    }),
+    db.insert(schema.bomSteps).values({
+      id: newId(),
+      bomId,
+      seq: 3,
+      title: "Thread the cord",
+      body: "Run CORD through the BASE and lock the strain-relief.",
+      componentItemId: item.cord,
+    }),
+    db.insert(schema.bomSteps).values({
+      id: newId(),
+      bomId,
+      seq: 4,
+      title: "Install the bulb",
+      body: "Screw LED-BULB into the socket. Scan the finished LAMP serial if you have one.",
+      componentItemId: item.bulb,
+    }),
   ]);
 
   const receiptId = newId();

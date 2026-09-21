@@ -39,6 +39,25 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+export async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const body = new FormData();
+  body.append("file", file);
+  const res = await fetch(path, {
+    method: "POST",
+    body,
+    credentials: "include",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message =
+      (data && typeof data === "object" && "error" in data && typeof data.error === "string"
+        ? data.error
+        : res.statusText) || "Request failed";
+    throw new ApiError(message, res.status, data);
+  }
+  return data as T;
+}
+
 export type Me = {
   user: { id: string; name: string; email: string };
   organization: { id: string; name: string };
@@ -74,6 +93,7 @@ export type Item = {
   trackSerial?: boolean;
   catchWeight?: boolean;
   trackExpiry?: boolean;
+  imageUrl?: string | null;
   onHand?: {
     locationId: string;
     locationCode: string;
@@ -129,6 +149,7 @@ export type MapContent = {
   sku: string;
   itemName: string;
   itemType: string;
+  imageUrl?: string | null;
   qty: number;
   held?: boolean;
   holdNumber?: string | null;
@@ -275,6 +296,7 @@ export type InventoryRow = {
   sku: string;
   itemName: string;
   itemType: string;
+  imageUrl?: string | null;
   itemId: string;
   locationId: string;
   locationCode: string;
@@ -290,6 +312,7 @@ export type ReceiptLine = {
   remaining: number;
   sku: string;
   itemName: string;
+  imageUrl?: string | null;
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;
@@ -341,6 +364,7 @@ export type OrderLine = {
   allocations?: OrderAllocation[];
   sku: string;
   itemName: string;
+  imageUrl?: string | null;
   barcode?: string | null;
   shopifyLineItemId?: string | null;
   trackLot?: boolean;
@@ -487,12 +511,35 @@ export type ShopifyInventorySync = {
   code?: string | null;
 };
 
+export type BomStep = {
+  id: string;
+  seq: number;
+  title: string;
+  body: string;
+  imageUrl?: string | null;
+  componentItemId?: string | null;
+  componentSku?: string | null;
+  componentName?: string | null;
+  componentImageUrl?: string | null;
+};
+
+export type BomLine = {
+  id: string;
+  itemId: string;
+  qty: number;
+  sku: string;
+  itemName: string;
+  imageUrl?: string | null;
+};
+
 export type Bom = {
   id: string;
   itemId: string;
   sku: string;
   itemName: string;
-  lines: { id: string; itemId: string; qty: number; sku: string; itemName: string }[];
+  imageUrl?: string | null;
+  lines: BomLine[];
+  steps?: BomStep[];
 };
 
 export type WorkOrder = {
@@ -505,11 +552,14 @@ export type WorkOrder = {
   status: string;
   sku: string;
   itemName: string;
+  imageUrl?: string | null;
   sourceLocationId: string;
   outputLocationId: string;
   createdAt: number;
   warehouseId?: string;
   asBuilt?: AsBuiltLink[];
+  components?: { id?: string; itemId: string; qty: number; sku: string; itemName: string; imageUrl?: string | null }[];
+  steps?: BomStep[];
 };
 
 export type KitBuild = {
@@ -522,6 +572,7 @@ export type KitBuild = {
   status: string;
   sku: string;
   itemName: string;
+  imageUrl?: string | null;
   sourceLocationId: string;
   outputLocationId: string;
   createdAt: number;
@@ -529,7 +580,8 @@ export type KitBuild = {
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;
-  components?: { itemId: string; qty: number; sku: string; itemName: string }[];
+  components?: { id?: string; itemId: string; qty: number; sku: string; itemName: string; imageUrl?: string | null }[];
+  steps?: BomStep[];
   asBuilt?: AsBuiltLink[];
 };
 
@@ -910,6 +962,7 @@ export type PurchaseLine = {
   remaining: number;
   sku: string;
   itemName: string;
+  imageUrl?: string | null;
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;

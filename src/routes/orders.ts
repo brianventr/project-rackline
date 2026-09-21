@@ -204,6 +204,7 @@ const orderLineSelect = {
   sku: schema.items.sku,
   itemName: schema.items.name,
   barcode: schema.items.barcode,
+  imageUrl: schema.items.imageUrl,
   trackLot: schema.items.trackLot,
   trackSerial: schema.items.trackSerial,
   catchWeight: schema.items.catchWeight,

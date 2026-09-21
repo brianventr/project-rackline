@@ -5,6 +5,7 @@ import { documentPath } from "@/domain/barcodes";
 import { Button, Card, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { AsBuiltList } from "../../components/as-built";
+import { SkuThumb } from "../../components/sku-thumb";
 
 export function FloorLookupPage() {
   const [hit, setHit] = useState<ScanHit | null>(null);
@@ -38,17 +39,18 @@ function LookupResult({ hit }: { hit: ScanHit }) {
         <ul className="mt-4 space-y-1 text-sm">
           {hit.contents.length ? (
             hit.contents.map((row) => (
-              <li key={row.itemId} className="flex justify-between">
-                <span>
-                  <span className="font-mono">{row.sku}</span> {row.itemName}
-                  {row.held ? (
-                    <span className="ml-2 text-xs uppercase text-destructive">
-                      Hold {row.holdNumber}
-                    </span>
-                  ) : null}
-                  {(row.allocated ?? 0) > 0 ? (
-                    <span className="ml-2 text-xs uppercase text-muted-foreground">Allocated {row.allocated}</span>
-                  ) : null}
+              <li key={row.itemId} className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2">
+                  <SkuThumb sku={row.sku} name={row.itemName} imageUrl={row.imageUrl} size="sm" />
+                  <span>
+                    <span className="font-mono">{row.sku}</span> {row.itemName}
+                    {row.held ? (
+                      <span className="ml-2 text-xs uppercase text-destructive">Hold {row.holdNumber}</span>
+                    ) : null}
+                    {(row.allocated ?? 0) > 0 ? (
+                      <span className="ml-2 text-xs uppercase text-muted-foreground">Allocated {row.allocated}</span>
+                    ) : null}
+                  </span>
                 </span>
                 <span className="font-mono">{row.availableQty ?? row.qty}</span>
               </li>
@@ -83,8 +85,13 @@ function LookupResult({ hit }: { hit: ScanHit }) {
     return (
       <Card>
         <p className="font-mono text-xs uppercase text-muted-foreground">Item</p>
-        <h2 className="text-2xl font-semibold">{hit.item.sku}</h2>
-        <p className="text-muted-foreground">{hit.item.name}</p>
+        <div className="mt-1 flex items-center gap-3">
+          <SkuThumb sku={hit.item.sku} name={hit.item.name} imageUrl={hit.item.imageUrl} size="lg" />
+          <div>
+            <h2 className="text-2xl font-semibold">{hit.item.sku}</h2>
+            <p className="text-muted-foreground">{hit.item.name}</p>
+          </div>
+        </div>
         <ul className="mt-4 space-y-1 text-sm">
           {hit.onHand.length ? (
             hit.onHand.map((row) => (

@@ -726,6 +726,7 @@ floorRoute.get("/map", async (c) => {
       sku: schema.items.sku,
       itemName: schema.items.name,
       itemType: schema.items.type,
+      imageUrl: schema.items.imageUrl,
     })
     .from(schema.inventoryBalances)
     .innerJoin(schema.items, eq(schema.items.id, schema.inventoryBalances.itemId))
@@ -764,6 +765,7 @@ floorRoute.get("/map", async (c) => {
           sku: row.sku,
           itemName: row.itemName,
           itemType: row.itemType,
+          imageUrl: row.imageUrl,
           qty: row.qty,
         })),
       };
@@ -786,6 +788,7 @@ floorRoute.get("/scan", async (c) => {
         sku: schema.items.sku,
         itemName: schema.items.name,
         itemType: schema.items.type,
+        imageUrl: schema.items.imageUrl,
         qty: schema.inventoryBalances.qty,
       })
       .from(schema.inventoryBalances)
@@ -933,6 +936,7 @@ floorRoute.get("/scan", async (c) => {
           qtyPacked: schema.orderLines.qtyPacked,
           sku: schema.items.sku,
           itemName: schema.items.name,
+          imageUrl: schema.items.imageUrl,
         })
         .from(schema.orderLines)
         .innerJoin(schema.items, eq(schema.items.id, schema.orderLines.itemId))
@@ -961,6 +965,7 @@ floorRoute.get("/scan", async (c) => {
           qtyReceived: schema.receiptLines.qtyReceived,
           sku: schema.items.sku,
           itemName: schema.items.name,
+          imageUrl: schema.items.imageUrl,
         })
         .from(schema.receiptLines)
         .innerJoin(schema.items, eq(schema.items.id, schema.receiptLines.itemId))

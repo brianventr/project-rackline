@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type InventoryRow } from "../api";
 import { ErrorBanner, Input, PageHeader, Table } from "../components/ui";
+import { SkuThumb } from "../components/sku-thumb";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
 export function InventoryPage() {
@@ -37,9 +38,12 @@ export function InventoryPage() {
         actions={<Input placeholder="Filter SKU or bin" value={query} onChange={(e) => setQuery(e.target.value)} />}
       />
       <ErrorBanner error={error} />
-      <Table columns={["SKU", "Item", "Location", "Type", "On hand", "Allocated", "ATP"]}>
+      <Table columns={["", "SKU", "Item", "Location", "Type", "On hand", "Allocated", "ATP"]}>
         {filtered.map((row) => (
           <tr key={row.id}>
+            <td className="px-2.5 py-1.5">
+              <SkuThumb sku={row.sku} name={row.itemName} imageUrl={row.imageUrl} size="sm" />
+            </td>
             <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/stock/items/${row.itemId}`}>
                 {row.sku}
