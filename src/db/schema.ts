@@ -290,6 +290,8 @@ export const orders = sqliteTable(
     carrierShipmentId: text("carrier_shipment_id"),
     carrierLabelId: text("carrier_label_id"),
     postageCents: integer("postage_cents"),
+    trackerStatus: text("tracker_status"),
+    trackerUpdatedAt: integer("tracker_updated_at"),
   },
   (t) => [
     uniqueIndex("shopify_orders_org_order").on(t.organizationId, t.shopifyOrderId),
@@ -311,6 +313,59 @@ export const orderLines = sqliteTable("order_lines", {
   shopifyLineItemId: text("shopify_line_item_id"),
   shopifyFulfillmentLineItemId: text("shopify_fulfillment_line_item_id"),
 });
+
+export const orderPackages = sqliteTable(
+  "order_packages",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    number: text("number").notNull(),
+    seq: integer("seq").notNull(),
+    weightOz: integer("weight_oz"),
+    lengthIn: integer("length_in"),
+    widthIn: integer("width_in"),
+    heightIn: integer("height_in"),
+    trackingNumber: text("tracking_number"),
+    trackingCompany: text("tracking_company"),
+    trackingUrl: text("tracking_url"),
+    carrierService: text("carrier_service"),
+    carrierConnectionId: text("carrier_connection_id"),
+    carrierShipmentId: text("carrier_shipment_id"),
+    carrierLabelId: text("carrier_label_id"),
+    postageCents: integer("postage_cents"),
+    labelStatus: text("label_status").notNull().default("none"),
+    trackerStatus: text("tracker_status"),
+    trackerUpdatedAt: integer("tracker_updated_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("order_packages_order_number").on(t.orderId, t.number),
+    index("order_packages_org_tracking").on(t.organizationId, t.trackingNumber),
+  ],
+);
+
+export const orderPackageLines = sqliteTable(
+  "order_package_lines",
+  {
+    id: text("id").primaryKey(),
+    packageId: text("package_id")
+      .notNull()
+      .references(() => orderPackages.id, { onDelete: "cascade" }),
+    orderLineId: text("order_line_id")
+      .notNull()
+      .references(() => orderLines.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id),
+    qty: integer("qty").notNull(),
+  },
+  (t) => [uniqueIndex("order_package_lines_pkg_line").on(t.packageId, t.orderLineId)],
+);
 
 export const shopifyConnections = sqliteTable(
   "shopify_connections",
@@ -373,6 +428,7 @@ export const carrierConnections = sqliteTable(
     apiSecret: text("api_secret"),
     meterNumber: text("meter_number"),
     enabledServicesJson: text("enabled_services_json").notNull().default("[]"),
+    webhookSecret: text("webhook_secret"),
     isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
     lastTestedAt: integer("last_tested_at"),
     lastTestStatus: text("last_test_status"),
@@ -396,6 +452,22 @@ export const carrierOutboundEvents = sqliteTable("carrier_outbound_events", {
   responseJson: text("response_json"),
   createdAt: integer("created_at").notNull(),
 });
+
+export const trackerWebhookReceipts = sqliteTable(
+  "tracker_webhook_receipts",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    trackingNumber: text("tracking_number"),
+    eventId: text("event_id"),
+    payloadJson: text("payload_json").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("tracker_webhook_receipts_event").on(t.organizationId, t.eventId)],
+);
 
 export const boms = sqliteTable(
   "boms",
@@ -552,6 +624,21 @@ export const purchaseLines = sqliteTable(
   },
   (t) => [uniqueIndex("purchase_lines_purchase_item").on(t.purchaseId, t.itemId)],
 );
+
+export const purchaseSends = sqliteTable("purchase_sends", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  purchaseId: text("purchase_id")
+    .notNull()
+    .references(() => purchases.id, { onDelete: "cascade" }),
+  toAddress: text("to_address"),
+  subject: text("subject"),
+  body: text("body").notNull(),
+  mode: text("mode").notNull().default("demo"),
+  createdAt: integer("created_at").notNull(),
+});
 
 export const rmas = sqliteTable("rmas", {
   id: text("id").primaryKey(),

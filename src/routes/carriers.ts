@@ -1,8 +1,8 @@
 import { Hono } from "hono";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
-import { badRequest, conflict, notFound, optionalString, requireString } from "../lib/http";
+import { badRequest, conflict, notFound, optionalString, requireString, unauthorized } from "../lib/http";
 import { requireOwner } from "../lib/org";
 import { newId } from "../lib/ids";
 import {
@@ -21,6 +21,8 @@ import {
 } from "../domain/carriers";
 import { asCarrierLiveError, pingAggregator } from "../lib/carrier-client";
 import { isLiveAggregator } from "../domain/carrier-live";
+import { normalizeTrackerStatus, parseTrackerWebhook, verifyTrackerHmac } from "../domain/tracker";
+import { loadPackagesForOrders, orderPatchFromPackages } from "../db/packages";
 
 export const carriersRoute = new Hono<AppEnv>();
 
@@ -37,7 +39,7 @@ export async function recordCarrierEvent(
     organizationId: string;
     connectionId?: string | null;
     orderId?: string | null;
-    kind: "test" | "rates" | "buy" | "void";
+    kind: "test" | "rates" | "buy" | "void" | "tracker";
     status: string;
     request: unknown;
     response?: unknown;
@@ -119,6 +121,7 @@ carriersRoute.get("/carriers", async (c) => {
     enabledServices: enabledServicesFromConnections(connections.map(asLike)),
     shipFromAddress: warehouse?.shipFromAddress ?? null,
     warehouseId: warehouse?.id ?? null,
+    trackerWebhookUrl: `${c.get("origin")}/api/carriers/trackers/webhooks`,
   });
 });
 
@@ -179,6 +182,7 @@ carriersRoute.post("/carriers/enable-demo", async (c) => {
       enabledServices: enabledServicesFromConnections(connections.map(asLike)),
       shipFromAddress: nextWarehouse?.shipFromAddress ?? null,
       warehouseId: nextWarehouse?.id ?? null,
+      trackerWebhookUrl: `${c.get("origin")}/api/carriers/trackers/webhooks`,
     },
     existing.length === connections.length ? 200 : 201,
   );
@@ -193,6 +197,7 @@ carriersRoute.post("/carriers", async (c) => {
     apiKey?: string | null;
     apiSecret?: string | null;
     meterNumber?: string | null;
+    webhookSecret?: string | null;
     mode?: string;
     enabledServices?: string[];
     isDefault?: boolean;
@@ -226,6 +231,7 @@ carriersRoute.post("/carriers", async (c) => {
     apiKey: creds.apiKey,
     apiSecret: creds.apiSecret,
     meterNumber: creds.meterNumber,
+    webhookSecret: optionalString(body.webhookSecret) ?? null,
     mode,
     status: "connected",
     enabledServicesJson: JSON.stringify(enabledServices),
@@ -245,6 +251,7 @@ carriersRoute.patch("/carriers/:id", async (c) => {
     apiKey?: string | null;
     apiSecret?: string | null;
     meterNumber?: string | null;
+    webhookSecret?: string | null;
     mode?: string;
     enabledServices?: string[];
     isDefault?: boolean;
@@ -283,6 +290,8 @@ carriersRoute.patch("/carriers/:id", async (c) => {
       apiKey: creds.apiKey,
       apiSecret: creds.apiSecret,
       meterNumber: creds.meterNumber,
+      webhookSecret:
+        body.webhookSecret === undefined ? existing.webhookSecret : keepOrReplace(body.webhookSecret, existing.webhookSecret),
       mode,
       status: existing.status,
       enabledServicesJson: JSON.stringify(enabledServices),
@@ -385,3 +394,141 @@ carriersRoute.delete("/carriers/:id", async (c) => {
   }
   return c.json({ disconnected: true });
 });
+
+export const carriersPublicRoute = new Hono<AppEnv>();
+
+carriersPublicRoute.post("/carriers/trackers/webhooks", async (c) => {
+  const db = c.get("db");
+  const raw = await c.req.text();
+  let payload: unknown = {};
+  if (raw) {
+    try {
+      payload = JSON.parse(raw) as unknown;
+    } catch {
+      badRequest("Invalid JSON");
+    }
+  }
+  const parsed = parseTrackerWebhook(payload);
+  if (!parsed) badRequest("Tracker payload needs a tracking number and status");
+  const hmac =
+    c.req.header("X-Hmac-Signature") ||
+    c.req.header("x-hmac-signature") ||
+    c.req.header("X-ShipEngine-Hmac-SHA256") ||
+    c.req.header("x-shipengine-hmac-sha256") ||
+    c.req.header("X-Tracker-Hmac") ||
+    c.req.header("x-tracker-hmac");
+
+  const packageHits = await db
+    .select()
+    .from(schema.orderPackages)
+    .where(eq(schema.orderPackages.trackingNumber, parsed.trackingNumber));
+  const orderHits = await db
+    .select()
+    .from(schema.orders)
+    .where(eq(schema.orders.trackingNumber, parsed.trackingNumber));
+  if (packageHits.length === 0 && orderHits.length === 0) {
+    return c.json({ ignored: true, reason: "unknown_tracking" });
+  }
+
+  const orgIds = [...new Set([...packageHits.map((row) => row.organizationId), ...orderHits.map((row) => row.organizationId)])];
+  const connections = await db
+    .select()
+    .from(schema.carrierConnections)
+    .where(
+      and(
+        inArray(schema.carrierConnections.organizationId, orgIds),
+        or(eq(schema.carrierConnections.provider, "easypost"), eq(schema.carrierConnections.provider, "shipengine")),
+      ),
+    );
+  const liveSecrets = connections.filter(
+    (row) => isLiveAggregator(row.provider, row.mode) && Boolean(row.webhookSecret),
+  );
+  if (liveSecrets.length > 0) {
+    let ok = false;
+    for (const row of liveSecrets) {
+      if (await verifyTrackerHmac(row.webhookSecret!, raw, hmac)) {
+        ok = true;
+        break;
+      }
+    }
+    if (!ok) unauthorized("Invalid tracker HMAC");
+  }
+
+  const now = Date.now();
+  const status = normalizeTrackerStatus(parsed.status) ?? parsed.status.toLowerCase();
+  const updatedOrders = new Set<string>();
+  const results: { orderId: string; packageId: string | null; trackerStatus: string }[] = [];
+
+  for (const orgId of orgIds) {
+    const eventId = parsed.eventId;
+    if (eventId) {
+      const [existing] = await db
+        .select({ id: schema.trackerWebhookReceipts.id })
+        .from(schema.trackerWebhookReceipts)
+        .where(
+          and(eq(schema.trackerWebhookReceipts.organizationId, orgId), eq(schema.trackerWebhookReceipts.eventId, eventId)),
+        )
+        .limit(1);
+      if (existing) {
+        return c.json({ ok: true, duplicate: true });
+      }
+    }
+    await db.insert(schema.trackerWebhookReceipts).values({
+      id: newId(),
+      organizationId: orgId,
+      provider: parsed.provider,
+      trackingNumber: parsed.trackingNumber,
+      eventId: eventId,
+      payloadJson: JSON.stringify(payload),
+      createdAt: now,
+    });
+  }
+
+  for (const pkg of packageHits) {
+    await db
+      .update(schema.orderPackages)
+      .set({ trackerStatus: status, trackerUpdatedAt: now })
+      .where(eq(schema.orderPackages.id, pkg.id));
+    updatedOrders.add(pkg.orderId);
+    results.push({ orderId: pkg.orderId, packageId: pkg.id, trackerStatus: status });
+  }
+  for (const order of orderHits) {
+    const packages = (await loadPackagesForOrders(db, [order.id])).get(order.id) ?? [];
+    if (packages.length === 0) {
+      await db
+        .update(schema.orders)
+        .set({ trackerStatus: status, trackerUpdatedAt: now })
+        .where(eq(schema.orders.id, order.id));
+      results.push({ orderId: order.id, packageId: null, trackerStatus: status });
+    } else {
+      updatedOrders.add(order.id);
+    }
+  }
+  for (const orderId of updatedOrders) {
+    const packages = (await loadPackagesForOrders(db, [orderId])).get(orderId) ?? [];
+    const patch = orderPatchFromPackages(packages);
+    if (patch) {
+      await db
+        .update(schema.orders)
+        .set({ trackerStatus: patch.trackerStatus, trackerUpdatedAt: now })
+        .where(eq(schema.orders.id, orderId));
+    }
+  }
+
+  const connectionId = connections[0]?.id ?? null;
+  for (const orgId of orgIds) {
+    await recordCarrierEvent(db, {
+      organizationId: orgId,
+      connectionId,
+      orderId: results[0]?.orderId ?? null,
+      kind: "tracker",
+      status: "ok",
+      request: { trackingNumber: parsed.trackingNumber, provider: parsed.provider, eventId: parsed.eventId },
+      response: { trackerStatus: status, matches: results },
+      now,
+    });
+  }
+
+  return c.json({ ok: true, trackerStatus: status, matches: results });
+});
+

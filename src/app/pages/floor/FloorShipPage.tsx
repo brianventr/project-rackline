@@ -12,6 +12,7 @@ import {
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { canShipOrder } from "@/domain/status";
+import { cartonShipGate } from "@/domain/cartons";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 
@@ -154,6 +155,73 @@ export function FloorShipPage() {
             <StatusBadge status={active.status} />
           </div>
           <p>{active.customerName}</p>
+          {(active.packages ?? []).length > 0 ? (
+            <ul className="space-y-2 text-sm">
+              {(active.packages ?? []).map((pkg) => (
+                <li key={pkg.id} className="space-y-2 rounded-md border px-3 py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      <span className="font-mono">{pkg.number}</span>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {pkg.units ?? 0} units
+                        {pkg.trackingNumber ? ` · ${pkg.trackingNumber}` : " · no label"}
+                      </span>
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="secondary"
+                        onClick={() =>
+                          void api<ShippingLabel>(`/api/orders/${active.id}/packages/${pkg.id}/label`, {
+                            method: "POST",
+                            body: JSON.stringify({
+                              carrierService,
+                              trackingNumber: trackingNumber || undefined,
+                              liveRateId,
+                              weightOz: pkg.weightOz || Number(weightOz),
+                              lengthIn: pkg.lengthIn || Number(lengthIn),
+                              widthIn: pkg.widthIn || Number(widthIn),
+                              heightIn: pkg.heightIn || Number(heightIn),
+                            }),
+                          })
+                            .then(async (label) => {
+                              setTrackingNumber(label.trackingNumber);
+                              setTrackingCompany(label.carrierCompany);
+                              setDone(`${pkg.number} ${label.trackingNumber} bought.`);
+                              const next = await api<Order>(`/api/orders/${active.id}`);
+                              setActive(next);
+                            })
+                            .catch((err: Error) => setError(err.message))
+                        }
+                      >
+                        Buy {pkg.number}
+                      </Button>
+                      {pkg.labelStatus === "purchased" ? (
+                        <Button
+                          variant="secondary"
+                          onClick={() =>
+                            void api<Order>(`/api/orders/${active.id}/packages/${pkg.id}/label/void`, { method: "POST" })
+                              .then((next) => {
+                                setActive(next);
+                                setDone(`${pkg.number} voided.`);
+                              })
+                              .catch((err: Error) => setError(err.message))
+                          }
+                        >
+                          Void
+                        </Button>
+                      ) : null}
+                      {pkg.trackingNumber ? (
+                        <Button variant="secondary" asChild>
+                          <Link to={`/outbound/orders/${active.id}/packages/${pkg.id}/shipping-label`}>Print</Link>
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <Field label="Carrier service">
             <Select value={carrierService} onChange={(e) => setCarrierService(e.target.value)}>
               {serviceOptions.map((row) => (
@@ -230,55 +298,72 @@ export function FloorShipPage() {
               >
                 Shop rates
               </Button>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  void api<ShippingLabel>(`/api/orders/${active.id}/label`, {
-                    method: "POST",
-                    body: JSON.stringify({
-                      carrierService,
-                      trackingNumber: trackingNumber || undefined,
-                      liveRateId,
-                      weightOz: Number(weightOz),
-                      lengthIn: Number(lengthIn),
-                      widthIn: Number(widthIn),
-                      heightIn: Number(heightIn),
-                    }),
-                  })
-                    .then(async (label) => {
-                      setTrackingNumber(label.trackingNumber);
-                      setTrackingCompany(label.carrierCompany);
-                      setDone(`${label.trackingNumber} bought.`);
-                      const next = await api<Order>(`/api/orders/${active.id}`);
-                      setActive(next);
-                    })
-                    .catch((err: Error) => setError(err.message));
-                }}
-              >
-                Buy label
-              </Button>
-              {active.labelStatus === "purchased" && active.status !== "shipped" ? (
-                <Button
-                  variant="secondary"
-                  onClick={() =>
-                    void api<Order>(`/api/orders/${active.id}/label/void`, { method: "POST" })
-                      .then((next) => {
-                        setActive(next);
-                        setTrackingNumber("");
-                        setDone("Label voided.");
+              {(active.packages ?? []).length === 0 ? (
+                <>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      void api<ShippingLabel>(`/api/orders/${active.id}/label`, {
+                        method: "POST",
+                        body: JSON.stringify({
+                          carrierService,
+                          trackingNumber: trackingNumber || undefined,
+                          liveRateId,
+                          weightOz: Number(weightOz),
+                          lengthIn: Number(lengthIn),
+                          widthIn: Number(widthIn),
+                          heightIn: Number(heightIn),
+                        }),
                       })
-                      .catch((err: Error) => setError(err.message))
-                  }
-                >
-                  Void
-                </Button>
+                        .then(async (label) => {
+                          setTrackingNumber(label.trackingNumber);
+                          setTrackingCompany(label.carrierCompany);
+                          setDone(`${label.trackingNumber} bought.`);
+                          const next = await api<Order>(`/api/orders/${active.id}`);
+                          setActive(next);
+                        })
+                        .catch((err: Error) => setError(err.message));
+                    }}
+                  >
+                    Buy label
+                  </Button>
+                  {active.labelStatus === "purchased" && active.status !== "shipped" ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        void api<Order>(`/api/orders/${active.id}/label/void`, { method: "POST" })
+                          .then((next) => {
+                            setActive(next);
+                            setTrackingNumber("");
+                            setDone("Label voided.");
+                          })
+                          .catch((err: Error) => setError(err.message))
+                      }
+                    >
+                      Void
+                    </Button>
+                  ) : null}
+                  {trackingNumber || active.trackingNumber ? (
+                    <Button variant="secondary" asChild>
+                      <Link to={`/outbound/orders/${active.id}/shipping-label`}>Print label</Link>
+                    </Button>
+                  ) : null}
+                </>
               ) : null}
-              {trackingNumber || active.trackingNumber ? (
-                <Button variant="secondary" asChild>
-                  <Link to={`/outbound/orders/${active.id}/shipping-label`}>Print label</Link>
-                </Button>
-              ) : null}
-              <Button onClick={() => void ship()}>{active.source === "shopify" ? "Ship & fulfill" : "Ship"}</Button>
+              <Button
+                disabled={
+                  !cartonShipGate({
+                    packedUnits: (active.lines ?? []).reduce((sum, line) => sum + (line.qtyPacked ?? 0), 0),
+                    packages: (active.packages ?? []).map((pkg) => ({
+                      units: pkg.units ?? 0,
+                      trackingNumber: pkg.trackingNumber ?? null,
+                    })),
+                  }).ok
+                }
+                onClick={() => void ship()}
+              >
+                {active.source === "shopify" ? "Ship & fulfill" : "Ship"}
+              </Button>
             </div>
           ) : (
             <p>Already shipped.</p>

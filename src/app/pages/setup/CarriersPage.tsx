@@ -27,6 +27,7 @@ export function CarriersPage() {
   const [apiKey, setApiKey] = useState("");
   const [apiSecret, setApiSecret] = useState("");
   const [meterNumber, setMeterNumber] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
   const [mode, setMode] = useState("demo");
   const [enabled, setEnabled] = useState<string[]>([]);
   const [shipFrom, setShipFrom] = useState("");
@@ -59,6 +60,7 @@ export function CarriersPage() {
     setApiKey("");
     setApiSecret("");
     setMeterNumber("");
+    setWebhookSecret("");
     setMode(nextConnection?.mode || "demo");
     setEnabled(nextConnection?.enabledServices ?? nextProvider?.services.map((row) => row.id) ?? []);
   }
@@ -80,6 +82,7 @@ export function CarriersPage() {
         apiKey: apiKey || undefined,
         apiSecret: apiSecret || undefined,
         meterNumber: meterNumber || undefined,
+        webhookSecret: webhookSecret || undefined,
         mode,
         enabledServices: enabled,
       };
@@ -283,6 +286,16 @@ export function CarriersPage() {
                   />
                 </Field>
               ) : null}
+              {provider.id === "easypost" || provider.id === "shipengine" ? (
+                <Field label="Tracker webhook secret">
+                  <Input
+                    type="password"
+                    value={webhookSecret}
+                    onChange={(e) => setWebhookSecret(e.target.value)}
+                    placeholder={connection?.hasWebhookSecret ? "Leave blank to keep current" : "HMAC secret"}
+                  />
+                </Field>
+              ) : null}
               <Field label="Mode">
                 <Select value={mode} onChange={(e) => setMode(e.target.value)}>
                   <option value="demo">Demo — mint tracking locally</option>
@@ -352,6 +365,16 @@ export function CarriersPage() {
             </Field>
             <Button type="submit">Save ship-from</Button>
           </form>
+          {hub?.trackerWebhookUrl ? (
+            <div className="mt-6">
+              <h3 className="mb-2 font-medium">Tracker webhook</h3>
+              <p className="mb-2 text-sm text-muted-foreground">
+                EasyPost and ShipEngine POST tracker updates here. Demo records the payload. HMAC is required when the
+                aggregator connection is live and has a webhook secret.
+              </p>
+              <p className="font-mono text-xs break-all">{hub.trackerWebhookUrl}</p>
+            </div>
+          ) : null}
           <div className="mt-6">
             <h3 className="mb-2 font-medium">Enabled for the floor</h3>
             {(hub?.enabledServices.length ?? 0) === 0 ? (

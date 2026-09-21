@@ -47,6 +47,14 @@ import {
   type PackLine,
 } from "../domain/partial-pack";
 import {
+  applyCarton,
+  cartonNumber,
+  cartonShipGate,
+  orderLevelLabelGate,
+  OverCartonError,
+} from "../domain/cartons";
+import { asCartonLines, loadPackagesForOrders, orderPatchFromPackages, withCartonRemaining } from "../db/packages";
+import {
   consumeAllocationStatements,
   ensureAllocated,
   loadAtpBaysByItem,
@@ -223,11 +231,14 @@ async function orderWithLines(
   const decorated = options.suggest
     ? await withSuggestions(db, organizationId, lines, order.id, preferredZoneId)
     : lines.map(withRemaining);
+  const packagesByOrder = await loadPackagesForOrders(db, [order.id]);
+  const packages = packagesByOrder.get(order.id) ?? [];
   return {
     ...order,
     allocatedUnits: allocatedUnits(allocations),
     allocations,
-    lines: withAllocations(decorated, allocations),
+    packages,
+    lines: withCartonRemaining(withAllocations(decorated, allocations), packages),
   };
 }
 
@@ -373,14 +384,20 @@ ordersRoute.get("/orders", async (c) => {
     list.push(row);
     allocsByOrder.set(row.orderId, list);
   }
+  const packagesByOrder = await loadPackagesForOrders(
+    db,
+    rows.map((row) => row.id),
+  );
   return c.json(
     rows.map((row) => {
       const reserved = allocsByOrder.get(row.id) ?? [];
+      const packages = packagesByOrder.get(row.id) ?? [];
       return {
         ...row,
         allocatedUnits: allocatedUnits(reserved),
         allocations: reserved,
-        lines: withAllocations((byOrder.get(row.id) ?? []).map(withRemaining), reserved),
+        packages,
+        lines: withCartonRemaining(withAllocations((byOrder.get(row.id) ?? []).map(withRemaining), reserved), packages),
       };
     }),
   );
@@ -714,6 +731,339 @@ ordersRoute.post("/orders/:id/start-pack", async (c) => {
   return c.json(packing);
 });
 
+function resolveIncomingCarton(
+  lines: { id: string; itemId: string; cartonRemaining: number }[],
+  bodyLines?: { lineId?: string; itemId?: string; qty?: number }[],
+): { lineId: string; qty: number }[] {
+  if (Array.isArray(bodyLines) && bodyLines.length > 0) {
+    const byId = new Map(lines.map((line) => [line.id, line]));
+    const byItem = new Map(lines.map((line) => [line.itemId, line]));
+    return bodyLines.map((row) => {
+      const line =
+        (row.lineId ? byId.get(row.lineId) : undefined) ?? (row.itemId ? byItem.get(row.itemId) : undefined);
+      if (!line) badRequest("Line is not on this order");
+      const qty = row.qty === undefined || row.qty === null ? line.cartonRemaining : requireInt(row.qty, "qty");
+      return { lineId: line.id, qty };
+    });
+  }
+  return lines.filter((line) => line.cartonRemaining > 0).map((line) => ({ lineId: line.id, qty: line.cartonRemaining }));
+}
+
+ordersRoute.post("/orders/:id/packages", async (c) => {
+  const body = await c.req
+    .json<{
+      lines?: { lineId?: string; itemId?: string; qty?: number }[];
+      pack?: boolean;
+      weightOz?: number;
+      lengthIn?: number;
+      widthIn?: number;
+      heightIn?: number;
+    }>()
+    .catch(
+      () =>
+        ({}) as {
+          lines?: { lineId?: string; itemId?: string; qty?: number }[];
+          pack?: boolean;
+          weightOz?: number;
+          lengthIn?: number;
+          widthIn?: number;
+          heightIn?: number;
+        },
+    );
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const user = c.get("user")!;
+  let order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
+  if (!canPackOrder(order.status) && order.status !== "packed") {
+    conflict("Order must be picked before packing cartons");
+  }
+  await guardFloorJob(db, {
+    organizationId,
+    warehouseId: order.warehouseId,
+    userId: user.id,
+    role: c.get("role")!,
+    refType: "order",
+    refId: order.id,
+    verb: "pack",
+    number: order.number,
+    title: order.source === "shopify" ? `${order.customerName} · Shopify` : order.customerName,
+    fromLocationId: order.pickLocationId,
+    createdAt: order.createdAt,
+  });
+
+  if (body.pack) {
+    if (!canPackOrder(order.status)) conflict("Order must be picked before packing");
+    if (!hasUnpacked(order.lines.map(asPackLine)) && !order.lines.some((line) => (line.cartonRemaining ?? 0) > 0)) {
+      conflict("Order has nothing remaining to pack");
+    }
+    if (hasUnpacked(order.lines.map(asPackLine))) {
+      const incomingPack = resolveIncomingPack(order.lines, body.lines).filter((line) => line.qty > 0);
+      let packed;
+      try {
+        packed = applyPartialPack(order.lines.map(asPackLine), incomingPack);
+      } catch (err) {
+        if (err instanceof OverPackError) throw err;
+        badRequest(err instanceof Error ? err.message : "Invalid pack");
+      }
+      const nowPack = Date.now();
+      const fullyPacked = isFullyPacked(packed.next);
+      const qtyPackedByLine = new Map(packed.next.map((line) => [line.lineId, line.qtyPacked]));
+      const packLines = incomingPack
+        .map((line) => {
+          const orderLine = order.lines.find((row) => row.id === line.lineId);
+          return { itemId: orderLine?.itemId ?? "", qty: line.qty };
+        })
+        .filter((line) => line.itemId && line.qty > 0);
+      await db.batch([
+        db
+          .update(schema.orders)
+          .set({
+            status: fullyPacked ? "packed" : "packing",
+            packedAt: fullyPacked ? nowPack : order.packedAt,
+          })
+          .where(eq(schema.orders.id, order.id)),
+        ...order.lines.map((line) =>
+          db
+            .update(schema.orderLines)
+            .set({ qtyPacked: qtyPackedByLine.get(line.id) ?? line.qtyPacked })
+            .where(eq(schema.orderLines.id, line.id)),
+        ),
+        ...packLines.map((line) =>
+          db.insert(schema.packEvents).values({
+            id: newId(),
+            organizationId,
+            warehouseId: order.warehouseId,
+            userId: user.id,
+            orderId: order.id,
+            itemId: line.itemId,
+            qty: line.qty,
+            createdAt: nowPack,
+          }),
+        ),
+      ]);
+      order = await orderWithLines(db, organizationId, order.id, { suggest: false });
+    }
+  }
+
+  const incoming = resolveIncomingCarton(order.lines, body.pack ? undefined : body.lines).filter((line) => line.qty > 0);
+  let applied;
+  try {
+    applied = applyCarton(asCartonLines(order.lines, order.packages), incoming);
+  } catch (err) {
+    if (err instanceof OverCartonError) throw err;
+    badRequest(err instanceof Error ? err.message : "Invalid carton");
+  }
+
+  const parcel = resolveParcel({
+    weightOz: optionalInt(body.weightOz, "weightOz"),
+    lengthIn: optionalInt(body.lengthIn, "lengthIn"),
+    widthIn: optionalInt(body.widthIn, "widthIn"),
+    heightIn: optionalInt(body.heightIn, "heightIn"),
+  });
+  const seq = order.packages.length + 1;
+  const packageId = newId();
+  const now = Date.now();
+  await db.batch([
+    db.insert(schema.orderPackages).values({
+      id: packageId,
+      organizationId,
+      orderId: order.id,
+      number: cartonNumber(seq),
+      seq,
+      weightOz: parcel.weightOz,
+      lengthIn: parcel.lengthIn,
+      widthIn: parcel.widthIn,
+      heightIn: parcel.heightIn,
+      labelStatus: "none",
+      createdAt: now,
+    }),
+    ...applied.posted.map((line) => {
+      const orderLine = order.lines.find((row) => row.id === line.lineId)!;
+      return db.insert(schema.orderPackageLines).values({
+        id: newId(),
+        packageId,
+        orderLineId: line.lineId,
+        itemId: orderLine.itemId,
+        qty: line.qty,
+      });
+    }),
+  ]);
+  const next = await orderWithLines(db, organizationId, order.id);
+  await syncDocumentJob(db, orderJobInput(next));
+  return c.json(next, 201);
+});
+
+ordersRoute.get("/orders/:id/packages/:pkgId/label", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
+  const pkg = order.packages.find((row) => row.id === c.req.param("pkgId"));
+  if (!pkg) notFound("Carton not found");
+  if (!pkg.trackingNumber) conflict("Buy a label before printing", "NEED_PACKAGE");
+  const warehouse = await loadWarehouse(db, organizationId, order.warehouseId);
+  return c.json(
+    buildShippingLabel({
+      ...order,
+      trackingNumber: pkg.trackingNumber,
+      trackingCompany: pkg.trackingCompany,
+      trackingUrl: pkg.trackingUrl,
+      carrierService: pkg.carrierService,
+      carrierConnectionId: pkg.carrierConnectionId,
+      labelStatus: pkg.labelStatus,
+      packageNumber: pkg.number,
+      shipFromAddress: warehouse?.shipFromAddress ?? null,
+    }),
+  );
+});
+
+ordersRoute.post("/orders/:id/packages/:pkgId/label", async (c) => {
+  const body = await c.req.json<LabelBody>().catch(() => ({}) as LabelBody);
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
+  const pkg = order.packages.find((row) => row.id === c.req.param("pkgId"));
+  if (!pkg) notFound("Carton not found");
+  const status = order.status === "draft" ? "open" : order.status;
+  if (status === "cancelled") conflict("Cancelled orders cannot take a label");
+  const { label, purchase, parcel, liveLabel, connection } = await purchaseOrderLabel(db, organizationId, order, body, pkg);
+  const live = Boolean(liveLabel);
+  const trackerStatus = live ? "pre_transit" : pkg.trackerStatus;
+  await db
+    .update(schema.orderPackages)
+    .set({
+      trackingNumber: label.trackingNumber,
+      trackingCompany: label.carrierCompany,
+      trackingUrl: label.trackingUrl,
+      carrierService: label.carrierServiceId,
+      carrierConnectionId: purchase.connectionId,
+      labelStatus: "purchased",
+      carrierShipmentId: liveLabel?.shipmentId ?? pkg.carrierShipmentId,
+      carrierLabelId: liveLabel?.labelId ?? pkg.carrierLabelId,
+      postageCents: liveLabel?.postageCents ?? pkg.postageCents,
+      weightOz: parcel.weightOz,
+      lengthIn: parcel.lengthIn,
+      widthIn: parcel.widthIn,
+      heightIn: parcel.heightIn,
+      trackerStatus,
+      trackerUpdatedAt: live ? Date.now() : pkg.trackerUpdatedAt,
+    })
+    .where(eq(schema.orderPackages.id, pkg.id));
+  const packages = (await loadPackagesForOrders(db, [order.id])).get(order.id) ?? [];
+  const patch = orderPatchFromPackages(packages);
+  if (patch) {
+    await db
+      .update(schema.orders)
+      .set({
+        ...patch,
+        ...destPatchFromAddress(label.shipToAddress),
+      })
+      .where(eq(schema.orders.id, order.id));
+  }
+  await recordCarrierEvent(db, {
+    organizationId,
+    connectionId: purchase.connectionId,
+    orderId: order.id,
+    kind: "buy",
+    status: "ok",
+    request: {
+      carrierService: purchase.service.id,
+      connectionId: purchase.connectionId,
+      mode: live ? "live" : connection?.mode ?? "demo",
+      parcel,
+      packageId: pkg.id,
+      packageNumber: pkg.number,
+    },
+    response: {
+      trackingNumber: label.trackingNumber,
+      trackingUrl: label.trackingUrl,
+      shipmentId: liveLabel?.shipmentId ?? null,
+      labelId: liveLabel?.labelId ?? null,
+      postageCents: liveLabel?.postageCents ?? null,
+      message: live
+        ? "Postage purchased from the aggregator."
+        : "Label minted locally. Direct carrier APIs are not called — connect EasyPost or ShipEngine for live postage.",
+    },
+  });
+  const next = await orderWithLines(db, organizationId, order.id, { suggest: false });
+  const warehouse = await loadWarehouse(db, organizationId, next.warehouseId);
+  return c.json(
+    buildShippingLabel({
+      ...next,
+      trackingNumber: label.trackingNumber,
+      trackingCompany: label.carrierCompany,
+      trackingUrl: label.trackingUrl,
+      carrierService: label.carrierServiceId,
+      packageNumber: pkg.number,
+      shipFromAddress: warehouse?.shipFromAddress ?? null,
+    }),
+  );
+});
+
+ordersRoute.post("/orders/:id/packages/:pkgId/label/void", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
+  const pkg = order.packages.find((row) => row.id === c.req.param("pkgId"));
+  if (!pkg) notFound("Carton not found");
+  const decision = canVoidLabel({ status: order.status, labelStatus: pkg.labelStatus });
+  if (!decision.ok) {
+    if (decision.code === "SHIPPED" || decision.code === "CANCELLED") conflict(decision.error);
+    badRequest(decision.error);
+  }
+  const connections = await loadCarrierConnections(db, organizationId);
+  const connection = connections.find((row) => row.id === pkg.carrierConnectionId) ?? null;
+  if (connection && isLiveAggregator(connection.provider, connection.mode) && (pkg.carrierShipmentId || pkg.carrierLabelId)) {
+    if (!connection.apiKey) conflict("Live void needs an API key", "CARRIER_LIVE");
+    try {
+      await voidAggregatorLabel({
+        provider: connection.provider as "easypost" | "shipengine",
+        apiKey: connection.apiKey,
+        shipmentId: pkg.carrierShipmentId,
+        labelId: pkg.carrierLabelId,
+      });
+    } catch (err) {
+      await recordCarrierEvent(db, {
+        organizationId,
+        connectionId: pkg.carrierConnectionId,
+        orderId: order.id,
+        kind: "void",
+        status: "failed",
+        request: { trackingNumber: pkg.trackingNumber, carrierService: pkg.carrierService, mode: "live", packageId: pkg.id },
+        response: { error: err instanceof Error ? err.message : "Void failed" },
+      });
+      throw asCarrierLiveError(err);
+    }
+  }
+  await db
+    .update(schema.orderPackages)
+    .set({
+      trackingNumber: null,
+      trackingUrl: null,
+      labelStatus: "voided",
+      carrierShipmentId: null,
+      carrierLabelId: null,
+      postageCents: null,
+      trackerStatus: null,
+      trackerUpdatedAt: null,
+    })
+    .where(eq(schema.orderPackages.id, pkg.id));
+  const packages = (await loadPackagesForOrders(db, [order.id])).get(order.id) ?? [];
+  const patch = orderPatchFromPackages(packages);
+  if (patch) {
+    await db.update(schema.orders).set(patch).where(eq(schema.orders.id, order.id));
+  }
+  await recordCarrierEvent(db, {
+    organizationId,
+    connectionId: pkg.carrierConnectionId,
+    orderId: order.id,
+    kind: "void",
+    status: "ok",
+    request: { trackingNumber: pkg.trackingNumber, carrierService: pkg.carrierService, packageId: pkg.id },
+    response: { voided: true, live: Boolean(connection && isLiveAggregator(connection.provider, connection.mode)) },
+  });
+  return c.json(await orderWithLines(db, organizationId, order.id, { suggest: false }));
+});
+
 async function loadWarehouse(
   db: AppEnv["Variables"]["db"],
   organizationId: string,
@@ -741,12 +1091,24 @@ type LabelBody = {
   heightIn?: number;
 };
 
-function parcelFrom(body: LabelBody, order: { packageWeightOz?: number | null; packageLengthIn?: number | null; packageWidthIn?: number | null; packageHeightIn?: number | null }) {
+function parcelFrom(
+  body: LabelBody,
+  source: {
+    packageWeightOz?: number | null;
+    packageLengthIn?: number | null;
+    packageWidthIn?: number | null;
+    packageHeightIn?: number | null;
+    weightOz?: number | null;
+    lengthIn?: number | null;
+    widthIn?: number | null;
+    heightIn?: number | null;
+  },
+) {
   return resolveParcel({
-    weightOz: optionalInt(body.weightOz, "weightOz") ?? order.packageWeightOz ?? undefined,
-    lengthIn: optionalInt(body.lengthIn, "lengthIn") ?? order.packageLengthIn ?? undefined,
-    widthIn: optionalInt(body.widthIn, "widthIn") ?? order.packageWidthIn ?? undefined,
-    heightIn: optionalInt(body.heightIn, "heightIn") ?? order.packageHeightIn ?? undefined,
+    weightOz: optionalInt(body.weightOz, "weightOz") ?? source.packageWeightOz ?? source.weightOz ?? undefined,
+    lengthIn: optionalInt(body.lengthIn, "lengthIn") ?? source.packageLengthIn ?? source.lengthIn ?? undefined,
+    widthIn: optionalInt(body.widthIn, "widthIn") ?? source.packageWidthIn ?? source.widthIn ?? undefined,
+    heightIn: optionalInt(body.heightIn, "heightIn") ?? source.packageHeightIn ?? source.heightIn ?? undefined,
   });
 }
 
@@ -764,6 +1126,7 @@ async function purchaseOrderLabel(
   organizationId: string,
   order: Awaited<ReturnType<typeof orderWithLines>>,
   body: LabelBody,
+  pkg?: { trackingNumber?: string | null; trackingCompany?: string | null; trackingUrl?: string | null; weightOz?: number | null; lengthIn?: number | null; widthIn?: number | null; heightIn?: number | null },
 ) {
   const connections = await loadCarrierConnections(db, organizationId);
   const purchase = resolveLabelPurchase({
@@ -775,7 +1138,7 @@ async function purchaseOrderLabel(
   const warehouse = await loadWarehouse(db, organizationId, order.warehouseId);
   const shipFromAddress = warehouse?.shipFromAddress ?? null;
   const shipToAddress = body.shipToAddress?.trim() || order.shipToAddress;
-  const parcel = parcelFrom(body, order);
+  const parcel = parcelFrom(body, pkg ?? order);
   const connection = connections.find((row) => row.id === purchase.connectionId) ?? null;
   const explicitTracking = body.trackingNumber?.trim();
   const live =
@@ -821,13 +1184,14 @@ async function purchaseOrderLabel(
       throw asCarrierLiveError(err);
     }
   }
+  const existingTracking = pkg ? pkg.trackingNumber : order.trackingNumber;
   const label = buildShippingLabel({
     ...order,
     shipToAddress,
     shipFromAddress,
-    trackingNumber: liveLabel?.trackingNumber || explicitTracking || order.trackingNumber,
-    trackingCompany: body.trackingCompany?.trim() || order.trackingCompany || purchase.service.company,
-    trackingUrl: liveLabel?.trackingUrl || body.trackingUrl?.trim() || order.trackingUrl,
+    trackingNumber: liveLabel?.trackingNumber || explicitTracking || existingTracking,
+    trackingCompany: body.trackingCompany?.trim() || (pkg ? pkg.trackingCompany : order.trackingCompany) || purchase.service.company,
+    trackingUrl: liveLabel?.trackingUrl || body.trackingUrl?.trim() || (pkg ? pkg.trackingUrl : order.trackingUrl),
     carrierService: purchase.service.id,
     carrierConnectionId: purchase.connectionId,
     labelStatus: "purchased",
@@ -934,6 +1298,8 @@ ordersRoute.post("/orders/:id/label", async (c) => {
   const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   const status = order.status === "draft" ? "open" : order.status;
   if (status === "cancelled") conflict("Cancelled orders cannot take a label");
+  const packageGate = orderLevelLabelGate(order.packages.length);
+  if (!packageGate.ok) conflict(packageGate.error, packageGate.code);
   const { label, purchase, parcel, liveLabel, connection } = await purchaseOrderLabel(db, organizationId, order, body);
   const live = Boolean(liveLabel);
   await db
@@ -948,6 +1314,8 @@ ordersRoute.post("/orders/:id/label", async (c) => {
       carrierShipmentId: liveLabel?.shipmentId ?? order.carrierShipmentId,
       carrierLabelId: liveLabel?.labelId ?? order.carrierLabelId,
       postageCents: liveLabel?.postageCents ?? order.postageCents,
+      trackerStatus: live ? "pre_transit" : order.trackerStatus,
+      trackerUpdatedAt: live ? Date.now() : order.trackerUpdatedAt,
       ...parcelPatch(parcel),
       ...destPatchFromAddress(label.shipToAddress),
     })
@@ -1058,6 +1426,12 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   });
   const locationId = order.pickLocationId;
   if (!locationId) conflict("Pick location missing");
+  const packedUnits = order.lines.reduce((sum, line) => sum + line.qtyPacked, 0);
+  const shipGate = cartonShipGate({
+    packedUnits,
+    packages: order.packages.map((row) => ({ units: row.units, trackingNumber: row.trackingNumber })),
+  });
+  if (!shipGate.ok) conflict(shipGate.error, shipGate.code);
 
   const pickWeights = await db
     .select({
@@ -1093,7 +1467,32 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   });
   const plan: StockPlan = { balances: new Map(), movements };
   const now = Date.now();
-  const { label, purchase, parcel, liveLabel } = await purchaseOrderLabel(db, organizationId, order, body);
+  const usePackages = order.packages.length > 0;
+  const purchased = usePackages
+    ? {
+        label: {
+          trackingNumber: order.trackingNumber || order.packages.find((row) => row.trackingNumber)?.trackingNumber || "",
+          carrierCompany: order.trackingCompany || order.packages.find((row) => row.trackingNumber)?.trackingCompany || "",
+          trackingUrl: order.trackingUrl || order.packages.find((row) => row.trackingNumber)?.trackingUrl || "",
+          carrierServiceId: order.carrierService || order.packages.find((row) => row.trackingNumber)?.carrierService || "rackline_ground",
+          shipToAddress: order.shipToAddress,
+        },
+        purchase: { connectionId: order.carrierConnectionId },
+        parcel: resolveParcel({
+          weightOz: order.packageWeightOz ?? undefined,
+          lengthIn: order.packageLengthIn ?? undefined,
+          widthIn: order.packageWidthIn ?? undefined,
+          heightIn: order.packageHeightIn ?? undefined,
+        }),
+        liveLabel: {
+          shipmentId: order.carrierShipmentId,
+          labelId: order.carrierLabelId,
+          postageCents: order.postageCents,
+        },
+      }
+    : await purchaseOrderLabel(db, organizationId, order, body);
+  const { label, purchase, parcel, liveLabel } = purchased;
+  const liveBuy = !usePackages && Boolean(liveLabel);
   await persistStockPlan(db, {
     organizationId,
     createdBy: user.id,
@@ -1115,7 +1514,9 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
           carrierShipmentId: liveLabel?.shipmentId ?? order.carrierShipmentId,
           carrierLabelId: liveLabel?.labelId ?? order.carrierLabelId,
           postageCents: liveLabel?.postageCents ?? order.postageCents,
-          ...parcelPatch(parcel),
+          trackerStatus: liveBuy ? "pre_transit" : order.trackerStatus,
+          trackerUpdatedAt: liveBuy ? now : order.trackerUpdatedAt,
+          ...(!usePackages ? parcelPatch(parcel) : {}),
           ...destPatchFromAddress(label.shipToAddress),
           shopifySyncStatus: order.source === "shopify" ? "pending_fulfill" : order.shopifySyncStatus,
         })

@@ -8,6 +8,7 @@ import { docNumber, newId } from "../lib/ids";
 import { postReceiveLines } from "../db/stock";
 import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError } from "../domain/partial-receive";
 import { canReceivePurchase, canStartPurchase } from "../domain/status";
+import { sendPurchaseOrder } from "../db/purchase-send";
 import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
@@ -72,9 +73,23 @@ async function purchaseWithLines(db: AppEnv["Variables"]["db"], organizationId: 
     .from(schema.purchaseLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.purchaseLines.itemId))
     .where(eq(schema.purchaseLines.purchaseId, id));
+  const asns = await db
+    .select()
+    .from(schema.asns)
+    .where(and(eq(schema.asns.purchaseId, id), eq(schema.asns.organizationId, organizationId)))
+    .orderBy(desc(schema.asns.createdAt));
+  const sends = await db
+    .select()
+    .from(schema.purchaseSends)
+    .where(and(eq(schema.purchaseSends.purchaseId, id), eq(schema.purchaseSends.organizationId, organizationId)))
+    .orderBy(desc(schema.purchaseSends.createdAt))
+    .limit(5);
   return {
     ...purchase,
     lines: lines.map((line) => ({ ...line, remaining: remainingOnLine(asExpected(line)) })),
+    asns,
+    send: sends[0] ?? null,
+    sends,
   };
 }
 
@@ -217,6 +232,7 @@ purchasesRoute.post("/purchases/from-reorder", async (c) => {
 });
 
 purchasesRoute.post("/purchases/:id/start", async (c) => {
+  const body = await c.req.json<{ to?: string; message?: string }>().catch(() => ({}) as { to?: string; message?: string });
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const purchase = await purchaseWithLines(db, organizationId, c.req.param("id"));
@@ -227,13 +243,38 @@ purchasesRoute.post("/purchases/:id/start", async (c) => {
     role: c.get("role")!,
     verb: "receive",
   });
-  await db
-    .update(schema.purchases)
-    .set({ status: "ordered", orderedAt: Date.now() })
-    .where(eq(schema.purchases.id, purchase.id));
+  const sent = await sendPurchaseOrder(db, {
+    organizationId,
+    purchase,
+    to: body.to,
+    message: body.message,
+  });
   const started = await purchaseWithLines(db, organizationId, purchase.id);
   await syncDocumentJob(db, purchaseJob(started));
-  return c.json(started);
+  return c.json({ ...started, mintedAsnId: sent.asnId });
+});
+
+purchasesRoute.post("/purchases/:id/send", async (c) => {
+  const body = await c.req.json<{ to?: string; message?: string }>().catch(() => ({}) as { to?: string; message?: string });
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const purchase = await purchaseWithLines(db, organizationId, c.req.param("id"));
+  if (!canStartPurchase(purchase.status)) conflict("Purchase is not a draft");
+  await guardFloorJob(db, {
+    ...purchaseJob(purchase),
+    userId: c.get("user")!.id,
+    role: c.get("role")!,
+    verb: "receive",
+  });
+  const sent = await sendPurchaseOrder(db, {
+    organizationId,
+    purchase,
+    to: body.to,
+    message: body.message,
+  });
+  const started = await purchaseWithLines(db, organizationId, purchase.id);
+  await syncDocumentJob(db, purchaseJob(started));
+  return c.json({ ...started, mintedAsnId: sent.asnId });
 });
 
 purchasesRoute.post("/purchases/:id/receive", async (c) => {
@@ -258,10 +299,10 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
   await getOrgLocation(db, organizationId, locationId);
 
   if (purchase.status === "draft") {
-    await db
-      .update(schema.purchases)
-      .set({ status: "ordered", orderedAt: Date.now() })
-      .where(eq(schema.purchases.id, purchase.id));
+    await sendPurchaseOrder(db, {
+      organizationId,
+      purchase,
+    });
     purchase = await purchaseWithLines(db, organizationId, purchase.id);
   }
 

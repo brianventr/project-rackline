@@ -288,6 +288,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
 
   const receiptId = newId();
   const purchaseId = newId();
+  const cordPoId = newId();
   const rmaId = newId();
   const rtvId = newId();
   const orderId = newId();
@@ -332,6 +333,33 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       purchaseId,
       itemId: item.shade,
       qtyOrdered: 8,
+      qtyReceived: 0,
+    }),
+    db.insert(schema.purchaseSends).values({
+      id: newId(),
+      organizationId,
+      purchaseId,
+      toAddress: "Harbor Components",
+      subject: "PO-DEMO1",
+      body: "Please fulfill PO-DEMO1: LED-BULB × 20, SHADE × 8.",
+      mode: "demo",
+      createdAt: now,
+    }),
+    db.insert(schema.purchases).values({
+      id: cordPoId,
+      organizationId,
+      warehouseId,
+      number: "PO-CORD",
+      vendorName: "Harbor Components",
+      status: "draft",
+      notes: "Draft CORD restock — send to mint an expected ASN",
+      createdAt: now,
+    }),
+    db.insert(schema.purchaseLines).values({
+      id: newId(),
+      purchaseId: cordPoId,
+      itemId: item.cord,
+      qtyOrdered: 15,
       qtyReceived: 0,
     }),
     db.insert(schema.orders).values({
@@ -1012,8 +1040,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     { number: "ORD-SFO1", customer: "Mission Light", address: "18 Valencia St\nSan Francisco, CA 94110", sku: "shade" as const, qty: 3, hoursAgo: 5, carrier: "usps_priority", tracking: "RL-SFO001" },
     { number: "ORD-DEN1", customer: "High Plains Co", address: "1401 Blake St\nDenver, CO 80202", sku: "lamp" as const, qty: 1, hoursAgo: 20, carrier: "rackline_ground", tracking: "RL-DEN001" },
     { number: "ORD-AUS1", customer: "South Congress", address: "1400 S Congress Ave\nAustin, TX 78704", sku: "lamp" as const, qty: 2, hoursAgo: 14, carrier: "ups_ground", tracking: "RL-AUS001" },
-    { number: "ORD-CHI1", customer: "Wicker Park", address: "1608 N Milwaukee Ave\nChicago, IL 60647", sku: "bulb" as const, qty: 6, hoursAgo: 30, carrier: "usps_priority", tracking: "RL-CHI001" },
-    { number: "ORD-NYC1", customer: "Brooklyn Studio", address: "85 N 3rd St\nBrooklyn, NY 11249", sku: "lamp" as const, qty: 1, hoursAgo: 10, carrier: "ups_ground", tracking: "RL-NYC001" },
+    { number: "ORD-CHI1", customer: "Wicker Park", address: "1608 N Milwaukee Ave\nChicago, IL 60647", sku: "bulb" as const, qty: 6, hoursAgo: 30, carrier: "usps_priority", tracking: "RL-CHI001", tracker: "delivered" },
+    { number: "ORD-NYC1", customer: "Brooklyn Studio", address: "85 N 3rd St\nBrooklyn, NY 11249", sku: "lamp" as const, qty: 1, hoursAgo: 10, carrier: "ups_ground", tracking: "RL-NYC001", tracker: "in_transit" },
     { number: "ORD-BOS1", customer: "Fort Point", address: "12 Farnsworth St\nBoston, MA 02210", sku: "lamp" as const, qty: 1, hoursAgo: 120, carrier: "ups_ground", tracking: "RL-BOS001" },
     { number: "ORD-MIA1", customer: "Wynwood Lab", address: "2301 NW 2nd Ave\nMiami, FL 33127", sku: "shade" as const, qty: 2, hoursAgo: 16, carrier: "usps_priority", tracking: "RL-MIA001" },
     { number: "ORD-ATL1", customer: "Old Fourth Ward", address: "675 Ponce De Leon Ave\nAtlanta, GA 30308", sku: "lamp" as const, qty: 2, hoursAgo: 4, carrier: "rackline_ground", tracking: "RL-ATL001" },
@@ -1023,6 +1051,9 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     { number: "ORD-LON1", customer: "Shoreditch Works", address: "221B Baker Street\nLondon, UK", sku: "lamp" as const, qty: 1, hoursAgo: 36, carrier: "usps_priority", tracking: "RL-LON001" },
   ];
   const packedId = newId();
+  const packedLineId = newId();
+  const box1Id = newId();
+  const box2Id = newId();
   const willCallId = newId();
   const trafficInserts = traffic.flatMap((row) => {
     const id = newId();
@@ -1042,6 +1073,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
         trackingNumber: row.tracking,
         trackingCompany: row.carrier === "usps_priority" ? "USPS" : row.carrier === "ups_ground" ? "UPS" : "Rackline",
         carrierService: row.carrier,
+        trackerStatus: "tracker" in row ? (row as { tracker?: string }).tracker ?? null : null,
+        trackerUpdatedAt: "tracker" in row && (row as { tracker?: string }).tracker ? shippedAt : null,
         ...destPatchFromAddress(row.address),
       }),
       db.insert(schema.orderLines).values({
@@ -1070,12 +1103,58 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       ...destPatchFromAddress("2803 Main St\nDallas, TX 75226"),
     }),
     db.insert(schema.orderLines).values({
-      id: newId(),
+      id: packedLineId,
       orderId: packedId,
       itemId: item.lamp,
       qty: 2,
       qtyPicked: 2,
       qtyPacked: 2,
+    }),
+    db.insert(schema.orderPackages).values({
+      id: box1Id,
+      organizationId,
+      orderId: packedId,
+      number: "BOX-1",
+      seq: 1,
+      weightOz: 16,
+      lengthIn: 12,
+      widthIn: 9,
+      heightIn: 6,
+      trackingNumber: "RL-DFW001",
+      trackingCompany: "UPS",
+      carrierService: "ups_ground",
+      labelStatus: "purchased",
+      createdAt: now - hour,
+    }),
+    db.insert(schema.orderPackageLines).values({
+      id: newId(),
+      packageId: box1Id,
+      orderLineId: packedLineId,
+      itemId: item.lamp,
+      qty: 1,
+    }),
+    db.insert(schema.orderPackages).values({
+      id: box2Id,
+      organizationId,
+      orderId: packedId,
+      number: "BOX-2",
+      seq: 2,
+      weightOz: 12,
+      lengthIn: 10,
+      widthIn: 8,
+      heightIn: 6,
+      trackingNumber: "RL-DFW002",
+      trackingCompany: "UPS",
+      carrierService: "ups_ground",
+      labelStatus: "purchased",
+      createdAt: now - hour,
+    }),
+    db.insert(schema.orderPackageLines).values({
+      id: newId(),
+      packageId: box2Id,
+      orderLineId: packedLineId,
+      itemId: item.lamp,
+      qty: 1,
     }),
     db.insert(schema.orders).values({
       id: willCallId,
@@ -1102,6 +1181,27 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     }),
     ...(trafficInserts as typeof trafficInserts),
   ] as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+
+  await db.insert(schema.trackerWebhookReceipts).values([
+    {
+      id: newId(),
+      organizationId,
+      provider: "demo",
+      trackingNumber: "RL-NYC001",
+      eventId: "demo-nyc-in-transit",
+      payloadJson: JSON.stringify({ trackingNumber: "RL-NYC001", status: "in_transit" }),
+      createdAt: now - 8 * hour,
+    },
+    {
+      id: newId(),
+      organizationId,
+      provider: "demo",
+      trackingNumber: "RL-CHI001",
+      eventId: "demo-chi-delivered",
+      payloadJson: JSON.stringify({ trackingNumber: "RL-CHI001", status: "delivered" }),
+      createdAt: now - 6 * hour,
+    },
+  ]);
 
   await seedLaborHistory(db, {
     organizationId,

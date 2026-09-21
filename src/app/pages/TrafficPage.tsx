@@ -196,6 +196,7 @@ export function TrafficPage() {
             <div className="pointer-events-none absolute left-4 top-4 flex flex-wrap gap-2">
               <Kpi label="In the air" value={data.kpis.inFlight} />
               <Kpi label="At the gate" value={data.kpis.atGate} />
+              <Kpi label="Arrived" value={data.kpis.arrived} />
               <Kpi label="Destinations" value={data.kpis.destCount} />
               <Kpi label="Units" value={data.kpis.units} />
               {data.kpis.unmapped ? <Kpi label="Unmapped" value={data.kpis.unmapped} warn /> : null}

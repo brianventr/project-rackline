@@ -79,6 +79,12 @@ Iteration 32 buys live postage from EasyPost or ShipEngine only. Shop rates / Bu
 
 Iteration 33 drafts a PO from Today’s reorder queue: qty is `max(1, reorder point − on-hand)`, last vendor on the SKU (or the majority vendor), SKUs already on an open PO are skipped.
 
+Iteration 34 packs cartons: `BOX-1` / `BOX-2` with weight and dims per box. Buy or void a label per carton (EasyPost/ShipEngine live, demo mint otherwise). Ship when every packed unit is in a carton that has tracking. Qty already left the bay at pick. Cartons are optional until the first box exists — then every packed unit must be labeled before ship. Order-level buy on a multi-carton ticket returns HTTP 409 (`NEED_PACKAGE`). Shopify fulfillment still posts the first carton’s tracking.
+
+Iteration 35 feeds EasyPost and ShipEngine tracker webhooks into Traffic. Demo records the payload. `pre_transit` / `in_transit` / `delivered` map onto at-gate / in-flight / arrived. The geodesic lane estimate is used only when no tracker status is present. Direct-carrier demo labels stay estimated. Traffic’s Arrived KPI counts tracker-delivered and estimated arrivals in the selected horizon.
+
+Iteration 36 sends a draft PO: Mark ordered emails or records a send (demo stores the message), stamps `orderedAt`, and mints an expected `ASN-` for remaining qty. SKUs already on an open ASN (draft / expected / receiving) are skipped. No vendor portal, no X12.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 Iteration 25 deepens logistics on the same location:item ledger (qty stays integer stock units):
@@ -159,7 +165,7 @@ HMAC is verified on the raw body (`X-Shopify-Hmac-SHA256`). Duplicate deliveries
 
 Sellable qty (`on-hand − held − remaining to pick`) is pushed with `inventorySetQuantities` after stock posts, ingest, hold, cancel, and **Push sellable**. Demo records the GraphQL payload. Live skips SKUs with no inventory item. A live shop without a location GID returns HTTP 409 (`MISSING_LOCATION`); automatic sync records a failed outbound event instead of failing the WMS post.
 
-Demo mode never calls Shopify; it stores the GraphQL payload that would have been sent. Northwind includes a demo connection for `northwind-makers.myshopify.com` and demo inventory item GIDs. CORD is seeded at 25 with reorder point 40 so Today has a reorder row.
+Demo mode never calls Shopify; it stores the GraphQL payload that would have been sent. Northwind includes a demo connection for `northwind-makers.myshopify.com` and demo inventory item GIDs. CORD is seeded at 25 with reorder point 40 so Today has a reorder row. `PO-CORD` is a draft Harbor PO for 15× CORD — Send & mark ordered records the demo message and mints an expected ASN. Packed `ORD-DFW1` is split into `BOX-1` / `BOX-2`. Tracker webhooks mark `ORD-NYC1` in transit and `ORD-CHI1` delivered so Traffic can prefer those over the lane estimate.
 
 ## Carriers
 

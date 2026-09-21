@@ -62,7 +62,7 @@ function PurchaseList() {
       <PageHeader
         eyebrow="Inbound"
         title="Purchases"
-        description="What you ordered from a vendor. Receive against it on the dock, including partials."
+        description="What you ordered from a vendor. Send the draft to mint an expected ASN, then receive on the dock."
         actions={<Button onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New purchase"}</Button>}
       />
       <ErrorBanner error={error} />
@@ -188,7 +188,7 @@ function PurchaseDetail({ id }: { id: string }) {
             <Button variant="ghost" onClick={() => navigate("/inbound/purchases")}>
               All purchases
             </Button>
-            {canStartPurchase(purchase.status) ? <Button onClick={() => void start()}>Mark ordered</Button> : null}
+            {canStartPurchase(purchase.status) ? <Button onClick={() => void start()}>Send & mark ordered</Button> : null}
             {canReceivePurchase(purchase.status) && remaining ? <Button onClick={() => void receive()}>Receive</Button> : null}
             {canReceivePurchase(purchase.status) && remaining ? (
               <Button variant="secondary">
@@ -217,6 +217,30 @@ function PurchaseDetail({ id }: { id: string }) {
           </DocumentRail>
         }
       >
+        {purchase.send ? (
+          <Card className="mb-4 space-y-1 text-sm">
+            <p className="font-medium">Last send (demo)</p>
+            <p className="text-muted-foreground">
+              To {purchase.send.toAddress ?? purchase.vendorName} · {new Date(purchase.send.createdAt).toLocaleString()}
+            </p>
+            <p className="whitespace-pre-wrap">{purchase.send.body}</p>
+          </Card>
+        ) : null}
+        {(purchase.asns ?? []).length > 0 ? (
+          <Card className="mb-4 text-sm">
+            <p className="mb-2 font-medium">Expected ASNs</p>
+            <ul className="space-y-1">
+              {(purchase.asns ?? []).map((asn) => (
+                <li key={asn.id}>
+                  <Link className="font-mono underline" to={`/inbound/asns/${asn.id}`}>
+                    {asn.number}
+                  </Link>{" "}
+                  <StatusBadge status={asn.status} />
+                </li>
+              ))}
+            </ul>
+          </Card>
+        ) : null}
         <Table columns={["SKU", "Item", "Ordered", "Received", "This receive", "Lot / serial"]}>
           {(purchase.lines ?? []).map((line) => (
             <tr key={line.id}>

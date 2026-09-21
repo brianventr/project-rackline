@@ -95,6 +95,7 @@ analyticsRoute.get("/analytics/traffic", async (c) => {
       shippedAt: row.shippedAt,
       carrierService: row.carrierService,
       trackingNumber: row.trackingNumber,
+      trackerStatus: row.trackerStatus,
       shipToAddress: row.shipToAddress,
       shipToCity: row.shipToCity,
       shipToRegion: row.shipToRegion,

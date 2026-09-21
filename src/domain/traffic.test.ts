@@ -21,6 +21,7 @@ function order(partial: Partial<TrafficOrderRow> & Pick<TrafficOrderRow, "id" | 
     shippedAt: null,
     carrierService: "ups_ground",
     trackingNumber: null,
+    trackerStatus: null,
     shipToAddress: null,
     shipToCity: null,
     shipToRegion: null,
@@ -145,5 +146,47 @@ describe("buildTrafficSnapshot", () => {
     });
     expect(snap.exceptions).toEqual([{ orderId: "o6", number: "ORD-WILLCALL", reason: "unmapped_dest" }]);
     expect(snap.flights).toHaveLength(0);
+  });
+
+  it("prefers tracker status over the geodesic lane estimate", () => {
+    const tracked = buildTrafficSnapshot({
+      now,
+      warehouses: [portland],
+      horizon: "7d",
+      grain: "city",
+      orders: [
+        order({
+          id: "o7",
+          number: "ORD-TRACK",
+          status: "shipped",
+          shippedAt: now - 10 * 86_400_000,
+          trackingNumber: "EZ-LIVE",
+          trackerStatus: "in_transit",
+          shipToAddress: "Boston, MA 02108",
+        }),
+        order({
+          id: "o8",
+          number: "ORD-DELIVERED",
+          status: "shipped",
+          shippedAt: now - 2 * 3_600_000,
+          trackingNumber: "EZ-DONE",
+          trackerStatus: "delivered",
+          shipToAddress: "Austin, TX 78701",
+        }),
+        order({
+          id: "o9",
+          number: "ORD-DEMO",
+          status: "shipped",
+          shippedAt: now - 6 * 3_600_000,
+          trackingNumber: "RL-DEMO",
+          trackerStatus: null,
+          shipToAddress: "New York, NY 10001",
+        }),
+      ],
+    });
+    expect(tracked.flights.find((row) => row.number === "ORD-TRACK")?.status).toBe("in_flight");
+    expect(tracked.flights.find((row) => row.number === "ORD-DELIVERED")).toBeUndefined();
+    expect(tracked.kpis.arrived).toBe(1);
+    expect(tracked.flights.find((row) => row.number === "ORD-DEMO")?.status).toBe("in_flight");
   });
 });

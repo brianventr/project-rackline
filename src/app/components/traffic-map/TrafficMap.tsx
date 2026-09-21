@@ -314,5 +314,6 @@ export function flightStatusLabel(status: TrafficFlight["status"]): string {
   if (status === "at_gate") return "At gate";
   if (status === "in_flight") return "In flight";
   if (status === "arrived_estimate") return "Arrived (estimate)";
+  if (status === "arrived") return "Arrived";
   return "Unmapped";
 }

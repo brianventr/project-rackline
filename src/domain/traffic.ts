@@ -1,10 +1,11 @@
 import { resolveOrderDest, resolveOrigin, type GeoPlace } from "./geo";
 import { lookupCountry, lookupRegion } from "./geo-gazetteer";
 import { haversineMiles, interpolateGreatCircle } from "./geo-arc";
+import { normalizeTrackerStatus, trackerToFlight } from "./tracker";
 
 export type TrafficGrain = "country" | "region" | "city";
 export type TrafficHorizon = "now" | "7d" | "30d";
-export type TrafficFlightStatus = "at_gate" | "in_flight" | "arrived_estimate" | "unmapped";
+export type TrafficFlightStatus = "at_gate" | "in_flight" | "arrived_estimate" | "arrived" | "unmapped";
 
 export type TrafficSkuQty = {
   itemId: string;
@@ -90,6 +91,7 @@ export type TrafficOrderRow = {
   shippedAt: number | null;
   carrierService: string | null;
   trackingNumber: string | null;
+  trackerStatus: string | null;
   shipToAddress: string | null;
   shipToCity: string | null;
   shipToRegion: string | null;
@@ -200,8 +202,9 @@ export function buildTrafficSnapshot(input: {
 
     const departedAt = order.shippedAt;
     const etaAt = departedAt != null ? departedAt + laneEtaMs(order.carrierService, originPoint, dest) : null;
-    const progress =
+    const rawProgress =
       status === "in_flight" && departedAt != null && etaAt != null ? flightProgress(input.now, departedAt, etaAt) : 0;
+    const progress = status === "in_flight" && order.trackerStatus ? Math.min(rawProgress, 0.95) : rawProgress;
     const position =
       status === "at_gate" ? { lat: originPoint.lat, lng: originPoint.lng } : interpolateGreatCircle(originPoint, dest, progress);
     flights.push({
@@ -237,7 +240,7 @@ export function buildTrafficSnapshot(input: {
     kpis: {
       inFlight: flights.filter((row) => row.status === "in_flight").length,
       atGate: flights.filter((row) => row.status === "at_gate").length,
-      arrived: heatOrders.filter((row) => row.status === "arrived_estimate").length,
+      arrived: heatOrders.filter((row) => row.status === "arrived_estimate" || row.status === "arrived").length,
       destCount: destinations.length,
       units: destinations.reduce((sum, row) => sum + row.units, 0),
       unmapped: exceptions.length,
@@ -251,6 +254,8 @@ function classifyFlight(
   origin: { lat: number; lng: number },
   dest: GeoPlace,
 ): TrafficFlightStatus {
+  const tracker = normalizeTrackerStatus(order.trackerStatus);
+  if (tracker) return trackerToFlight(tracker);
   if (order.status === "packed") return "at_gate";
   if (order.status !== "shipped" || order.shippedAt == null) return "unmapped";
   const etaAt = order.shippedAt + laneEtaMs(order.carrierService, origin, dest);
