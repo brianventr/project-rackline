@@ -200,7 +200,7 @@ export type ScanReplenishmentHit = { kind: "replenishment"; replenishment: Reple
 export type ScanKitHit = { kind: "kit"; kit: KitBuild };
 export type ScanHoldHit = { kind: "hold"; hold: Hold };
 export type ScanWaveHit = { kind: "wave"; wave: Wave };
-export type ScanAsnHit = { kind: "asn"; asn: Asn };
+export type ScanAsnHit = { kind: "asn"; asn: Asn; package?: AsnPackage };
 export type ScanYardHit = { kind: "yard"; yard: YardVisit };
 export type ScanEquipmentHit = { kind: "equipment"; equipment: Equipment };
 export type ScanSerialHit = {
@@ -728,6 +728,7 @@ export type Dashboard = {
     outOfService?: Equipment[];
     expiringCerts?: OperatorCertification[];
     shopifyExceptions: Order[];
+    trackerExceptions?: TrackerException[];
     expiringLots?: {
       locationId: string;
       locationCode: string;
@@ -1073,12 +1074,34 @@ export type AsnLine = {
   qtyExpected: number;
   qtyReceived: number;
   remaining: number;
+  qtyCartoned?: number;
+  cartonRemaining?: number;
   sku: string;
   itemName: string;
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;
   trackExpiry?: boolean;
+};
+
+export type AsnPackageLine = {
+  id: string;
+  packageId: string;
+  asnLineId: string;
+  itemId: string;
+  qty: number;
+  sku: string;
+  itemName: string;
+};
+
+export type AsnPackage = {
+  id: string;
+  number: string;
+  seq: number;
+  sscc?: string | null;
+  receivedAt?: number | null;
+  units?: number;
+  lines?: AsnPackageLine[];
 };
 
 export type Asn = {
@@ -1096,6 +1119,16 @@ export type Asn = {
   expectedAt?: number | null;
   receivedAt?: number | null;
   lines?: AsnLine[];
+  packages?: AsnPackage[];
+};
+
+export type TrackerException = {
+  id: string;
+  orderId: string;
+  number: string;
+  packageNumber?: string | null;
+  trackingNumber?: string | null;
+  trackerStatus: string;
 };
 
 export type YardVisit = {

@@ -91,6 +91,30 @@ export function PackSlipPage() {
           ))}
         </tbody>
       </table>
+      {(order.packages ?? []).length > 0 ? (
+        <section className="space-y-3">
+          <h2 className="font-medium">Cartons</h2>
+          {(order.packages ?? []).map((pkg) => (
+            <div key={pkg.id} className="rounded-md border px-3 py-3">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="font-mono font-medium">
+                  {pkg.number}
+                  {pkg.trackingNumber ? ` · ${pkg.trackingNumber}` : ""}
+                </p>
+                <BarcodeLabel value={pkg.number} className="h-10 w-36" />
+              </div>
+              <ul className="text-sm">
+                {(pkg.lines ?? []).map((line) => (
+                  <li key={line.id} className="flex justify-between gap-3">
+                    <span className="font-mono">{line.sku}</span>
+                    <span className="font-mono">× {line.qty}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
+      ) : null}
       <p className="text-xs text-muted-foreground">Packed contents must match this slip before the box ships.</p>
     </div>
   );

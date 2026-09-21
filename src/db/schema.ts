@@ -1065,6 +1065,46 @@ export const asnLines = sqliteTable(
   (t) => [uniqueIndex("asn_lines_asn_item").on(t.asnId, t.itemId)],
 );
 
+export const asnPackages = sqliteTable(
+  "asn_packages",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    asnId: text("asn_id")
+      .notNull()
+      .references(() => asns.id, { onDelete: "cascade" }),
+    number: text("number").notNull(),
+    seq: integer("seq").notNull(),
+    sscc: text("sscc"),
+    receivedAt: integer("received_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("asn_packages_asn_number").on(t.asnId, t.number),
+    uniqueIndex("asn_packages_org_sscc").on(t.organizationId, t.sscc),
+  ],
+);
+
+export const asnPackageLines = sqliteTable(
+  "asn_package_lines",
+  {
+    id: text("id").primaryKey(),
+    packageId: text("package_id")
+      .notNull()
+      .references(() => asnPackages.id, { onDelete: "cascade" }),
+    asnLineId: text("asn_line_id")
+      .notNull()
+      .references(() => asnLines.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id),
+    qty: integer("qty").notNull(),
+  },
+  (t) => [uniqueIndex("asn_package_lines_pkg_line").on(t.packageId, t.asnLineId)],
+);
+
 export const yardVisits = sqliteTable(
   "yard_visits",
   {

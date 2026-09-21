@@ -625,6 +625,10 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
   const westRecv = newId();
   const westBay = newId();
   const asnId = newId();
+  const asnBulbLineId = newId();
+  const asnShadeLineId = newId();
+  const asnBox1Id = newId();
+  const asnBox2Id = newId();
   const yardId = newId();
   const waveId = newId();
   const waveOrderA = newId();
@@ -722,18 +726,55 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       expectedAt: now,
     }),
     db.insert(schema.asnLines).values({
-      id: newId(),
+      id: asnBulbLineId,
       asnId,
       itemId: item.bulb,
       qtyExpected: 20,
       qtyReceived: 0,
     }),
     db.insert(schema.asnLines).values({
-      id: newId(),
+      id: asnShadeLineId,
       asnId,
       itemId: item.shade,
       qtyExpected: 8,
       qtyReceived: 0,
+    }),
+    db.insert(schema.asnPackages).values({
+      id: asnBox1Id,
+      organizationId,
+      asnId,
+      number: "BOX-1",
+      seq: 1,
+      createdAt: now,
+    }),
+    db.insert(schema.asnPackageLines).values({
+      id: newId(),
+      packageId: asnBox1Id,
+      asnLineId: asnBulbLineId,
+      itemId: item.bulb,
+      qty: 10,
+    }),
+    db.insert(schema.asnPackages).values({
+      id: asnBox2Id,
+      organizationId,
+      asnId,
+      number: "BOX-2",
+      seq: 2,
+      createdAt: now,
+    }),
+    db.insert(schema.asnPackageLines).values({
+      id: newId(),
+      packageId: asnBox2Id,
+      asnLineId: asnBulbLineId,
+      itemId: item.bulb,
+      qty: 10,
+    }),
+    db.insert(schema.asnPackageLines).values({
+      id: newId(),
+      packageId: asnBox2Id,
+      asnLineId: asnShadeLineId,
+      itemId: item.shade,
+      qty: 8,
     }),
     db.insert(schema.yardVisits).values({
       id: yardId,
@@ -1047,7 +1088,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     { number: "ORD-CHI1", customer: "Wicker Park", address: "1608 N Milwaukee Ave\nChicago, IL 60647", sku: "bulb" as const, qty: 6, hoursAgo: 30, carrier: "usps_priority", tracking: "RL-CHI001", tracker: "delivered" },
     { number: "ORD-NYC1", customer: "Brooklyn Studio", address: "85 N 3rd St\nBrooklyn, NY 11249", sku: "lamp" as const, qty: 1, hoursAgo: 10, carrier: "ups_ground", tracking: "RL-NYC001", tracker: "in_transit" },
     { number: "ORD-BOS1", customer: "Fort Point", address: "12 Farnsworth St\nBoston, MA 02210", sku: "lamp" as const, qty: 1, hoursAgo: 120, carrier: "ups_ground", tracking: "RL-BOS001" },
-    { number: "ORD-MIA1", customer: "Wynwood Lab", address: "2301 NW 2nd Ave\nMiami, FL 33127", sku: "shade" as const, qty: 2, hoursAgo: 16, carrier: "usps_priority", tracking: "RL-MIA001" },
+    { number: "ORD-MIA1", customer: "Wynwood Lab", address: "2301 NW 2nd Ave\nMiami, FL 33127", sku: "shade" as const, qty: 2, hoursAgo: 16, carrier: "usps_priority", tracking: "RL-MIA001", tracker: "exception" },
     { number: "ORD-ATL1", customer: "Old Fourth Ward", address: "675 Ponce De Leon Ave\nAtlanta, GA 30308", sku: "lamp" as const, qty: 2, hoursAgo: 4, carrier: "rackline_ground", tracking: "RL-ATL001" },
     { number: "ORD-PHX1", customer: "Roosevelt Row", address: "918 N 2nd St\nPhoenix, AZ 85004", sku: "bulb" as const, qty: 4, hoursAgo: 22, carrier: "ups_ground", tracking: "RL-PHX001" },
     { number: "ORD-MSP1", customer: "North Loop", address: "1101 S 10th St\nMinneapolis, MN 55415", sku: "lamp" as const, qty: 1, hoursAgo: 12, carrier: "usps_priority", tracking: "RL-MSP001" },
@@ -1207,6 +1248,15 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       eventId: "demo-chi-delivered",
       payloadJson: JSON.stringify({ trackingNumber: "RL-CHI001", status: "delivered" }),
       createdAt: now - 6 * hour,
+    },
+    {
+      id: newId(),
+      organizationId,
+      provider: "demo",
+      trackingNumber: "RL-MIA001",
+      eventId: "demo-mia-failure",
+      payloadJson: JSON.stringify({ trackingNumber: "RL-MIA001", status: "failure" }),
+      createdAt: now - 4 * hour,
     },
   ]);
 

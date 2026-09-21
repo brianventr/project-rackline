@@ -5,7 +5,7 @@ import { normalizeTrackerStatus, trackerToFlight } from "./tracker";
 
 export type TrafficGrain = "country" | "region" | "city";
 export type TrafficHorizon = "now" | "7d" | "30d";
-export type TrafficFlightStatus = "at_gate" | "in_flight" | "arrived_estimate" | "arrived" | "unmapped";
+export type TrafficFlightStatus = "at_gate" | "in_flight" | "arrived_estimate" | "arrived" | "exception" | "unmapped";
 
 export type TrafficSkuQty = {
   itemId: string;
@@ -56,7 +56,7 @@ export type TrafficDestination = {
 export type TrafficException = {
   orderId: string;
   number: string;
-  reason: "unmapped_dest" | "unmapped_origin";
+  reason: "unmapped_dest" | "unmapped_origin" | "tracker_exception";
 };
 
 export type TrafficSnapshot = {
@@ -72,6 +72,7 @@ export type TrafficSnapshot = {
     destCount: number;
     units: number;
     unmapped: number;
+    exceptions: number;
   };
 };
 
@@ -198,6 +199,11 @@ export function buildTrafficSnapshot(input: {
     const includeInHeat = input.horizon === "now" ? status === "at_gate" || status === "in_flight" : true;
     if (includeInHeat) heatOrders.push({ dest, lines, status });
 
+    if (status === "exception") {
+      exceptions.push({ orderId: order.id, number: order.number, reason: "tracker_exception" });
+      continue;
+    }
+
     if (status !== "at_gate" && status !== "in_flight") continue;
 
     const departedAt = order.shippedAt;
@@ -243,7 +249,8 @@ export function buildTrafficSnapshot(input: {
       arrived: heatOrders.filter((row) => row.status === "arrived_estimate" || row.status === "arrived").length,
       destCount: destinations.length,
       units: destinations.reduce((sum, row) => sum + row.units, 0),
-      unmapped: exceptions.length,
+      unmapped: exceptions.filter((row) => row.reason === "unmapped_dest" || row.reason === "unmapped_origin").length,
+      exceptions: exceptions.filter((row) => row.reason === "tracker_exception").length,
     },
   };
 }

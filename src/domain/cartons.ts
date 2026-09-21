@@ -54,7 +54,7 @@ export function applyCarton(
     }
     const at = index.get(row.lineId);
     if (at === undefined) {
-      throw new Error("Line is not on this order");
+      throw new Error("Line is not on this document");
     }
     const line = next[at]!;
     const remaining = remainingToCarton(line);
@@ -86,4 +86,9 @@ export function cartonShipGate(input: {
 export function orderLevelLabelGate(packageCount: number): { ok: true } | { ok: false; code: "NEED_PACKAGE"; error: string } {
   if (packageCount === 0) return { ok: true };
   return { ok: false, code: "NEED_PACKAGE", error: "Buy a label on each carton" };
+}
+
+export function asnCartonReceiveGate(packageCount: number): { ok: true } | { ok: false; code: "NEED_PACKAGE"; error: string } {
+  if (packageCount === 0) return { ok: true };
+  return { ok: false, code: "NEED_PACKAGE", error: "Receive each vendor carton" };
 }

@@ -424,6 +424,19 @@ export function TodayPage() {
             action: "Open",
           }))}
         />
+        <QueueCard
+          title="Tracker exceptions"
+          empty="No failed or returned cartons."
+          rows={(queues?.trackerExceptions ?? []).map((row) => ({
+            id: row.id,
+            to: `/outbound/orders/${row.orderId}`,
+            title: row.packageNumber ? `${row.number} ${row.packageNumber}` : row.number,
+            meta: row.trackingNumber ? `${row.trackingNumber} · ${row.trackerStatus}` : row.trackerStatus,
+            status: "exception",
+            actionTo: `/outbound/orders/${row.orderId}`,
+            action: "Open",
+          }))}
+        />
         <Card>
           <CardHeader>
             <CardTitle>Hot bays</CardTitle>
