@@ -185,7 +185,7 @@ export function FloorPickPage() {
   const unpickable = (active?.lines ?? []).some((line) => (line.unpickRemaining ?? 0) > 0);
 
   return (
-    <FloorFrame title="Pick" description="Scan the order, open the pick map if you want the floor plan, then pick remaining qty or unpick back onto the bay." error={error}>
+    <FloorFrame title="Pick" description="Scan the order, print a pick list or open the pick map, then pick remaining qty or unpick back onto the bay." error={error}>
       <FloorScanBox label="Scan order, bay, or SKU" placeholder="ORD-DEMO1, B-01-01, or LAMP" onScan={onScan} />
       {!active ? (
         <ClaimList
@@ -213,6 +213,9 @@ export function FloorPickPage() {
             <StatusBadge status={active.status} />
           </div>
           <p>{active.customerName}</p>
+          <Link className="text-sm font-medium underline" to={`/outbound/orders/${active.id}/pick-list`}>
+            Print pick list
+          </Link>
           <ul className="space-y-3 text-sm">
             {(active.lines ?? []).map((line) => (
               <li key={line.id} className="space-y-2">

@@ -9,7 +9,7 @@ import { VERB_LABELS, type FloorVerb, isFloorVerb } from "@/domain/jobs";
 
 const verbs: { to: string; title: string; body: string; verb?: FloorVerb }[] = [
   { to: "/floor/lookup", title: "Lookup", body: "Scan a SKU, bay, document, serial, or lot." },
-  { to: "/floor/print", title: "Print", body: "Print a bay, SKU, pack slip, or shipping label." },
+  { to: "/floor/print", title: "Print", body: "Print a bay, SKU, pick list, pack slip, or shipping label." },
   { to: "/floor/receive", title: "Receive", body: "Post a receipt or purchase onto the dock, including partials.", verb: "receive" },
   { to: "/floor/asn", title: "ASN", body: "Scan an ASN- notice and receive onto the dock." },
   { to: "/floor/yard", title: "Yard", body: "Scan a YRD- visit to check in, dock, or check out." },

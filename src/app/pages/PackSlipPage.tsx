@@ -4,6 +4,7 @@ import { api, type Order } from "../api";
 import { Button, ErrorBanner } from "../components/ui";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { useSession } from "../session";
+import { useAutoPrint } from "../print/use-auto-print";
 
 export function PackSlipPage() {
   const { id } = useParams();
@@ -18,14 +19,16 @@ export function PackSlipPage() {
       .catch((err: Error) => setError(err.message));
   }, [id]);
 
+  useAutoPrint(Boolean(order));
+
   if (!order) return <ErrorBanner error={error} />;
 
   const printedAt = new Date().toLocaleString();
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 bg-card p-6 print:max-w-none print:p-0 print:shadow-none">
+    <div className="print-document mx-auto max-w-2xl space-y-6 bg-card p-6 print:max-w-none print:p-0 print:shadow-none">
       <div className="flex flex-wrap items-start justify-between gap-4 print:hidden">
-        <Button variant="ghost">
+        <Button variant="ghost" asChild>
           <Link to={`/outbound/orders/${order.id}`}>Back to order</Link>
         </Button>
         <Button onClick={() => window.print()}>Print pack slip</Button>
