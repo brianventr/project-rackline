@@ -75,12 +75,12 @@ import {
   releaseAllocationStatements,
 } from "../db/allocations";
 import type { OpenAllocation } from "../domain/allocations";
-import { cancelOrderDocument, persistUnpick, remainingToUnpick } from "../db/unpick";
+import { cancelOrderDocument, loadNetPickSlices, persistUnpick, remainingToUnpick } from "../db/unpick";
 import { OverUnpickError } from "../domain/partial-unpick";
 import { resolveLineStockQty, UomConversionError } from "../domain/uom";
 import { orderJobInput, guardFloorJob, syncDocumentJob } from "../db/jobs";
 import { desiredVerb } from "../domain/jobs";
-import { backorderNumber, planShortShip, shopifyBackorderFields } from "../domain/short-ship";
+import { backorderNumber, ledgerUnpick, planShortShip, shopifyBackorderFields } from "../domain/short-ship";
 
 export const ordersRoute = new Hono<AppEnv>();
 
@@ -2155,9 +2155,39 @@ ordersRoute.post("/orders/:id/short-ship", async (c) => {
       shopifyFulfillmentLineItemId: parentLine?.shopifyFulfillmentLineItemId ?? null,
     });
   });
-  const extra = [...dropStatements, closeOrder, ...releaseAllocationStatements(db, order.id, now), childOrder, ...childLines];
+  const shippedQtyByLine = new Map(plan.shippedByLine.map((row) => [row.lineId, row.qty]));
+  const stampLines = order.lines.map((line) => {
+    const shippedQty = shippedQtyByLine.get(line.id) ?? 0;
+    return db
+      .update(schema.orderLines)
+      .set({
+        qtyPicked: shippedQty,
+        qtyPacked: Math.min(line.qtyPacked ?? 0, shippedQty),
+      })
+      .where(eq(schema.orderLines.id, line.id));
+  });
+  const extra = [
+    ...dropStatements,
+    closeOrder,
+    ...stampLines,
+    ...releaseAllocationStatements(db, order.id, now),
+    childOrder,
+    ...childLines,
+  ];
 
-  if (plan.unpick.length > 0) {
+  const slices = await loadNetPickSlices(db, organizationId, order.id);
+  const sliceQtyByItem = new Map<string, number>();
+  for (const slice of slices) sliceQtyByItem.set(slice.itemId, (sliceQtyByItem.get(slice.itemId) ?? 0) + slice.qty);
+  const covered = ledgerUnpick(
+    plan.unpick.map((row) => ({
+      lineId: row.lineId,
+      itemId: order.lines.find((line) => line.id === row.lineId)?.itemId ?? "",
+      qty: row.qty,
+    })),
+    sliceQtyByItem,
+  );
+
+  if (covered.length > 0) {
     try {
       await persistUnpick({
         db,
@@ -2174,7 +2204,7 @@ ordersRoute.post("/orders/:id/short-ship", async (c) => {
           qtyPicked: line.qtyPicked,
           qtyPacked: line.qtyPacked ?? 0,
         })),
-        incoming: plan.unpick,
+        incoming: covered,
         includePacked: true,
         restoreAllocations: false,
         skipStatusUpdate: true,

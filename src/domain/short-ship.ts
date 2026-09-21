@@ -77,6 +77,23 @@ export function planShortShip(input: {
   };
 }
 
+export function ledgerUnpick(
+  unpick: { lineId: string; itemId: string; qty: number }[],
+  sliceQtyByItem: Map<string, number>,
+): { lineId: string; qty: number }[] {
+  const available = new Map(sliceQtyByItem);
+  const covered: { lineId: string; qty: number }[] = [];
+  for (const row of unpick) {
+    if (row.qty <= 0) continue;
+    const have = available.get(row.itemId) ?? 0;
+    const qty = Math.min(row.qty, have);
+    if (qty <= 0) continue;
+    available.set(row.itemId, have - qty);
+    covered.push({ lineId: row.lineId, qty });
+  }
+  return covered;
+}
+
 export function backorderNumber(parentNumber: string, taken: string[]): string {
   const base = `${parentNumber}-BO`;
   if (!taken.includes(base)) return base;

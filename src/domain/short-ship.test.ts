@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backorderNumber, planShortShip, shopifyBackorderFields } from "./short-ship";
+import { backorderNumber, ledgerUnpick, planShortShip, shopifyBackorderFields } from "./short-ship";
 
 const lamp = { lineId: "l1", itemId: "lamp", sku: "LAMP", qty: 2, qtyPicked: 2, qtyPacked: 2 };
 
@@ -65,6 +65,15 @@ describe("planShortShip", () => {
       packages: [{ id: "box1", shippedAt: 10, lines: [{ orderLineId: "l1", qty: 1 }] }],
     });
     expect(plan).toMatchObject({ ok: true, remainder: [{ qty: 1 }], unpick: [], dropPackageIds: [] });
+  });
+});
+
+describe("ledgerUnpick", () => {
+  it("returns only the qty the pick ledger can put back", () => {
+    expect(ledgerUnpick([{ lineId: "l1", itemId: "lamp", qty: 1 }], new Map([["lamp", 0]]))).toEqual([]);
+    expect(ledgerUnpick([{ lineId: "l1", itemId: "lamp", qty: 2 }], new Map([["lamp", 1]]))).toEqual([
+      { lineId: "l1", qty: 1 },
+    ]);
   });
 });
 
