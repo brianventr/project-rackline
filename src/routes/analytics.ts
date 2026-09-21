@@ -9,6 +9,8 @@ import {
   isTrafficGrain,
   isTrafficHorizon,
 } from "../domain/traffic";
+import { isRunwayMultiplier, isRunwayWindow } from "../domain/runway";
+import { loadRunway } from "../db/runway";
 
 export const analyticsRoute = new Hono<AppEnv>();
 
@@ -112,4 +114,20 @@ analyticsRoute.get("/analytics/traffic", async (c) => {
   });
 
   return c.json(snapshot);
+});
+
+analyticsRoute.get("/analytics/runway", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const warehouseId = c.req.query("warehouseId") || undefined;
+  const windowRaw = c.req.query("window") || "30d";
+  const multiplierRaw = Number(c.req.query("multiplier") || "1");
+  if (!isRunwayWindow(windowRaw)) badRequest("window must be 7d, 30d, or 90d");
+  if (!isRunwayMultiplier(multiplierRaw)) badRequest("multiplier must be 0.5, 1, 1.5, or 2");
+  const queue = await loadRunway(db, organizationId, {
+    warehouseId,
+    window: windowRaw,
+    multiplier: multiplierRaw,
+  });
+  return c.json({ ...queue.board, draftLines: queue.draftLines });
 });

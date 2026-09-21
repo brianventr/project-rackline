@@ -25,6 +25,7 @@ function ItemList() {
   const [type, setType] = useState("raw");
   const [barcode, setBarcode] = useState("");
   const [reorderPoint, setReorderPoint] = useState("0");
+  const [baselineShipRate, setBaselineShipRate] = useState("");
   const [pickMin, setPickMin] = useState("0");
   const [trackLot, setTrackLot] = useState(false);
   const [trackSerial, setTrackSerial] = useState(false);
@@ -56,6 +57,7 @@ function ItemList() {
           type,
           barcode: barcode || sku,
           reorderPoint: Number(reorderPoint),
+          baselineShipRate: baselineShipRate === "" ? null : Number(baselineShipRate),
           pickMin: Number(pickMin),
           trackLot,
           trackSerial,
@@ -67,6 +69,7 @@ function ItemList() {
       setName("");
       setBarcode("");
       setReorderPoint("0");
+      setBaselineShipRate("");
       setPickMin("0");
       setTrackLot(false);
       setTrackSerial(false);
@@ -173,6 +176,16 @@ function ItemList() {
           <Field label="Reorder point">
             <Input type="number" min={0} value={reorderPoint} onChange={(e) => setReorderPoint(e.target.value)} />
           </Field>
+          <Field label="Baseline / day">
+            <Input
+              type="number"
+              min={0}
+              step="0.1"
+              value={baselineShipRate}
+              onChange={(e) => setBaselineShipRate(e.target.value)}
+              placeholder="Auto from ships"
+            />
+          </Field>
           <Field label="Pick min">
             <Input type="number" min={0} value={pickMin} onChange={(e) => setPickMin(e.target.value)} />
           </Field>
@@ -197,7 +210,7 @@ function ItemList() {
           </div>
         </form>
       </Card>
-      <Table columns={["SKU", "Barcode", "Name", "Type", "Reorder", "Pick min"]}>
+      <Table columns={["SKU", "Barcode", "Name", "Type", "Reorder", "Baseline / day", "Pick min"]}>
         {items.map((item) => (
           <tr key={item.id}>
             <td className="px-4 py-3 font-mono text-sm">
@@ -209,6 +222,9 @@ function ItemList() {
             <td className="px-4 py-3">{item.name}</td>
             <td className="px-4 py-3 capitalize">{item.type}</td>
             <td className="px-4 py-3">{item.reorderPoint}</td>
+            <td className="px-4 py-3 font-mono tabular-nums">
+              {item.baselineShipRate != null && item.baselineShipRate > 0 ? item.baselineShipRate : "auto"}
+            </td>
             <td className="px-4 py-3">{item.pickMin ?? 0}</td>
           </tr>
         ))}
@@ -223,6 +239,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
   const [name, setName] = useState("");
   const [barcode, setBarcode] = useState("");
   const [reorderPoint, setReorderPoint] = useState("0");
+  const [baselineShipRate, setBaselineShipRate] = useState("");
   const [pickMin, setPickMin] = useState("0");
   const [trackLot, setTrackLot] = useState(false);
   const [trackSerial, setTrackSerial] = useState(false);
@@ -237,6 +254,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
         setName(next.name);
         setBarcode(next.barcode);
         setReorderPoint(String(next.reorderPoint ?? 0));
+        setBaselineShipRate(next.baselineShipRate != null && next.baselineShipRate > 0 ? String(next.baselineShipRate) : "");
         setPickMin(String(next.pickMin ?? 0));
         setTrackLot(Boolean(next.trackLot));
         setTrackSerial(Boolean(next.trackSerial));
@@ -256,6 +274,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
             name,
             barcode,
             reorderPoint: Number(reorderPoint),
+            baselineShipRate: baselineShipRate === "" ? null : Number(baselineShipRate),
             pickMin: Number(pickMin),
             trackLot,
             trackSerial,
@@ -317,6 +336,16 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
         </Field>
         <Field label="Reorder point">
           <Input type="number" min={0} value={reorderPoint} onChange={(e) => setReorderPoint(e.target.value)} />
+        </Field>
+        <Field label="Baseline / day">
+          <Input
+            type="number"
+            min={0}
+            step="0.1"
+            value={baselineShipRate}
+            onChange={(e) => setBaselineShipRate(e.target.value)}
+            placeholder="Auto from ships"
+          />
         </Field>
         <Field label="Pick min">
           <Input type="number" min={0} value={pickMin} onChange={(e) => setPickMin(e.target.value)} />

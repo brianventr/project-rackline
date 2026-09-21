@@ -4,7 +4,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { requireOwner, isItemType, isLocationType, isSlotRole, getOrgLocation } from "../lib/org";
-import { badRequest, requireInt, requireString, optionalInt, optionalString } from "../lib/http";
+import { badRequest, requireInt, requireString, optionalInt, optionalString, optionalFloat } from "../lib/http";
 import { newId } from "../lib/ids";
 import { suggestPlacement } from "../domain/map-layout";
 import { suggestReplenishments } from "../domain/replenishment";
@@ -21,8 +21,17 @@ import { loadAsBuiltForItem } from "../db/as-built";
 import { loadDocumentNumber } from "../db/equipment";
 import { originColumns, resolveOrigin } from "../domain/geo";
 import { loadReorderQueue } from "../db/reorder";
+import { loadRunwayThisWeek } from "../db/runway";
 
 export const catalogRoute = new Hono<AppEnv>();
+
+function parseBaselineShipRate(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const rate = optionalFloat(value, "baselineShipRate");
+  if (rate == null || rate < 0) badRequest("Baseline ship rate cannot be negative");
+  return rate === 0 ? null : rate;
+}
 
 catalogRoute.get("/warehouses", async (c) => {
   const db = c.get("db");
@@ -437,6 +446,7 @@ catalogRoute.post("/items", async (c) => {
     name?: string;
     type?: string;
     reorderPoint?: number;
+    baselineShipRate?: number | null;
     barcode?: string;
     pickMin?: number;
     trackLot?: boolean;
@@ -453,6 +463,7 @@ catalogRoute.post("/items", async (c) => {
   if (reorderPoint < 0) badRequest("Reorder point cannot be negative");
   const pickMin = body.pickMin === undefined ? 0 : requireInt(body.pickMin, "pickMin");
   if (pickMin < 0) badRequest("Pick min cannot be negative");
+  const baselineShipRate = parseBaselineShipRate(body.baselineShipRate);
   try {
     const [row] = await c
       .get("db")
@@ -466,6 +477,7 @@ catalogRoute.post("/items", async (c) => {
         barcode,
         createdAt: Date.now(),
         reorderPoint,
+        baselineShipRate: baselineShipRate ?? null,
         pickMin,
         trackLot: Boolean(body.trackLot) || Boolean(body.trackExpiry),
         trackSerial: Boolean(body.trackSerial),
@@ -492,6 +504,7 @@ catalogRoute.patch("/items/:id", async (c) => {
     stockUom?: string;
     altUom?: string | null;
     altPerStock?: number | null;
+    baselineShipRate?: number | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -507,6 +520,7 @@ catalogRoute.patch("/items/:id", async (c) => {
     stockUom?: string;
     altUom?: string | null;
     altPerStock?: number | null;
+    baselineShipRate?: number | null;
   } = {};
   if (body.reorderPoint !== undefined) {
     const reorderPoint = requireInt(body.reorderPoint, "reorderPoint");
@@ -517,6 +531,9 @@ catalogRoute.patch("/items/:id", async (c) => {
     const pickMin = requireInt(body.pickMin, "pickMin");
     if (pickMin < 0) badRequest("Pick min cannot be negative");
     patch.pickMin = pickMin;
+  }
+  if (body.baselineShipRate !== undefined) {
+    patch.baselineShipRate = parseBaselineShipRate(body.baselineShipRate) ?? null;
   }
   if (body.name !== undefined) patch.name = requireString(body.name, "name");
   const barcode = optionalString(body.barcode);
@@ -1242,6 +1259,7 @@ catalogRoute.get("/dashboard", async (c) => {
 
   const reorder = await loadReorderQueue(db, organizationId, warehouseId);
   const lowStock = reorder.lowStock;
+  const runwayThisWeek = await loadRunwayThisWeek(db, organizationId, warehouseId);
 
   const recent = await db
     .select({
@@ -1344,6 +1362,7 @@ catalogRoute.get("/dashboard", async (c) => {
     replenishDue: replenishSuggestions.length,
     expiringLots: expiringLots.length,
     lowStock,
+    runwayThisWeek,
     recent,
     hotBays: hotBays.map((row) => ({ ...row, units: Number(row.units) })),
     queues: {

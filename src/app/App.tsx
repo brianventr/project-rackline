@@ -53,6 +53,7 @@ import { AsnsPage } from "./pages/AsnsPage";
 import { YardPage } from "./pages/YardPage";
 import { LaborPage } from "./pages/LaborPage";
 import { TrafficPage } from "./pages/TrafficPage";
+import { RunwayPage } from "./pages/RunwayPage";
 import { FloorWavePage } from "./pages/floor/FloorWavePage";
 import { FloorAsnPage } from "./pages/floor/FloorAsnPage";
 import { FloorYardPage } from "./pages/floor/FloorYardPage";
@@ -125,6 +126,7 @@ export function App() {
         />
         <Route path="/setup/labor" element={<Navigate to="/labor" replace />} />
         <Route path="/analytics/traffic" element={<TrafficPage />} />
+        <Route path="/analytics/runway" element={<RunwayPage />} />
         <Route path="/dashboard" element={<Navigate to="/today" replace />} />
         <Route path="/floor" element={<FloorLauncherPage />} />
         <Route path="/floor/lookup" element={<FloorLookupPage />} />

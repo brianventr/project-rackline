@@ -29,6 +29,7 @@ import {
   Radar,
   Gauge,
   Plug,
+  Hourglass,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Logo } from "@/components/logo";
@@ -64,7 +65,10 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
     },
     {
       label: "Analytics",
-      items: [{ title: "Traffic", url: "/analytics/traffic", icon: Radar }],
+      items: [
+        { title: "Traffic", url: "/analytics/traffic", icon: Radar },
+        { title: "Runway", url: "/analytics/runway", icon: Hourglass },
+      ],
     },
     {
       label: "Inbound",

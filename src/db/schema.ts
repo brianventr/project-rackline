@@ -137,6 +137,7 @@ export const items = sqliteTable(
     barcode: text("barcode").notNull().default(""),
     createdAt: integer("created_at").notNull(),
     reorderPoint: integer("reorder_point").notNull().default(0),
+    baselineShipRate: real("baseline_ship_rate"),
     pickMin: integer("pick_min").notNull().default(0),
     trackLot: integer("track_lot", { mode: "boolean" }).notNull().default(false),
     trackSerial: integer("track_serial", { mode: "boolean" }).notNull().default(false),
