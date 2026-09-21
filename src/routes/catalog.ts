@@ -4,12 +4,13 @@ import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { requireOwner, isItemType, isLocationType, isSlotRole, getOrgLocation } from "../lib/org";
-import { badRequest, requireInt, requireString, optionalInt, optionalString } from "../lib/http";
+import { badRequest, requireInt, requireString, optionalInt, optionalString, optionalFloat } from "../lib/http";
 import { newId } from "../lib/ids";
 import { suggestPlacement } from "../domain/map-layout";
 import { suggestReplenishments } from "../domain/replenishment";
-import { suggestPutawayJobs } from "../domain/directed-putaway";
+import { suggestPutawayJobs, suggestPutawayBay } from "../domain/directed-putaway";
 import { loadPutawayBaysByItem } from "../db/putaway-bays";
+import { loadUnputawayReceivedCartons } from "../db/asn-packages";
 import { countVariance } from "../domain/blind-count";
 import { applyHoldsToOnHand, matchingHoldForMove } from "../domain/holds";
 import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
@@ -20,8 +21,17 @@ import { loadAsBuiltForItem } from "../db/as-built";
 import { loadDocumentNumber } from "../db/equipment";
 import { originColumns, resolveOrigin } from "../domain/geo";
 import { loadReorderQueue } from "../db/reorder";
+import { loadRunwayThisWeek } from "../db/runway";
 
 export const catalogRoute = new Hono<AppEnv>();
+
+function parseBaselineShipRate(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const rate = optionalFloat(value, "baselineShipRate");
+  if (rate == null || rate < 0) badRequest("Baseline ship rate cannot be negative");
+  return rate === 0 ? null : rate;
+}
 
 catalogRoute.get("/warehouses", async (c) => {
   const db = c.get("db");
@@ -436,6 +446,7 @@ catalogRoute.post("/items", async (c) => {
     name?: string;
     type?: string;
     reorderPoint?: number;
+    baselineShipRate?: number | null;
     barcode?: string;
     pickMin?: number;
     trackLot?: boolean;
@@ -452,6 +463,7 @@ catalogRoute.post("/items", async (c) => {
   if (reorderPoint < 0) badRequest("Reorder point cannot be negative");
   const pickMin = body.pickMin === undefined ? 0 : requireInt(body.pickMin, "pickMin");
   if (pickMin < 0) badRequest("Pick min cannot be negative");
+  const baselineShipRate = parseBaselineShipRate(body.baselineShipRate);
   try {
     const [row] = await c
       .get("db")
@@ -465,6 +477,7 @@ catalogRoute.post("/items", async (c) => {
         barcode,
         createdAt: Date.now(),
         reorderPoint,
+        baselineShipRate: baselineShipRate ?? null,
         pickMin,
         trackLot: Boolean(body.trackLot) || Boolean(body.trackExpiry),
         trackSerial: Boolean(body.trackSerial),
@@ -491,6 +504,7 @@ catalogRoute.patch("/items/:id", async (c) => {
     stockUom?: string;
     altUom?: string | null;
     altPerStock?: number | null;
+    baselineShipRate?: number | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -506,6 +520,7 @@ catalogRoute.patch("/items/:id", async (c) => {
     stockUom?: string;
     altUom?: string | null;
     altPerStock?: number | null;
+    baselineShipRate?: number | null;
   } = {};
   if (body.reorderPoint !== undefined) {
     const reorderPoint = requireInt(body.reorderPoint, "reorderPoint");
@@ -516,6 +531,9 @@ catalogRoute.patch("/items/:id", async (c) => {
     const pickMin = requireInt(body.pickMin, "pickMin");
     if (pickMin < 0) badRequest("Pick min cannot be negative");
     patch.pickMin = pickMin;
+  }
+  if (body.baselineShipRate !== undefined) {
+    patch.baselineShipRate = parseBaselineShipRate(body.baselineShipRate) ?? null;
   }
   if (body.name !== undefined) patch.name = requireString(body.name, "name");
   const barcode = optionalString(body.barcode);
@@ -1117,6 +1135,46 @@ catalogRoute.get("/dashboard", async (c) => {
     }
   }
 
+  const cartonPutaways = [];
+  const unputawayCartons = await loadUnputawayReceivedCartons(db, organizationId, warehouseId ? { warehouseId } : {});
+  const cartonFromLocations = new Set(unputawayCartons.map((row) => row.locationId));
+  if (unputawayCartons.length > 0) {
+    const cartonItemIds = [...new Set(unputawayCartons.flatMap((row) => row.lines.map((line) => line.itemId)))];
+    const cartonWarehouseIds = [...new Set(unputawayCartons.map((row) => row.warehouseId))];
+    const baysByWarehouse = new Map<string, Awaited<ReturnType<typeof loadPutawayBaysByItem>>>();
+    for (const whId of cartonWarehouseIds) {
+      baysByWarehouse.set(whId, await loadPutawayBaysByItem(db, organizationId, whId, cartonItemIds));
+    }
+    for (const pkg of unputawayCartons) {
+      const baysByItem = baysByWarehouse.get(pkg.warehouseId) ?? new Map();
+      const lines = pkg.lines.map((line) => {
+        const suggested = suggestPutawayBay(baysByItem.get(line.itemId) ?? [], pkg.locationId);
+        return {
+          itemId: line.itemId,
+          sku: line.sku,
+          itemName: line.itemName,
+          qty: line.qty,
+          lotCode: line.lotCode,
+          toLocationId: suggested?.locationId ?? null,
+          toCode: suggested?.locationCode ?? null,
+          toBarcode: suggested?.barcode ?? null,
+        };
+      });
+      cartonPutaways.push({
+        asnId: pkg.asnId,
+        asnNumber: pkg.asnNumber,
+        packageId: pkg.id,
+        packageNumber: pkg.number,
+        sscc: pkg.sscc,
+        fromLocationId: pkg.locationId,
+        fromCode: pkg.fromCode,
+        fromBarcode: pkg.fromBarcode,
+        warehouseId: pkg.warehouseId,
+        lines,
+      });
+    }
+  }
+
   const shopifyExceptions = await db
     .select()
     .from(schema.orders)
@@ -1201,6 +1259,7 @@ catalogRoute.get("/dashboard", async (c) => {
 
   const reorder = await loadReorderQueue(db, organizationId, warehouseId);
   const lowStock = reorder.lowStock;
+  const runwayThisWeek = await loadRunwayThisWeek(db, organizationId, warehouseId);
 
   const recent = await db
     .select({
@@ -1285,7 +1344,7 @@ catalogRoute.get("/dashboard", async (c) => {
     openWorkOrders: openWorkOrderRows.length,
     shopifyOpenOrders: Number(shopifyOpen?.n ?? 0),
     openTransfers: openTransferRows.length,
-    putawayDue: putawaySuggestions.length,
+    putawayDue: putawaySuggestions.filter((row) => !cartonFromLocations.has(row.fromLocationId)).length + cartonPutaways.length,
     openCycleCounts: openCountRows.length,
     countVariances: countVariances.length,
     openHolds: openHoldRows.length,
@@ -1303,6 +1362,7 @@ catalogRoute.get("/dashboard", async (c) => {
     replenishDue: replenishSuggestions.length,
     expiringLots: expiringLots.length,
     lowStock,
+    runwayThisWeek,
     recent,
     hotBays: hotBays.map((row) => ({ ...row, units: Number(row.units) })),
     queues: {
@@ -1327,8 +1387,10 @@ catalogRoute.get("/dashboard", async (c) => {
       shopifyExceptions,
       trackerExceptions,
       expiringLots,
+      cartonPutaways,
     },
     replenishSuggestions,
-    putawaySuggestions,
+    putawaySuggestions: putawaySuggestions.filter((row) => !cartonFromLocations.has(row.fromLocationId)),
+    cartonPutaways,
   });
 });

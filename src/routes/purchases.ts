@@ -14,6 +14,7 @@ import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
 import { guardFloorJob, syncDocumentJob, type DocumentJobInput } from "../db/jobs";
 import { loadReorderQueue } from "../db/reorder";
+import { loadRunway } from "../db/runway";
 import { majorityVendor } from "../domain/reorder";
 
 function purchaseJob(row: {
@@ -214,6 +215,55 @@ purchasesRoute.post("/purchases/from-reorder", async (c) => {
       vendorName,
       status: "draft",
       notes: body.notes?.trim() || "Drafted from Today reorder queue",
+      createdAt: now,
+    }),
+    ...queue.draftLines.map((line) =>
+      db.insert(schema.purchaseLines).values({
+        id: newId(),
+        purchaseId: id,
+        itemId: line.itemId,
+        qtyOrdered: line.qty,
+        qtyReceived: 0,
+      }),
+    ),
+  ]);
+  const created = await purchaseWithLines(db, organizationId, id);
+  await syncDocumentJob(db, purchaseJob(created));
+  return c.json(created, 201);
+});
+
+purchasesRoute.post("/purchases/from-runway", async (c) => {
+  const body = await c.req.json<{ warehouseId?: string; notes?: string }>().catch(() => ({}) as { warehouseId?: string; notes?: string });
+  const warehouseId = requireString(body.warehouseId, "warehouseId");
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const queue = await loadRunway(db, organizationId, { warehouseId, window: "30d", multiplier: 1 });
+  if (queue.draftLines.length === 0) {
+    conflict("Nothing about to stock out that isn't already on an open PO");
+  }
+  const vendorName = majorityVendor(
+    queue.draftLines.map((line) => ({
+      itemId: line.itemId,
+      sku: line.sku,
+      name: line.name,
+      qty: line.qty,
+      onHand: 0,
+      reorderPoint: 0,
+      vendorName: line.vendorName,
+    })),
+    queue.orgVendor ?? "Reorder",
+  );
+  const now = Date.now();
+  const id = newId();
+  await db.batch([
+    db.insert(schema.purchases).values({
+      id,
+      organizationId,
+      warehouseId,
+      number: docNumber("PO"),
+      vendorName,
+      status: "draft",
+      notes: body.notes?.trim() || "Drafted from Runway order-today queue",
       createdAt: now,
     }),
     ...queue.draftLines.map((line) =>

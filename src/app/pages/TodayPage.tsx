@@ -33,6 +33,7 @@ type WorkRow = {
   actionTo: string;
   action: string;
   job?: FloorJob;
+  relabel?: { orderId: string; packageId?: string };
 };
 
 export function TodayPage() {
@@ -80,6 +81,20 @@ export function TodayPage() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not pin");
+    }
+  }
+
+  async function relabelTracker(row: WorkRow) {
+    if (!row.relabel) return;
+    setError(null);
+    try {
+      const path = row.relabel.packageId
+        ? `/api/orders/${row.relabel.orderId}/packages/${row.relabel.packageId}/relabel`
+        : `/api/orders/${row.relabel.orderId}/relabel`;
+      await api(path, { method: "POST" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not relabel");
     }
   }
 
@@ -144,6 +159,7 @@ export function TodayPage() {
     { label: "Checked out", value: data?.openCheckouts ?? "—", to: "/equipment" },
     { label: "Out of service", value: data?.outOfService ?? "—", to: "/equipment", tone: "bad" as const },
     { label: "Certs due", value: data?.expiringCerts ?? "—", to: "/setup/team", tone: "warn" as const },
+    { label: "Runs out", value: data?.runwayThisWeek?.length ?? "—", to: "/analytics/runway", tone: "warn" as const },
   ];
 
   return (
@@ -239,9 +255,22 @@ export function TodayPage() {
                         )}
                       </td>
                       <td className="px-2.5 py-1.5">
-                        <Link className="font-semibold hover:underline" to={row.actionTo} onClick={(event) => event.stopPropagation()}>
-                          {row.action}
-                        </Link>
+                        {row.relabel ? (
+                          <button
+                            type="button"
+                            className="font-semibold hover:underline"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void relabelTracker(row);
+                            }}
+                          >
+                            Relabel
+                          </button>
+                        ) : (
+                          <Link className="font-semibold hover:underline" to={row.actionTo} onClick={(event) => event.stopPropagation()}>
+                            {row.action}
+                          </Link>
+                        )}
                       </td>
                     </tr>
                   );
@@ -267,9 +296,15 @@ export function TodayPage() {
               {selected.job?.reason ? <p className="mt-1 text-muted-foreground">{selected.job.reason}</p> : null}
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <StatusBadge status={statusLabel(selected.status)} />
-                <Link className="font-semibold hover:underline" to={selected.actionTo}>
-                  {selected.action}
-                </Link>
+                {selected.relabel ? (
+                  <button type="button" className="font-semibold hover:underline" onClick={() => void relabelTracker(selected)}>
+                    Relabel
+                  </button>
+                ) : (
+                  <Link className="font-semibold hover:underline" to={selected.actionTo}>
+                    {selected.action}
+                  </Link>
+                )}
               </div>
             </div>
           ) : null}
@@ -290,7 +325,22 @@ export function TodayPage() {
               id: row.itemId,
               to: `/stock/items/${row.itemId}`,
               title: row.sku,
-              meta: `${row.onHand}/${row.reorderPoint}${row.suggestedQty ? ` · +${row.suggestedQty}` : ""}`,
+              meta: `${row.onHand}/${row.reorderPoint}${row.suggestedQty ? ` · +${row.suggestedQty}` : ""}${row.coveredByOpenPo ? " · open PO" : ""}`,
+            }))}
+          />
+          <InspectorList
+            title="Runs out this week"
+            empty="No SKUs run out in 7 days."
+            action={
+              <Link className="font-semibold hover:underline" to="/analytics/runway">
+                Runway
+              </Link>
+            }
+            rows={(data?.runwayThisWeek ?? []).map((row) => ({
+              id: row.itemId,
+              to: `/stock/items/${row.itemId}`,
+              title: row.sku,
+              meta: `${row.daysOfCover != null ? `${row.daysOfCover.toFixed(1)}d` : "out"}${row.suggestedQty ? ` · +${row.suggestedQty}` : ""}${row.coveredByOpenPo ? " · open PO" : ""}`,
             }))}
           />
           <InspectorList
@@ -588,6 +638,17 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: `/stock/items/${row.itemId}`,
       action: "Open",
     })),
+    ...(data?.runwayThisWeek ?? []).map((row) => ({
+      id: `runway-${row.itemId}`,
+      lane: "stock" as const,
+      queue: "Runway",
+      to: `/stock/items/${row.itemId}`,
+      title: `${row.sku} ${row.name}`,
+      meta: `${row.daysOfCover != null ? `${row.daysOfCover.toFixed(1)}d` : "out"}${row.suggestedQty ? ` · +${row.suggestedQty}` : ""}${row.coveredByOpenPo ? " · open PO" : ""}`,
+      status: "runway",
+      actionTo: "/analytics/runway",
+      action: "Runway",
+    })),
     ...(queues.shopifyExceptions ?? []).map((row) => ({
       id: `shopify-${row.id}`,
       lane: "exceptions" as const,
@@ -608,7 +669,8 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       meta: row.trackingNumber ? `${row.trackingNumber} · ${row.trackerStatus}` : row.trackerStatus,
       status: "exception",
       actionTo: `/outbound/orders/${row.orderId}`,
-      action: "Open",
+      action: "Relabel",
+      relabel: { orderId: row.orderId, packageId: row.packageNumber ? row.id : undefined },
     })),
     ...(queues.checkouts ?? []).map((row) => ({
       id: row.id,

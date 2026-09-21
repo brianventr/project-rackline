@@ -10,7 +10,8 @@ export type MovementType =
   | "kit_produce"
   | "scrap"
   | "rtv"
-  | "unpick";
+  | "unpick"
+  | "unreceive";
 
 export type MovementDraft = {
   type: MovementType;
@@ -201,6 +202,43 @@ export function planUnpick(input: {
         serials: input.serials ?? null,
         weightGrams: input.weightGrams ?? null,
         expiresOn: input.expiresOn ?? null,
+      },
+    ],
+  };
+}
+
+export function planUnreceive(input: {
+  itemId: string;
+  sku: string;
+  locationId: string;
+  qty: number;
+  refId: string;
+  balances: Map<string, number>;
+  lotCode?: string | null;
+  serials?: string[] | null;
+  weightGrams?: number | null;
+  expiresOn?: number | null;
+  clientId?: string | null;
+}): StockPlan {
+  requirePositiveQty(input.qty);
+  const balances = new Map(input.balances);
+  applyDelta(balances, input.locationId, input.itemId, -input.qty, input.sku);
+  return {
+    balances,
+    movements: [
+      {
+        type: "unreceive",
+        itemId: input.itemId,
+        qty: input.qty,
+        fromLocationId: input.locationId,
+        refType: "asn",
+        refId: input.refId,
+        reason: "Unreceive carton",
+        lotCode: input.lotCode ?? null,
+        serials: input.serials ?? null,
+        weightGrams: input.weightGrams ?? null,
+        expiresOn: input.expiresOn ?? null,
+        clientId: input.clientId ?? null,
       },
     ],
   };

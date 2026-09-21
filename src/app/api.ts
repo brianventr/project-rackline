@@ -68,6 +68,7 @@ export type Item = {
   type: string;
   barcode: string;
   reorderPoint: number;
+  baselineShipRate?: number | null;
   pickMin?: number;
   trackLot?: boolean;
   trackSerial?: boolean;
@@ -334,16 +335,21 @@ export type OrderLine = {
   packRemaining?: number;
   unpickRemaining?: number;
   qtyCartoned?: number;
+  qtyShipped?: number;
   cartonRemaining?: number;
   allocatedQty?: number;
   allocations?: OrderAllocation[];
   sku: string;
   itemName: string;
+  barcode?: string | null;
   shopifyLineItemId?: string | null;
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;
   trackExpiry?: boolean;
+  stockUom?: string | null;
+  altUom?: string | null;
+  altPerStock?: number | null;
   suggestedLocation?: SuggestedLocation | null;
 };
 
@@ -380,6 +386,8 @@ export type Order = {
   postageCents?: number | null;
   trackerStatus?: string | null;
   packedAt?: number | null;
+  waveId?: string | null;
+  clientId?: string | null;
   allocatedUnits?: number;
   allocations?: OrderAllocation[];
   packages?: OrderPackage[];
@@ -412,6 +420,8 @@ export type OrderPackage = {
   labelStatus?: string | null;
   postageCents?: number | null;
   trackerStatus?: string | null;
+  shippedAt?: number | null;
+  shopifyFulfillmentId?: string | null;
   units?: number;
   lines?: OrderPackageLine[];
 };
@@ -654,6 +664,28 @@ export type PutawaySuggestion = {
   warehouseId: string;
 };
 
+export type CartonPutawaySuggestion = {
+  asnId: string;
+  asnNumber: string;
+  packageId: string;
+  packageNumber: string;
+  sscc?: string | null;
+  fromLocationId: string;
+  fromCode: string;
+  fromBarcode: string;
+  warehouseId: string;
+  lines: {
+    itemId: string;
+    sku: string;
+    itemName: string;
+    qty: number;
+    lotCode?: string | null;
+    toLocationId?: string | null;
+    toCode?: string | null;
+    toBarcode?: string | null;
+  }[];
+};
+
 export type Dashboard = {
   onHandUnits: number;
   binRows: number;
@@ -691,10 +723,23 @@ export type Dashboard = {
     suggestedQty?: number;
     coveredByOpenPo?: boolean;
   }[];
+  runwayThisWeek?: {
+    itemId: string;
+    sku: string;
+    name: string;
+    sellable: number;
+    daysOfCover: number | null;
+    stockoutAt: number | null;
+    status: string;
+    suggestedQty: number;
+    coveredByOpenPo: boolean;
+    lastVendorName: string | null;
+  }[];
   recent: { id: string; type: string; qty: number; createdAt: number; sku: string }[];
   hotBays: { locationId: string; locationCode: string; locationName: string; units: number }[];
   replenishSuggestions?: ReplenishSuggestion[];
   putawaySuggestions?: PutawaySuggestion[];
+  cartonPutaways?: CartonPutawaySuggestion[];
   queues: {
     receipts: Receipt[];
     orders: Order[];
@@ -716,6 +761,7 @@ export type Dashboard = {
     expiringCerts?: OperatorCertification[];
     shopifyExceptions: Order[];
     trackerExceptions?: TrackerException[];
+    cartonPutaways?: CartonPutawaySuggestion[];
     expiringLots?: {
       locationId: string;
       locationCode: string;
@@ -1079,6 +1125,10 @@ export type AsnPackageLine = {
   qty: number;
   sku: string;
   itemName: string;
+  lotCode?: string | null;
+  serials?: string[];
+  weightGrams?: number | null;
+  expiresOn?: number | null;
 };
 
 export type AsnPackage = {
@@ -1087,6 +1137,7 @@ export type AsnPackage = {
   seq: number;
   sscc?: string | null;
   receivedAt?: number | null;
+  putawayAt?: number | null;
   units?: number;
   lines?: AsnPackageLine[];
 };
@@ -1313,3 +1364,13 @@ export type {
   TrafficHorizon,
   TrafficSnapshot,
 } from "@/domain/traffic";
+
+export type {
+  RunwayBoard,
+  RunwayDailyPoint,
+  RunwayDraftLine,
+  RunwayKpis,
+  RunwayRow,
+  RunwayStatus,
+  RunwayWindow,
+} from "@/domain/runway";

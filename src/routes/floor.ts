@@ -35,7 +35,8 @@ import {
 } from "../db/as-built";
 import { completeMatchingSuggestionJobs, guardFloorJob, guardMatchingSuggestionJobs, syncDocumentJob } from "../db/jobs";
 import { loadDocumentNumber, loadOpenAssignmentForEquipment } from "../db/equipment";
-import { loadPackagesForAsns } from "../db/asn-packages";
+import { loadPackagesForAsns, loadUnputawayReceivedCartons } from "../db/asn-packages";
+import { asnCartonPutawayGate } from "../domain/cartons";
 
 export const floorRoute = new Hono<AppEnv>();
 
@@ -273,6 +274,9 @@ floorRoute.post("/transfers/:id/post", async (c) => {
   const user = c.get("user")!;
   const transfer = await transferWithLines(db, organizationId, c.req.param("id"));
   if (!canPostTransfer(transfer.status)) conflict("Transfer already posted");
+  const waiting = await loadUnputawayReceivedCartons(db, organizationId, { locationId: transfer.fromLocationId });
+  const cartonGate = asnCartonPutawayGate(waiting.length);
+  if (!cartonGate.ok) conflict(cartonGate.error, cartonGate.code);
   await guardFloorJob(db, {
     organizationId,
     warehouseId: transfer.warehouseId,
@@ -1178,12 +1182,17 @@ floorRoute.get("/scan", async (c) => {
       .select()
       .from(schema.asnPackages)
       .where(eq(schema.asnPackages.organizationId, organizationId));
-    const pkg = rows.find(
+    const matches = rows.filter(
       (row) =>
+        (row.sscc && row.sscc.toUpperCase() === needle) ||
         row.number.toUpperCase() === needle ||
-        row.number.toUpperCase() === `BOX-${needle}` ||
-        (row.sscc && row.sscc.toUpperCase() === needle),
+        row.number.toUpperCase() === `BOX-${needle}`,
     );
+    const pkg =
+      matches.find((row) => row.sscc && row.sscc.toUpperCase() === needle) ??
+      matches.find((row) => row.receivedAt && !row.putawayAt) ??
+      matches.find((row) => !row.receivedAt) ??
+      matches[0];
     if (pkg) {
       const [asn] = await db
         .select()
@@ -1342,6 +1351,9 @@ floorRoute.post("/moves", async (c) => {
   if (!from) badRequest("Scan or choose a from location");
   if (!to) badRequest("Scan or choose a to location");
   if (from.id === to.id) badRequest("From and to locations must differ");
+  const waiting = await loadUnputawayReceivedCartons(db, organizationId, { locationId: from.id });
+  const cartonGate = asnCartonPutawayGate(waiting.length);
+  if (!cartonGate.ok) conflict(cartonGate.error, cartonGate.code);
   // Cross-warehouse scan-to-move is allowed for multi-warehouse shops.
   const onHand = await db
     .select({

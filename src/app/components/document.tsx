@@ -61,25 +61,42 @@ export function DocumentHeader({
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <PageHeader eyebrow={eyebrow} title={title} description={description} />
-        <Badge variant="outline" className="h-5 px-1.5 text-[10px] uppercase">
+        <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-medium uppercase tracking-normal">
           {statusLabel(status)}
         </Badge>
         {status !== "cancelled" ? <StatusStepper steps={steps} current={status} /> : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-1.5">{actions}</div> : null}
+      {actions ? <div className="flex flex-wrap items-center justify-end gap-1.5">{actions}</div> : null}
     </div>
   );
 }
 
 export function DocumentRail({ children }: { children: ReactNode }) {
-  return <aside className="space-y-2 lg:w-64">{children}</aside>;
+  return <aside className="w-full min-w-0 space-y-2 xl:w-96">{children}</aside>;
 }
 
 export function DocumentFrame({ children, rail }: { children: ReactNode; rail?: ReactNode }) {
   return (
-    <div className={cn("grid min-h-0 flex-1 gap-3", rail ? "xl:grid-cols-[minmax(0,1fr)_16rem]" : "")}>
+    <div className={cn("grid min-h-0 flex-1 gap-3", rail ? "xl:grid-cols-[minmax(0,1fr)_24rem]" : "")}>
       <div className="min-w-0 space-y-3">{children}</div>
       {rail}
+    </div>
+  );
+}
+
+export function DocumentFact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
+      <span className="min-w-0 text-right text-sm">{children}</span>
+    </div>
+  );
+}
+
+export function DocumentActionGrid({ children }: { children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0 [&>*]:w-full [&>*:last-child:nth-child(odd)]:col-span-2">
+      {children}
     </div>
   );
 }

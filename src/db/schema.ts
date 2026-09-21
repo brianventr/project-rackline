@@ -137,6 +137,7 @@ export const items = sqliteTable(
     barcode: text("barcode").notNull().default(""),
     createdAt: integer("created_at").notNull(),
     reorderPoint: integer("reorder_point").notNull().default(0),
+    baselineShipRate: real("baseline_ship_rate"),
     pickMin: integer("pick_min").notNull().default(0),
     trackLot: integer("track_lot", { mode: "boolean" }).notNull().default(false),
     trackSerial: integer("track_serial", { mode: "boolean" }).notNull().default(false),
@@ -341,6 +342,8 @@ export const orderPackages = sqliteTable(
     labelStatus: text("label_status").notNull().default("none"),
     trackerStatus: text("tracker_status"),
     trackerUpdatedAt: integer("tracker_updated_at"),
+    shippedAt: integer("shipped_at"),
+    shopifyFulfillmentId: text("shopify_fulfillment_id"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [
@@ -907,7 +910,8 @@ export type MovementType =
   | "kit_produce"
   | "scrap"
   | "rtv"
-  | "unpick";
+  | "unpick"
+  | "unreceive";
 export type ReturnDisposition = "restock" | "scrap" | "hold";
 
 export const clients = sqliteTable(
@@ -1078,6 +1082,7 @@ export const asnPackages = sqliteTable(
     seq: integer("seq").notNull(),
     sscc: text("sscc"),
     receivedAt: integer("received_at"),
+    putawayAt: integer("putaway_at"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [
@@ -1100,6 +1105,10 @@ export const asnPackageLines = sqliteTable(
       .notNull()
       .references(() => items.id),
     qty: integer("qty").notNull(),
+    lotCode: text("lot_code"),
+    serialsJson: text("serials_json"),
+    weightGrams: integer("weight_grams"),
+    expiresOn: integer("expires_on"),
   },
   (t) => [uniqueIndex("asn_package_lines_pkg_line").on(t.packageId, t.asnLineId)],
 );

@@ -223,6 +223,21 @@ body,
   font-variant-numeric: tabular-nums;
 }
 
+.pick-check {
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  vertical-align: middle;
+  background: #fff;
+}
+
+.pick-stop {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
 .sidebar-none-mode [data-slot="sidebar"] {
   height: 100vh !important;
   min-height: 100vh !important;
@@ -233,6 +248,11 @@ html {
 }
 
 @media print {
+  @page {
+    size: letter;
+    margin: 12mm;
+  }
+
   [data-slot="sidebar"],
   [data-slot="sidebar-gap"],
   [data-slot="sidebar-inset"] {
@@ -242,6 +262,37 @@ html {
 
   [data-slot="sidebar"] {
     display: none !important;
+  }
+
+  body,
+  html,
+  #root {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  [data-slot="sidebar-inset"] {
+    background: #fff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .print-document {
+    max-width: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .print-document .pick-stop {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .pick-check {
+    border-color: #000;
+    background: #fff;
   }
 }
 

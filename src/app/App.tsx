@@ -53,6 +53,7 @@ import { AsnsPage } from "./pages/AsnsPage";
 import { YardPage } from "./pages/YardPage";
 import { LaborPage } from "./pages/LaborPage";
 import { TrafficPage } from "./pages/TrafficPage";
+import { RunwayPage } from "./pages/RunwayPage";
 import { FloorWavePage } from "./pages/floor/FloorWavePage";
 import { FloorAsnPage } from "./pages/floor/FloorAsnPage";
 import { FloorYardPage } from "./pages/floor/FloorYardPage";
@@ -60,6 +61,7 @@ import { FloorCheckoutPage } from "./pages/floor/FloorCheckoutPage";
 import { EquipmentPage } from "./pages/EquipmentPage";
 import { ShippingLabelPage } from "./pages/ShippingLabelPage";
 import { PackSlipPage } from "./pages/PackSlipPage";
+import { OrderPickListPage, WavePickListPage } from "./pages/PickListPage";
 import { ScannerProvider } from "./scanner/ScannerProvider";
 import { PrintProvider } from "./print/PrintProvider";
 import { homePath, OwnerOnly } from "./warehouse";
@@ -124,6 +126,7 @@ export function App() {
         />
         <Route path="/setup/labor" element={<Navigate to="/labor" replace />} />
         <Route path="/analytics/traffic" element={<TrafficPage />} />
+        <Route path="/analytics/runway" element={<RunwayPage />} />
         <Route path="/dashboard" element={<Navigate to="/today" replace />} />
         <Route path="/floor" element={<FloorLauncherPage />} />
         <Route path="/floor/lookup" element={<FloorLookupPage />} />
@@ -190,8 +193,10 @@ export function App() {
         <Route path="/outbound/orders/:id/shipping-label" element={<ShippingLabelPage />} />
         <Route path="/outbound/orders/:id/packages/:packageId/shipping-label" element={<ShippingLabelPage />} />
         <Route path="/outbound/orders/:id/pack-slip" element={<PackSlipPage />} />
+        <Route path="/outbound/orders/:id/pick-list" element={<OrderPickListPage />} />
         <Route path="/outbound/waves" element={<WavesPage />} />
         <Route path="/outbound/waves/:id" element={<WavesPage />} />
+        <Route path="/outbound/waves/:id/pick-list" element={<WavePickListPage />} />
         <Route path="/outbound/returns" element={<ReturnsPage />} />
         <Route path="/outbound/returns/:id" element={<ReturnsPage />} />
         <Route

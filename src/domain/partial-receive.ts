@@ -58,3 +58,57 @@ export function applyPartialReceive(
 
   return { next, posted };
 }
+
+export class OverUnreceiveError extends Error {
+  constructor(
+    public sku: string,
+    public received: number,
+    public qty: number,
+  ) {
+    super(`Cannot unreceive ${qty} of ${sku}: only ${received} received`);
+    this.name = "OverUnreceiveError";
+  }
+}
+
+export function applyUnreceive(
+  expected: ExpectedLine[],
+  incoming: { itemId: string; qty: number }[],
+): { next: ExpectedLine[]; posted: { itemId: string; qty: number }[] } {
+  if (incoming.length === 0) {
+    throw new Error("At least one unreceive line is required");
+  }
+  const next = expected.map((line) => ({ ...line }));
+  const index = new Map(next.map((line, i) => [line.itemId, i]));
+  const posted: { itemId: string; qty: number }[] = [];
+
+  for (const row of incoming) {
+    if (!Number.isInteger(row.qty) || row.qty <= 0) {
+      throw new Error("Quantity must be a positive integer");
+    }
+    const at = index.get(row.itemId);
+    if (at === undefined) {
+      throw new Error("Item is not on this document");
+    }
+    const line = next[at]!;
+    if (row.qty > line.qtyReceived) {
+      throw new OverUnreceiveError(line.sku ?? row.itemId, line.qtyReceived, row.qty);
+    }
+    line.qtyReceived -= row.qty;
+    posted.push({ itemId: row.itemId, qty: row.qty });
+  }
+
+  return { next, posted };
+}
+
+export function asnStatusAfterUnreceive(
+  lines: ExpectedLine[],
+  previousStatus: string,
+): { status: string; clearReceivedAt: boolean } {
+  if (isFullyReceived(lines)) {
+    return { status: "received", clearReceivedAt: false };
+  }
+  if (lines.some((line) => line.qtyReceived > 0)) {
+    return { status: "receiving", clearReceivedAt: true };
+  }
+  return { status: previousStatus === "draft" ? "draft" : "expected", clearReceivedAt: true };
+}

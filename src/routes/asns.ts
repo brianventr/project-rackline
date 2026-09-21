@@ -2,19 +2,37 @@ import { Hono } from "hono";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
-import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
-import { getOrgItem, getOrgLocation, requireOwner } from "../lib/org";
+import { badRequest, conflict, notFound, optionalInt, requireInt, requireString } from "../lib/http";
+import { getOrgItem, getOrgLocation, getOrgLocationByScan, requireOwner } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
-import { postReceiveLines } from "../db/stock";
-import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError } from "../domain/partial-receive";
+import { postReceiveLines, loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
+import { applyPartialReceive, applyUnreceive, asnStatusAfterUnreceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError, OverUnreceiveError } from "../domain/partial-receive";
 import { canExpectAsn, canReceiveAsn } from "../domain/status";
 import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
 import { recordLaborEvent } from "../db/labor";
 import { resolveLineStockQty, UomConversionError } from "../domain/uom";
-import { applyCarton, asnCartonReceiveGate, cartonNumber, OverCartonError } from "../domain/cartons";
-import { asAsnCartonLines, loadPackagesForAsns, withAsnCartonRemaining, type AsnPackageRow } from "../db/asn-packages";
+import {
+  applyCarton,
+  asnCartonReceiveGate,
+  canPutawayAsnCarton,
+  canUnreceiveAsnCarton,
+  cartonNumber,
+  OverCartonError,
+} from "../domain/cartons";
+import {
+  asAsnCartonLines,
+  loadPackagesForAsns,
+  serializeSerialsJson,
+  withAsnCartonRemaining,
+  type AsnPackageRow,
+} from "../db/asn-packages";
+import { chainPlans, planMove, planUnreceive } from "../domain/inventory";
+import { parseScan } from "../domain/barcodes";
+import { suggestPutawayBay } from "../domain/directed-putaway";
+import { loadPutawayBaysByItem } from "../db/putaway-bays";
+import { completeMatchingSuggestionJobs, guardMatchingSuggestionJobs } from "../db/jobs";
 
 export const asnsRoute = new Hono<AppEnv>();
 
@@ -345,12 +363,33 @@ asnsRoute.post("/asns/:id/receive", async (c) => {
   return c.json(await asnWithLines(db, organizationId, asn.id));
 });
 
-type AsnCartonIncoming = { sscc?: string; lines?: { itemId?: string; sku?: string; qty?: number }[] };
+type AsnCartonLineIncoming = {
+  itemId?: string;
+  sku?: string;
+  qty?: number;
+  lotCode?: string;
+  serials?: string | string[];
+  weightGrams?: number;
+  expiresOn?: unknown;
+};
+
+type AsnCartonIncoming = { sscc?: string; lines?: AsnCartonLineIncoming[] };
+
+type ResolvedAsnCartonLine = {
+  lineId: string;
+  itemId: string;
+  sku: string;
+  qty: number;
+  lotCode: string | null;
+  serials: string[];
+  weightGrams: number | null;
+  expiresOn: number | null;
+};
 
 function resolveAsnCartonLines(
   asn: Awaited<ReturnType<typeof asnWithLines>>,
-  rows: { itemId?: string; sku?: string; qty?: number }[] | undefined,
-): { lineId: string; itemId: string; sku: string; qty: number }[] {
+  rows: AsnCartonLineIncoming[] | undefined,
+): ResolvedAsnCartonLine[] {
   if (!Array.isArray(rows) || rows.length === 0) {
     return asn.lines
       .filter((line) => (line.cartonRemaining ?? remainingOnLine(asExpected(line))) > 0)
@@ -359,6 +398,10 @@ function resolveAsnCartonLines(
         itemId: line.itemId,
         sku: line.sku,
         qty: line.cartonRemaining ?? remainingOnLine(asExpected(line)),
+        lotCode: null,
+        serials: [] as string[],
+        weightGrams: null,
+        expiresOn: null,
       }));
   }
   return rows.map((row) => {
@@ -367,8 +410,28 @@ function resolveAsnCartonLines(
       (row.itemId ? asn.lines.find((item) => item.itemId === row.itemId) : undefined) ??
       (sku ? asn.lines.find((item) => item.sku.toUpperCase() === sku) : undefined);
     if (!line) badRequest("Line is not on this ASN");
-    const qty = row.qty === undefined || row.qty === null ? (line.cartonRemaining ?? remainingOnLine(asExpected(line))) : requireInt(row.qty, "qty");
-    return { lineId: line.id, itemId: line.itemId, sku: line.sku, qty };
+    const qty =
+      row.qty === undefined || row.qty === null
+        ? (line.cartonRemaining ?? remainingOnLine(asExpected(line)))
+        : requireInt(row.qty, "qty");
+    let serials: string[] = [];
+    try {
+      serials = parseSerialList(row.serials);
+    } catch (err) {
+      badRequest(err instanceof Error ? err.message : "Invalid serials");
+    }
+    return {
+      lineId: line.id,
+      itemId: line.itemId,
+      sku: line.sku,
+      qty,
+      lotCode: row.lotCode?.trim().toUpperCase() || null,
+      serials,
+      weightGrams: line.catchWeight
+        ? lineCatchWeight(true, line.sku, row.weightGrams)
+        : (optionalInt(row.weightGrams, "weightGrams") ?? null),
+      expiresOn: line.trackExpiry ? lineExpiry(true, line.sku, row.expiresOn) : null,
+    };
   });
 }
 
@@ -417,6 +480,10 @@ async function addAsnCarton(
         asnLineId: row.lineId,
         itemId: line.itemId,
         qty: row.qty,
+        lotCode: line.lotCode,
+        serialsJson: serializeSerialsJson(line.serials),
+        weightGrams: line.weightGrams,
+        expiresOn: line.expiresOn,
       });
     }),
   ]);
@@ -431,11 +498,11 @@ async function addAsnCarton(
 asnsRoute.post("/asns/:id/packages", async (c) => {
   const body = await c.req.json<{
     sscc?: string;
-    lines?: { itemId?: string; sku?: string; qty?: number }[];
+    lines?: AsnCartonLineIncoming[];
     cartons?: AsnCartonIncoming[];
     receive?: boolean;
     locationId?: string;
-  }>().catch(() => ({} as { sscc?: string; lines?: never[]; cartons?: AsnCartonIncoming[]; receive?: boolean; locationId?: string }));
+  }>().catch(() => ({} as { sscc?: string; lines?: AsnCartonLineIncoming[]; cartons?: AsnCartonIncoming[]; receive?: boolean; locationId?: string }));
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   let asn = await asnWithLines(db, organizationId, c.req.param("id"));
@@ -461,7 +528,18 @@ asnsRoute.post("/asns/:id/packages/:pkgId/receive", async (c) => {
     locationId?: string;
     lots?: Record<string, string>;
     serials?: Record<string, string | string[]>;
-  }>().catch(() => ({} as { locationId?: string; lots?: Record<string, string>; serials?: Record<string, string | string[]> }));
+    weights?: Record<string, number>;
+    expiries?: Record<string, unknown>;
+  }>().catch(
+    () =>
+      ({}) as {
+        locationId?: string;
+        lots?: Record<string, string>;
+        serials?: Record<string, string | string[]>;
+        weights?: Record<string, number>;
+        expiries?: Record<string, unknown>;
+      },
+  );
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -470,6 +548,8 @@ asnsRoute.post("/asns/:id/packages/:pkgId/receive", async (c) => {
     locationId,
     lots: body.lots,
     serials: body.serials,
+    weights: body.weights,
+    expiries: body.expiries,
   }));
 });
 
@@ -479,7 +559,13 @@ async function receiveAsnPackage(
   userId: string,
   asn: Awaited<ReturnType<typeof asnWithLines>>,
   pkgId: string,
-  input: { locationId: string; lots?: Record<string, string>; serials?: Record<string, string | string[]> },
+  input: {
+    locationId: string;
+    lots?: Record<string, string>;
+    serials?: Record<string, string | string[]>;
+    weights?: Record<string, number>;
+    expiries?: Record<string, unknown>;
+  },
 ) {
   if (!canReceiveAsn(asn.status)) conflict("ASN is already received");
   const pkg = asn.packages.find((row) => row.id === pkgId);
@@ -495,15 +581,21 @@ async function receiveAsnPackage(
     asn = await asnWithLines(db, organizationId, asn.id);
   }
 
-  const incoming = pkg.lines.map((row) => ({
-    itemId: row.itemId,
-    sku: row.sku,
-    qty: row.qty,
-    lotCode: input.lots?.[row.itemId]?.trim() || null,
-    serials: parseSerialList(input.serials?.[row.itemId]),
-    weightGrams: null as number | null,
-    expiresOn: null as number | null,
-  }));
+  const incoming = pkg.lines.map((row) => {
+    const line = asn.lines.find((item) => item.itemId === row.itemId);
+    const formSerials = parseSerialList(input.serials?.[row.itemId]);
+    const weightRaw = row.weightGrams ?? input.weights?.[row.itemId];
+    const expiryRaw = row.expiresOn ?? input.expiries?.[row.itemId];
+    return {
+      itemId: row.itemId,
+      sku: row.sku,
+      qty: row.qty,
+      lotCode: row.lotCode?.trim() || input.lots?.[row.itemId]?.trim() || null,
+      serials: row.serials.length ? row.serials : formSerials,
+      weightGrams: line?.catchWeight ? lineCatchWeight(true, row.sku, weightRaw) : (weightRaw ?? null),
+      expiresOn: line?.trackExpiry ? lineExpiry(true, row.sku, expiryRaw) : (typeof expiryRaw === "number" ? expiryRaw : null),
+    };
+  });
 
   let applied;
   try {
@@ -572,6 +664,260 @@ async function receiveAsnPackage(
   });
 
   return asnWithLines(db, organizationId, asn.id);
+}
+
+asnsRoute.post("/asns/:id/packages/:pkgId/unreceive", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const asn = await asnWithLines(db, organizationId, c.req.param("id"));
+  return c.json(await unreceiveAsnPackage(db, organizationId, c.get("user")!.id, asn, c.req.param("pkgId")));
+});
+
+async function unreceiveAsnPackage(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  userId: string,
+  asn: Awaited<ReturnType<typeof asnWithLines>>,
+  pkgId: string,
+) {
+  const pkg = asn.packages.find((row) => row.id === pkgId);
+  if (!pkg) notFound("Carton not found");
+  const gate = canUnreceiveAsnCarton(pkg);
+  if (!gate.ok) conflict(gate.error, gate.code);
+  if (!asn.locationId) conflict("Receive the carton onto a dock before unreceiving");
+  await getOrgLocation(db, organizationId, asn.locationId);
+
+  const incoming = pkg.lines.map((row) => ({
+    itemId: row.itemId,
+    sku: row.sku,
+    qty: row.qty,
+    lotCode: row.lotCode,
+    serials: row.serials.length ? row.serials : null,
+    weightGrams: row.weightGrams,
+    expiresOn: row.expiresOn,
+  }));
+
+  let applied;
+  try {
+    applied = applyUnreceive(
+      asn.lines.map(asExpected),
+      incoming.map((row) => ({ itemId: row.itemId, qty: row.qty })),
+    );
+  } catch (err) {
+    if (err instanceof OverUnreceiveError) throw err;
+    badRequest(err instanceof Error ? err.message : "Invalid unreceive");
+  }
+
+  const now = Date.now();
+  const statusPatch = asnStatusAfterUnreceive(applied.next, asn.status);
+  const qtyByItem = new Map(applied.next.map((line) => [line.itemId, line.qtyReceived]));
+  const posted = incoming.filter((row) => row.qty > 0);
+  const loaded = await loadBalanceMap(
+    db,
+    organizationId,
+    posted.map((row) => ({ locationId: asn.locationId!, itemId: row.itemId })),
+  );
+  const plan = chainPlans(
+    qtyMap(loaded),
+    posted.map(
+      (row) => (balances) =>
+        planUnreceive({
+          itemId: row.itemId,
+          sku: row.sku,
+          locationId: asn.locationId!,
+          qty: row.qty,
+          refId: asn.id,
+          balances,
+          lotCode: row.lotCode,
+          serials: row.serials,
+          weightGrams: row.weightGrams,
+          expiresOn: row.expiresOn,
+          clientId: asn.clientId,
+        }),
+    ),
+  );
+
+  await persistStockPlan(db, {
+    organizationId,
+    createdBy: userId,
+    now,
+    loaded,
+    plan,
+    extra: [
+      ...asn.lines.map((line) =>
+        db
+          .update(schema.asnLines)
+          .set({ qtyReceived: qtyByItem.get(line.itemId) ?? line.qtyReceived })
+          .where(eq(schema.asnLines.id, line.id)),
+      ),
+      db.update(schema.asnPackages).set({ receivedAt: null }).where(eq(schema.asnPackages.id, pkg.id)),
+      db
+        .update(schema.asns)
+        .set({
+          status: statusPatch.status,
+          receivedAt: statusPatch.clearReceivedAt ? null : asn.receivedAt,
+        })
+        .where(eq(schema.asns.id, asn.id)),
+    ],
+  });
+
+  return asnWithLines(db, organizationId, asn.id);
+}
+
+asnsRoute.post("/asns/:id/packages/:pkgId/putaway", async (c) => {
+  const body = await c.req
+    .json<{ toLocationId?: string; toBarcode?: string }>()
+    .catch(() => ({}) as { toLocationId?: string; toBarcode?: string });
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const asn = await asnWithLines(db, organizationId, c.req.param("id"));
+  return c.json(
+    await putawayAsnPackage(db, organizationId, c.get("user")!.id, c.get("role")!, asn, c.req.param("pkgId"), body),
+  );
+});
+
+async function putawayAsnPackage(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  userId: string,
+  role: string,
+  asn: Awaited<ReturnType<typeof asnWithLines>>,
+  pkgId: string,
+  input: { toLocationId?: string; toBarcode?: string },
+) {
+  const pkg = asn.packages.find((row) => row.id === pkgId);
+  if (!pkg) notFound("Carton not found");
+  const gate = canPutawayAsnCarton(pkg);
+  if (!gate.ok) conflict(gate.error, gate.code);
+  if (!asn.locationId) conflict("Receive the carton onto a dock before putaway");
+  const from = await getOrgLocation(db, organizationId, asn.locationId);
+  const override =
+    (input.toLocationId ? await getOrgLocation(db, organizationId, requireString(input.toLocationId, "toLocationId")) : null) ??
+    (input.toBarcode
+      ? await getOrgLocationByScan(db, organizationId, parseScan(requireString(input.toBarcode, "toBarcode")).value)
+      : null);
+  if (input.toLocationId && !override) notFound("Location not found");
+  if (input.toBarcode && !override) notFound("Location not found");
+
+  const baysByItem = override
+    ? new Map()
+    : await loadPutawayBaysByItem(
+        db,
+        organizationId,
+        from.warehouseId,
+        [...new Set(pkg.lines.map((line) => line.itemId))],
+      );
+
+  const dests = pkg.lines.map((line) => {
+    if (override) {
+      if (override.id === from.id) badRequest("From and to locations must differ");
+      return {
+        itemId: line.itemId,
+        sku: line.sku,
+        qty: line.qty,
+        lotCode: line.lotCode,
+        serials: line.serials.length ? line.serials : null,
+        toLocationId: override.id,
+        toCode: override.code,
+        toBarcode: override.barcode,
+      };
+    }
+    const suggested = suggestPutawayBay(baysByItem.get(line.itemId) ?? [], from.id);
+    if (!suggested) badRequest(`No putaway bay for ${line.sku}`);
+    return {
+      itemId: line.itemId,
+      sku: line.sku,
+      qty: line.qty,
+      lotCode: line.lotCode,
+      serials: line.serials.length ? line.serials : null,
+      toLocationId: suggested.locationId,
+      toCode: suggested.locationCode,
+      toBarcode: suggested.barcode,
+    };
+  });
+
+  for (const dest of dests) {
+    await guardMatchingSuggestionJobs(db, {
+      organizationId,
+      warehouseId: from.warehouseId,
+      userId,
+      role,
+      fromLocationId: from.id,
+      toLocationId: dest.toLocationId,
+      itemIds: [dest.itemId],
+    });
+  }
+
+  const pairs = dests.flatMap((line) => [
+    { locationId: from.id, itemId: line.itemId },
+    { locationId: line.toLocationId, itemId: line.itemId },
+  ]);
+  const loaded = await loadBalanceMap(db, organizationId, pairs);
+  const now = Date.now();
+  const plan = chainPlans(
+    qtyMap(loaded),
+    dests.map(
+      (line) => (balances) =>
+        planMove({
+          itemId: line.itemId,
+          sku: line.sku,
+          qty: line.qty,
+          fromLocationId: from.id,
+          toLocationId: line.toLocationId,
+          refId: asn.id,
+          refType: "asn",
+          balances,
+          lotCode: line.lotCode,
+          serials: line.serials,
+        }),
+    ),
+  );
+
+  await persistStockPlan(db, {
+    organizationId,
+    createdBy: userId,
+    now,
+    loaded,
+    plan,
+    extra: [db.update(schema.asnPackages).set({ putawayAt: now }).where(eq(schema.asnPackages.id, pkg.id))],
+  });
+
+  for (const dest of dests) {
+    await completeMatchingSuggestionJobs(db, {
+      organizationId,
+      warehouseId: from.warehouseId,
+      fromLocationId: from.id,
+      toLocationId: dest.toLocationId,
+      itemIds: [dest.itemId],
+    });
+  }
+
+  await recordLaborEvent(db, {
+    organizationId,
+    warehouseId: asn.warehouseId,
+    userId,
+    verb: "putaway",
+    refType: "asn",
+    refId: asn.id,
+    qty: dests.reduce((sum, row) => sum + row.qty, 0),
+    now,
+  });
+
+  const next = await asnWithLines(db, organizationId, asn.id);
+  return {
+    ...next,
+    putaway: {
+      from: { id: from.id, code: from.code, barcode: from.barcode },
+      moved: dests.map((row) => ({
+        itemId: row.itemId,
+        sku: row.sku,
+        qty: row.qty,
+        toLocationId: row.toLocationId,
+        toCode: row.toCode,
+        toBarcode: row.toBarcode,
+      })),
+    },
+  };
 }
 
 asnsRoute.delete("/asns/:id", async (c) => {

@@ -88,6 +88,28 @@ export function rollupOrderTracker(packages: { trackerStatus: string | null }[])
   return laggingTrackerStatus(packages.map((row) => row.trackerStatus));
 }
 
+export type RelabelDecision =
+  | { ok: true }
+  | { ok: false; error: string; code: "NOT_EXCEPTION" | "NO_LABEL" | "CANCELLED" };
+
+export function canRelabelException(input: {
+  status: string;
+  trackerStatus?: string | null;
+  labelStatus?: string | null;
+  trackingNumber?: string | null;
+}): RelabelDecision {
+  if (input.status === "cancelled") {
+    return { ok: false, error: "Cancelled orders cannot relabel", code: "CANCELLED" };
+  }
+  if (normalizeTrackerStatus(input.trackerStatus) !== "exception") {
+    return { ok: false, error: "Relabel is for tracker exceptions", code: "NOT_EXCEPTION" };
+  }
+  if (input.labelStatus !== "purchased" && !input.trackingNumber?.trim()) {
+    return { ok: false, error: "Buy a label before relabeling", code: "NO_LABEL" };
+  }
+  return { ok: true };
+}
+
 export function parseTrackerWebhook(payload: unknown): ParsedTrackerWebhook | null {
   if (!payload || typeof payload !== "object") return null;
   const record = payload as Record<string, unknown>;

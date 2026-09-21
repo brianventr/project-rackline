@@ -4,6 +4,7 @@ import {
   applyClientOutbound,
   applyClientReceive,
   clientBalanceKey,
+  isClientOutboundMovement,
 } from "./client-stock";
 
 describe("client stock overlay", () => {
@@ -32,5 +33,7 @@ describe("client stock overlay", () => {
     expect(() =>
       applyClientOutbound(next, { locationId: "loc", itemId: "item", clientId: "client", qty: 2 }),
     ).toThrow(ClientStockError);
+    expect(isClientOutboundMovement("unreceive")).toBe(true);
+    expect(isClientOutboundMovement("pick")).toBe(true);
   });
 });

@@ -7,6 +7,7 @@ import {
   trackerHmacHex,
   trackerToFlight,
   verifyTrackerHmac,
+  canRelabelException,
 } from "./tracker";
 
 describe("tracker status map", () => {
@@ -63,6 +64,46 @@ describe("tracker status map", () => {
       status: "delivered",
       eventId: "demo-1",
     });
+  });
+
+  it("lets shipped exceptions relabel and blocks everything else", () => {
+    expect(
+      canRelabelException({
+        status: "shipped",
+        trackerStatus: "exception",
+        labelStatus: "purchased",
+        trackingNumber: "RL-MIA001",
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      canRelabelException({
+        status: "shipped",
+        trackerStatus: "failure",
+        trackingNumber: "RL-MIA001",
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      canRelabelException({
+        status: "packed",
+        trackerStatus: "in_transit",
+        labelStatus: "purchased",
+        trackingNumber: "RL-1",
+      }),
+    ).toMatchObject({ ok: false, code: "NOT_EXCEPTION" });
+    expect(
+      canRelabelException({
+        status: "cancelled",
+        trackerStatus: "exception",
+        trackingNumber: "RL-1",
+      }),
+    ).toMatchObject({ ok: false, code: "CANCELLED" });
+    expect(
+      canRelabelException({
+        status: "shipped",
+        trackerStatus: "exception",
+        labelStatus: "none",
+      }),
+    ).toMatchObject({ ok: false, code: "NO_LABEL" });
   });
 
   it("verifies hex HMAC used by EasyPost-style tracker webhooks", async () => {

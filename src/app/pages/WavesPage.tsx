@@ -170,6 +170,9 @@ function WaveDetail({ id }: { id: string }) {
             {canReleaseWave(wave.status) ? <Button onClick={() => void release()}>Release</Button> : null}
             {canCompleteWave(wave.status) ? <Button onClick={() => void complete()}>Complete</Button> : null}
             <Button variant="secondary" asChild>
+              <Link to={`/outbound/waves/${wave.id}/pick-list`}>Pick list</Link>
+            </Button>
+            <Button variant="secondary" asChild>
               <Link to={`/floor/wave?id=${wave.id}`}>Floor</Link>
             </Button>
           </>

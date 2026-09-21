@@ -9,6 +9,7 @@ import {
   canReceiveReturn,
   canPostVendorReturn,
   canShipOrder,
+  canShipCartonOrder,
   canCompleteKit,
   canDekit,
   canPostReplenishment,
@@ -37,7 +38,9 @@ describe("order status", () => {
   it("stays packing until every picked unit is packed", () => {
     expect(canPackOrder("packing")).toBe(true);
     expect(canShipOrder("packing")).toBe(false);
+    expect(canShipCartonOrder("packing")).toBe(true);
     expect(canShipOrder("packed")).toBe(true);
+    expect(canShipCartonOrder("packed")).toBe(true);
   });
 
   it("stays open for picking until the ticket is filled", () => {

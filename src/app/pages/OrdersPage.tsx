@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type CarrierHub, type CarrierRate, type CarrierServiceOption, type Item, type Location, type Order, type ShippingLabel } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
-import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
-import { ORDER_STEPS, canPackOrder, canPickOrder, canShipOrder, canStartPick, canCancelOrder, canUnpickOrder } from "@/domain/status";
+import { DocumentActionGrid, DocumentActivity, DocumentFact, DocumentFrame, DocumentHeader, DocumentRail } from "../components/document";
+import { ORDER_STEPS, canPackOrder, canPickOrder, canShipOrder, canShipCartonOrder, canStartPick, canCancelOrder, canUnpickOrder } from "@/domain/status";
+import { canRelabelException } from "@/domain/tracker";
 import { hasUnpicked } from "@/domain/partial-pick";
 import { hasUnpacked } from "@/domain/partial-pack";
+import { canShipLabeledCarton, canUncartonOrderPackage } from "@/domain/cartons";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { LineFields } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
@@ -310,12 +312,43 @@ function OrderDetail({ id }: { id: string }) {
     }
   }
 
+  async function shipCarton(pkgId: string) {
+    setError(null);
+    try {
+      setOrder(await api<Order>(`/api/orders/${id}/packages/${pkgId}/ship`, { method: "POST" }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not ship carton");
+    }
+  }
+
+  async function uncarton(pkgId: string) {
+    setError(null);
+    try {
+      setOrder(await api<Order>(`/api/orders/${id}/packages/${pkgId}/uncarton`, { method: "POST" }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not drop carton");
+    }
+  }
+
   async function retryShopify() {
     setError(null);
     try {
       setOrder(await api<Order>(`/api/orders/${id}/shopify/fulfill`, { method: "POST" }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Shopify fulfill failed");
+    }
+  }
+
+  async function relabel(pkgId?: string) {
+    setError(null);
+    try {
+      const path = pkgId ? `/api/orders/${id}/packages/${pkgId}/relabel` : `/api/orders/${id}/relabel`;
+      const label = await api<ShippingLabel>(path, { method: "POST" });
+      setTrackingNumber(label.trackingNumber);
+      setTrackingCompany(label.carrierCompany);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not relabel");
     }
   }
 
@@ -340,6 +373,15 @@ function OrderDetail({ id }: { id: string }) {
   const thisPack = Object.values(packQtys).some((value) => Number(value) > 0);
   const thisUnpick = Object.values(unpickQtys).some((value) => Number(value) > 0);
   const unpickable = (order.lines ?? []).some((line) => (line.unpickRemaining ?? 0) > 0);
+  const packages = order.packages ?? [];
+  const hasPackages = packages.length > 0;
+  const showWorkflow =
+    (canStartPick(order.status) && remaining) ||
+    (canPickOrder(order.status) && remaining) ||
+    (canPackOrder(order.status) && unpacked) ||
+    (canUnpickOrder(order.status) && unpickable) ||
+    canCancelOrder(order.status) ||
+    canShipOrder(order.status);
 
   return (
     <div className="space-y-3">
@@ -350,58 +392,73 @@ function OrderDetail({ id }: { id: string }) {
         status={order.status}
         steps={ORDER_STEPS}
         actions={
-          <>
-            <Button size="xs" variant="ghost" onClick={() => navigate("/outbound/orders")}>
-              All orders
-            </Button>
-            {canStartPick(order.status) && remaining ? (
-              <Button variant="secondary" onClick={() => void startPick()}>
-                Start pick
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex flex-wrap justify-end gap-1.5">
+              <Button variant="ghost" size="xs" onClick={() => navigate("/outbound/orders")}>
+                All orders
               </Button>
-            ) : null}
-            {canPickOrder(order.status) && remaining ? (
-              <Button disabled={!thisPick} onClick={() => void pick()}>
-                Pick
-              </Button>
-            ) : null}
-            {canPackOrder(order.status) && unpacked ? (
-              <>
-                <Button disabled={!thisPack} onClick={() => void pack()}>
-                  Pack
+              {canPickOrder(order.status) ? (
+                <Button variant="secondary" size="sm" asChild>
+                  <Link to={`/outbound/orders/${order.id}/pick-list`}>Pick list</Link>
                 </Button>
-                <Button variant="secondary" disabled={!thisPack} onClick={() => void packIntoCarton()}>
-                  Pack into carton
+              ) : null}
+              <Button variant="secondary" size="sm" asChild>
+                <Link to={`/outbound/orders/${order.id}/pack-slip`}>Pack slip</Link>
+              </Button>
+              {!hasPackages ? (
+                <Button variant="secondary" size="sm" asChild>
+                  <Link to={`/outbound/orders/${order.id}/shipping-label`}>Label</Link>
                 </Button>
-              </>
-            ) : null}
-            {canUnpickOrder(order.status) && unpickable ? (
-              <Button variant="secondary" disabled={!thisUnpick} onClick={() => void unpick()}>
-                Unpick
+              ) : null}
+              <Button variant="secondary" size="sm" asChild>
+                <Link to={floorActionForOrder(order.status, order.id)}>Floor</Link>
               </Button>
+              {order.source === "shopify" &&
+              (order.shopifySyncStatus === "failed" ||
+                packages.some((pkg) => pkg.shippedAt && !pkg.shopifyFulfillmentId)) ? (
+                <Button variant="secondary" size="sm" onClick={() => void retryShopify()}>
+                  Retry Shopify
+                </Button>
+              ) : null}
+            </div>
+            {showWorkflow ? (
+              <div className="flex flex-wrap justify-end gap-2">
+                {canStartPick(order.status) && remaining ? (
+                  <Button variant="secondary" onClick={() => void startPick()}>
+                    Start pick
+                  </Button>
+                ) : null}
+                {canPickOrder(order.status) && remaining ? (
+                  <Button disabled={!thisPick} onClick={() => void pick()}>
+                    Pick
+                  </Button>
+                ) : null}
+                {canPackOrder(order.status) && unpacked ? (
+                  <>
+                    <Button disabled={!thisPack} onClick={() => void pack()}>
+                      Pack
+                    </Button>
+                    <Button variant="secondary" disabled={!thisPack} onClick={() => void packIntoCarton()}>
+                      Pack into carton
+                    </Button>
+                  </>
+                ) : null}
+                {canUnpickOrder(order.status) && unpickable ? (
+                  <Button variant="secondary" disabled={!thisUnpick} onClick={() => void unpick()}>
+                    Unpick
+                  </Button>
+                ) : null}
+                {canCancelOrder(order.status) ? (
+                  <Button variant="secondary" onClick={() => void cancel()}>
+                    Cancel
+                  </Button>
+                ) : null}
+                {canShipOrder(order.status) ? (
+                  <Button onClick={() => void ship()}>{order.source === "shopify" ? "Ship & fulfill" : "Ship"}</Button>
+                ) : null}
+              </div>
             ) : null}
-            {canCancelOrder(order.status) ? (
-              <Button variant="secondary" onClick={() => void cancel()}>
-                Cancel
-              </Button>
-            ) : null}
-            {canShipOrder(order.status) ? (
-              <Button onClick={() => void ship()}>{order.source === "shopify" ? "Ship & fulfill" : "Ship"}</Button>
-            ) : null}
-            <Button variant="secondary">
-              <Link to={`/outbound/orders/${order.id}/pack-slip`}>Pack slip</Link>
-            </Button>
-            <Button variant="secondary">
-              <Link to={`/outbound/orders/${order.id}/shipping-label`}>Label</Link>
-            </Button>
-            <Button variant="secondary">
-              <Link to={floorActionForOrder(order.status, order.id)}>Floor</Link>
-            </Button>
-            {order.status === "shipped" && order.source === "shopify" && order.shopifySyncStatus === "failed" ? (
-              <Button variant="secondary" onClick={() => void retryShopify()}>
-                Retry Shopify
-              </Button>
-            ) : null}
-          </>
+          </div>
         }
       />
       <ErrorBanner error={error} />
@@ -409,10 +466,20 @@ function OrderDetail({ id }: { id: string }) {
         rail={
           <DocumentRail>
             <Card className="space-y-3">
-              <p className="text-sm">
-                Channel: {order.source === "shopify" ? <Link className="underline" to="/setup/shopify">Shopify</Link> : "Floor"}
-              </p>
-              {order.source === "shopify" ? <StatusBadge status={order.shopifySyncStatus || "inbound"} /> : null}
+              <DocumentFact label="Channel">
+                {order.source === "shopify" ? (
+                  <Link className="underline" to="/setup/shopify">
+                    Shopify
+                  </Link>
+                ) : (
+                  "Floor"
+                )}
+              </DocumentFact>
+              {order.source === "shopify" ? (
+                <DocumentFact label="Shopify">
+                  <StatusBadge status={order.shopifySyncStatus || "inbound"} />
+                </DocumentFact>
+              ) : null}
               {order.shopifySyncError ? <p className="text-sm text-destructive">{order.shopifySyncError}</p> : null}
               <Field label="Pick from">
                 <Select value={pickLocation} onChange={(e) => setPickLocation(e.target.value)}>
@@ -455,10 +522,15 @@ function OrderDetail({ id }: { id: string }) {
                 </Field>
               </div>
               {order.shipToAddress ? <p className="whitespace-pre-line text-sm text-muted-foreground">{order.shipToAddress}</p> : null}
-              {order.labelStatus ? (
-                <p className="text-sm">
-                  Label <StatusBadge status={order.labelStatus} />
-                </p>
+              {!hasPackages && order.labelStatus && order.labelStatus !== "none" ? (
+                <DocumentFact label="Label">
+                  <StatusBadge status={order.labelStatus} />
+                </DocumentFact>
+              ) : null}
+              {!hasPackages && order.trackerStatus ? (
+                <DocumentFact label="Tracker">
+                  <StatusBadge status={order.trackerStatus} />
+                </DocumentFact>
               ) : null}
               {order.postageCents ? (
                 <p className="text-sm text-muted-foreground">Postage ${(order.postageCents / 100).toFixed(2)}</p>
@@ -486,9 +558,11 @@ function OrderDetail({ id }: { id: string }) {
                   ))}
                 </ul>
               ) : null}
-              <div className="flex flex-wrap gap-2">
+              <DocumentActionGrid>
                 <Button
                   variant="secondary"
+                  size="sm"
+                  className={hasPackages ? "col-span-2" : undefined}
                   onClick={() =>
                     void api<{ rates: CarrierRate[] }>(`/api/orders/${id}/rates`, {
                       method: "POST",
@@ -506,34 +580,38 @@ function OrderDetail({ id }: { id: string }) {
                 >
                   Shop rates
                 </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() =>
-                    void api<ShippingLabel>(`/api/orders/${id}/label`, {
-                      method: "POST",
-                      body: JSON.stringify({
-                        carrierService,
-                        trackingNumber: trackingNumber || undefined,
-                        liveRateId,
-                        weightOz: Number(weightOz),
-                        lengthIn: Number(lengthIn),
-                        widthIn: Number(widthIn),
-                        heightIn: Number(heightIn),
-                      }),
-                    })
-                      .then((label) => {
-                        setTrackingNumber(label.trackingNumber);
-                        setTrackingCompany(label.carrierCompany);
-                        return load();
-                      })
-                      .catch((err: Error) => setError(err.message))
-                  }
-                >
-                  Buy label
-                </Button>
-                {order.labelStatus === "purchased" && order.status !== "shipped" ? (
+                {!hasPackages ? (
                   <Button
                     variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      void api<ShippingLabel>(`/api/orders/${id}/label`, {
+                        method: "POST",
+                        body: JSON.stringify({
+                          carrierService,
+                          trackingNumber: trackingNumber || undefined,
+                          liveRateId,
+                          weightOz: Number(weightOz),
+                          lengthIn: Number(lengthIn),
+                          widthIn: Number(widthIn),
+                          heightIn: Number(heightIn),
+                        }),
+                      })
+                        .then((label) => {
+                          setTrackingNumber(label.trackingNumber);
+                          setTrackingCompany(label.carrierCompany);
+                          return load();
+                        })
+                        .catch((err: Error) => setError(err.message))
+                    }
+                  >
+                    Buy label
+                  </Button>
+                ) : null}
+                {!hasPackages && order.labelStatus === "purchased" && order.status !== "shipped" ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() =>
                       void api(`/api/orders/${id}/label/void`, { method: "POST" })
                         .then(() => load())
@@ -543,55 +621,105 @@ function OrderDetail({ id }: { id: string }) {
                     Void
                   </Button>
                 ) : null}
-                {order.trackingNumber ? (
-                  <Button variant="secondary" asChild>
+                {!hasPackages &&
+                canRelabelException({
+                  status: order.status,
+                  trackerStatus: order.trackerStatus,
+                  labelStatus: order.labelStatus,
+                  trackingNumber: order.trackingNumber,
+                }).ok ? (
+                  <Button variant="secondary" size="sm" onClick={() => void relabel()}>
+                    Relabel
+                  </Button>
+                ) : null}
+                {!hasPackages && order.trackingNumber ? (
+                  <Button variant="secondary" size="sm" asChild>
                     <Link to={`/outbound/orders/${id}/shipping-label`}>Print label</Link>
                   </Button>
                 ) : null}
-              </div>
+              </DocumentActionGrid>
             </Card>
-            {(order.packages ?? []).length > 0 ? (
+            {hasPackages ? (
               <Card className="space-y-3">
                 <h3 className="font-medium">Cartons</h3>
-                <ul className="space-y-2 text-sm">
-                  {(order.packages ?? []).map((pkg) => (
-                    <li key={pkg.id} className="flex flex-wrap items-center justify-between gap-2">
-                      <span>
-                        <span className="font-mono">{pkg.number}</span>
-                        <span className="text-muted-foreground">
-                          {" "}
-                          · {pkg.units ?? 0}
-                          {pkg.trackingNumber ? ` · ${pkg.trackingNumber}` : " · no label"}
-                        </span>
-                      </span>
-                      <span className="flex gap-2">
-                        <Button
-                          variant="secondary"
-                          onClick={() =>
-                            void api<ShippingLabel>(`/api/orders/${id}/packages/${pkg.id}/label`, {
-                              method: "POST",
-                              body: JSON.stringify({
-                                carrierService,
-                                weightOz: pkg.weightOz || Number(weightOz),
-                                lengthIn: pkg.lengthIn || Number(lengthIn),
-                                widthIn: pkg.widthIn || Number(widthIn),
-                                heightIn: pkg.heightIn || Number(heightIn),
-                              }),
-                            })
-                              .then(() => load())
-                              .catch((err: Error) => setError(err.message))
-                          }
-                        >
-                          Buy
-                        </Button>
-                        {pkg.trackingNumber ? (
-                          <Button variant="secondary" asChild>
-                            <Link to={`/outbound/orders/${id}/packages/${pkg.id}/shipping-label`}>Print</Link>
+                <ul className="space-y-3 text-sm">
+                  {packages.map((pkg) => {
+                    const canBuy = !pkg.shippedAt;
+                    const canRelabel =
+                      canRelabelException({
+                        status: order.status,
+                        trackerStatus: pkg.trackerStatus,
+                        labelStatus: pkg.labelStatus,
+                        trackingNumber: pkg.trackingNumber,
+                      }).ok && !pkg.shippedAt;
+                    const canPrint = Boolean(pkg.trackingNumber);
+                    const canShip = canShipCartonOrder(order.status) && canShipLabeledCarton(pkg).ok;
+                    const canDrop = canUncartonOrderPackage({ status: order.status, shippedAt: pkg.shippedAt }).ok;
+                    return (
+                      <li key={pkg.id} className="space-y-3 rounded-lg border p-3">
+                        <div className="space-y-1.5">
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="font-mono font-medium">{pkg.number}</span>
+                            <span className="flex flex-wrap justify-end gap-1">
+                              {pkg.shippedAt ? <StatusBadge status="shipped" /> : null}
+                              {pkg.trackerStatus ? <StatusBadge status={pkg.trackerStatus} /> : null}
+                              {!pkg.shippedAt && pkg.labelStatus ? <StatusBadge status={pkg.labelStatus} /> : null}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {pkg.units ?? 0} {(pkg.units ?? 0) === 1 ? "unit" : "units"}
+                            {pkg.trackingNumber ? ` · ${pkg.trackingNumber}` : " · no label"}
+                          </p>
+                        </div>
+                        {canShip ? (
+                          <Button className="w-full" size="sm" onClick={() => void shipCarton(pkg.id)}>
+                            Ship carton
                           </Button>
                         ) : null}
-                      </span>
-                    </li>
-                  ))}
+                        {canBuy || canPrint || canRelabel || canDrop ? (
+                          <DocumentActionGrid>
+                            {canBuy ? (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() =>
+                                  void api<ShippingLabel>(`/api/orders/${id}/packages/${pkg.id}/label`, {
+                                    method: "POST",
+                                    body: JSON.stringify({
+                                      carrierService,
+                                      weightOz: pkg.weightOz || Number(weightOz),
+                                      lengthIn: pkg.lengthIn || Number(lengthIn),
+                                      widthIn: pkg.widthIn || Number(widthIn),
+                                      heightIn: pkg.heightIn || Number(heightIn),
+                                    }),
+                                  })
+                                    .then(() => load())
+                                    .catch((err: Error) => setError(err.message))
+                                }
+                              >
+                                Buy
+                              </Button>
+                            ) : null}
+                            {canPrint ? (
+                              <Button variant="secondary" size="sm" asChild>
+                                <Link to={`/outbound/orders/${id}/packages/${pkg.id}/shipping-label`}>Print</Link>
+                              </Button>
+                            ) : null}
+                            {canRelabel ? (
+                              <Button variant="secondary" size="sm" onClick={() => void relabel(pkg.id)}>
+                                Relabel
+                              </Button>
+                            ) : null}
+                            {canDrop ? (
+                              <Button variant="secondary" size="sm" onClick={() => void uncarton(pkg.id)}>
+                                Drop
+                              </Button>
+                            ) : null}
+                          </DocumentActionGrid>
+                        ) : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               </Card>
             ) : null}

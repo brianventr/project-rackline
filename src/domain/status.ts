@@ -46,6 +46,11 @@ export function canShipOrder(status: string): boolean {
   return normalizeOrderStatus(status) === "packed";
 }
 
+export function canShipCartonOrder(status: string): boolean {
+  const value = normalizeOrderStatus(status);
+  return value === "packing" || value === "packed";
+}
+
 export function canReceive(status: string): boolean {
   return status === "draft" || status === "receiving";
 }

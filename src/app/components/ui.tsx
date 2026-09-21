@@ -58,20 +58,20 @@ export function Button({
   children,
   type = "button",
   variant = "primary",
+  size = "default",
   disabled,
   onClick,
   className,
   asChild,
-  size,
 }: {
   children: ReactNode;
   type?: "button" | "submit";
   variant?: "primary" | "secondary" | "danger" | "ghost";
+  size?: "default" | "xs" | "sm" | "lg" | "icon" | "icon-xs";
   disabled?: boolean;
   onClick?: () => void;
   className?: string;
   asChild?: boolean;
-  size?: "default" | "xs" | "sm" | "lg" | "icon" | "icon-xs";
 }) {
   const mapped =
     variant === "primary"

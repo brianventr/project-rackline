@@ -2,8 +2,13 @@ import { and, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppDb } from "../db/stock";
 import { newId } from "../lib/ids";
-import { FULFILLMENT_CREATE_MUTATION, buildFulfillmentCreateInput, demoFulfillmentOrderId } from "./shopify";
-import { loadPackagesForOrders } from "../db/packages";
+import {
+  FULFILLMENT_CREATE_MUTATION,
+  buildFulfillmentCreateInput,
+  demoFulfillmentOrderId,
+  fulfillmentLineItemsForPackage,
+} from "./shopify";
+import { loadPackagesForOrders, type OrderPackageRow } from "../db/packages";
 import {
   ShopifyApiError,
   createShopifyGraphqlClient,
@@ -16,6 +21,9 @@ export type ShopifyFulfillResult = {
   fulfillmentId?: string | null;
   error?: string | null;
 };
+
+type OrderWithLines = NonNullable<Awaited<ReturnType<typeof loadOrderWithLines>>>;
+type ShopifyConnectionRow = typeof schema.shopifyConnections.$inferSelect;
 
 async function loadOrderWithLines(db: AppDb, organizationId: string, orderId: string) {
   const [order] = await db
@@ -51,35 +59,13 @@ async function recordOutbound(
   });
 }
 
-export async function fulfillShopifyOrder(
+async function resolveFulfillmentOrder(
   db: AppDb,
   organizationId: string,
-  orderId: string,
-): Promise<ShopifyFulfillResult> {
-  const order = await loadOrderWithLines(db, organizationId, orderId);
-  if (!order) return { status: "skipped", error: "Order not found" };
-  if (order.source !== "shopify") return { status: "skipped" };
-  if (order.status !== "shipped") {
-    return { status: "skipped", error: "Order must be shipped before fulfilling Shopify" };
-  }
-  if (order.shopifySyncStatus === "synced" && order.shopifyFulfillmentId) {
-    return { status: "synced", fulfillmentId: order.shopifyFulfillmentId };
-  }
-
-  const [connection] = await db
-    .select()
-    .from(schema.shopifyConnections)
-    .where(eq(schema.shopifyConnections.organizationId, organizationId))
-    .limit(1);
-  if (!connection) {
-    return { status: "failed", error: "Shopify is not connected" };
-  }
-
+  order: OrderWithLines,
+  connection: ShopifyConnectionRow,
+): Promise<{ fulfillmentOrderId: string | null; error?: string }> {
   let fulfillmentOrderId = order.shopifyFulfillmentOrderId;
-  let lineItems = order.lines
-    .filter((line) => line.shopifyFulfillmentLineItemId)
-    .map((line) => ({ id: line.shopifyFulfillmentLineItemId!, quantity: line.qty }));
-
   if (connection.mode === "live" && connection.accessToken && order.shopifyOrderGid) {
     try {
       const client = createShopifyGraphqlClient({
@@ -89,13 +75,7 @@ export async function fulfillShopifyOrder(
       });
       const nodes = await fetchOrderFulfillmentOrders(client, order.shopifyOrderGid);
       const open = nodes.find((node) => node.status !== "closed" && node.status !== "cancelled") ?? nodes[0];
-      if (open) {
-        fulfillmentOrderId = open.id;
-        const remaining = (open.lineItems?.nodes ?? []).filter((node) => (node.remainingQuantity ?? 0) > 0);
-        if (remaining.length > 0) {
-          lineItems = remaining.map((node) => ({ id: node.id, quantity: node.remainingQuantity ?? 0 }));
-        }
-      }
+      if (open) fulfillmentOrderId = open.id;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not load fulfillment orders";
       await db
@@ -110,79 +90,96 @@ export async function fulfillShopifyOrder(
         request: { orderGid: order.shopifyOrderGid },
         response: { error: message },
       });
-      return { status: "failed", error: message };
+      return { fulfillmentOrderId: null, error: message };
     }
   }
+  return { fulfillmentOrderId };
+}
 
-  if (!fulfillmentOrderId) {
-    fulfillmentOrderId = demoFulfillmentOrderId(order.shopifyOrderId || order.id);
-  }
-  if (lineItems.length === 0) {
-    lineItems = order.lines.map((line) => ({
-      id: line.shopifyFulfillmentLineItemId || `gid://shopify/FulfillmentOrderLineItem/demo-${line.id}`,
-      quantity: line.qty,
-    }));
-  }
-
-  const packages = (await loadPackagesForOrders(db, [order.id])).get(order.id) ?? [];
+async function postFulfillmentCreate(
+  db: AppDb,
+  input: {
+    organizationId: string;
+    order: OrderWithLines;
+    connection: ShopifyConnectionRow;
+    fulfillmentOrderId: string;
+    lineItems: Array<{ id: string; quantity: number }>;
+    packages: Array<{ trackingNumber?: string | null; trackingUrl?: string | null; trackingCompany?: string | null }>;
+    tracking?: { number?: string | null; url?: string | null; company?: string | null };
+    packageId?: string;
+    demoSuffix?: string;
+    orderComplete: boolean;
+  },
+): Promise<ShopifyFulfillResult> {
   const fulfillment = buildFulfillmentCreateInput({
-    fulfillmentOrderId,
-    lineItems,
-    tracking: {
-      number: order.trackingNumber,
-      url: order.trackingUrl,
-      company: order.trackingCompany,
-    },
-    packages,
+    fulfillmentOrderId: input.fulfillmentOrderId,
+    lineItems: input.lineItems,
+    tracking: input.tracking,
+    packages: input.packages,
     notifyCustomer: true,
   });
   const request = { query: FULFILLMENT_CREATE_MUTATION, variables: { fulfillment } };
+  const now = Date.now();
 
-  if (connection.mode === "demo" || !connection.accessToken) {
-    const fulfillmentId = `gid://shopify/Fulfillment/demo-${order.id}`;
-    const now = Date.now();
+  if (input.connection.mode === "demo" || !input.connection.accessToken) {
+    const fulfillmentId = `gid://shopify/Fulfillment/demo-${input.demoSuffix ?? input.order.id}`;
+    if (input.packageId) {
+      await db
+        .update(schema.orderPackages)
+        .set({ shopifyFulfillmentId: fulfillmentId })
+        .where(eq(schema.orderPackages.id, input.packageId));
+    }
     await db
       .update(schema.orders)
       .set({
-        shopifySyncStatus: "synced",
+        shopifySyncStatus: input.orderComplete ? "synced" : "pending_fulfill",
         shopifySyncError: null,
         shopifyFulfillmentId: fulfillmentId,
-        shopifyFulfillmentOrderId: fulfillmentOrderId,
-        shopifyFulfilledAt: now,
+        shopifyFulfillmentOrderId: input.fulfillmentOrderId,
+        shopifyFulfilledAt: input.orderComplete ? now : input.order.shopifyFulfilledAt,
       })
-      .where(eq(schema.orders.id, order.id));
+      .where(eq(schema.orders.id, input.order.id));
     await recordOutbound(db, {
-      organizationId,
-      orderId: order.id,
+      organizationId: input.organizationId,
+      orderId: input.order.id,
       kind: "fulfillmentCreate",
       status: "demo",
       request,
-      response: { fulfillment: { id: fulfillmentId, status: "SUCCESS" }, mode: "demo" },
+      response: {
+        fulfillment: { id: fulfillmentId, status: "SUCCESS" },
+        mode: "demo",
+        packageId: input.packageId ?? null,
+      },
     });
     return { status: "demo", fulfillmentId };
   }
 
   try {
     const client = createShopifyGraphqlClient({
-      shopDomain: connection.shopDomain,
-      accessToken: connection.accessToken,
-      apiVersion: connection.apiVersion,
+      shopDomain: input.connection.shopDomain,
+      accessToken: input.connection.accessToken,
+      apiVersion: input.connection.apiVersion,
     });
     const created = await createShopifyFulfillment(client, fulfillment as unknown as Record<string, unknown>);
-    const now = Date.now();
+    if (input.packageId) {
+      await db
+        .update(schema.orderPackages)
+        .set({ shopifyFulfillmentId: created.id })
+        .where(eq(schema.orderPackages.id, input.packageId));
+    }
     await db
       .update(schema.orders)
       .set({
-        shopifySyncStatus: "synced",
+        shopifySyncStatus: input.orderComplete ? "synced" : "pending_fulfill",
         shopifySyncError: null,
         shopifyFulfillmentId: created.id,
-        shopifyFulfillmentOrderId: fulfillmentOrderId,
-        shopifyFulfilledAt: now,
+        shopifyFulfillmentOrderId: input.fulfillmentOrderId,
+        shopifyFulfilledAt: input.orderComplete ? now : input.order.shopifyFulfilledAt,
       })
-      .where(eq(schema.orders.id, order.id));
+      .where(eq(schema.orders.id, input.order.id));
     await recordOutbound(db, {
-      organizationId,
-      orderId: order.id,
+      organizationId: input.organizationId,
+      orderId: input.order.id,
       kind: "fulfillmentCreate",
       status: "ok",
       request,
@@ -194,10 +191,10 @@ export async function fulfillShopifyOrder(
     await db
       .update(schema.orders)
       .set({ shopifySyncStatus: "failed", shopifySyncError: message })
-      .where(eq(schema.orders.id, order.id));
+      .where(eq(schema.orders.id, input.order.id));
     await recordOutbound(db, {
-      organizationId,
-      orderId: order.id,
+      organizationId: input.organizationId,
+      orderId: input.order.id,
       kind: "fulfillmentCreate",
       status: "failed",
       request,
@@ -205,4 +202,129 @@ export async function fulfillShopifyOrder(
     });
     return { status: "failed", error: message };
   }
+}
+
+function orderCompleteAfterPackages(orderStatus: string, packages: OrderPackageRow[]): boolean {
+  if (orderStatus !== "shipped") return false;
+  const shipped = packages.filter((row) => row.shippedAt);
+  if (shipped.length === 0) return true;
+  return shipped.every((row) => Boolean(row.shopifyFulfillmentId));
+}
+
+export async function fulfillShopifyOrder(
+  db: AppDb,
+  organizationId: string,
+  orderId: string,
+  options?: { packageId?: string },
+): Promise<ShopifyFulfillResult> {
+  const order = await loadOrderWithLines(db, organizationId, orderId);
+  if (!order) return { status: "skipped", error: "Order not found" };
+  if (order.source !== "shopify") return { status: "skipped" };
+
+  const packages = (await loadPackagesForOrders(db, [order.id])).get(order.id) ?? [];
+  const target = options?.packageId ? packages.find((row) => row.id === options.packageId) : null;
+  if (options?.packageId && !target) return { status: "skipped", error: "Carton not found" };
+
+  if (!target && packages.length === 0) {
+    if (order.status !== "shipped") {
+      return { status: "skipped", error: "Order must be shipped before fulfilling Shopify" };
+    }
+    if (order.shopifySyncStatus === "synced" && order.shopifyFulfillmentId) {
+      return { status: "synced", fulfillmentId: order.shopifyFulfillmentId };
+    }
+  }
+
+  if (target?.shopifyFulfillmentId) {
+    return { status: "synced", fulfillmentId: target.shopifyFulfillmentId };
+  }
+  if (target && !target.shippedAt) {
+    return { status: "skipped", error: "Ship the carton before fulfilling Shopify" };
+  }
+
+  const [connection] = await db
+    .select()
+    .from(schema.shopifyConnections)
+    .where(eq(schema.shopifyConnections.organizationId, organizationId))
+    .limit(1);
+  if (!connection) {
+    return { status: "failed", error: "Shopify is not connected" };
+  }
+
+  const resolved = await resolveFulfillmentOrder(db, organizationId, order, connection);
+  if (resolved.error) return { status: "failed", error: resolved.error };
+  const fulfillmentOrderId = resolved.fulfillmentOrderId || demoFulfillmentOrderId(order.shopifyOrderId || order.id);
+
+  if (target) {
+    const lineItems = fulfillmentLineItemsForPackage(order.lines, target.lines);
+    const result = await postFulfillmentCreate(db, {
+      organizationId,
+      order,
+      connection,
+      fulfillmentOrderId,
+      lineItems,
+      packages: [target],
+      tracking: {
+        number: target.trackingNumber,
+        url: target.trackingUrl,
+        company: target.trackingCompany,
+      },
+      packageId: target.id,
+      demoSuffix: `${order.id}-${target.id}`,
+      orderComplete: false,
+    });
+    if (result.status === "failed") return result;
+    const nextPackages = (await loadPackagesForOrders(db, [order.id])).get(order.id) ?? [];
+    const complete = orderCompleteAfterPackages(order.status, nextPackages);
+    if (complete) {
+      await db
+        .update(schema.orders)
+        .set({
+          shopifySyncStatus: result.status === "demo" ? "synced" : result.status,
+          shopifyFulfilledAt: Date.now(),
+        })
+        .where(eq(schema.orders.id, order.id));
+    }
+    return result;
+  }
+
+  const shippedUnfulfilled = packages.filter((row) => row.shippedAt && !row.shopifyFulfillmentId);
+  if (packages.length > 0) {
+    if (shippedUnfulfilled.length === 0) {
+      if (order.shopifySyncStatus === "synced" && order.shopifyFulfillmentId) {
+        return { status: "synced", fulfillmentId: order.shopifyFulfillmentId };
+      }
+      return { status: "skipped", error: "No shipped cartons remaining to fulfill" };
+    }
+    let last: ShopifyFulfillResult = { status: "skipped" };
+    for (const pkg of shippedUnfulfilled) {
+      last = await fulfillShopifyOrder(db, organizationId, orderId, { packageId: pkg.id });
+      if (last.status === "failed") return last;
+    }
+    return last;
+  }
+
+  let lineItems = order.lines
+    .filter((line) => line.shopifyFulfillmentLineItemId)
+    .map((line) => ({ id: line.shopifyFulfillmentLineItemId!, quantity: line.qty }));
+  if (lineItems.length === 0) {
+    lineItems = order.lines.map((line) => ({
+      id: line.shopifyFulfillmentLineItemId || `gid://shopify/FulfillmentOrderLineItem/demo-${line.id}`,
+      quantity: line.qty,
+    }));
+  }
+
+  return postFulfillmentCreate(db, {
+    organizationId,
+    order,
+    connection,
+    fulfillmentOrderId,
+    lineItems,
+    packages: [],
+    tracking: {
+      number: order.trackingNumber,
+      url: order.trackingUrl,
+      company: order.trackingCompany,
+    },
+    orderComplete: true,
+  });
 }
