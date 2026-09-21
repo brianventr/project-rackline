@@ -100,7 +100,11 @@ export function DocumentFact({ label, children }: { label: string; children: Rea
 }
 
 export function DocumentActionGrid({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0 [&>*]:w-full">{children}</div>;
+  return (
+    <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0 [&>*]:w-full [&>*:last-child:nth-child(odd)]:col-span-2">
+      {children}
+    </div>
+  );
 }
 
 export function DocumentActivity({ refId, refreshKey }: { refId: string; refreshKey?: string | number }) {

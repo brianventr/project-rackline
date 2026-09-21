@@ -522,7 +522,7 @@ function OrderDetail({ id }: { id: string }) {
                 </Field>
               </div>
               {order.shipToAddress ? <p className="whitespace-pre-line text-sm text-muted-foreground">{order.shipToAddress}</p> : null}
-              {!hasPackages && order.labelStatus ? (
+              {!hasPackages && order.labelStatus && order.labelStatus !== "none" ? (
                 <DocumentFact label="Label">
                   <StatusBadge status={order.labelStatus} />
                 </DocumentFact>
