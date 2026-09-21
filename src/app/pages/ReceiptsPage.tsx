@@ -55,16 +55,16 @@ function ReceiptList() {
   }
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
       <PageHeader
         eyebrow="Inbound"
         title="Receipts"
         description="Create the inbound document here. Receive it on the dock, including partials."
-        actions={<Button onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New receipt"}</Button>}
+        actions={<Button size="xs" onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New receipt"}</Button>}
       />
       <ErrorBanner error={error} />
       {creating ? (
-        <Card className="mb-6">
+        <Card className="mb-3">
           <form className="space-y-4" onSubmit={onSubmit(create)}>
             <Field label="Notes">
               <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="PO or vendor reference" />
@@ -77,16 +77,16 @@ function ReceiptList() {
       <Table columns={["Number", "Status", "Lines", "Notes"]}>
         {inWarehouse(receipts, warehouseId).map((receipt) => (
           <tr key={receipt.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/inbound/receipts/${receipt.id}`}>
                 {receipt.number}
               </Link>
             </td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={receipt.status} />
             </td>
-            <td className="px-4 py-3 text-sm">{summarizeLines(receipt.lines)}</td>
-            <td className="px-4 py-3 text-muted-foreground">{receipt.notes || "—"}</td>
+            <td className="px-2.5 py-1.5 text-sm">{summarizeLines(receipt.lines)}</td>
+            <td className="px-2.5 py-1.5 text-muted-foreground">{receipt.notes || "—"}</td>
           </tr>
         ))}
       </Table>
@@ -166,7 +166,7 @@ function ReceiptDetail({ id }: { id: string }) {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Inbound"
         title={receipt.number}
@@ -210,11 +210,11 @@ function ReceiptDetail({ id }: { id: string }) {
         <Table columns={["SKU", "Item", "Expected", "Received", "This receive", "Lot / serial"]}>
           {(receipt.lines ?? []).map((line) => (
             <tr key={line.id}>
-              <td className="px-4 py-3 font-mono">{line.sku}</td>
-              <td className="px-4 py-3">{line.itemName}</td>
-              <td className="px-4 py-3 font-mono">{line.qty}</td>
-              <td className="px-4 py-3 font-mono">{line.qtyReceived}</td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5 font-mono">{line.sku}</td>
+              <td className="px-2.5 py-1.5">{line.itemName}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qty}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qtyReceived}</td>
+              <td className="px-2.5 py-1.5">
                 {line.remaining > 0 ? (
                   <Input
                     type="number"
@@ -227,7 +227,7 @@ function ReceiptDetail({ id }: { id: string }) {
                   <span className="text-muted-foreground">Done</span>
                 )}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">
                 {line.trackLot ? (
                   <Input
                     placeholder="Lot"

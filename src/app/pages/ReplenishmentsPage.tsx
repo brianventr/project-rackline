@@ -107,7 +107,7 @@ function ReplenishmentList() {
       />
       <ErrorBanner error={error} />
       {creating ? (
-        <Card className="mb-6">
+        <Card className="mb-3">
           <form className="grid gap-3 md:grid-cols-2" onSubmit={onSubmit(create)}>
             <Field label="Item">
               <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
@@ -146,7 +146,7 @@ function ReplenishmentList() {
         </Card>
       ) : null}
       {suggestions.length ? (
-        <Card className="mb-6">
+        <Card className="mb-3">
           <p className="mb-3 font-medium">Suggested from pick min</p>
           <ul className="space-y-2 text-sm">
             {suggestions.map((row) => (
@@ -170,21 +170,21 @@ function ReplenishmentList() {
       <Table columns={["Number", "Item", "Move", "Moved", "Status"]}>
         {inWarehouse(rows, warehouseId).map((row) => (
           <tr key={row.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/stock/replenish/${row.id}`}>
                 {row.number}
               </Link>
             </td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">
               {row.sku} — {row.itemName}
             </td>
-            <td className="px-4 py-3 font-mono text-sm">
+            <td className="px-2.5 py-1.5 font-mono text-sm">
               {row.fromCode} → {row.toCode}
             </td>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               {row.qtyMoved ?? 0}/{row.qty}
             </td>
-            <td className="px-4 py-3 capitalize">{row.status.replaceAll("_", " ")}</td>
+            <td className="px-2.5 py-1.5 capitalize">{row.status.replaceAll("_", " ")}</td>
           </tr>
         ))}
       </Table>
@@ -234,7 +234,7 @@ function ReplenishmentDetail({ id }: { id: string }) {
   const remaining = doc.remaining ?? remainingToReplenish(doc.qty, doc.qtyMoved ?? 0);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Stock"
         title={doc.number}

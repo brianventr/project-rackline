@@ -77,7 +77,7 @@ function ReturnList() {
       />
       <ErrorBanner error={error} />
       {creating ? (
-        <Card className="mb-6">
+        <Card className="mb-3">
           <form className="space-y-4" onSubmit={onSubmit(create)}>
             <Field label="Customer">
               <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
@@ -103,13 +103,13 @@ function ReturnList() {
       <Table columns={["Number", "Customer", "Order", "Status", "Lines"]}>
         {inWarehouse(returns, warehouseId).map((rma) => (
           <tr key={rma.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/outbound/returns/${rma.id}`}>
                 {rma.number}
               </Link>
             </td>
-            <td className="px-4 py-3">{rma.customerName}</td>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5">{rma.customerName}</td>
+            <td className="px-2.5 py-1.5 font-mono">
               {rma.orderId ? (
                 <Link className="hover:underline" to={`/outbound/orders/${rma.orderId}`}>
                   {rma.orderNumber || "Order"}
@@ -118,10 +118,10 @@ function ReturnList() {
                 "—"
               )}
             </td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={rma.status} />
             </td>
-            <td className="px-4 py-3 text-sm">
+            <td className="px-2.5 py-1.5 text-sm">
               {summarizeLines(
                 (rma.lines ?? []).map((line) => ({ sku: line.sku, itemName: line.itemName, qty: line.qtyExpected })),
               )}
@@ -224,7 +224,7 @@ function ReturnDetail({ id }: { id: string }) {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Outbound"
         title={rma.number}
@@ -278,11 +278,11 @@ function ReturnDetail({ id }: { id: string }) {
         <Table columns={["SKU", "Item", "Expected", "Received", "This receive", "Disposition", "Serials"]}>
           {(rma.lines ?? []).map((line) => (
             <tr key={line.id}>
-              <td className="px-4 py-3 font-mono">{line.sku}</td>
-              <td className="px-4 py-3">{line.itemName}</td>
-              <td className="px-4 py-3 font-mono">{line.qtyExpected}</td>
-              <td className="px-4 py-3 font-mono">{line.qtyReceived}</td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5 font-mono">{line.sku}</td>
+              <td className="px-2.5 py-1.5">{line.itemName}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qtyExpected}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qtyReceived}</td>
+              <td className="px-2.5 py-1.5">
                 {line.remaining > 0 ? (
                   <Input
                     type="number"
@@ -295,7 +295,7 @@ function ReturnDetail({ id }: { id: string }) {
                   <span className="text-muted-foreground">Done</span>
                 )}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">
                 {line.remaining > 0 ? (
                   <DispositionSelect
                     value={dispositions[line.itemId] ?? "restock"}
@@ -305,7 +305,7 @@ function ReturnDetail({ id }: { id: string }) {
                   <span className="text-muted-foreground capitalize">{line.disposition || "restock"}</span>
                 )}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">
                 {line.trackSerial ? (
                   <Input
                     placeholder="Serials"

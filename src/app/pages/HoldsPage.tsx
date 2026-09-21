@@ -73,7 +73,7 @@ function HoldList() {
         description="Lock a bay, a SKU in a bay, or a lot so pick, replenish, kit, and move skip it. Qty stays on the ledger until you release."
       />
       <ErrorBanner error={error} />
-      <Card className="mb-6">
+      <Card className="mb-3">
         <form className="grid gap-3 md:grid-cols-2" onSubmit={onSubmit(place)}>
           <Field label="Location">
             <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
@@ -119,14 +119,14 @@ function HoldList() {
       <Table columns={["Number", "Scope", "Reason", "Status"]}>
         {inWarehouse(holds, warehouseId).map((hold) => (
           <tr key={hold.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/stock/holds/${hold.id}`}>
                 {hold.number}
               </Link>
             </td>
-            <td className="px-4 py-3 font-mono">{holdLabel(hold)}</td>
-            <td className="px-4 py-3">{hold.reason}</td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5 font-mono">{holdLabel(hold)}</td>
+            <td className="px-2.5 py-1.5">{hold.reason}</td>
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={hold.status} />
             </td>
           </tr>
@@ -160,7 +160,7 @@ function HoldDetail({ id }: { id: string }) {
   if (!active) return <ErrorBanner error={error} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Stock"
         title={active.number}

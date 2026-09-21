@@ -177,10 +177,10 @@ export function CarriersPage() {
       />
       <ErrorBanner error={error} />
       {notice ? (
-        <div className="mb-4 rounded-lg border border-ok/30 bg-ok/10 px-4 py-3 text-sm text-ok">{notice}</div>
+        <div className="mb-4 rounded-lg border border-ok/30 bg-ok/10 px-2.5 py-1.5 text-sm text-ok">{notice}</div>
       ) : null}
 
-      <div className="mb-6 flex flex-wrap gap-2">
+      <div className="mb-3 flex flex-wrap gap-1.5">
         <Button variant="secondary" onClick={() => void enableDemo()}>
           Enable demo carriers
         </Button>
@@ -192,7 +192,7 @@ export function CarriersPage() {
         </Button>
       </div>
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-3 grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
         {(hub?.catalog ?? []).map((row) => {
           const connected = connectedProviders.has(row.id);
           const active = selected === row.id;
@@ -201,26 +201,26 @@ export function CarriersPage() {
             <button
               key={row.id}
               type="button"
+              title={row.description}
               onClick={() => {
                 setSelected(row.id);
                 applyConnection(row, hub?.connections.find((item) => item.provider === row.id));
               }}
-              className={`rounded-xl border p-4 text-left ${active ? "border-primary bg-primary/5" : "bg-card"}`}
+              className={`rounded-md border px-2.5 py-2 text-left ${active ? "border-primary bg-primary/5" : "bg-card"}`}
             >
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="font-semibold">{row.name}</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold">{row.name}</p>
                 {connected ? <StatusBadge status={isDefault ? "default" : "connected"} /> : (
-                  <span className="text-xs text-muted-foreground">Not connected</span>
+                  <span className="text-[11px] text-muted-foreground">Off</span>
                 )}
               </div>
-              <p className="text-xs uppercase text-muted-foreground">{row.kind}</p>
-              <p className="mt-2 text-sm text-muted-foreground">{row.description}</p>
+              <p className="text-[10px] uppercase text-muted-foreground">{row.kind}</p>
             </button>
           );
         })}
       </div>
 
-      <div className="mb-6 grid gap-6 lg:grid-cols-2">
+      <div className="mb-3 grid gap-3 lg:grid-cols-2">
         <Card>
           <h2 className="mb-1 font-semibold">{provider?.name ?? "Carrier"} connection</h2>
           <p className="mb-4 text-sm text-muted-foreground">

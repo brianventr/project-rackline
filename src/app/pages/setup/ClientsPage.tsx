@@ -66,7 +66,7 @@ export function ClientsPage() {
         description="3PL / multi-client codes for waves, ASNs, and orders."
       />
       <ErrorBanner error={error} />
-      <Card className="mb-6">
+      <Card className="mb-3">
         <form className="grid gap-3 md:grid-cols-3" onSubmit={onSubmit(create)}>
           <Field label="Code">
             <Input value={code} onChange={(e) => setCode(e.target.value)} required placeholder="ACME" />
@@ -82,21 +82,21 @@ export function ClientsPage() {
       <Table columns={["Code", "Name", ""]}>
         {clients.map((client) => (
           <tr key={client.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               {editingId === client.id ? (
                 <Input value={editCode} onChange={(e) => setEditCode(e.target.value)} />
               ) : (
                 client.code
               )}
             </td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">
               {editingId === client.id ? (
                 <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
               ) : (
                 client.name
               )}
             </td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">
               <div className="flex gap-2">
                 {editingId === client.id ? (
                   <>

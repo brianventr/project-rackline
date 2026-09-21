@@ -62,7 +62,7 @@ export function BomsPage({ me }: { me: Me }) {
         description="One recipe per finished or WIP SKU. Work orders explode this by quantity."
       />
       <ErrorBanner error={error} />
-      <Card className="mb-6">
+      <Card className="mb-3">
         <form className="space-y-4" onSubmit={onSubmit(create)}>
           <Field label="Parent item">
             <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
@@ -126,10 +126,10 @@ export function BomsPage({ me }: { me: Me }) {
           <Table columns={["Component", "Qty each"]}>
             {bom.lines.map((line) => (
               <tr key={line.id}>
-                <td className="px-4 py-3">
+                <td className="px-2.5 py-1.5">
                   <span className="font-mono">{line.sku}</span> {line.itemName}
                 </td>
-                <td className="px-4 py-3 font-mono tabular">{line.qty}</td>
+                <td className="px-2.5 py-1.5 font-mono tabular">{line.qty}</td>
               </tr>
             ))}
           </Table>

@@ -253,7 +253,7 @@ export function MovePage() {
       />
       <ErrorBanner error={error} />
       <OpenTransferTickets />
-      {result ? <p className="mb-4 rounded-lg border border-ok/30 bg-ok/10 px-4 py-3 text-sm text-ok">{result}</p> : null}
+      {result ? <p className="mb-4 rounded-lg border border-ok/30 bg-ok/10 px-2.5 py-1.5 text-sm text-ok">{result}</p> : null}
       <div className="grid gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <div className="space-y-4">
           <Card className={step === "from" ? "ring-2 ring-amber" : ""}>
@@ -389,7 +389,7 @@ function OpenTransferTickets() {
   if (!tickets.length) return null;
 
   return (
-    <div className="mb-6">
+    <div className="mb-3">
       <ErrorBanner error={error} />
       <ClaimList
         title="Open putaway tickets"

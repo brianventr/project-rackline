@@ -143,14 +143,14 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
+            <SidebarMenuButton size="sm" asChild>
               <Link to={homePath(me.role)}>
-                <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-                  <Logo className="size-4" />
+                <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-6 items-center justify-center rounded-md">
+                  <Logo className="size-3.5" />
                 </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
+                <div className="grid flex-1 text-left text-xs leading-tight">
                   <span className="truncate font-semibold">Rackline</span>
-                  <span className="truncate text-xs opacity-80">{me.organization.name}</span>
+                  <span className="truncate text-[11px] opacity-80">{me.organization.name}</span>
                 </div>
               </Link>
             </SidebarMenuButton>

@@ -74,7 +74,7 @@ function VendorReturnList() {
       />
       <ErrorBanner error={error} />
       {creating ? (
-        <Card className="mb-6">
+        <Card className="mb-3">
           <form className="space-y-4" onSubmit={onSubmit(create)}>
             <Field label="Vendor">
               <Input value={vendorName} onChange={(e) => setVendorName(e.target.value)} required placeholder="Harbor Components" />
@@ -100,13 +100,13 @@ function VendorReturnList() {
       <Table columns={["Number", "Vendor", "Purchase", "Status", "Lines"]}>
         {inWarehouse(returns, warehouseId).map((rtv) => (
           <tr key={rtv.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/inbound/vendor-returns/${rtv.id}`}>
                 {rtv.number}
               </Link>
             </td>
-            <td className="px-4 py-3">{rtv.vendorName}</td>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5">{rtv.vendorName}</td>
+            <td className="px-2.5 py-1.5 font-mono">
               {rtv.purchaseId ? (
                 <Link className="hover:underline" to={`/inbound/purchases/${rtv.purchaseId}`}>
                   {rtv.purchaseNumber || "PO"}
@@ -115,10 +115,10 @@ function VendorReturnList() {
                 "—"
               )}
             </td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={rtv.status} />
             </td>
-            <td className="px-4 py-3 text-sm">
+            <td className="px-2.5 py-1.5 text-sm">
               {summarizeLines(
                 (rtv.lines ?? []).map((line) => ({ sku: line.sku, itemName: line.itemName, qty: line.qtyExpected })),
               )}
@@ -200,7 +200,7 @@ function VendorReturnDetail({ id }: { id: string }) {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Inbound"
         title={rtv.number}
@@ -247,11 +247,11 @@ function VendorReturnDetail({ id }: { id: string }) {
         <Table columns={["SKU", "Item", "Expected", "Returned", "This return", "Lot / serial"]}>
           {(rtv.lines ?? []).map((line) => (
             <tr key={line.id}>
-              <td className="px-4 py-3 font-mono">{line.sku}</td>
-              <td className="px-4 py-3">{line.itemName}</td>
-              <td className="px-4 py-3 font-mono">{line.qtyExpected}</td>
-              <td className="px-4 py-3 font-mono">{line.qtyReturned}</td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5 font-mono">{line.sku}</td>
+              <td className="px-2.5 py-1.5">{line.itemName}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qtyExpected}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qtyReturned}</td>
+              <td className="px-2.5 py-1.5">
                 {line.remaining > 0 ? (
                   <Input
                     type="number"
@@ -264,7 +264,7 @@ function VendorReturnDetail({ id }: { id: string }) {
                   <span className="text-muted-foreground">Done</span>
                 )}
               </td>
-              <td className="px-4 py-3 space-y-2">
+              <td className="px-2.5 py-1.5 space-y-2">
                 {line.trackLot ? (
                   <Input
                     placeholder="Lot"

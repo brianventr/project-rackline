@@ -38,15 +38,15 @@ export function NavUser({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
-              size="lg"
+              size="sm"
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground cursor-pointer"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                <Logo size={18} />
+              <div className="flex size-6 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
+                <Logo size={14} />
               </div>
-              <div className="grid flex-1 text-left text-sm leading-tight">
+              <div className="grid flex-1 text-left text-xs leading-tight">
                 <span className="truncate font-medium">{user.name}</span>
-                <span className="truncate text-xs opacity-80">
+                <span className="truncate text-[11px] opacity-80">
                   {user.role} · {user.email}
                 </span>
               </div>

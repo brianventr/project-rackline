@@ -24,9 +24,9 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
       defaultOpen={!floor}
       style={
         {
-          "--sidebar-width": floor ? "0px" : "16rem",
+          "--sidebar-width": floor ? "0px" : "13rem",
           "--sidebar-width-icon": "3rem",
-          "--header-height": "calc(var(--spacing) * 14)",
+          "--header-height": "2.5rem",
         } as React.CSSProperties
       }
       className={config.collapsible === "none" ? "sidebar-none-mode" : ""}
@@ -36,13 +36,14 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
         <div className="print:hidden">
           <SiteHeader floor={floor} />
         </div>
-        <div className="flex flex-1 flex-col">
-          <div className="@container/main flex flex-1 flex-col gap-2">
-            <div className={`flex flex-col gap-4 px-4 py-4 md:gap-6 md:px-6 md:py-6 print:p-0 ${floor ? "max-w-3xl mx-auto w-full print:max-w-none" : ""}`}>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="@container/main flex min-h-0 flex-1 flex-col">
+            <div className={`flex min-h-0 flex-1 flex-col gap-2 px-3 py-2 print:p-0 ${floor ? "max-w-3xl mx-auto w-full print:max-w-none" : ""}`}>
               {title ? (
                 <div className="flex flex-col gap-1">
-                  <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-                  {description ? <p className="text-muted-foreground">{description}</p> : null}
+                  <h1 className="text-sm font-semibold tracking-tight" title={description}>
+                    {title}
+                  </h1>
                 </div>
               ) : null}
               {children}

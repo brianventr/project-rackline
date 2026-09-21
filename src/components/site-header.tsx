@@ -35,19 +35,30 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
     setSearchOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height) print:hidden">
-      <div className="flex w-full items-center gap-1 px-4 py-3 lg:gap-2 lg:px-6">
+      <div className="flex w-full items-center gap-1.5 px-3">
         {onFloor ? (
-          <Link to="/floor" className="text-sm font-semibold">
+          <Link to="/floor" className="text-xs font-semibold">
             Floor
           </Link>
         ) : (
-          <SidebarTrigger className="-ml-1" />
+          <SidebarTrigger className="-ml-1 size-7" />
         )}
-        <Separator orientation="vertical" className="mx-2 data-[orientation=vertical]:h-4" />
+        <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-4" />
         <select
-          className="h-8 max-w-44 rounded-md border bg-transparent px-2 text-sm"
+          className="h-7 max-w-40 rounded-md border bg-transparent px-1.5 text-xs"
           value={warehouse.warehouseId}
           onChange={(e) => warehouse.setWarehouseId(e.target.value)}
           aria-label="Warehouse"
@@ -58,7 +69,7 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
             </option>
           ))}
         </select>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1.5">
           <ToggleGroup
             type="single"
             value={onFloor ? "floor" : "office"}
@@ -68,25 +79,32 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
             }}
             variant="outline"
             size="sm"
+            className="h-7"
           >
-            <ToggleGroupItem value="office" className="px-3 text-xs">
+            <ToggleGroupItem value="office" className="h-7 px-2 text-[11px]">
               Office
             </ToggleGroupItem>
-            <ToggleGroupItem value="floor" className="px-3 text-xs">
+            <ToggleGroupItem value="floor" className="h-7 px-2 text-[11px]">
               Floor
             </ToggleGroupItem>
           </ToggleGroup>
-          <Button variant="outline" size="sm" onClick={() => setSearchOpen(true)}>
-            <Search className="size-4" />
-            <span className="hidden sm:inline">Search</span>
+          <Button variant="outline" size="xs" className="hidden min-w-40 justify-start gap-2 font-normal text-muted-foreground sm:inline-flex" onClick={() => setSearchOpen(true)}>
+            <Search className="size-3.5" />
+            <span>Search</span>
+            <kbd className="ml-auto rounded border bg-muted px-1 font-mono text-[10px] text-muted-foreground">
+              {typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K"}
+            </kbd>
+          </Button>
+          <Button variant="outline" size="icon-xs" className="sm:hidden" onClick={() => setSearchOpen(true)} aria-label="Search">
+            <Search className="size-3.5" />
           </Button>
           {scanner.cameraSupported ? (
-            <Button variant="outline" size="sm" onClick={() => scanner.openCamera()}>
-              <ScanLine className="size-4" />
+            <Button variant="outline" size="xs" onClick={() => scanner.openCamera()}>
+              <ScanLine className="size-3.5" />
               Scan
             </Button>
           ) : (
-            <span className="hidden text-xs text-muted-foreground md:inline">Gun scanners work from any screen</span>
+            <span className="hidden text-[11px] text-muted-foreground lg:inline">Gun scanners work from any screen</span>
           )}
           <ModeToggle />
         </div>
@@ -190,27 +208,28 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
+      <DialogContent className="gap-0 p-0 sm:max-w-lg">
+        <DialogHeader className="sr-only">
           <DialogTitle>Search the warehouse</DialogTitle>
           <DialogDescription>Find a SKU, bay, receipt, order, or work order.</DialogDescription>
         </DialogHeader>
         <Input
           autoFocus
+          className="h-10 rounded-none border-0 border-b shadow-none focus-visible:ring-0"
           placeholder="SKU, bay, ORD-…, Shopify #1004"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <div className="max-h-80 space-y-3 overflow-auto text-sm">
+        <div className="max-h-80 space-y-0.5 overflow-auto p-1.5 text-xs">
           {results?.items.map((item) => (
-            <button key={item.id} className="block w-full text-left" onClick={() => go(`/stock/items/${item.id}`)}>
+            <button key={item.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/stock/items/${item.id}`)}>
               <span className="font-mono">{item.sku}</span> {item.name}
             </button>
           ))}
           {results?.locations.map((location) => (
             <button
               key={location.id}
-              className="block w-full text-left"
+              className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
               onClick={() => go(`/stock/locations/${location.id}`)}
             >
               <span className="font-mono">{location.code}</span> {location.name}
@@ -219,7 +238,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           {results?.orders.map((order) => (
             <button
               key={order.id}
-              className="block w-full text-left"
+              className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
               onClick={() => go(`/outbound/orders/${order.id}`)}
             >
               Order {order.number} · {order.customerName}
@@ -228,7 +247,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           {results?.receipts.map((receipt) => (
             <button
               key={receipt.id}
-              className="block w-full text-left"
+              className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
               onClick={() => go(`/inbound/receipts/${receipt.id}`)}
             >
               Receipt {receipt.number}
@@ -237,7 +256,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           {results?.transfers.map((transfer) => (
             <button
               key={transfer.id}
-              className="block w-full text-left"
+              className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
               onClick={() => go(`/inbound/putaway/${transfer.id}`)}
             >
               Putaway {transfer.number}
@@ -246,7 +265,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           {results?.workOrders.map((order) => (
             <button
               key={order.id}
-              className="block w-full text-left"
+              className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
               onClick={() => go(`/make/work-orders/${order.id}`)}
             >
               Work order {order.number}
@@ -255,7 +274,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           {results?.counts.map((count) => (
             <button
               key={count.id}
-              className="block w-full text-left"
+              className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
               onClick={() => go(`/stock/counts/${count.id}`)}
             >
               Count {count.number}
@@ -264,61 +283,61 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           {results?.purchases.map((purchase) => (
             <button
               key={purchase.id}
-              className="block w-full text-left"
+              className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
               onClick={() => go(`/inbound/purchases/${purchase.id}`)}
             >
               Purchase {purchase.number} · {purchase.vendorName}
             </button>
           ))}
           {results?.returns.map((rma) => (
-            <button key={rma.id} className="block w-full text-left" onClick={() => go(`/outbound/returns/${rma.id}`)}>
+            <button key={rma.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/outbound/returns/${rma.id}`)}>
               Return {rma.number} · {rma.customerName}
             </button>
           ))}
           {results?.vendorReturns?.map((row) => (
-            <button key={row.id} className="block w-full text-left" onClick={() => go(`/inbound/vendor-returns/${row.id}`)}>
+            <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/inbound/vendor-returns/${row.id}`)}>
               Vendor return {row.number} · {row.vendorName}
             </button>
           ))}
           {results?.replenishments?.map((row) => (
-            <button key={row.id} className="block w-full text-left" onClick={() => go(`/stock/replenish/${row.id}`)}>
+            <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/stock/replenish/${row.id}`)}>
               Replenish {row.number}
             </button>
           ))}
           {results?.kits?.map((row) => (
-            <button key={row.id} className="block w-full text-left" onClick={() => go(`/make/kits/${row.id}`)}>
+            <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/make/kits/${row.id}`)}>
               Kit {row.number}
             </button>
           ))}
           {results?.holds?.map((row) => (
-            <button key={row.id} className="block w-full text-left" onClick={() => go(`/stock/holds/${row.id}`)}>
+            <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/stock/holds/${row.id}`)}>
               Hold {row.number}
             </button>
           ))}
           {results?.waves?.map((row) => (
-            <button key={row.id} className="block w-full text-left" onClick={() => go(`/outbound/waves/${row.id}`)}>
+            <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/outbound/waves/${row.id}`)}>
               Wave {row.number}
             </button>
           ))}
           {results?.asns?.map((row) => (
-            <button key={row.id} className="block w-full text-left" onClick={() => go(`/inbound/asns/${row.id}`)}>
+            <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/inbound/asns/${row.id}`)}>
               ASN {row.number} · {row.vendorName}
             </button>
           ))}
           {results?.yard?.map((row) => (
-            <button key={row.id} className="block w-full text-left" onClick={() => go(`/inbound/yard/${row.id}`)}>
+            <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/inbound/yard/${row.id}`)}>
               Yard {row.number} · {row.carrierName}
             </button>
           ))}
           {results?.equipment?.map((row) => (
-            <button key={row.id} className="block w-full text-left" onClick={() => go(`/equipment/${row.id}`)}>
+            <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/equipment/${row.id}`)}>
               {row.code} · {row.name}
             </button>
           ))}
           {results?.serials?.map((row) => (
             <button
               key={`${row.itemId}:${row.serialCode}`}
-              className="block w-full text-left"
+              className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
               onClick={() => go(`/stock/items/${row.itemId}`)}
             >
               Serial {row.serialCode} · {row.sku}

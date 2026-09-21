@@ -92,7 +92,7 @@ export function TeamPage() {
         description="Owners see setup. Operators land on the floor. Optionally limit floor verbs for next job. Certifications gate forklift checkout."
       />
       <ErrorBanner error={error} />
-      <Card className="mb-6">
+      <Card className="mb-3">
         <form className="grid gap-3 md:grid-cols-4" onSubmit={onSubmit(invite)}>
           <Field label="Name">
             <Input value={name} onChange={(e) => setName(e.target.value)} required />
@@ -117,10 +117,10 @@ export function TeamPage() {
       <Table columns={["Name", "Email", "Role", "Floor verbs"]}>
         {members.map((member) => (
           <tr key={member.id}>
-            <td className="px-4 py-3">{member.name}</td>
-            <td className="px-4 py-3">{member.email}</td>
-            <td className="px-4 py-3 capitalize">{member.role}</td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">{member.name}</td>
+            <td className="px-2.5 py-1.5">{member.email}</td>
+            <td className="px-2.5 py-1.5 capitalize">{member.role}</td>
+            <td className="px-2.5 py-1.5">
               {member.role === "owner" ? (
                 <p className="text-sm text-muted-foreground">All verbs</p>
               ) : (
@@ -156,7 +156,7 @@ export function TeamPage() {
       </Table>
       <div className="mt-10">
         <h2 className="mb-3 text-lg font-semibold">Equipment certifications</h2>
-        <Card className="mb-6">
+        <Card className="mb-3">
           <form className="grid gap-3 md:grid-cols-4" onSubmit={onSubmit(addCert)}>
             <Field label="Teammate">
               <Select value={certUserId} onChange={(e) => setCertUserId(e.target.value)}>
@@ -190,10 +190,10 @@ export function TeamPage() {
         <Table columns={["Teammate", "Class", "Expires", ""]}>
           {certs.map((cert) => (
             <tr key={cert.id}>
-              <td className="px-4 py-3">{cert.userName}</td>
-              <td className="px-4 py-3">{equipmentClassLabel(cert.class)}</td>
-              <td className="px-4 py-3 font-mono text-sm">{formatExpiresOn(cert.expiresOn)}</td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">{cert.userName}</td>
+              <td className="px-2.5 py-1.5">{equipmentClassLabel(cert.class)}</td>
+              <td className="px-2.5 py-1.5 font-mono text-sm">{formatExpiresOn(cert.expiresOn)}</td>
+              <td className="px-2.5 py-1.5">
                 <Button variant="ghost" onClick={() => void removeCert(cert.id)}>
                   Remove
                 </Button>

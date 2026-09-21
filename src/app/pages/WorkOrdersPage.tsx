@@ -72,7 +72,7 @@ function WorkOrderList() {
       />
       <ErrorBanner error={error} />
       {creating ? (
-        <Card className="mb-6">
+        <Card className="mb-3">
           <form className="grid gap-3 md:grid-cols-2" onSubmit={onSubmit(create)}>
             <Field label="Build item">
               <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
@@ -114,17 +114,17 @@ function WorkOrderList() {
       <Table columns={["Number", "Item", "Qty", "Completed", "Status"]}>
         {inWarehouse(orders, warehouseId).map((order) => (
           <tr key={order.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/make/work-orders/${order.id}`}>
                 {order.number}
               </Link>
             </td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">
               {order.sku} — {order.itemName}
             </td>
-            <td className="px-4 py-3 font-mono">{order.qty}</td>
-            <td className="px-4 py-3 font-mono">{order.qtyCompleted ?? 0}</td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5 font-mono">{order.qty}</td>
+            <td className="px-2.5 py-1.5 font-mono">{order.qtyCompleted ?? 0}</td>
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={order.status} />
             </td>
           </tr>
@@ -176,7 +176,7 @@ function WorkOrderDetail({ id }: { id: string }) {
   const remaining = order.remaining ?? Math.max(0, order.qty - (order.qtyCompleted ?? 0));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Make"
         title={order.number}

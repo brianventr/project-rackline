@@ -150,10 +150,10 @@ export function ShopifyPage({ me }: { me: Me }) {
       />
       <ErrorBanner error={error} />
       {notice ? (
-        <div className="mb-4 rounded-lg border border-ok/30 bg-ok/10 px-4 py-3 text-sm text-ok">{notice}</div>
+        <div className="mb-4 rounded-lg border border-ok/30 bg-ok/10 px-2.5 py-1.5 text-sm text-ok">{notice}</div>
       ) : null}
 
-      <div className="mb-6 grid gap-6 lg:grid-cols-2">
+      <div className="mb-3 grid gap-3 lg:grid-cols-2">
         <Card>
           <h2 className="mb-1 font-semibold">Store connection</h2>
           <p className="mb-4 text-sm text-muted-foreground">
@@ -262,7 +262,7 @@ export function ShopifyPage({ me }: { me: Me }) {
         </Card>
       </div>
 
-      <Card className="mb-6">
+      <Card className="mb-3">
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="mb-1 font-semibold">Sellable qty</h2>
@@ -280,11 +280,11 @@ export function ShopifyPage({ me }: { me: Me }) {
           <Table columns={["SKU", "On hand", "Held", "To pick", "Sellable"]}>
             {inventory.rows.map((row) => (
               <tr key={row.itemId}>
-                <td className="px-4 py-3 font-mono">{row.sku}</td>
-                <td className="px-4 py-3 font-mono">{row.onHand}</td>
-                <td className="px-4 py-3 font-mono">{row.held}</td>
-                <td className="px-4 py-3 font-mono">{row.remainingToPick}</td>
-                <td className="px-4 py-3 font-mono">{row.sellable}</td>
+                <td className="px-2.5 py-1.5 font-mono">{row.sku}</td>
+                <td className="px-2.5 py-1.5 font-mono">{row.onHand}</td>
+                <td className="px-2.5 py-1.5 font-mono">{row.held}</td>
+                <td className="px-2.5 py-1.5 font-mono">{row.remainingToPick}</td>
+                <td className="px-2.5 py-1.5 font-mono">{row.sellable}</td>
               </tr>
             ))}
           </Table>
@@ -293,7 +293,7 @@ export function ShopifyPage({ me }: { me: Me }) {
         )}
       </Card>
 
-      <Card className="mb-6">
+      <Card className="mb-3">
         <h2 className="mb-1 font-semibold">Simulate a customer order</h2>
         <p className="mb-4 text-sm text-muted-foreground">
           Builds a signed Shopify <span className="font-mono">orders/create</span> payload and runs the same ingest

@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type LaborBoard, type LaborSkuDetail, type LaborStaffDetail } from "../api";
-import { ErrorBanner, PageHeader, Table } from "../components/ui";
+import { ErrorBanner, PageHeader, StatStrip, Table } from "../components/ui";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type Preset = "today" | "7d" | "30d";
@@ -85,7 +85,7 @@ function LaborBoardPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <PageHeader
         eyebrow="Office"
         title="Performance"
@@ -93,21 +93,17 @@ function LaborBoardPage() {
         actions={<LaborFilters preset={preset} onPreset={setPreset} />}
       />
       <ErrorBanner error={error} />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {tiles.map((tile) => (
-          <Card key={tile.label} className="from-primary/5 to-card bg-gradient-to-t shadow-xs">
-            <CardHeader>
-              <CardDescription>{tile.label}</CardDescription>
-              <CardTitle className="text-3xl tabular-nums">{tile.value}</CardTitle>
-            </CardHeader>
-          </Card>
-        ))}
-      </div>
+      <StatStrip
+        items={tiles.map((tile) => ({
+          ...tile,
+          tone: tile.label === "Exceptions" ? "warn" : "default",
+        }))}
+      />
       {board?.daily.length ? (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Card>
-            <p className="mb-3 text-sm font-medium">Daily volume and pace</p>
-            <div className="h-56">
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Card className="px-3">
+            <p className="mb-2 text-xs font-medium">Daily volume and pace</p>
+            <div className="h-40">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={board.daily}>
                   <CartesianGrid vertical={false} />
@@ -120,9 +116,9 @@ function LaborBoardPage() {
               </ResponsiveContainer>
             </div>
           </Card>
-          <Card>
-            <p className="mb-3 text-sm font-medium">Verb mix</p>
-            <div className="h-56">
+          <Card className="px-3">
+            <p className="mb-2 text-xs font-medium">Verb mix</p>
+            <div className="h-40">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={board.verbMix}>
                   <CartesianGrid vertical={false} />
@@ -141,21 +137,21 @@ function LaborBoardPage() {
         <Table columns={["Teammate", "Role", "Lines", "Units", "Active", "LPH", "UPH", "Pace", "Exceptions"]}>
           {(board?.staff ?? []).map((row) => (
             <tr key={row.userId}>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">
                 <Link className="font-medium hover:underline" to={`/labor/staff/${row.userId}`}>
                   {row.userName}
                 </Link>
               </td>
-              <td className="px-4 py-3 capitalize">{row.role}</td>
-              <td className="px-4 py-3 font-mono tabular-nums">{row.lines}</td>
-              <td className="px-4 py-3 font-mono tabular-nums">{row.units}</td>
-              <td className="px-4 py-3 font-mono tabular-nums">{formatHours(row.activeHours)}</td>
-              <td className="px-4 py-3 font-mono tabular-nums">{row.lph.toFixed(1)}</td>
-              <td className="px-4 py-3 font-mono tabular-nums">{row.uph.toFixed(1)}</td>
-              <td className="px-4 py-3 font-mono tabular-nums" title={paceHint(row.pace)}>
+              <td className="px-2.5 py-1.5 capitalize">{row.role}</td>
+              <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.lines}</td>
+              <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.units}</td>
+              <td className="px-2.5 py-1.5 font-mono tabular-nums">{formatHours(row.activeHours)}</td>
+              <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.lph.toFixed(1)}</td>
+              <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.uph.toFixed(1)}</td>
+              <td className="px-2.5 py-1.5 font-mono tabular-nums" title={paceHint(row.pace)}>
                 {formatPace(row.pace)}
               </td>
-              <td className="px-4 py-3 font-mono tabular-nums">{row.exceptionRate.toFixed(1)}%</td>
+              <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.exceptionRate.toFixed(1)}%</td>
             </tr>
           ))}
         </Table>
@@ -166,20 +162,20 @@ function LaborBoardPage() {
         <Table columns={["SKU", "Name", "Complexity", "Units", "Handlers", "Pace", "Exceptions", ""]}>
           {(board?.skus ?? []).map((row) => (
             <tr key={row.itemId}>
-              <td className="px-4 py-3 font-mono">
+              <td className="px-2.5 py-1.5 font-mono">
                 <Link className="hover:underline" to={`/stock/items/${row.itemId}`}>
                   {row.sku}
                 </Link>
               </td>
-              <td className="px-4 py-3">{row.name}</td>
-              <td className="px-4 py-3 font-mono tabular-nums">{row.complexity.toFixed(1)}</td>
-              <td className="px-4 py-3 font-mono tabular-nums">{row.units}</td>
-              <td className="px-4 py-3 font-mono tabular-nums">{row.handlers}</td>
-              <td className="px-4 py-3 font-mono tabular-nums" title={paceHint(row.pace)}>
+              <td className="px-2.5 py-1.5">{row.name}</td>
+              <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.complexity.toFixed(1)}</td>
+              <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.units}</td>
+              <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.handlers}</td>
+              <td className="px-2.5 py-1.5 font-mono tabular-nums" title={paceHint(row.pace)}>
                 {formatPace(row.pace)}
               </td>
-              <td className="px-4 py-3 font-mono tabular-nums">{row.exceptionRate.toFixed(1)}%</td>
-              <td className="px-4 py-3 text-sm text-muted-foreground">{row.hard ? "Hard SKU" : ""}</td>
+              <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.exceptionRate.toFixed(1)}%</td>
+              <td className="px-2.5 py-1.5 text-sm text-muted-foreground">{row.hard ? "Hard SKU" : ""}</td>
             </tr>
           ))}
         </Table>
@@ -190,10 +186,10 @@ function LaborBoardPage() {
           <Table columns={["Teammate", "SKU", "Units", "Pace"]}>
             {(board?.matrix ?? []).map((cell) => (
               <tr key={`${cell.userId}:${cell.itemId}`}>
-                <td className="px-4 py-3">{cell.userName}</td>
-                <td className="px-4 py-3 font-mono">{cell.sku}</td>
-                <td className="px-4 py-3 font-mono tabular-nums">{cell.units}</td>
-                <td className="px-4 py-3 font-mono tabular-nums">{formatPace(cell.pace)}</td>
+                <td className="px-2.5 py-1.5">{cell.userName}</td>
+                <td className="px-2.5 py-1.5 font-mono">{cell.sku}</td>
+                <td className="px-2.5 py-1.5 font-mono tabular-nums">{cell.units}</td>
+                <td className="px-2.5 py-1.5 font-mono tabular-nums">{formatPace(cell.pace)}</td>
               </tr>
             ))}
           </Table>
@@ -218,7 +214,7 @@ function LaborStaffPage({ userId }: { userId: string }) {
   const staff = detail?.staff;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <PageHeader
         eyebrow="Performance"
         title={staff?.userName ?? "Teammate"}
@@ -234,28 +230,21 @@ function LaborStaffPage({ userId }: { userId: string }) {
       />
       <ErrorBanner error={error} />
       {staff ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {[
+        <StatStrip
+          items={[
             { label: "Lines", value: staff.lines },
             { label: "Units", value: staff.units },
             { label: "Pace", value: formatPace(staff.pace) },
-            { label: "Exceptions", value: `${staff.exceptionRate.toFixed(1)}%` },
-          ].map((tile) => (
-            <Card key={tile.label} className="from-primary/5 to-card bg-gradient-to-t shadow-xs">
-              <CardHeader>
-                <CardDescription>{tile.label}</CardDescription>
-                <CardTitle className="text-3xl tabular-nums">{tile.value}</CardTitle>
-              </CardHeader>
-            </Card>
-          ))}
-        </div>
+            { label: "Exceptions", value: `${staff.exceptionRate.toFixed(1)}%`, tone: "warn" },
+          ]}
+        />
       ) : null}
       {detail?.daily.length || detail?.verbMix.length ? (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-3 lg:grid-cols-2">
           {detail.daily.length ? (
-            <Card>
-              <p className="mb-3 text-sm font-medium">Daily volume and pace</p>
-              <div className="h-56">
+            <Card className="px-3">
+              <p className="mb-2 text-xs font-medium">Daily volume and pace</p>
+              <div className="h-40">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={detail.daily}>
                     <CartesianGrid vertical={false} />
@@ -270,9 +259,9 @@ function LaborStaffPage({ userId }: { userId: string }) {
             </Card>
           ) : null}
           {detail.verbMix.length ? (
-            <Card>
-              <p className="mb-3 text-sm font-medium">Verb mix</p>
-              <div className="h-56">
+            <Card className="px-3">
+              <p className="mb-2 text-xs font-medium">Verb mix</p>
+              <div className="h-40">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={detail.verbMix}>
                     <CartesianGrid vertical={false} />
@@ -293,14 +282,14 @@ function LaborStaffPage({ userId }: { userId: string }) {
           <Table columns={["SKU", "Units", "Pace", "Exceptions"]}>
             {detail.skus.map((row) => (
               <tr key={row.itemId}>
-                <td className="px-4 py-3 font-mono">
+                <td className="px-2.5 py-1.5 font-mono">
                   <Link className="hover:underline" to={`/stock/items/${row.itemId}`}>
                     {row.sku}
                   </Link>
                 </td>
-                <td className="px-4 py-3 font-mono tabular-nums">{row.units}</td>
-                <td className="px-4 py-3 font-mono tabular-nums">{formatPace(row.pace)}</td>
-                <td className="px-4 py-3 font-mono tabular-nums">{row.exceptionRate.toFixed(1)}%</td>
+                <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.units}</td>
+                <td className="px-2.5 py-1.5 font-mono tabular-nums">{formatPace(row.pace)}</td>
+                <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.exceptionRate.toFixed(1)}%</td>
               </tr>
             ))}
           </Table>
@@ -312,11 +301,11 @@ function LaborStaffPage({ userId }: { userId: string }) {
           <Table columns={["When", "Verb", "SKU", "Qty", "Ref"]}>
             {detail.recent.map((row, index) => (
               <tr key={`${row.refId}:${row.createdAt}:${index}`}>
-                <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(row.createdAt).toLocaleString()}</td>
-                <td className="px-4 py-3 font-mono text-xs uppercase">{row.verb}</td>
-                <td className="px-4 py-3 font-mono">{row.sku}</td>
-                <td className="px-4 py-3 font-mono tabular-nums">{row.qty}</td>
-                <td className="px-4 py-3 font-mono text-xs">
+                <td className="px-2.5 py-1.5 text-xs text-muted-foreground">{new Date(row.createdAt).toLocaleString()}</td>
+                <td className="px-2.5 py-1.5 font-mono text-xs uppercase">{row.verb}</td>
+                <td className="px-2.5 py-1.5 font-mono">{row.sku}</td>
+                <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.qty}</td>
+                <td className="px-2.5 py-1.5 font-mono text-xs">
                   {row.refType}/{row.refId.slice(0, 8)}
                 </td>
               </tr>
@@ -350,7 +339,7 @@ export function SkuHandlers({ itemId, linkStaff = true }: { itemId: string; link
       <Table columns={["Teammate", "Lines", "Units", "Pace", "Exceptions"]}>
         {(detail?.handlers ?? []).map((row) => (
           <tr key={row.userId}>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">
               {linkStaff ? (
                 <Link className="hover:underline" to={`/labor/staff/${row.userId}`}>
                   {row.userName}
@@ -359,10 +348,10 @@ export function SkuHandlers({ itemId, linkStaff = true }: { itemId: string; link
                 row.userName
               )}
             </td>
-            <td className="px-4 py-3 font-mono tabular-nums">{row.lines}</td>
-            <td className="px-4 py-3 font-mono tabular-nums">{row.units}</td>
-            <td className="px-4 py-3 font-mono tabular-nums">{formatPace(row.pace)}</td>
-            <td className="px-4 py-3 font-mono tabular-nums">{row.exceptionRate.toFixed(1)}%</td>
+            <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.lines}</td>
+            <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.units}</td>
+            <td className="px-2.5 py-1.5 font-mono tabular-nums">{formatPace(row.pace)}</td>
+            <td className="px-2.5 py-1.5 font-mono tabular-nums">{row.exceptionRate.toFixed(1)}%</td>
           </tr>
         ))}
       </Table>
@@ -385,12 +374,12 @@ export function MyDayCard() {
   if (!row || row.lines + row.exceptionUnits === 0) return null;
 
   return (
-    <div className="mb-6 rounded-2xl border bg-card p-5 shadow-xs">
-      <p className="text-sm font-medium text-muted-foreground">My day</p>
-      <p className="mt-1 text-xl font-semibold">
+    <div className="rounded-md border bg-card px-3 py-2">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">My day</p>
+      <p className="mt-0.5 text-sm font-semibold">
         {row.lines} {row.lines === 1 ? "line" : "lines"} · {row.units} {row.units === 1 ? "unit" : "units"} · pace {formatPace(row.pace)}
       </p>
-      <p className="mt-1 text-sm text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         {paceHint(row.pace)}
         {row.exceptionUnits ? ` · ${row.exceptionUnits} exception units` : ""}
       </p>

@@ -72,7 +72,7 @@ function KitList() {
       />
       <ErrorBanner error={error} />
       {creating ? (
-        <Card className="mb-6">
+        <Card className="mb-3">
           <form className="grid gap-3 md:grid-cols-2" onSubmit={onSubmit(create)}>
             <Field label="Build item">
               <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
@@ -114,17 +114,17 @@ function KitList() {
       <Table columns={["Number", "Item", "Qty", "Completed", "Status"]}>
         {inWarehouse(kits, warehouseId).map((kit) => (
           <tr key={kit.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/make/kits/${kit.id}`}>
                 {kit.number}
               </Link>
             </td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">
               {kit.sku} — {kit.itemName}
             </td>
-            <td className="px-4 py-3 font-mono">{kit.qty}</td>
-            <td className="px-4 py-3 font-mono">{kit.qtyCompleted ?? 0}</td>
-            <td className="px-4 py-3 capitalize">{kit.status}</td>
+            <td className="px-2.5 py-1.5 font-mono">{kit.qty}</td>
+            <td className="px-2.5 py-1.5 font-mono">{kit.qtyCompleted ?? 0}</td>
+            <td className="px-2.5 py-1.5 capitalize">{kit.status}</td>
           </tr>
         ))}
       </Table>
@@ -175,7 +175,7 @@ function KitDetail({ id }: { id: string }) {
   const remaining = kit.remaining ?? Math.max(0, kit.qty - (kit.qtyCompleted ?? 0));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Make"
         title={kit.number}
@@ -209,10 +209,10 @@ function KitDetail({ id }: { id: string }) {
       <Table columns={["Component", "Qty each"]}>
         {(kit.components ?? []).map((line) => (
           <tr key={line.itemId}>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">
               <span className="font-mono">{line.sku}</span> {line.itemName}
             </td>
-            <td className="px-4 py-3 font-mono">{line.qty}</td>
+            <td className="px-2.5 py-1.5 font-mono">{line.qty}</td>
           </tr>
         ))}
       </Table>

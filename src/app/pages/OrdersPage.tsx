@@ -62,16 +62,16 @@ function OrderList() {
   }
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
       <PageHeader
         eyebrow="Outbound"
         title="Orders"
         description="Shopify checkouts and floor orders. Start pick to reserve ATP, then pick from the suggested bay."
-        actions={<Button onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New order"}</Button>}
+        actions={<Button size="xs" onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New order"}</Button>}
       />
       <ErrorBanner error={error} />
       {creating ? (
-        <Card className="mb-6">
+        <Card className="mb-3">
           <form className="space-y-4" onSubmit={onSubmit(create)}>
             <Field label="Customer">
               <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
@@ -92,16 +92,16 @@ function OrderList() {
       <Table columns={["Number", "Channel", "Customer", "Lines", "Allocated", "Status"]}>
         {inWarehouse(orders, warehouseId).map((order) => (
           <tr key={order.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/outbound/orders/${order.id}`}>
                 {order.number}
               </Link>
             </td>
-            <td className="px-4 py-3">{order.source === "shopify" ? "Shopify" : "Floor"}</td>
-            <td className="px-4 py-3">{order.customerName}</td>
-            <td className="px-4 py-3 text-sm">{summarizeLines(order.lines)}</td>
-            <td className="px-4 py-3 font-mono tabular">{order.allocatedUnits ?? 0}</td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">{order.source === "shopify" ? "Shopify" : "Floor"}</td>
+            <td className="px-2.5 py-1.5">{order.customerName}</td>
+            <td className="px-2.5 py-1.5 text-sm">{summarizeLines(order.lines)}</td>
+            <td className="px-2.5 py-1.5 font-mono tabular">{order.allocatedUnits ?? 0}</td>
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={order.status} />
             </td>
           </tr>
@@ -384,7 +384,7 @@ function OrderDetail({ id }: { id: string }) {
     canShipOrder(order.status);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Outbound"
         title={order.number}
@@ -392,9 +392,9 @@ function OrderDetail({ id }: { id: string }) {
         status={order.status}
         steps={ORDER_STEPS}
         actions={
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => navigate("/outbound/orders")}>
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex flex-wrap justify-end gap-1.5">
+              <Button variant="ghost" size="xs" onClick={() => navigate("/outbound/orders")}>
                 All orders
               </Button>
               {canPickOrder(order.status) ? (
@@ -739,19 +739,19 @@ function OrderDetail({ id }: { id: string }) {
         <Table columns={["SKU", "Item", "Ordered", "Picked", "Packed", "Allocated", "Bay", "This pick", "This pack", "This unpick", "Lot / serial"]}>
           {(order.lines ?? []).map((line) => (
             <tr key={line.id}>
-              <td className="px-4 py-3 font-mono">{line.sku}</td>
-              <td className="px-4 py-3">{line.itemName}</td>
-              <td className="px-4 py-3 font-mono">{line.qty}</td>
-              <td className="px-4 py-3 font-mono">{line.qtyPicked ?? 0}</td>
-              <td className="px-4 py-3 font-mono">{line.qtyPacked ?? 0}</td>
-              <td className="px-4 py-3 font-mono text-sm">
+              <td className="px-2.5 py-1.5 font-mono">{line.sku}</td>
+              <td className="px-2.5 py-1.5">{line.itemName}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qty}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qtyPicked ?? 0}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qtyPacked ?? 0}</td>
+              <td className="px-2.5 py-1.5 font-mono text-sm">
                 {(line.allocations ?? []).length
                   ? (line.allocations ?? []).map((row) => `${row.locationCode} ×${row.qty}`).join(", ")
                   : (line.allocatedQty ?? 0) > 0
                     ? line.allocatedQty
                     : "—"}
               </td>
-              <td className="px-4 py-3 font-mono text-sm">
+              <td className="px-2.5 py-1.5 font-mono text-sm">
                 {line.suggestedLocation ? (
                   <button
                     type="button"
@@ -765,7 +765,7 @@ function OrderDetail({ id }: { id: string }) {
                   <span className="text-muted-foreground">{line.remaining > 0 ? "—" : "Done"}</span>
                 )}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">
                 {line.remaining > 0 ? (
                   <Input
                     type="number"
@@ -778,7 +778,7 @@ function OrderDetail({ id }: { id: string }) {
                   <span className="text-muted-foreground">Done</span>
                 )}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">
                 {(line.packRemaining ?? 0) > 0 ? (
                   <Input
                     type="number"
@@ -791,7 +791,7 @@ function OrderDetail({ id }: { id: string }) {
                   <span className="text-muted-foreground">{(line.qtyPicked ?? 0) > 0 ? "Done" : "—"}</span>
                 )}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">
                 {(line.unpickRemaining ?? 0) > 0 ? (
                   <Input
                     type="number"
@@ -804,7 +804,7 @@ function OrderDetail({ id }: { id: string }) {
                   <span className="text-muted-foreground">—</span>
                 )}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">
                 {line.trackLot ? (
                   <Input
                     placeholder="Lot"

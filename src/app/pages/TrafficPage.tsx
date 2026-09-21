@@ -96,7 +96,7 @@ export function TrafficPage() {
   }, [items, skuIds]);
 
   return (
-    <div className="-mx-4 -my-4 flex h-[calc(100dvh-var(--header-height))] min-h-[40rem] flex-col bg-[#061018] text-cyan-50 md:-mx-6 md:-my-6">
+    <div className="-mx-3 -my-2 flex h-[calc(100dvh-var(--header-height))] min-h-[40rem] flex-col bg-[#061018] text-cyan-50">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-cyan-400/15 px-4 py-3 md:px-5">
         <div>
           <p className="mb-1 flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.22em] text-cyan-300/80">
