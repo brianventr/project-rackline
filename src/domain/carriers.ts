@@ -73,7 +73,7 @@ export const CARRIER_PROVIDERS: CarrierProvider[] = [
     id: "ups",
     name: "UPS",
     kind: "direct",
-    description: "Connect your UPS account number and API credentials.",
+    description: "Connect your UPS account. Live mode buys postage from UPS.",
     credentialFields: ["accountNumber", "apiKey", "apiSecret"],
     trackingPrefix: "1Z",
     services: UPS_SERVICES,
@@ -82,7 +82,7 @@ export const CARRIER_PROVIDERS: CarrierProvider[] = [
     id: "fedex",
     name: "FedEx",
     kind: "direct",
-    description: "Connect your FedEx account, API key, and meter number.",
+    description: "Connect your FedEx account. The meter number field holds the client secret. Live mode buys postage.",
     credentialFields: ["accountNumber", "apiKey", "meterNumber"],
     trackingPrefix: "FE-",
     services: FEDEX_SERVICES,
@@ -91,7 +91,7 @@ export const CARRIER_PROVIDERS: CarrierProvider[] = [
     id: "usps",
     name: "USPS",
     kind: "direct",
-    description: "Connect your USPS account and API key.",
+    description: "Connect your USPS account. Live mode buys postage with the API key as a bearer token.",
     credentialFields: ["accountNumber", "apiKey"],
     trackingPrefix: "9400",
     services: USPS_SERVICES,
@@ -100,7 +100,7 @@ export const CARRIER_PROVIDERS: CarrierProvider[] = [
     id: "dhl",
     name: "DHL",
     kind: "direct",
-    description: "Connect your DHL Express account and API key.",
+    description: "Connect your DHL Express account. Live mode buys postage with the API key.",
     credentialFields: ["accountNumber", "apiKey"],
     trackingPrefix: "DHL-",
     services: DHL_SERVICES,
@@ -470,7 +470,7 @@ export function testConnectionResult(input: {
     }
     return {
       ok: true,
-      message: "Credentials stored. Direct carrier APIs are not called — connect EasyPost or ShipEngine for live postage.",
+      message: "Credentials look complete. Test pings the carrier; Buy label purchases postage.",
     };
   }
   return { ok: true, message: "Demo connection is ready. Labels mint tracking without calling the carrier." };

@@ -173,7 +173,7 @@ export function CarriersPage() {
       <PageHeader
         eyebrow="Setup"
         title="Carriers"
-        description="Connect your own UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine account. Demo mints tracking. Live EasyPost or ShipEngine shops rates and buys postage; direct carrier APIs are not called."
+        description="Connect your own UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine account. Demo mints tracking. Live accounts shop rates and buy postage."
       />
       <ErrorBanner error={error} />
       {notice ? (

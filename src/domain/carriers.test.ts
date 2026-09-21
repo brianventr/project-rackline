@@ -62,7 +62,7 @@ describe("carrier credentials", () => {
       credentials: { accountNumber: "A1B2C3", apiKey: "key", apiSecret: "secret" },
     });
     expect(direct).toEqual(
-      expect.objectContaining({ ok: true, message: expect.stringContaining("EasyPost or ShipEngine") }),
+      expect.objectContaining({ ok: true, message: expect.stringContaining("purchases postage") }),
     );
   });
 });

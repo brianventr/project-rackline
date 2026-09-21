@@ -114,6 +114,7 @@ function PurchaseDetail({ id }: { id: string }) {
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
+  const [vendorEmail, setVendorEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -135,7 +136,12 @@ function PurchaseDetail({ id }: { id: string }) {
   async function start() {
     setError(null);
     try {
-      setPurchase(await api<Purchase>(`/api/purchases/${id}/start`, { method: "POST" }));
+      setPurchase(
+        await api<Purchase>(`/api/purchases/${id}/start`, {
+          method: "POST",
+          body: JSON.stringify({ to: vendorEmail.trim() || undefined }),
+        }),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not mark ordered");
     }
@@ -202,7 +208,17 @@ function PurchaseDetail({ id }: { id: string }) {
       <DocumentFrame
         rail={
           <DocumentRail>
-            <Card>
+            <Card className="space-y-3">
+              {canStartPurchase(purchase.status) ? (
+                <Field label="Vendor email">
+                  <Input
+                    type="email"
+                    value={vendorEmail}
+                    onChange={(e) => setVendorEmail(e.target.value)}
+                    placeholder="orders@vendor.com"
+                  />
+                </Field>
+              ) : null}
               <Field label="Receive into">
                 <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
                   {locations.map((location) => (
@@ -219,7 +235,7 @@ function PurchaseDetail({ id }: { id: string }) {
       >
         {purchase.send ? (
           <Card className="mb-4 space-y-1 text-sm">
-            <p className="font-medium">Last send (demo)</p>
+            <p className="font-medium">{purchase.send.mode === "sent" ? "Sent" : "Recorded"}</p>
             <p className="text-muted-foreground">
               To {purchase.send.toAddress ?? purchase.vendorName} · {new Date(purchase.send.createdAt).toLocaleString()}
             </p>

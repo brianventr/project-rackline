@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   api,
   type Item,
@@ -11,6 +11,21 @@ import {
   type ShopifyOutbound,
 } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit } from "../components/ui";
+
+function shopifyInstallError(code: string): string {
+  switch (code) {
+    case "missing_app":
+      return "Shopify app credentials are not configured";
+    case "hmac":
+      return "Shopify rejected the install signature";
+    case "token":
+      return "Shopify did not return an access token";
+    case "shop":
+      return "That shop is already connected to another organization";
+    default:
+      return "Shopify install link expired or was rejected";
+  }
+}
 
 export function ShopifyPage({ me }: { me: Me }) {
   const [connection, setConnection] = useState<ShopifyConnection | null>(null);
@@ -28,6 +43,7 @@ export function ShopifyPage({ me }: { me: Me }) {
   const [qty, setQty] = useState("1");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [params] = useSearchParams();
   const owner = me.role === "owner";
 
   async function load() {
@@ -60,8 +76,30 @@ export function ShopifyPage({ me }: { me: Me }) {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    const installed = params.get("installed") === "1";
+    const oauthError = params.get("error");
+    load()
+      .then(() => {
+        if (installed) setNotice("Shopify app installed.");
+        if (oauthError) setError(shopifyInstallError(oauthError));
+      })
+      .catch((err: Error) => setError(err.message));
   }, []);
+
+  async function install() {
+    setError(null);
+    setNotice(null);
+    if (!shopDomain.trim()) {
+      setError("Shop domain is required");
+      return;
+    }
+    try {
+      const result = await api<{ url: string }>(`/api/shopify/oauth/start?shop=${encodeURIComponent(shopDomain.trim())}`);
+      window.location.assign(result.url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start Shopify install");
+    }
+  }
 
   async function save() {
     setError(null);
@@ -225,6 +263,9 @@ export function ShopifyPage({ me }: { me: Me }) {
               </Field>
               <div className="flex flex-wrap gap-2">
                 <Button type="submit">Save connection</Button>
+                <Button type="button" variant="secondary" onClick={() => void install()}>
+                  Install Shopify app
+                </Button>
                 {!connection?.connected ? (
                   <Button variant="secondary" onClick={enableDemo}>
                     Enable demo shop

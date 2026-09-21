@@ -32,6 +32,8 @@ export async function sendPurchaseOrder(
     };
     to?: string | null;
     message?: string | null;
+    mode?: "demo" | "sent";
+    providerId?: string | null;
     now?: number;
   },
 ) {
@@ -56,7 +58,8 @@ export async function sendPurchaseOrder(
       toAddress,
       subject: input.purchase.number,
       body,
-      mode: "demo",
+      mode: input.mode === "sent" ? "sent" : "demo",
+      providerId: input.providerId ?? null,
       createdAt: now,
     }),
     db

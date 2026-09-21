@@ -6,6 +6,10 @@ export type Bindings = {
   DB: D1Database;
   BETTER_AUTH_SECRET: string;
   BETTER_AUTH_URL: string;
+  MAIL_API_KEY?: string;
+  MAIL_FROM?: string;
+  SHOPIFY_API_KEY?: string;
+  SHOPIFY_API_SECRET?: string;
 };
 
 export type Variables = {

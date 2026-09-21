@@ -39,6 +39,28 @@ export function isLiveAggregator(provider: string, mode: string): boolean {
   return mode === "live" && (provider === "easypost" || provider === "shipengine");
 }
 
+const DIRECT_POSTAGE = new Set(["ups", "fedex", "usps", "dhl"]);
+
+export function isLiveDirect(provider: string, mode: string): boolean {
+  return mode === "live" && DIRECT_POSTAGE.has(provider);
+}
+
+export function isLivePostage(provider: string, mode: string): boolean {
+  return isLiveAggregator(provider, mode) || isLiveDirect(provider, mode);
+}
+
+export function postagePurchaseMessage(input: { provider?: string | null; replacement?: boolean }): string {
+  const provider = input.provider?.trim();
+  if (provider) {
+    return input.replacement
+      ? `Replacement postage purchased from ${provider}.`
+      : `Postage purchased from ${provider}.`;
+  }
+  return input.replacement
+    ? "Replacement label minted locally. Live postage needs a connected carrier account."
+    : "Label minted locally. Live postage needs a connected carrier account.";
+}
+
 export function resolveParcel(input?: Partial<ParcelDims> | null): ParcelDims {
   const weightOz = input?.weightOz && input.weightOz > 0 ? input.weightOz : DEFAULT_PARCEL.weightOz;
   const lengthIn = input?.lengthIn && input.lengthIn > 0 ? input.lengthIn : DEFAULT_PARCEL.lengthIn;

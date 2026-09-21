@@ -111,6 +111,14 @@ Iteration 48 mints a child open order for ordered minus shipped, same customer a
 
 Iteration 49 does not create a second Shopify order. The child copies the parent fulfillment-order ids and line item ids and omits `shopifyOrderId`. A later ship of the backorder posts `fulfillmentCreate` on the original order for that carton only. Sellable qty updates after the unpick in 47. Cancelling the original Shopify order also cancels open backorder children. Ingest stays a promise until pick start.
 
+Iteration 50 sends a purchase order by email when `MAIL_API_KEY` and `MAIL_FROM` are set and the vendor address is an email. Explicit Send returns HTTP 409 (`MAIL_ADDRESS`) when mail is configured and the address is not an email, and 409 (`MAIL_FAILED`) when the provider rejects the message — the purchase stays draft. Receive-from-draft still records a demo send when there is no email, so the dock is not blocked. With mail unset, Send records the demo message as before.
+
+Iteration 51 installs Shopify with OAuth. Owners start from the shop domain; the callback stores a live Admin token and uses the app secret as the webhook signing secret. Missing `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET` returns HTTP 409 (`MISSING_APP`). Pasting an Admin token still works.
+
+Iteration 52 buys, voids, and shops rates on live UPS, FedEx, USPS, and DHL accounts. Demo connections still mint local tracking. A live buy that fails returns HTTP 409 (`CARRIER_LIVE`) and does not invent a tracking number. FedEx stores the client secret in the meter number field. USPS uses the API key as a bearer token. This replaces the direct-carrier limit in iterations 26 and 32.
+
+Iteration 53 drafts one invoice per 3PL client from warehouse activity: 2¢ per on-hand piece, 25¢ per unit picked in the last 30 days, and $1.50 per carton shipped in that period. House stock is not billed. No activity returns HTTP 409 (`NOTHING_TO_BILL`). This replaces the $5-per-client stub in iteration 25.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 Iteration 25 deepens logistics on the same location:item ledger (qty stays integer stock units):
@@ -123,7 +131,7 @@ Iteration 25 deepens logistics on the same location:item ledger (qty stays integ
 - **Carriers** — FedEx/DHL services and account numbers; tracking prefixes `FE-` / `DHL-`
 - **Supplier EDI (thin)** — POST `/api/edi/asn` creates expected ASN + `edi_inbox` row
 - **Dual UoM (thin)** — optional `alt_uom` / `alt_per_stock`; receive/pick accept `altQty` converted to stock pieces
-- **Billing (thin)** — 3PL plan stub; generate draft invoice = client count × $5
+- **Billing (thin)** — 3PL plan stub; generate draft invoice = client count × $5 (superseded by iteration 53)
 
 Iteration 26 adds hardware support for the floor:
 
@@ -165,7 +173,7 @@ npx wrangler d1 migrations apply rackline --remote
 npm run deploy
 ```
 
-Set a real `BETTER_AUTH_SECRET` (32+ characters) and `BETTER_AUTH_URL` before production.
+Set a real `BETTER_AUTH_SECRET` (32+ characters) and `BETTER_AUTH_URL` before production. Optional: `MAIL_API_KEY` and `MAIL_FROM` send purchase orders through a Resend-compatible API. Optional: `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET` enable the Shopify OAuth install. Do not commit those secrets.
 
 ## Shopify channel
 
@@ -185,7 +193,7 @@ Customer checkout on Shopify becomes a Rackline pick ticket. After the floor pic
 2. Install the app and copy the Admin API access token.
 3. Subscribe HTTPS webhooks for `orders/create`, `orders/updated`, `orders/paid`, and `orders/cancelled` to `/api/shopify/webhooks`.
 4. Optional fulfillment-service callback prefix: `/api/shopify` so Shopify posts `/api/shopify/fulfillment_order_notification`.
-5. On **Shopify** in Rackline, paste shop domain, token, and webhook signing secret. Pick the Shopify location that should receive sellable qty. Use **Demo** mode until the token is in place.
+5. On **Shopify** in Rackline, paste shop domain, token, and webhook signing secret, or choose **Install Shopify app** when `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET` are set. Pick the Shopify location that should receive sellable qty. Use **Demo** mode until the token is in place.
 
 HMAC is verified on the raw body (`X-Shopify-Hmac-SHA256`). Duplicate deliveries (`X-Shopify-Webhook-Id`) are ignored. Line items map to catalog SKUs (unknown SKUs are created as finished goods). Ship from **Orders** posts one `fulfillmentCreate` per shipped carton (orders with no packages keep a single order-level fulfillment).
 
@@ -201,7 +209,7 @@ Owners connect shipping accounts on **Setup → Carriers**. The catalog matches 
 2. **Aggregator** — EasyPost or ShipEngine with one API key. Demo mode unlocks UPS, FedEx, USPS, and DHL services under that connection.
 3. **Rackline Ground** — always available. Cannot be disconnected.
 
-**Enable demo carriers** seeds Northwind-style UPS (`A1B2C3`) and USPS accounts plus Rackline Ground. Demo never calls a carrier. Live EasyPost or ShipEngine pings the account on Test, shops live rates, and purchases postage on Buy label. Direct carrier live mode still stores credentials without buying postage. Paste a tracking number to skip the live buy. Void refunds the aggregator label until ship.
+**Enable demo carriers** seeds Northwind-style UPS (`A1B2C3`) and USPS accounts plus Rackline Ground. Demo never calls a carrier. A live EasyPost, ShipEngine, UPS, FedEx, USPS, or DHL account pings on Test, shops live rates, and purchases postage on Buy label. FedEx keeps the client secret in the meter number field. USPS sends the API key as a bearer token. Paste a tracking number to skip the live buy. Void refunds the live label until ship.
 
 Office Orders and Floor Ship load enabled services, parcel dims, **Shop rates**, **Buy label**, and **Void** (blocked after ship). Tracking URLs point at the carrier's public tracker.
 
@@ -227,7 +235,7 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 - **As-built** is lookup, not a second qty ledger. Floor Lookup scans a serial (`LAMP-1001`) or lot (`LOT-2026-A`) and shows built-from / used-in. The office item, kit, and work-order records show the same links
 - **Replenish** moves bulk storage onto a pick face when on-hand is below the SKU's pick min. Tickets track moved vs expected qty; posting more than remaining returns HTTP 409 (`OVER_MOVE`); the document stays `in_progress` until every unit is moved
 - **Lots / serials** overlay the location:item balance. Receive requires a vendor lot or matching serials; pick/move FIFO the oldest lot or serial if omitted
-- **Shipping label** buys from a connected carrier account (Setup → Carriers). Demo mints `1Z` / `9400` / `FE-` / `DHL-` / `RL-` tracking; live EasyPost / ShipEngine purchases postage. Void is allowed until ship. Shop rates returns canned quotes unless the aggregator connection is live.
+- **Shipping label** buys from a connected carrier account (Setup → Carriers). Demo mints `1Z` / `9400` / `FE-` / `DHL-` / `RL-` tracking. Live EasyPost, ShipEngine, UPS, FedEx, USPS, and DHL purchase postage. Void is allowed until ship. Shop rates returns canned quotes unless that connection is live.
 - **Print station** scans a bay, SKU, order, or wave. Pick lists queue for open/picking tickets and open waves; pack slips once picking has started; shipping labels once the ticket is picked. Floor **Print** and Setup **Labels** share that queue
 - **Reorder point** flags SKUs at or below the threshold on the floor board. **Draft PO** on Today opens a draft purchase for `max(1, ROP − on-hand)` using the last vendor, skipping SKUs already on an open PO
 - **Runway** projects days until stockout from a SKU baseline ship rate (or observed velocity). Cover is sellable qty plus dated inbound, minus BOM burn and lots that expire before they would ship. **Draft PO** on Analytics → Runway orders lead time + 14 days of burn for order-today SKUs

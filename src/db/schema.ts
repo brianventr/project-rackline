@@ -642,6 +642,7 @@ export const purchaseSends = sqliteTable("purchase_sends", {
   subject: text("subject"),
   body: text("body").notNull(),
   mode: text("mode").notNull().default("demo"),
+  providerId: text("provider_id"),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -1269,9 +1270,11 @@ export const invoices = sqliteTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     number: text("number").notNull(),
+    clientId: text("client_id").references(() => clients.id, { onDelete: "set null" }),
     periodStart: integer("period_start").notNull(),
     periodEnd: integer("period_end").notNull(),
     amountCents: integer("amount_cents").notNull(),
+    linesJson: text("lines_json").notNull().default("[]"),
     status: text("status").notNull(),
     createdAt: integer("created_at").notNull(),
   },

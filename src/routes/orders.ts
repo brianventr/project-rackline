@@ -17,13 +17,9 @@ import {
   quoteRates,
   resolveLabelPurchase,
 } from "../domain/carriers";
-import { isLiveAggregator, requireLiveShipAddress, resolveParcel } from "../domain/carrier-live";
-import {
-  asCarrierLiveError,
-  buyAggregatorLabel,
-  shopAggregatorRates,
-  voidAggregatorLabel,
-} from "../lib/carrier-client";
+import { isLivePostage, postagePurchaseMessage, requireLiveShipAddress, resolveParcel } from "../domain/carrier-live";
+import { asCarrierLiveError } from "../lib/carrier-client";
+import { buyLivePostage, shopLiveRates, voidLivePostage } from "../lib/live-postage";
 import { loadCarrierConnections, recordCarrierEvent } from "./carriers";
 import { scheduleShopifySellableSync } from "../db/shopify-sellable";
 import { parseSerialList } from "../domain/lots";
@@ -1068,9 +1064,7 @@ ordersRoute.post("/orders/:id/packages/:pkgId/label", async (c) => {
       shipmentId: liveLabel?.shipmentId ?? null,
       labelId: liveLabel?.labelId ?? null,
       postageCents: liveLabel?.postageCents ?? null,
-      message: live
-        ? "Postage purchased from the aggregator."
-        : "Label minted locally. Direct carrier APIs are not called — connect EasyPost or ShipEngine for live postage.",
+      message: postagePurchaseMessage({ provider: live ? connection?.provider : null }),
     },
   });
   const next = await orderWithLines(db, organizationId, order.id, { suggest: false });
@@ -1101,14 +1095,14 @@ ordersRoute.post("/orders/:id/packages/:pkgId/label/void", async (c) => {
   }
   const connections = await loadCarrierConnections(db, organizationId);
   const connection = connections.find((row) => row.id === pkg.carrierConnectionId) ?? null;
-  if (connection && isLiveAggregator(connection.provider, connection.mode) && (pkg.carrierShipmentId || pkg.carrierLabelId)) {
+  if (connection && isLivePostage(connection.provider, connection.mode) && (pkg.carrierShipmentId || pkg.carrierLabelId)) {
     if (!connection.apiKey) conflict("Live void needs an API key", "CARRIER_LIVE");
     try {
-      await voidAggregatorLabel({
-        provider: connection.provider as "easypost" | "shipengine",
-        apiKey: connection.apiKey,
+      await voidLivePostage({
+        connection,
         shipmentId: pkg.carrierShipmentId,
         labelId: pkg.carrierLabelId,
+        trackingNumber: pkg.trackingNumber,
       });
     } catch (err) {
       await recordCarrierEvent(db, {
@@ -1148,7 +1142,7 @@ ordersRoute.post("/orders/:id/packages/:pkgId/label/void", async (c) => {
     kind: "void",
     status: "ok",
     request: { trackingNumber: pkg.trackingNumber, carrierService: pkg.carrierService, packageId: pkg.id },
-    response: { voided: true, live: Boolean(connection && isLiveAggregator(connection.provider, connection.mode)) },
+    response: { voided: true, live: Boolean(connection && isLivePostage(connection.provider, connection.mode)) },
   });
   return c.json(await orderWithLines(db, organizationId, order.id, { suggest: false }));
 });
@@ -1242,9 +1236,7 @@ ordersRoute.post("/orders/:id/packages/:pkgId/relabel", async (c) => {
       labelId: liveLabel?.labelId ?? null,
       postageCents: liveLabel?.postageCents ?? null,
       previousTrackingNumber: pkg.trackingNumber,
-      message: liveLabel
-        ? "Replacement postage purchased from the aggregator."
-        : "Replacement label minted locally. Direct carrier APIs are not called — connect EasyPost or ShipEngine for live postage.",
+      message: postagePurchaseMessage({ provider: liveLabel?.provider, replacement: true }),
     },
   });
   const next = await orderWithLines(db, organizationId, order.id, { suggest: false });
@@ -1351,15 +1343,14 @@ async function purchaseOrderLabel(
   const live =
     !explicitTracking &&
     connection &&
-    isLiveAggregator(connection.provider, connection.mode);
+    isLivePostage(connection.provider, connection.mode);
   let liveLabel = null;
   if (live) {
-    if (!connection.apiKey) badRequest("Live EasyPost / ShipEngine needs an API key");
+    if (!connection.apiKey) badRequest("Live postage needs an API key");
     const services = enabledServicesFromConnections([connection]).filter((row) => row.connectionId === connection.id);
     try {
-      liveLabel = await buyAggregatorLabel({
-        provider: connection.provider as "easypost" | "shipengine",
-        apiKey: connection.apiKey,
+      liveLabel = await buyLivePostage({
+        connection,
         services,
         serviceId: purchase.service.id,
         shipFrom: requireLiveShipAddress({
@@ -1425,18 +1416,18 @@ async function tryVoidOldAggregatorLabel(
   const connection = connections.find((row) => row.id === input.connectionId) ?? null;
   if (
     !connection ||
-    !isLiveAggregator(connection.provider, connection.mode) ||
+    !isLivePostage(connection.provider, connection.mode) ||
     !(input.carrierShipmentId || input.carrierLabelId)
   ) {
     return { voided: false };
   }
   if (!connection.apiKey) return { voided: false, error: "Live void needs an API key" };
   try {
-    await voidAggregatorLabel({
-      provider: connection.provider as "easypost" | "shipengine",
-      apiKey: connection.apiKey,
+    await voidLivePostage({
+      connection,
       shipmentId: input.carrierShipmentId,
       labelId: input.carrierLabelId,
+      trackingNumber: input.trackingNumber,
     });
     await recordCarrierEvent(db, {
       organizationId,
@@ -1495,7 +1486,7 @@ ordersRoute.post("/orders/:id/rates", async (c) => {
   const shipToAddress = body.shipToAddress?.trim() || order.shipToAddress;
   const parcel = parcelFrom(body, order);
   const liveConnections = connections.filter(
-    (row) => isLiveAggregator(row.provider, row.mode) && Boolean(row.apiKey),
+    (row) => isLivePostage(row.provider, row.mode) && Boolean(row.apiKey),
   );
   const liveIds = new Set(liveConnections.map((row) => row.id));
   const cannedServices = services.filter((row) => !row.connectionId || !liveIds.has(row.connectionId));
@@ -1508,9 +1499,8 @@ ordersRoute.post("/orders/:id/rates", async (c) => {
     const liveServices = services.filter((row) => row.connectionId === connection.id);
     if (liveServices.length === 0) continue;
     try {
-      const shopped = await shopAggregatorRates({
-        provider: connection.provider as "easypost" | "shipengine",
-        apiKey: connection.apiKey!,
+      const shopped = await shopLiveRates({
+        connection,
         services: liveServices,
         shipFrom: requireLiveShipAddress({
           name: warehouse?.name || "Warehouse",
@@ -1613,9 +1603,7 @@ ordersRoute.post("/orders/:id/label", async (c) => {
       shipmentId: liveLabel?.shipmentId ?? null,
       labelId: liveLabel?.labelId ?? null,
       postageCents: liveLabel?.postageCents ?? null,
-      message: live
-        ? "Postage purchased from the aggregator."
-        : "Label minted locally. Direct carrier APIs are not called — connect EasyPost or ShipEngine for live postage.",
+      message: postagePurchaseMessage({ provider: live ? connection?.provider : null }),
     },
   });
   const next = await orderWithLines(db, organizationId, order.id, { suggest: false });
@@ -1634,14 +1622,14 @@ ordersRoute.post("/orders/:id/label/void", async (c) => {
   }
   const connections = await loadCarrierConnections(db, organizationId);
   const connection = connections.find((row) => row.id === order.carrierConnectionId) ?? null;
-  if (connection && isLiveAggregator(connection.provider, connection.mode) && (order.carrierShipmentId || order.carrierLabelId)) {
+  if (connection && isLivePostage(connection.provider, connection.mode) && (order.carrierShipmentId || order.carrierLabelId)) {
     if (!connection.apiKey) conflict("Live void needs an API key", "CARRIER_LIVE");
     try {
-      await voidAggregatorLabel({
-        provider: connection.provider as "easypost" | "shipengine",
-        apiKey: connection.apiKey,
+      await voidLivePostage({
+        connection,
         shipmentId: order.carrierShipmentId,
         labelId: order.carrierLabelId,
+        trackingNumber: order.trackingNumber,
       });
     } catch (err) {
       await recordCarrierEvent(db, {
@@ -1674,7 +1662,7 @@ ordersRoute.post("/orders/:id/label/void", async (c) => {
     kind: "void",
     status: "ok",
     request: { trackingNumber: order.trackingNumber, carrierService: order.carrierService },
-    response: { voided: true, live: Boolean(connection && isLiveAggregator(connection.provider, connection.mode)) },
+    response: { voided: true, live: Boolean(connection && isLivePostage(connection.provider, connection.mode)) },
   });
   return c.json(await orderWithLines(db, organizationId, order.id, { suggest: false }));
 });
@@ -1751,9 +1739,7 @@ ordersRoute.post("/orders/:id/relabel", async (c) => {
       labelId: liveLabel?.labelId ?? null,
       postageCents: liveLabel?.postageCents ?? null,
       previousTrackingNumber: order.trackingNumber,
-      message: liveLabel
-        ? "Replacement postage purchased from the aggregator."
-        : "Replacement label minted locally. Direct carrier APIs are not called — connect EasyPost or ShipEngine for live postage.",
+      message: postagePurchaseMessage({ provider: liveLabel?.provider, replacement: true }),
     },
   });
   const next = await orderWithLines(db, organizationId, order.id, { suggest: false });
