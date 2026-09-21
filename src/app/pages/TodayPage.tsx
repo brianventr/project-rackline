@@ -674,7 +674,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[], requests: OpenReque
       queue: "Hold",
       to: `/stock/holds/${row.id}`,
       title: row.number,
-      meta: `${row.sku ? `${row.sku}${row.lotCode ? ` ${row.lotCode}` : ""} @ ` : ""}${row.locationCode || "bay"} · ${row.reason}`,
+      meta: `${row.sku ? `${row.sku}${row.serialCode ? ` ${row.serialCode}` : row.lotCode ? ` ${row.lotCode}` : ""} @ ` : ""}${row.locationCode || "bay"} · ${row.reason}`,
       status: row.status,
       actionTo: `/floor/hold?id=${row.id}`,
       action: "Release",

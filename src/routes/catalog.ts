@@ -937,6 +937,7 @@ catalogRoute.get("/dashboard", async (c) => {
       locationId: schema.inventoryHolds.locationId,
       itemId: schema.inventoryHolds.itemId,
       lotCode: schema.inventoryHolds.lotCode,
+      serialCode: schema.inventoryHolds.serialCode,
       reason: schema.inventoryHolds.reason,
       notes: schema.inventoryHolds.notes,
       createdAt: schema.inventoryHolds.createdAt,

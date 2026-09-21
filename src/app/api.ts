@@ -889,6 +889,7 @@ export type Hold = {
   sku?: string | null;
   itemName?: string | null;
   lotCode: string | null;
+  serialCode?: string | null;
   reason: string;
   notes: string | null;
   createdAt: number;

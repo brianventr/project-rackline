@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type RecallOrder } from "../api";
 import { Button, Card, Field, Input } from "./ui";
 
@@ -8,6 +8,11 @@ export function HoldRemainderButton({ code }: { code: string }) {
   const [held, setHeld] = useState<Held[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    setHeld(null);
+    setError(null);
+  }, [code]);
 
   async function hold() {
     setError(null);
@@ -71,13 +76,13 @@ export function RecallPanel({ title = "Recall" }: { title?: string }) {
   const [lookedUp, setLookedUp] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  async function lookup() {
+  async function lookup(needle: string) {
     setError(null);
-    const needle = query.trim();
+    const code = needle.trim();
     try {
-      const result = await api<{ orders: RecallOrder[] }>(`/api/recall?q=${encodeURIComponent(needle)}`);
+      const result = await api<{ orders: RecallOrder[] }>(`/api/recall?q=${encodeURIComponent(code)}`);
       setOrders(result.orders);
-      setLookedUp(needle);
+      setLookedUp(code);
     } catch (err) {
       setOrders(null);
       setLookedUp("");
@@ -92,7 +97,8 @@ export function RecallPanel({ title = "Recall" }: { title?: string }) {
         className="flex flex-wrap items-end gap-2"
         onSubmit={(event) => {
           event.preventDefault();
-          void lookup();
+          const field = event.currentTarget.querySelector("input");
+          void lookup(field?.value ?? query);
         }}
       >
         <Field label="Lot or serial">
