@@ -9,6 +9,8 @@ import {
   normalizeShopDomain,
   shopifyHmac,
   verifyShopifyHmac,
+  REQUIRED_SCOPES,
+  buildInventorySetQuantitiesInput,
 } from "./shopify";
 
 const paidLampOrder = {
@@ -199,5 +201,30 @@ describe("fulfill-back payload", () => {
         lines: [expect.objectContaining({ sku: "LAMP", qty: 2 })],
       }),
     );
+  });
+});
+
+describe("sellable inventory payload", () => {
+  it("asks for inventory and location scopes and sets available qty", () => {
+    expect(REQUIRED_SCOPES).toEqual(
+      expect.arrayContaining(["read_inventory", "write_inventory", "read_locations", "read_products"]),
+    );
+    expect(
+      buildInventorySetQuantitiesInput({
+        locationId: "gid://shopify/Location/1",
+        quantities: [{ inventoryItemId: "gid://shopify/InventoryItem/9", quantity: 5 }],
+      }),
+    ).toEqual({
+      name: "available",
+      reason: "correction",
+      ignoreCompareQuantity: true,
+      quantities: [
+        {
+          inventoryItemId: "gid://shopify/InventoryItem/9",
+          locationId: "gid://shopify/Location/1",
+          quantity: 5,
+        },
+      ],
+    });
   });
 });

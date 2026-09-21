@@ -19,6 +19,7 @@ import { CERT_EXPIRING_WITHIN_DAYS, isCertExpiring } from "../domain/equipment";
 import { loadAsBuiltForItem } from "../db/as-built";
 import { loadDocumentNumber } from "../db/equipment";
 import { originColumns, resolveOrigin } from "../domain/geo";
+import { loadReorderQueue } from "../db/reorder";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -1141,41 +1142,8 @@ catalogRoute.get("/dashboard", async (c) => {
       ),
     );
 
-  const onHandByItem = await db
-    .select({
-      itemId: schema.inventoryBalances.itemId,
-      qty: sql<number>`coalesce(sum(${schema.inventoryBalances.qty}), 0)`,
-    })
-    .from(schema.inventoryBalances)
-    .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
-    .where(
-      and(
-        eq(schema.inventoryBalances.organizationId, organizationId),
-        warehouseId ? eq(schema.locations.warehouseId, warehouseId) : undefined,
-      ),
-    )
-    .groupBy(schema.inventoryBalances.itemId);
-
-  const catalog = await db
-    .select({
-      id: schema.items.id,
-      sku: schema.items.sku,
-      name: schema.items.name,
-      reorderPoint: schema.items.reorderPoint,
-    })
-    .from(schema.items)
-    .where(eq(schema.items.organizationId, organizationId));
-
-  const qtyByItem = new Map(onHandByItem.map((row) => [row.itemId, Number(row.qty)]));
-  const lowStock = catalog
-    .filter((item) => item.reorderPoint > 0 && (qtyByItem.get(item.id) ?? 0) <= item.reorderPoint)
-    .map((item) => ({
-      itemId: item.id,
-      sku: item.sku,
-      name: item.name,
-      onHand: qtyByItem.get(item.id) ?? 0,
-      reorderPoint: item.reorderPoint,
-    }));
+  const reorder = await loadReorderQueue(db, organizationId, warehouseId);
+  const lowStock = reorder.lowStock;
 
   const recent = await db
     .select({

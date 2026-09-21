@@ -12,6 +12,8 @@ import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
 import { guardFloorJob, syncDocumentJob, type DocumentJobInput } from "../db/jobs";
+import { loadReorderQueue } from "../db/reorder";
+import { majorityVendor } from "../domain/reorder";
 
 function purchaseJob(row: {
   id: string;
@@ -171,6 +173,44 @@ purchasesRoute.post("/purchases", async (c) => {
     ...lines.map((line) => db.insert(schema.purchaseLines).values(line)),
   ]);
 
+  const created = await purchaseWithLines(db, organizationId, id);
+  await syncDocumentJob(db, purchaseJob(created));
+  return c.json(created, 201);
+});
+
+purchasesRoute.post("/purchases/from-reorder", async (c) => {
+  const body = await c.req.json<{ warehouseId?: string; notes?: string }>().catch(() => ({}) as { warehouseId?: string; notes?: string });
+  const warehouseId = requireString(body.warehouseId, "warehouseId");
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const queue = await loadReorderQueue(db, organizationId, warehouseId);
+  if (queue.draftLines.length === 0) {
+    conflict("Nothing below reorder that isn't already on an open PO");
+  }
+  const vendorName = majorityVendor(queue.draftLines, queue.orgVendor ?? "Reorder");
+  const now = Date.now();
+  const id = newId();
+  await db.batch([
+    db.insert(schema.purchases).values({
+      id,
+      organizationId,
+      warehouseId,
+      number: docNumber("PO"),
+      vendorName,
+      status: "draft",
+      notes: body.notes?.trim() || "Drafted from Today reorder queue",
+      createdAt: now,
+    }),
+    ...queue.draftLines.map((line) =>
+      db.insert(schema.purchaseLines).values({
+        id: newId(),
+        purchaseId: id,
+        itemId: line.itemId,
+        qtyOrdered: line.qty,
+        qtyReceived: 0,
+      }),
+    ),
+  ]);
   const created = await purchaseWithLines(db, organizationId, id);
   await syncDocumentJob(db, purchaseJob(created));
   return c.json(created, 201);

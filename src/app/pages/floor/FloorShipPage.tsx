@@ -26,6 +26,11 @@ export function FloorShipPage() {
   const [carrierService, setCarrierService] = useState("rackline_ground");
   const [services, setServices] = useState<CarrierServiceOption[]>([]);
   const [rates, setRates] = useState<CarrierRate[]>([]);
+  const [weightOz, setWeightOz] = useState("16");
+  const [lengthIn, setLengthIn] = useState("12");
+  const [widthIn, setWidthIn] = useState("9");
+  const [heightIn, setHeightIn] = useState("6");
+  const [liveRateId, setLiveRateId] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
@@ -44,6 +49,10 @@ export function FloorShipPage() {
         setCarrierService(
           order.carrierService || hub.enabledServices.find((row) => row.isDefault)?.id || "rackline_ground",
         );
+        setWeightOz(String(order.packageWeightOz || 16));
+        setLengthIn(String(order.packageLengthIn || 12));
+        setWidthIn(String(order.packageWidthIn || 9));
+        setHeightIn(String(order.packageHeightIn || 6));
       }, setError);
     }
   }
@@ -63,6 +72,10 @@ export function FloorShipPage() {
               setTrackingNumber(next.trackingNumber || "");
               setTrackingCompany(next.trackingCompany || "");
               setCarrierService(next.carrierService || services.find((row) => row.isDefault)?.id || "rackline_ground");
+              setWeightOz(String(next.packageWeightOz || 16));
+              setLengthIn(String(next.packageLengthIn || 12));
+              setWidthIn(String(next.packageWidthIn || 9));
+              setHeightIn(String(next.packageHeightIn || 6));
             }, setError),
           );
         } else setError("Scan a packed order.");
@@ -80,6 +93,11 @@ export function FloorShipPage() {
           trackingNumber: trackingNumber || undefined,
           trackingCompany: trackingCompany || undefined,
           carrierService,
+          liveRateId,
+          weightOz: Number(weightOz),
+          lengthIn: Number(lengthIn),
+          widthIn: Number(widthIn),
+          heightIn: Number(heightIn),
         }),
       });
       setActive(shipped);
@@ -115,6 +133,10 @@ export function FloorShipPage() {
                 setTrackingNumber(order.trackingNumber || "");
                 setTrackingCompany(order.trackingCompany || "");
                 setCarrierService(order.carrierService || services.find((s) => s.isDefault)?.id || "rackline_ground");
+                setWeightOz(String(order.packageWeightOz || 16));
+                setLengthIn(String(order.packageLengthIn || 12));
+                setWidthIn(String(order.packageWidthIn || 9));
+                setHeightIn(String(order.packageHeightIn || 6));
               },
               setError,
             )
@@ -147,16 +169,34 @@ export function FloorShipPage() {
           <Field label="Carrier">
             <Input value={trackingCompany} onChange={(e) => setTrackingCompany(e.target.value)} placeholder="UPS, USPS…" />
           </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Weight oz">
+              <Input type="number" min={1} value={weightOz} onChange={(e) => setWeightOz(e.target.value)} />
+            </Field>
+            <Field label="L in">
+              <Input type="number" min={1} value={lengthIn} onChange={(e) => setLengthIn(e.target.value)} />
+            </Field>
+            <Field label="W in">
+              <Input type="number" min={1} value={widthIn} onChange={(e) => setWidthIn(e.target.value)} />
+            </Field>
+            <Field label="H in">
+              <Input type="number" min={1} value={heightIn} onChange={(e) => setHeightIn(e.target.value)} />
+            </Field>
+          </div>
+          {active.postageCents ? (
+            <p className="text-sm text-muted-foreground">Postage ${(active.postageCents / 100).toFixed(2)}</p>
+          ) : null}
           {rates.length > 0 ? (
             <ul className="space-y-1 text-sm">
               {rates.map((rate) => (
-                <li key={rate.id}>
+                <li key={`${rate.id}:${rate.liveRateId ?? ""}`}>
                   <button
                     type="button"
                     className="underline-offset-4 hover:underline"
                     onClick={() => {
                       setCarrierService(rate.id);
                       setTrackingCompany(rate.company);
+                      setLiveRateId(rate.liveRateId || undefined);
                     }}
                   >
                     {rate.company} {rate.service}
@@ -174,7 +214,16 @@ export function FloorShipPage() {
               <Button
                 variant="secondary"
                 onClick={() =>
-                  void api<{ rates: CarrierRate[] }>(`/api/orders/${active.id}/rates`, { method: "POST" })
+                  void api<{ rates: CarrierRate[] }>(`/api/orders/${active.id}/rates`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      carrierService,
+                      weightOz: Number(weightOz),
+                      lengthIn: Number(lengthIn),
+                      widthIn: Number(widthIn),
+                      heightIn: Number(heightIn),
+                    }),
+                  })
                     .then((result) => setRates(result.rates))
                     .catch((err: Error) => setError(err.message))
                 }
@@ -186,7 +235,15 @@ export function FloorShipPage() {
                 onClick={() => {
                   void api<ShippingLabel>(`/api/orders/${active.id}/label`, {
                     method: "POST",
-                    body: JSON.stringify({ carrierService, trackingNumber: trackingNumber || undefined }),
+                    body: JSON.stringify({
+                      carrierService,
+                      trackingNumber: trackingNumber || undefined,
+                      liveRateId,
+                      weightOz: Number(weightOz),
+                      lengthIn: Number(lengthIn),
+                      widthIn: Number(widthIn),
+                      heightIn: Number(heightIn),
+                    }),
                   })
                     .then(async (label) => {
                       setTrackingNumber(label.trackingNumber);

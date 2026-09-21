@@ -63,7 +63,7 @@ Iteration 24 opens the parked logistics set on the same location:item ledger:
 
 Iteration 25 adds an optional pick map on the ticket: remaining SKUs become numbered walk stops on the floor plan and 3D racks. Tap a stop to set the pick-from bay. Qty stays integer pieces on location:item.
 
-Iteration 26 adds carrier integrations: Setup → Carriers is a Shopify-shaped pathway to connect your own UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine account, enable services, test, shop canned rates, and buy/void labels. Tracking prefixes follow the carrier (`1Z`, `9400`, `FE-`, `DHL-`, `RL-`). Live mode stores credentials and logs the payload; it does not purchase postage yet.
+Iteration 26 adds carrier integrations: Setup → Carriers is a Shopify-shaped pathway to connect your own UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine account, enable services, test, shop rates, and buy/void labels. Tracking prefixes follow the carrier (`1Z`, `9400`, `FE-`, `DHL-`, `RL-`). Live EasyPost / ShipEngine purchase postage; direct carrier live mode stores credentials without buying postage.
 
 Iteration 27 adds Analytics → Traffic: a live ATC-style country/state map of packed and in-flight orders plus SKU destination demand. Positions are lane estimates from warehouse origin → parsed ship-to (city/state/country), not carrier GPS.
 
@@ -72,6 +72,12 @@ Iteration 28 adds equipment custody: register forklifts and pallet jacks, exclus
 Iteration 29 adds floor jobs on top of the existing documents: assign, claim, and a ranked next-job queue across dock, aisles, and bench. Unassigned work stays pickable. First scan or post auto-claims. A second operator hitting a claimed job gets HTTP 409 (`JOB_CLAIMED`). Ranking uses pin, starved replenish, FEFO, dock dwell, due/age, and walk distance from the last bay.
 
 Iteration 30 scores staff against SKUs: Performance (owners) rolls lines, units, pace (0–10 vs expected time from lot/serial/catch-weight/expiry and map walk), and exceptions from the ledger plus pack events. Operators see My day on the floor. Slow SKUs are flagged separately from slow people. Northwind seeds picker Maya Chen (`maya@northwind.makers`) and dock operator Jordan Dock (`jordan@northwind.makers`) on `ORD-KPI1`; both sign in with `rackline-demo`.
+
+Iteration 31 pushes Rackline sellable qty to Shopify: on-hand − held − remaining-to-pick (open / picking tickets). Demo records `inventorySetQuantities`; live calls Admin GraphQL. SKUs without a Shopify inventory item are skipped. Live sync without a location GID returns HTTP 409 (`MISSING_LOCATION`). Stock posts never fail because Shopify is unreachable. Ingest is still a promise until pick start.
+
+Iteration 32 buys live postage from EasyPost or ShipEngine only. Shop rates / Buy label / Void call the aggregator when the connection is live. Direct UPS/FedEx/USPS/DHL live accounts still store credentials and mint tracking locally. Paste an existing tracking number to skip the live buy. Missing street/city/region/postal on ship-from or ship-to returns HTTP 409 (`LIVE_ADDRESS`).
+
+Iteration 33 drafts a PO from Today’s reorder queue: qty is `max(1, reorder point − on-hand)`, last vendor on the SKU (or the majority vendor), SKUs already on an open PO are skipped.
 
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
@@ -140,14 +146,20 @@ Customer checkout on Shopify becomes a Rackline pick ticket. After the floor pic
    - `write_merchant_managed_fulfillment_orders`
    - `read_assigned_fulfillment_orders`
    - `write_assigned_fulfillment_orders`
+   - `read_inventory`
+   - `write_inventory`
+   - `read_locations`
+   - `read_products`
 2. Install the app and copy the Admin API access token.
 3. Subscribe HTTPS webhooks for `orders/create`, `orders/updated`, `orders/paid`, and `orders/cancelled` to `/api/shopify/webhooks`.
 4. Optional fulfillment-service callback prefix: `/api/shopify` so Shopify posts `/api/shopify/fulfillment_order_notification`.
-5. On **Shopify** in Rackline, paste shop domain, token, and webhook signing secret. Use **Demo** mode until the token is in place.
+5. On **Shopify** in Rackline, paste shop domain, token, and webhook signing secret. Pick the Shopify location that should receive sellable qty. Use **Demo** mode until the token is in place.
 
 HMAC is verified on the raw body (`X-Shopify-Hmac-SHA256`). Duplicate deliveries (`X-Shopify-Webhook-Id`) are ignored. Line items map to catalog SKUs (unknown SKUs are created as finished goods). Ship from **Orders** sends tracking when provided.
 
-Demo mode never calls Shopify; it stores the GraphQL payload that would have been sent. Northwind includes a demo connection for `northwind-makers.myshopify.com`.
+Sellable qty (`on-hand − held − remaining to pick`) is pushed with `inventorySetQuantities` after stock posts, ingest, hold, cancel, and **Push sellable**. Demo records the GraphQL payload. Live skips SKUs with no inventory item. A live shop without a location GID returns HTTP 409 (`MISSING_LOCATION`); automatic sync records a failed outbound event instead of failing the WMS post.
+
+Demo mode never calls Shopify; it stores the GraphQL payload that would have been sent. Northwind includes a demo connection for `northwind-makers.myshopify.com` and demo inventory item GIDs. CORD is seeded at 25 with reorder point 40 so Today has a reorder row.
 
 ## Carriers
 
@@ -157,9 +169,9 @@ Owners connect shipping accounts on **Setup → Carriers**. The catalog matches 
 2. **Aggregator** — EasyPost or ShipEngine with one API key. Demo mode unlocks UPS, FedEx, USPS, and DHL services under that connection.
 3. **Rackline Ground** — always available. Cannot be disconnected.
 
-**Enable demo carriers** seeds Northwind-style UPS (`A1B2C3`) and USPS accounts plus Rackline Ground. Demo never calls a carrier. Live mode requires the provider's secrets, stores them (never echoed back), and records the test/buy payload; postage is not purchased yet.
+**Enable demo carriers** seeds Northwind-style UPS (`A1B2C3`) and USPS accounts plus Rackline Ground. Demo never calls a carrier. Live EasyPost or ShipEngine pings the account on Test, shops live rates, and purchases postage on Buy label. Direct carrier live mode still stores credentials without buying postage. Paste a tracking number to skip the live buy. Void refunds the aggregator label until ship.
 
-Office Orders and Floor Ship load enabled services, **Shop rates**, **Buy label**, and **Void** (blocked after ship). Tracking URLs point at the carrier's public tracker.
+Office Orders and Floor Ship load enabled services, parcel dims, **Shop rates**, **Buy label**, and **Void** (blocked after ship). Tracking URLs point at the carrier's public tracker.
 
 ## Inventory rules
 
@@ -182,9 +194,9 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 - **As-built** is lookup, not a second qty ledger. Floor Lookup scans a serial (`LAMP-1001`) or lot (`LOT-2026-A`) and shows built-from / used-in. The office item, kit, and work-order records show the same links
 - **Replenish** moves bulk storage onto a pick face when on-hand is below the SKU's pick min. Tickets track moved vs expected qty; posting more than remaining returns HTTP 409 (`OVER_MOVE`); the document stays `in_progress` until every unit is moved
 - **Lots / serials** overlay the location:item balance. Receive requires a vendor lot or matching serials; pick/move FIFO the oldest lot or serial if omitted
-- **Shipping label** buys from a connected carrier account (Setup → Carriers). Demo mints `1Z` / `9400` / `FE-` / `DHL-` / `RL-` tracking; void is allowed until ship. Shop rates returns canned quotes from enabled services.
+- **Shipping label** buys from a connected carrier account (Setup → Carriers). Demo mints `1Z` / `9400` / `FE-` / `DHL-` / `RL-` tracking; live EasyPost / ShipEngine purchases postage. Void is allowed until ship. Shop rates returns canned quotes unless the aggregator connection is live.
 - **Print station** scans a bay, SKU, or order. Pack slips queue once picking has started; shipping labels once the ticket is picked. Floor **Print** and Setup **Labels** share that queue
-- **Reorder point** flags SKUs at or below the threshold on the floor board
+- **Reorder point** flags SKUs at or below the threshold on the floor board. **Draft PO** on Today opens a draft purchase for `max(1, ROP − on-hand)` using the last vendor, skipping SKUs already on an open PO
 - **Zone** tags bays on a warehouse for wave scoping. Qty stays on location:item
 - **Wave / batch** groups open orders. Batch release consolidates remaining SKU qty; floor batch-pick posts picks across those orders and returns HTTP 409 (`OVER_BATCH_PICK`) when over. Qty stays integer pieces on location:item
 - **ASN** is a vendor advance notice that receives like a purchase (partial qty, over-receive 409)

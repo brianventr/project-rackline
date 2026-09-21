@@ -50,6 +50,20 @@ describe("carrier credentials", () => {
     expect(validateConnectionCredentials("easypost", { mode: "live" }).ok).toBe(false);
     expect(validateConnectionCredentials("easypost", { mode: "demo" }).ok).toBe(true);
     expect(testConnectionResult({ provider: "easypost", mode: "demo", credentials: {} }).ok).toBe(true);
+    const live = testConnectionResult({
+      provider: "easypost",
+      mode: "live",
+      credentials: { apiKey: "EZTK_test" },
+    });
+    expect(live).toEqual(expect.objectContaining({ ok: true, message: expect.stringContaining("purchases postage") }));
+    const direct = testConnectionResult({
+      provider: "ups",
+      mode: "live",
+      credentials: { accountNumber: "A1B2C3", apiKey: "key", apiSecret: "secret" },
+    });
+    expect(direct).toEqual(
+      expect.objectContaining({ ok: true, message: expect.stringContaining("EasyPost or ShipEngine") }),
+    );
   });
 });
 

@@ -4,7 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { originFrom } from "../lib/types";
-import { badRequest, requireString, unauthorized } from "../lib/http";
+import { badRequest, conflict, requireString, unauthorized } from "../lib/http";
 import { requireOwner } from "../lib/org";
 import { newId } from "../lib/ids";
 import {
@@ -30,6 +30,12 @@ import {
   createShopifyGraphqlClient,
   fetchAssignedFulfillmentOrders,
 } from "../lib/shopify-client";
+import {
+  listShopifyLocationsForOrg,
+  loadSellableRows,
+  syncShopifySellable,
+} from "../db/shopify-sellable";
+import { demoShopifyLocationGid } from "../domain/shopify-sellable";
 
 export const shopifyPublicRoute = new Hono<AppEnv>();
 export const shopifyRoute = new Hono<AppEnv>();
@@ -279,7 +285,7 @@ shopifyRoute.post("/shopify/enable-demo", async (c) => {
     accessToken: null,
     webhookSecret: `rackline-demo-${organizationId.slice(0, 8)}`,
     apiVersion: SHOPIFY_API_VERSION,
-    shopifyLocationGid: null,
+    shopifyLocationGid: demoShopifyLocationGid(),
     mode: "demo",
     createdAt: now,
     updatedAt: now,
@@ -310,6 +316,7 @@ shopifyRoute.post("/shopify/simulate-order", async (c) => {
       accessToken: null,
       webhookSecret: `rackline-demo-${organizationId.slice(0, 8)}`,
       apiVersion: SHOPIFY_API_VERSION,
+      shopifyLocationGid: demoShopifyLocationGid(),
       mode: "demo",
       createdAt: now,
       updatedAt: now,
@@ -341,6 +348,43 @@ shopifyRoute.post("/shopify/simulate-order", async (c) => {
     }
     throw err;
   }
+});
+
+shopifyRoute.get("/shopify/inventory", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const connection = await connectionByOrg(db, organizationId);
+  const rows = await loadSellableRows(db, organizationId);
+  return c.json({
+    connected: Boolean(connection),
+    mode: connection?.mode ?? null,
+    locationGid: connection?.shopifyLocationGid ?? null,
+    rows,
+  });
+});
+
+shopifyRoute.get("/shopify/locations", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const connection = await connectionByOrg(db, organizationId);
+  if (!connection) return c.json([]);
+  try {
+    return c.json(await listShopifyLocationsForOrg(db, organizationId));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not list Shopify locations";
+    conflict(message, "SHOPIFY_API");
+  }
+});
+
+shopifyRoute.post("/shopify/inventory/sync", async (c) => {
+  const body = await c.req.json<{ itemIds?: string[] }>().catch(() => ({}) as { itemIds?: string[] });
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const itemIds = Array.isArray(body.itemIds) ? body.itemIds.filter((id) => typeof id === "string") : undefined;
+  const result = await syncShopifySellable(db, organizationId, { itemIds, strict: true });
+  if (result.code === "NOT_CONNECTED") badRequest(result.error || "Shopify is not connected");
+  if (result.code === "MISSING_LOCATION") conflict(result.error || "Set a Shopify location before pushing sellable qty.", "MISSING_LOCATION");
+  return c.json(result);
 });
 
 shopifyRoute.get("/shopify/outbound", async (c) => {

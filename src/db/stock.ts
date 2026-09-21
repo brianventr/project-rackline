@@ -83,6 +83,7 @@ export async function persistStockPlan(
     loaded: Map<string, { id: string; qty: number }>;
     plan: StockPlan;
     extra?: BatchItem<"sqlite">[];
+    skipShopifySync?: boolean;
   },
 ): Promise<void> {
   const statements: BatchItem<"sqlite">[] = [...((input.extra as BatchItem<"sqlite">[] | undefined) ?? [])];
@@ -199,6 +200,13 @@ export async function persistStockPlan(
 
   if (statements.length === 0) return;
   await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+  if (!input.skipShopifySync) {
+    const itemIds = [...new Set(input.plan.movements.map((movement) => movement.itemId))];
+    if (itemIds.length > 0) {
+      const { scheduleShopifySellableSync } = await import("./shopify-sellable");
+      await scheduleShopifySellableSync(db, input.organizationId, itemIds);
+    }
+  }
 }
 
 export async function postReceiveLines(

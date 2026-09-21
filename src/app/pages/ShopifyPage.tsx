@@ -5,17 +5,23 @@ import {
   type Item,
   type Me,
   type ShopifyConnection,
+  type ShopifyInventory,
+  type ShopifyInventorySync,
+  type ShopifyLocation,
   type ShopifyOutbound,
 } from "../api";
-import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, onSubmit } from "../components/ui";
+import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit } from "../components/ui";
 
 export function ShopifyPage({ me }: { me: Me }) {
   const [connection, setConnection] = useState<ShopifyConnection | null>(null);
   const [outbound, setOutbound] = useState<ShopifyOutbound[]>([]);
+  const [inventory, setInventory] = useState<ShopifyInventory | null>(null);
+  const [locations, setLocations] = useState<ShopifyLocation[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [shopDomain, setShopDomain] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
+  const [locationGid, setLocationGid] = useState("");
   const [mode, setMode] = useState("demo");
   const [customerName, setCustomerName] = useState("Jordan Hale");
   const [sku, setSku] = useState("");
@@ -25,16 +31,28 @@ export function ShopifyPage({ me }: { me: Me }) {
   const owner = me.role === "owner";
 
   async function load() {
-    const [nextConnection, nextOutbound, nextItems] = await Promise.all([
+    const [nextConnection, nextOutbound, nextItems, nextInventory] = await Promise.all([
       api<ShopifyConnection>("/api/shopify/connection"),
       api<ShopifyOutbound[]>("/api/shopify/outbound"),
       api<Item[]>("/api/items"),
+      api<ShopifyInventory>("/api/shopify/inventory"),
     ]);
     setConnection(nextConnection);
     setOutbound(nextOutbound);
     setItems(nextItems);
+    setInventory(nextInventory);
     setShopDomain(nextConnection.shopDomain ?? "");
     setMode(nextConnection.mode);
+    if (nextConnection.connected) {
+      const nextLocations = await api<ShopifyLocation[]>("/api/shopify/locations").catch(() => [] as ShopifyLocation[]);
+      setLocations(nextLocations);
+      setLocationGid(
+        nextConnection.shopifyLocationGid ?? nextInventory.locationGid ?? nextLocations[0]?.id ?? "",
+      );
+    } else {
+      setLocations([]);
+      setLocationGid(nextConnection.shopifyLocationGid ?? nextInventory.locationGid ?? "");
+    }
     if (!sku) {
       const lamp = nextItems.find((item) => item.sku === "LAMP") ?? nextItems[0];
       if (lamp) setSku(lamp.sku);
@@ -55,6 +73,7 @@ export function ShopifyPage({ me }: { me: Me }) {
           shopDomain,
           accessToken: accessToken || undefined,
           webhookSecret: webhookSecret || undefined,
+          shopifyLocationGid: locationGid || null,
           mode,
         }),
       });
@@ -78,6 +97,25 @@ export function ShopifyPage({ me }: { me: Me }) {
       setNotice("Demo Shopify channel is on. Simulate a customer order below.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not enable demo");
+    }
+  }
+
+  async function syncSellable() {
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api<ShopifyInventorySync>("/api/shopify/inventory/sync", { method: "POST", body: "{}" });
+      await load();
+      const skipped = result.skipped.length ? ` Skipped ${result.skipped.map((row) => row.sku).join(", ")}.` : "";
+      setNotice(
+        result.status === "demo"
+          ? `Demo inventorySetQuantities recorded for ${result.rows.length} SKUs.${skipped}`
+          : result.status === "synced"
+            ? `Pushed sellable qty for ${result.rows.length} SKUs.${skipped}`
+            : result.error || `Inventory sync ${result.status}.${skipped}`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not push sellable qty");
     }
   }
 
@@ -108,7 +146,7 @@ export function ShopifyPage({ me }: { me: Me }) {
       <PageHeader
         eyebrow="Setup"
         title="Shopify"
-        description="Customer checkout lands here as a pick ticket. After ship, Rackline posts fulfillment back to Shopify."
+        description="Customer checkout lands here as a pick ticket. Sellable qty (on-hand − held − remaining to pick) is pushed back to Shopify. After ship, Rackline posts fulfillment."
       />
       <ErrorBanner error={error} />
       {notice ? (
@@ -120,7 +158,7 @@ export function ShopifyPage({ me }: { me: Me }) {
           <h2 className="mb-1 font-semibold">Store connection</h2>
           <p className="mb-4 text-sm text-muted-foreground">
             Create a custom app in Shopify Admin, then paste the shop, Admin API token, and webhook signing secret.
-            Demo mode records fulfill-back payloads without calling Shopify.
+            Demo mode records fulfill-back and inventorySetQuantities payloads without calling Shopify.
           </p>
           {connection?.connected ? (
             <p className="mb-4 text-sm">
@@ -160,6 +198,24 @@ export function ShopifyPage({ me }: { me: Me }) {
                   onChange={(e) => setWebhookSecret(e.target.value)}
                   placeholder={connection?.hasWebhookSecret ? "Leave blank to keep current" : "Required"}
                 />
+              </Field>
+              <Field label="Shopify location">
+                {locations.length ? (
+                  <Select value={locationGid} onChange={(e) => setLocationGid(e.target.value)}>
+                    <option value="">Select location</option>
+                    {locations.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.name}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <Input
+                    value={locationGid}
+                    onChange={(e) => setLocationGid(e.target.value)}
+                    placeholder="gid://shopify/Location/…"
+                  />
+                )}
               </Field>
               <Field label="Mode">
                 <Select value={mode} onChange={(e) => setMode(e.target.value)}>
@@ -207,6 +263,37 @@ export function ShopifyPage({ me }: { me: Me }) {
       </div>
 
       <Card className="mb-6">
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="mb-1 font-semibold">Sellable qty</h2>
+            <p className="text-sm text-muted-foreground">
+              Storefront available = on-hand − held − remaining to pick. Ingest is still a promise until pick start;
+              this overlay keeps Shopify from selling what the floor already owes. Demo records the GraphQL payload.
+              Live calls <span className="font-mono">inventorySetQuantities</span> and skips SKUs without an inventory item.
+            </p>
+          </div>
+          <Button variant="secondary" onClick={() => void syncSellable()}>
+            Push sellable
+          </Button>
+        </div>
+        {inventory?.rows.length ? (
+          <Table columns={["SKU", "On hand", "Held", "To pick", "Sellable"]}>
+            {inventory.rows.map((row) => (
+              <tr key={row.itemId}>
+                <td className="px-4 py-3 font-mono">{row.sku}</td>
+                <td className="px-4 py-3 font-mono">{row.onHand}</td>
+                <td className="px-4 py-3 font-mono">{row.held}</td>
+                <td className="px-4 py-3 font-mono">{row.remainingToPick}</td>
+                <td className="px-4 py-3 font-mono">{row.sellable}</td>
+              </tr>
+            ))}
+          </Table>
+        ) : (
+          <p className="text-sm text-muted-foreground">No catalog SKUs yet.</p>
+        )}
+      </Card>
+
+      <Card className="mb-6">
         <h2 className="mb-1 font-semibold">Simulate a customer order</h2>
         <p className="mb-4 text-sm text-muted-foreground">
           Builds a signed Shopify <span className="font-mono">orders/create</span> payload and runs the same ingest
@@ -240,7 +327,7 @@ export function ShopifyPage({ me }: { me: Me }) {
       <Card>
         <h2 className="mb-3 font-semibold">Fulfillment posts back to Shopify</h2>
         {outbound.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Ship a Shopify order to see the fulfillmentCreate payload here.</p>
+          <p className="text-sm text-muted-foreground">Ship a Shopify order or push sellable qty to see the payload here.</p>
         ) : (
           <ul className="space-y-3 text-sm">
             {outbound.map((event) => (

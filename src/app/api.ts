@@ -371,6 +371,11 @@ export type Order = {
   carrierService?: string | null;
   carrierConnectionId?: string | null;
   labelStatus?: string | null;
+  packageWeightOz?: number | null;
+  packageLengthIn?: number | null;
+  packageWidthIn?: number | null;
+  packageHeightIn?: number | null;
+  postageCents?: number | null;
   packedAt?: number | null;
   allocatedUnits?: number;
   allocations?: OrderAllocation[];
@@ -386,6 +391,7 @@ export type ShopifyConnection = {
   hasAccessToken: boolean;
   hasWebhookSecret: boolean;
   tokenHint: string | null;
+  shopifyLocationGid?: string | null;
   webhookUrl: string;
   fulfillmentNotificationUrl: string;
   scopes: string[];
@@ -399,6 +405,40 @@ export type ShopifyOutbound = {
   createdAt: number;
   request: unknown;
   response: unknown;
+};
+
+export type ShopifySellableRow = {
+  itemId: string;
+  sku: string;
+  name: string;
+  onHand: number;
+  held: number;
+  remainingToPick: number;
+  available: number;
+  sellable: number;
+  shopifyInventoryItemGid: string | null;
+};
+
+export type ShopifyLocation = {
+  id: string;
+  name: string;
+  fulfillsOnlineOrders?: boolean | null;
+};
+
+export type ShopifyInventory = {
+  connected: boolean;
+  mode: string | null;
+  locationGid: string | null;
+  rows: ShopifySellableRow[];
+};
+
+export type ShopifyInventorySync = {
+  status: "synced" | "demo" | "skipped" | "failed";
+  locationGid: string | null;
+  rows: Array<{ sku: string; sellable: number; inventoryItemId: string }>;
+  skipped: Array<{ sku: string; reason: string }>;
+  error?: string | null;
+  code?: string | null;
 };
 
 export type Bom = {
@@ -549,6 +589,7 @@ export type CarrierRate = CarrierServiceOption & {
   amountCents: number;
   currency: string;
   transitDays: number;
+  liveRateId?: string | null;
 };
 
 export type CarrierOutbound = {
@@ -603,7 +644,16 @@ export type Dashboard = {
   expiringCerts?: number;
   replenishDue?: number;
   expiringLots?: number;
-  lowStock: { itemId: string; sku: string; name: string; onHand: number; reorderPoint: number }[];
+  lowStock: {
+    itemId: string;
+    sku: string;
+    name: string;
+    onHand: number;
+    reorderPoint: number;
+    lastVendorName?: string | null;
+    suggestedQty?: number;
+    coveredByOpenPo?: boolean;
+  }[];
   recent: { id: string; type: string; qty: number; createdAt: number; sku: string }[];
   hotBays: { locationId: string; locationCode: string; locationName: string; units: number }[];
   replenishSuggestions?: ReplenishSuggestion[];

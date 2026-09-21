@@ -28,7 +28,7 @@ export function IntegrationsPage() {
             <div className="min-w-0 flex-1">
               <h2 className="font-semibold">Shopify</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Customer checkout lands here as a pick ticket. After ship, Rackline posts fulfillment back.
+                Customer checkout lands as a pick ticket. Sellable qty is pushed back so the storefront does not oversell. After ship, Rackline posts fulfillment.
               </p>
               <Button asChild className="mt-4" variant="secondary">
                 <Link to="/setup/shopify">Open Shopify</Link>
@@ -44,7 +44,7 @@ export function IntegrationsPage() {
             <div className="min-w-0 flex-1">
               <h2 className="font-semibold">Carriers</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Connect UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine and buy labels from an order.
+                Connect UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine. Live EasyPost / ShipEngine buys postage; direct accounts still mint tracking locally.
               </p>
               <Button asChild className="mt-4" variant="secondary">
                 <Link to="/setup/carriers">Open carriers</Link>
