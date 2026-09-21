@@ -74,11 +74,11 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
         </Link>
         <Card>
           <CardHeader className="text-center">
-            <CardTitle className="text-xl">{mode === "login" ? "Welcome back" : "Open a warehouse"}</CardTitle>
+            <CardTitle className="text-xl">{mode === "login" ? "Welcome back" : "Start in Garage Mode"}</CardTitle>
             <CardDescription>
               {mode === "login"
                 ? "Sign in to the floor board, map, and Shopify channel."
-                : "Create an organization and a main warehouse."}
+                : "A bench for founders and inventors. Open the full warehouse when you grow."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -120,7 +120,7 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
                 />
               </Field>
               <Button type="submit" disabled={busy}>
-                {busy ? "Working…" : mode === "login" ? "Enter warehouse" : "Open the floor"}
+                {busy ? "Working…" : mode === "login" ? "Enter warehouse" : "Open Garage Mode"}
               </Button>
             </form>
             <div className="mt-6 border-t pt-4">

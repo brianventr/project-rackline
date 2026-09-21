@@ -10,6 +10,7 @@ import { formatExpiresOn } from "@/domain/expiry";
 import { desiredVerb } from "@/domain/jobs";
 import { jobForRef, jobForSuggestion } from "../jobs";
 import { cn } from "@/lib/utils";
+import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 
 const LANES = ["inbound", "outbound", "make", "stock", "exceptions"] as const;
 type LaneId = (typeof LANES)[number];
@@ -39,6 +40,7 @@ type WorkRow = {
 export function TodayPage() {
   const { warehouseId } = useWarehouse();
   const me = useSession();
+  const garage = isGarageMode(me.organization.operatingMode);
   const navigate = useNavigate();
   const [data, setData] = useState<Dashboard | null>(null);
   const [jobs, setJobs] = useState<FloorJob[]>([]);
@@ -118,7 +120,11 @@ export function TodayPage() {
     }
   }
 
-  const rows = useMemo(() => buildRows(data, jobs), [data, jobs]);
+  const rows = useMemo(() => {
+    const built = buildRows(data, jobs);
+    if (!garage) return built;
+    return built.filter((row) => garageAllowsPath(row.to) && garageAllowsPath(row.actionTo));
+  }, [data, jobs, garage]);
   const laneRows = useMemo(
     () =>
       rows
@@ -145,7 +151,7 @@ export function TodayPage() {
   }, [lane, laneRows, selectedId]);
 
   const stats = [
-    { label: "To receive", value: data ? data.openReceipts + data.openPurchases + (data.openAsns ?? 0) : "—", to: "/inbound/purchases" },
+    { label: "To receive", value: data ? data.openReceipts + data.openPurchases + (garage ? 0 : (data.openAsns ?? 0)) : "—", to: "/inbound/purchases" },
     { label: "Yard", value: data?.openYard ?? "—", to: "/inbound/yard" },
     { label: "Vendor RTV", value: data?.openVendorReturns ?? "—", to: "/inbound/vendor-returns" },
     { label: "To put away", value: data ? data.openTransfers + (data.putawayDue ?? 0) : "—", to: "/floor/putaway" },
@@ -160,15 +166,19 @@ export function TodayPage() {
     { label: "Out of service", value: data?.outOfService ?? "—", to: "/equipment", tone: "bad" as const },
     { label: "Certs due", value: data?.expiringCerts ?? "—", to: "/setup/team", tone: "warn" as const },
     { label: "Runs out", value: data?.runwayThisWeek?.length ?? "—", to: "/analytics/runway", tone: "warn" as const },
-  ];
+  ].filter((item) => !garage || garageAllowsPath(item.to));
 
   return (
     <div className="-mx-3 -my-2 flex h-[calc(100dvh-var(--header-height))] min-h-0 flex-col">
       <div className="flex items-center justify-between gap-2 border-b px-3 py-1.5">
         <PageHeader
-          eyebrow="Office"
+          eyebrow={garage ? "Garage Mode" : "Office"}
           title="Today"
-          description="Dispatch board: assign floor jobs, or leave them unassigned so the next scan claims them."
+          description={
+            garage
+              ? "Founder bench for today: receive, make, pick, and ship."
+              : "Dispatch board: assign floor jobs, or leave them unassigned so the next scan claims them."
+          }
         />
         <ErrorBanner error={error} />
       </div>

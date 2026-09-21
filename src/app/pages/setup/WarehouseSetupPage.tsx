@@ -2,8 +2,12 @@ import { useEffect, useState } from "react";
 import { api, type WarehouseMapInfo } from "../../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, onSubmit } from "../../components/ui";
 import { useWarehouse } from "../../warehouse";
+import { useSession } from "../../session";
+import { GARAGE_MODE_LABEL, isGarageMode, type OperatingMode } from "@/domain/operating-mode";
 
 export function WarehouseSetupPage() {
+  const me = useSession();
+  const garage = isGarageMode(me.organization.operatingMode);
   const warehouse = useWarehouse();
   const [name, setName] = useState("");
   const [mapWidth, setMapWidth] = useState("42");
@@ -16,6 +20,7 @@ export function WarehouseSetupPage() {
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [modeBusy, setModeBusy] = useState(false);
   const currentId = warehouse.warehouseId;
 
   useEffect(() => {
@@ -34,6 +39,22 @@ export function WarehouseSetupPage() {
       })
       .catch((err: Error) => setError(err.message));
   }, [currentId]);
+
+  async function setOperatingMode(operatingMode: OperatingMode) {
+    setError(null);
+    setOk(null);
+    setModeBusy(true);
+    try {
+      await api("/api/organization", {
+        method: "PATCH",
+        body: JSON.stringify({ operatingMode }),
+      });
+      window.location.assign("/today");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change mode");
+      setModeBusy(false);
+    }
+  }
 
   async function save() {
     if (!currentId) return;
@@ -76,9 +97,41 @@ export function WarehouseSetupPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="Setup" title="Warehouse" description="Name, ship-from address, origin city, and map size for this building. Bays live under Stock → Locations." />
+      <PageHeader
+        eyebrow="Setup"
+        title="Warehouse"
+        description="Name, ship-from address, origin city, and map size for this building. Bays live under Stock → Locations."
+      />
       <ErrorBanner error={error} />
       {ok ? <p className="mb-4 text-sm">{ok}</p> : null}
+      <Card className="mb-6 max-w-xl space-y-3">
+        <div className="space-y-2">
+          <p className="text-sm font-medium">{garage ? GARAGE_MODE_LABEL : "Full warehouse"}</p>
+          <p className="text-sm text-muted-foreground">
+            {garage
+              ? "The bench founders and inventors start on. Receive, make, pick, and ship. Yard, waves, ASN, equipment, and 3PL stay packed away until you open the full warehouse — same ledger."
+              : "Yard, waves, ASN, equipment, and 3PL are on this floor. Garage Mode puts them away and leaves the founder bench: receive, make, pick, and ship."}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant={garage ? "primary" : "ghost"}
+              disabled={modeBusy || garage}
+              onClick={() => void setOperatingMode("garage")}
+            >
+              {GARAGE_MODE_LABEL}
+            </Button>
+            <Button
+              type="button"
+              variant={garage ? "ghost" : "primary"}
+              disabled={modeBusy || !garage}
+              onClick={() => void setOperatingMode("warehouse")}
+            >
+              Open the full warehouse
+            </Button>
+          </div>
+        </div>
+      </Card>
       <Card className="mb-6 max-w-xl space-y-3">
         <form className="space-y-3" onSubmit={onSubmit(save)}>
           <Field label="Name">
@@ -105,7 +158,9 @@ export function WarehouseSetupPage() {
             </Field>
           </div>
           <p className="text-xs text-muted-foreground">
-            Origin for Analytics → Traffic. Lane estimates fly from this city, not live GPS.
+            {garage
+              ? "Ship-from for labels. A second building and Traffic open with the full warehouse."
+              : "Origin for Analytics → Traffic. Lane estimates fly from this city, not live GPS."}
           </p>
           <div className="grid grid-cols-3 gap-3">
             <Field label="Map width">
@@ -121,6 +176,7 @@ export function WarehouseSetupPage() {
           <Button type="submit">Save warehouse</Button>
         </form>
       </Card>
+      {garage ? null : (
       <Card className="max-w-xl space-y-3">
         <p className="text-sm font-medium">Add warehouse</p>
         <p className="text-sm text-muted-foreground">Creates another building on this org, then reloads so it appears in the switcher.</p>
@@ -133,6 +189,7 @@ export function WarehouseSetupPage() {
           <Button type="submit">Add warehouse</Button>
         </form>
       </Card>
+      )}
     </div>
   );
 }

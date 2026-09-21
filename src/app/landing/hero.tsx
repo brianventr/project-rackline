@@ -17,14 +17,15 @@ export function LandingHero() {
           className="mx-auto flex max-w-4xl flex-col items-center justify-center space-y-5 text-center"
         >
           <span className="h-full w-fit rounded-full border border-border bg-card px-2 py-1 text-sm">
-            Manufacturer to maker WMS
+            Garage Mode
           </span>
           <h1 className="mx-auto text-pretty bg-linear-to-b from-primary to-foreground bg-clip-text text-4xl font-medium tracking-tighter text-transparent md:text-6xl dark:from-primary">
             Warehouse software that starts with one aisle and stays with you.
           </h1>
           <p className="mx-auto max-w-2xl text-balance text-lg text-muted-foreground">
-            Receive parts, pick Shopify orders, scan bins on a live map, and complete work orders
-            against a real inventory ledger. Built for shops that grow into manufacturers.
+            Start the way founders and inventors do: a bench, a few shelves, and a real ledger.
+            Receive parts, pick Shopify orders, and build finished goods. Open the full warehouse
+            when the garage runs out of room.
           </p>
           <div className="flex w-full max-w-sm flex-col items-stretch justify-center gap-3 sm:max-w-none sm:flex-row sm:items-center">
             <Button asChild className="shadow-lg">

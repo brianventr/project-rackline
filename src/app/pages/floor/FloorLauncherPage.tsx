@@ -28,6 +28,7 @@ import { MyDayCard } from "../LaborPage";
 import { useWarehouse } from "../../warehouse";
 import { api, type FloorJob } from "../../api";
 import { VERB_LABELS, type FloorVerb, isFloorVerb } from "@/domain/jobs";
+import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 
 const verbs: { to: string; title: string; body: string; verb?: FloorVerb; icon: ComponentType<{ className?: string }> }[] = [
   { to: "/floor/lookup", title: "Lookup", body: "Scan a SKU, bay, document, serial, or lot.", icon: Search },
@@ -57,13 +58,14 @@ export function FloorLauncherPage() {
   const [nextJobs, setNextJobs] = useState<FloorJob[]>([]);
   const [mine, setMine] = useState<FloorJob[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const garage = isGarageMode(me.organization.operatingMode);
   const allowed = new Set(me.floorVerbs ?? []);
   const items = [
     ...verbs.filter((item) => !item.verb || allowed.has(item.verb) || me.role === "owner"),
     ...(me.role === "owner"
       ? [{ to: "/floor/adjust", title: "Adjust", body: "Signed qty change with a reason.", icon: SlidersHorizontal }]
       : []),
-  ];
+  ].filter((item) => !garage || garageAllowsPath(item.to));
 
   useEffect(() => {
     const query = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : "";
@@ -72,11 +74,12 @@ export function FloorLauncherPage() {
       api<FloorJob[]>(`/api/jobs${query}${query ? "&" : "?"}mine=1&open=1`),
     ])
       .then(([ranked, myJobs]) => {
-        setNextJobs(ranked);
-        setMine(myJobs);
+        const keep = (job: FloorJob) => !garage || garageAllowsPath(job.floorPath);
+        setNextJobs(ranked.filter(keep));
+        setMine(myJobs.filter(keep));
       })
       .catch((err: Error) => setError(err.message));
-  }, [warehouseId]);
+  }, [warehouseId, garage]);
 
   const next = nextJobs[0];
 
@@ -94,9 +97,13 @@ export function FloorLauncherPage() {
   return (
     <div className="space-y-3">
       <PageHeader
-        eyebrow="Floor"
-        title="What are you doing?"
-        description="Next job is ranked from the same ledger. Unassigned work stays pickable — scan first, or pick a verb."
+        eyebrow={garage ? "Garage Mode" : "Floor"}
+        title={garage ? "What are you making?" : "What are you doing?"}
+        description={
+          garage
+            ? "Founder bench. Receive, make, pick, and ship. Unassigned work stays pickable — scan first, or pick a verb."
+            : "Next job is ranked from the same ledger. Unassigned work stays pickable — scan first, or pick a verb."
+        }
       />
       <MyDayCard />
       {error ? <p className="text-sm text-destructive">{error}</p> : null}

@@ -93,7 +93,10 @@ const DEMO_LOCATIONS: LocSeed[] = [
 ];
 
 export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organizationId: string }> {
-  const { organizationId, warehouseId } = await provisionOrganization(db, userId, "Northwind Makers");
+  const { organizationId, warehouseId } = await provisionOrganization(db, userId, "Northwind Makers", {
+    operatingMode: "warehouse",
+    warehouseName: "Main warehouse",
+  });
   const now = Date.now();
   const mainOrigin = originColumns(resolveOrigin({ city: "Portland", region: "OR", country: "US" }));
   await db
