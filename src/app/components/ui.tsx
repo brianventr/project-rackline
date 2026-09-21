@@ -30,7 +30,7 @@ export function PageHeader({
   actions,
 }: {
   eyebrow?: string;
-  title: string;
+  title: ReactNode;
   description?: string;
   actions?: ReactNode;
 }) {
@@ -60,6 +60,7 @@ export function Button({
   children,
   type = "button",
   variant = "primary",
+  size = "default",
   disabled,
   onClick,
   className,
@@ -68,6 +69,7 @@ export function Button({
   children: ReactNode;
   type?: "button" | "submit";
   variant?: "primary" | "secondary" | "danger" | "ghost";
+  size?: "default" | "sm";
   disabled?: boolean;
   onClick?: () => void;
   className?: string;
@@ -85,6 +87,7 @@ export function Button({
     <UiButton
       type={asChild ? undefined : type}
       variant={mapped}
+      size={size}
       disabled={disabled}
       onClick={onClick}
       className={className}

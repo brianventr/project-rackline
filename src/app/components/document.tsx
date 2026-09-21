@@ -61,16 +61,16 @@ export function DocumentHeader({
     <div className="space-y-4">
       <PageHeader
         eyebrow={eyebrow}
-        title={title}
-        description={description}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="uppercase">
+        title={
+          <span className="inline-flex flex-wrap items-center gap-3">
+            {title}
+            <Badge variant="outline" className="text-sm font-medium uppercase tracking-normal">
               {statusLabel(status)}
             </Badge>
-            {actions}
-          </div>
+          </span>
         }
+        description={description}
+        actions={actions}
       />
       {status !== "cancelled" ? <StatusStepper steps={steps} current={status} /> : null}
     </div>
@@ -78,16 +78,29 @@ export function DocumentHeader({
 }
 
 export function DocumentRail({ children }: { children: ReactNode }) {
-  return <aside className="space-y-4 lg:w-80">{children}</aside>;
+  return <aside className="w-full min-w-0 space-y-4 xl:w-96">{children}</aside>;
 }
 
 export function DocumentFrame({ children, rail }: { children: ReactNode; rail?: ReactNode }) {
   return (
-    <div className={cn("grid gap-6", rail ? "xl:grid-cols-[minmax(0,1fr)_20rem]" : "")}>
-      <div className="space-y-4">{children}</div>
+    <div className={cn("grid gap-6", rail ? "xl:grid-cols-[minmax(0,1fr)_24rem]" : "")}>
+      <div className="min-w-0 space-y-4">{children}</div>
       {rail}
     </div>
   );
+}
+
+export function DocumentFact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
+      <span className="min-w-0 text-right text-sm">{children}</span>
+    </div>
+  );
+}
+
+export function DocumentActionGrid({ children }: { children: ReactNode }) {
+  return <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0 [&>*]:w-full">{children}</div>;
 }
 
 export function DocumentActivity({ refId, refreshKey }: { refId: string; refreshKey?: string | number }) {

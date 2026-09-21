@@ -311,20 +311,21 @@ export function FloorPackPage() {
             </Field>
           </div>
           {(active.packages ?? []).length > 0 ? (
-            <ul className="space-y-2 text-sm">
+            <ul className="space-y-3 text-sm">
               {(active.packages ?? []).map((pkg) => (
-                <li key={pkg.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2">
-                  <span>
-                    <span className="font-mono">{pkg.number}</span>
-                    <span className="text-muted-foreground">
-                      {" "}
-                      · {pkg.units ?? 0} units
+                <li key={pkg.id} className="space-y-3 rounded-lg border p-3">
+                  <div className="space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-mono font-medium">{pkg.number}</span>
+                      {pkg.shippedAt ? <StatusBadge status="shipped" /> : null}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {pkg.units ?? 0} {(pkg.units ?? 0) === 1 ? "unit" : "units"}
                       {pkg.trackingNumber ? ` · ${pkg.trackingNumber}` : " · no label"}
-                      {pkg.shippedAt ? " · shipped" : ""}
-                    </span>
-                  </span>
+                    </p>
+                  </div>
                   {canUncartonOrderPackage({ status: active.status, shippedAt: pkg.shippedAt }).ok ? (
-                    <Button variant="secondary" onClick={() => void uncarton(pkg.id)}>
+                    <Button variant="secondary" size="sm" className="w-full" onClick={() => void uncarton(pkg.id)}>
                       Drop carton
                     </Button>
                   ) : null}
