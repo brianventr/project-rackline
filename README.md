@@ -81,7 +81,7 @@ Iteration 33 drafts a PO from Today’s reorder queue: qty is `max(1, reorder po
 
 Iteration 34 packs cartons: `BOX-1` / `BOX-2` with weight and dims per box. Buy or void a label per carton (EasyPost/ShipEngine live, demo mint otherwise). Ship when every packed unit is in a carton that has tracking. Qty already left the bay at pick. Cartons are optional until the first box exists — then every packed unit must be labeled before ship. Order-level buy on a multi-carton ticket returns HTTP 409 (`NEED_PACKAGE`). Shopify fulfillment still posts the first carton’s tracking.
 
-Iteration 35 feeds EasyPost and ShipEngine tracker webhooks into Traffic. Demo records the payload. `pre_transit` / `in_transit` / `delivered` map onto at-gate / in-flight / arrived. The geodesic lane estimate is used only when no tracker status is present. Direct-carrier demo labels stay estimated.
+Iteration 35 feeds EasyPost and ShipEngine tracker webhooks into Traffic. Demo records the payload. `pre_transit` / `in_transit` / `delivered` map onto at-gate / in-flight / arrived. The geodesic lane estimate is used only when no tracker status is present. Direct-carrier demo labels stay estimated. Traffic’s Arrived KPI counts tracker-delivered and estimated arrivals in the selected horizon.
 
 Iteration 36 sends a draft PO: Mark ordered emails or records a send (demo stores the message), stamps `orderedAt`, and mints an expected `ASN-` for remaining qty. SKUs already on an open ASN (draft / expected / receiving) are skipped. No vendor portal, no X12.
 
