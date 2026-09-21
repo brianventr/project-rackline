@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   OverReceiveError,
+  OverUnreceiveError,
   applyPartialReceive,
+  applyUnreceive,
+  asnStatusAfterUnreceive,
   hasRemaining,
   isFullyReceived,
   remainingOnLine,
@@ -30,6 +33,43 @@ describe("partial receive", () => {
     expect(() => applyPartialReceive([bulbs], [{ itemId: "bulb", qty: 21 }])).toThrow(OverReceiveError);
     expect(() => applyPartialReceive([bulbs], [{ itemId: "lamp", qty: 1 }])).toThrow(/not on this document/);
     expect(() => applyPartialReceive([bulbs], [])).toThrow(/At least one/);
+  });
+
+  it("reverses a received carton onto remaining expected qty", () => {
+    const received = applyPartialReceive([bulbs, shades], [
+      { itemId: "bulb", qty: 10 },
+      { itemId: "shade", qty: 8 },
+    ]);
+    expect(isFullyReceived(received.next)).toBe(false);
+    const undone = applyUnreceive(received.next, [{ itemId: "bulb", qty: 10 }]);
+    expect(undone.next[0]?.qtyReceived).toBe(0);
+    expect(remainingOnLine(undone.next[0]!)).toBe(20);
+    expect(asnStatusAfterUnreceive(undone.next, "receiving")).toEqual({
+      status: "receiving",
+      clearReceivedAt: true,
+    });
+    expect(() => applyUnreceive(undone.next, [{ itemId: "bulb", qty: 1 }])).toThrow(OverUnreceiveError);
+  });
+
+  it("reopens a fully received ASN after unreceiving the last carton", () => {
+    const full = applyPartialReceive([bulbs, shades], [
+      { itemId: "bulb", qty: 20 },
+      { itemId: "shade", qty: 8 },
+    ]);
+    expect(isFullyReceived(full.next)).toBe(true);
+    const undone = applyUnreceive(full.next, [
+      { itemId: "bulb", qty: 10 },
+      { itemId: "shade", qty: 8 },
+    ]);
+    expect(asnStatusAfterUnreceive(undone.next, "received")).toEqual({
+      status: "receiving",
+      clearReceivedAt: true,
+    });
+    const empty = applyUnreceive(undone.next, [{ itemId: "bulb", qty: 10 }]);
+    expect(asnStatusAfterUnreceive(empty.next, "received")).toEqual({
+      status: "expected",
+      clearReceivedAt: true,
+    });
   });
 
   it("keeps a blank receipt open until every expected unit is in", () => {

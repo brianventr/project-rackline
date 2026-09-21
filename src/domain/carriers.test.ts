@@ -166,5 +166,9 @@ describe("rates, tracking, void", () => {
       code: "SHIPPED",
     });
     expect(canVoidLabel({ status: "packed", labelStatus: "none" }).ok).toBe(false);
+    expect(canVoidLabel({ status: "packed", labelStatus: "purchased", shippedAt: 1 })).toMatchObject({
+      ok: false,
+      code: "SHIPPED",
+    });
   });
 });

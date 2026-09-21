@@ -335,6 +335,7 @@ export type OrderLine = {
   packRemaining?: number;
   unpickRemaining?: number;
   qtyCartoned?: number;
+  qtyShipped?: number;
   cartonRemaining?: number;
   allocatedQty?: number;
   allocations?: OrderAllocation[];
@@ -419,6 +420,8 @@ export type OrderPackage = {
   labelStatus?: string | null;
   postageCents?: number | null;
   trackerStatus?: string | null;
+  shippedAt?: number | null;
+  shopifyFulfillmentId?: string | null;
   units?: number;
   lines?: OrderPackageLine[];
 };

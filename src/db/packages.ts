@@ -75,6 +75,17 @@ export function qtyCartonedByLine(packages: OrderPackageRow[]): Map<string, numb
   return qty;
 }
 
+export function qtyShippedByLine(packages: OrderPackageRow[]): Map<string, number> {
+  const qty = new Map<string, number>();
+  for (const pkg of packages) {
+    if (!pkg.shippedAt) continue;
+    for (const line of pkg.lines) {
+      qty.set(line.orderLineId, (qty.get(line.orderLineId) ?? 0) + line.qty);
+    }
+  }
+  return qty;
+}
+
 export function asCartonLines(
   lines: { id: string; sku: string; qtyPacked: number }[],
   packages: OrderPackageRow[],
@@ -93,11 +104,14 @@ export function withCartonRemaining<T extends { id: string; sku: string; qtyPack
   packages: OrderPackageRow[],
 ) {
   const cartoned = qtyCartonedByLine(packages);
+  const shipped = qtyShippedByLine(packages);
   return lines.map((line) => {
     const qtyCartoned = cartoned.get(line.id) ?? 0;
+    const qtyShipped = shipped.get(line.id) ?? 0;
     return {
       ...line,
       qtyCartoned,
+      qtyShipped,
       cartonRemaining: remainingToCarton({
         lineId: line.id,
         sku: line.sku,
@@ -142,5 +156,25 @@ export function orderPatchFromPackages(packages: OrderPackageRow[]): {
     packageWidthIn: labeled?.widthIn ?? packages[0]?.widthIn ?? null,
     packageHeightIn: labeled?.heightIn ?? packages[0]?.heightIn ?? null,
     trackerStatus: rollupOrderTracker(packages),
+  };
+}
+
+export function emptyOrderPackagePatch() {
+  return {
+    trackingNumber: null,
+    trackingCompany: null,
+    trackingUrl: null,
+    carrierService: null,
+    carrierConnectionId: null,
+    carrierShipmentId: null,
+    carrierLabelId: null,
+    postageCents: null,
+    labelStatus: "none",
+    packageWeightOz: null,
+    packageLengthIn: null,
+    packageWidthIn: null,
+    packageHeightIn: null,
+    trackerStatus: null,
+    trackerUpdatedAt: null,
   };
 }

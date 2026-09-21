@@ -4,7 +4,7 @@ import { createAuth } from "./lib/auth";
 import { getMembership } from "./lib/org";
 import { HttpError } from "./lib/http";
 import { InsufficientStockError } from "./domain/inventory";
-import { OverReceiveError } from "./domain/partial-receive";
+import { OverReceiveError, OverUnreceiveError } from "./domain/partial-receive";
 import { OverPickError } from "./domain/partial-pick";
 import { OverPackError } from "./domain/partial-pack";
 import { OverCartonError } from "./domain/cartons";
@@ -76,6 +76,18 @@ app.onError((err, c) => {
         code: "OVER_RECEIVE",
         sku: err.sku,
         remaining: err.remaining,
+        qty: err.qty,
+      },
+      409,
+    );
+  }
+  if (err instanceof OverUnreceiveError) {
+    return c.json(
+      {
+        error: err.message,
+        code: "OVER_UNRECEIVE",
+        sku: err.sku,
+        received: err.received,
         qty: err.qty,
       },
       409,

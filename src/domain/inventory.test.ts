@@ -12,6 +12,7 @@ import {
   planRtv,
   planScrap,
   planUnpick,
+  planUnreceive,
 } from "./inventory";
 import { explodeBom, planCompleteKit, planCompleteWorkOrder } from "./manufacturing";
 
@@ -91,6 +92,34 @@ describe("inventory engine", () => {
     expect(restored.balances.get(balanceKey("A-01-01", "lamp"))).toBe(2);
     expect(restored.movements[0]?.type).toBe("unpick");
     expect(restored.movements[0]?.toLocationId).toBe("A-01-01");
+  });
+
+  it("unreceives dock qty without a second carton ledger", () => {
+    const onDock = planReceive({
+      itemId: "bulb",
+      locationId: "RECV",
+      qty: 10,
+      refId: "asn-1",
+      refType: "asn",
+      balances: new Map(),
+      lotCode: "LOT-2026-A",
+    });
+    const undone = planUnreceive({
+      itemId: "bulb",
+      sku: "LED-BULB",
+      locationId: "RECV",
+      qty: 10,
+      refId: "asn-1",
+      balances: onDock.balances,
+      lotCode: "LOT-2026-A",
+    });
+    expect(undone.balances.get(balanceKey("RECV", "bulb"))).toBe(0);
+    expect(undone.movements[0]).toMatchObject({
+      type: "unreceive",
+      fromLocationId: "RECV",
+      lotCode: "LOT-2026-A",
+      refType: "asn",
+    });
   });
 
   it("chains multiple receipt lines onto the same bin", () => {

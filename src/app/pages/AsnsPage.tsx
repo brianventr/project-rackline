@@ -194,6 +194,17 @@ function AsnDetail({ id }: { id: string }) {
     }
   }
 
+  async function unreceiveCarton(pkgId: string) {
+    setError(null);
+    try {
+      const next = await api<Asn>(`/api/asns/${id}/packages/${pkgId}/unreceive`, { method: "POST" });
+      setAsn(next);
+      setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not unreceive carton");
+    }
+  }
+
   if (!asn) return <ErrorBanner error={error} />;
   const remaining = hasRemaining(
     (asn.lines ?? []).map((line) => ({
@@ -221,6 +232,10 @@ function AsnDetail({ id }: { id: string }) {
               <Button onClick={() => void receive()}>Receive</Button>
             ) : null}
             {canReceiveAsn(asn.status) && remaining ? (
+              <Button variant="secondary" asChild>
+                <Link to={`/floor/asn?id=${asn.id}`}>Floor</Link>
+              </Button>
+            ) : (asn.packages ?? []).some((pkg) => pkg.receivedAt && !pkg.putawayAt) ? (
               <Button variant="secondary" asChild>
                 <Link to={`/floor/asn?id=${asn.id}`}>Floor</Link>
               </Button>
@@ -254,7 +269,7 @@ function AsnDetail({ id }: { id: string }) {
           <p className="font-medium">Vendor cartons</p>
           <p className="text-sm text-muted-foreground">
             Paste JSON boxes from the vendor (no X12). Lines may include lotCode, serials, weightGrams, and expiresOn.
-            Floor then receives one carton at a time. Cartons are optional until the first box exists.
+            Floor then receives one carton at a time. Unreceive a dock carton to reverse qty. Cartons are optional until the first box exists.
           </p>
           <textarea
             value={paste}
@@ -287,9 +302,14 @@ function AsnDetail({ id }: { id: string }) {
                     </Button>
                   ) : null}
                   {pkg.receivedAt && !pkg.putawayAt ? (
-                    <Button variant="secondary" asChild>
-                      <Link to={`/floor/putaway?carton=${encodeURIComponent(pkg.sscc || pkg.number)}`}>Put away</Link>
-                    </Button>
+                    <span className="flex flex-wrap gap-2">
+                      <Button variant="secondary" asChild>
+                        <Link to={`/floor/putaway?carton=${encodeURIComponent(pkg.sscc || pkg.number)}`}>Put away</Link>
+                      </Button>
+                      <Button variant="secondary" onClick={() => void unreceiveCarton(pkg.id)}>
+                        Unreceive
+                      </Button>
+                    </span>
                   ) : null}
                 </li>
               ))}

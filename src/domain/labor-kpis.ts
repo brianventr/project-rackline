@@ -201,6 +201,7 @@ export function classifyLaborFact(fact: Pick<LaborFact, "type" | "refType" | "re
   if (type === "receive") return { verb: "receive", kind: "throughput" };
   if (type === "rtv") return { verb: "rtv", kind: "throughput" };
   if (type === "unpick") return { verb: "unpick", kind: "exception" };
+  if (type === "unreceive") return { verb: "unpick", kind: "exception" };
   if (type === "kit_consume" || type === "kit_produce") return { verb: "kit", kind: "throughput" };
   if (type === "wo_consume" || type === "wo_produce") return { verb: "assemble", kind: "throughput" };
   if (type === "move") {

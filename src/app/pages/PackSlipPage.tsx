@@ -103,6 +103,7 @@ export function PackSlipPage() {
                 <p className="font-mono font-medium">
                   {pkg.number}
                   {pkg.trackingNumber ? ` · ${pkg.trackingNumber}` : ""}
+                  {pkg.shippedAt ? " · shipped" : ""}
                 </p>
                 <BarcodeLabel value={pkg.number} className="h-10 w-36" />
               </div>

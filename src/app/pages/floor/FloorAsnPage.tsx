@@ -67,14 +67,15 @@ export function FloorAsnPage() {
     setAsns(
       nextAsns.filter(
         (row) =>
-          isOpenAsn(row.status) &&
-          hasRemaining(
-            (row.lines ?? []).map((line) => ({
-              itemId: line.itemId,
-              qtyExpected: line.qtyExpected,
-              qtyReceived: line.qtyReceived,
-            })),
-          ),
+          (isOpenAsn(row.status) &&
+            hasRemaining(
+              (row.lines ?? []).map((line) => ({
+                itemId: line.itemId,
+                qtyExpected: line.qtyExpected,
+                qtyReceived: line.qtyReceived,
+              })),
+            )) ||
+          (row.packages ?? []).some((pkg) => pkg.receivedAt && !pkg.putawayAt),
       ),
     );
     setLocations(nextLocations);
@@ -176,8 +177,23 @@ export function FloorAsnPage() {
     }
   }
 
+  async function unreceiveCarton() {
+    if (!active || !activePkgId) return;
+    setError(null);
+    try {
+      const carton = (active.packages ?? []).find((pkg) => pkg.id === activePkgId);
+      const posted = await api<Asn>(`/api/asns/${active.id}/packages/${activePkgId}/unreceive`, { method: "POST" });
+      applyAsn(posted, carton?.id ?? null);
+      setPutawayCarton(null);
+      setDone(`${posted.number} carton unreceived from the dock.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unreceive failed");
+    }
+  }
+
   return (
-    <FloorFrame title="ASN" description="Scan an ASN- or BOX-/SSCC, scan the dock, receive remaining qty or one vendor carton." error={error}>
+    <FloorFrame title="ASN" description="Scan an ASN- or BOX-/SSCC, scan the dock, receive remaining qty or one vendor carton. Unreceive a dock carton that is not put away." error={error}>
       <FloorScanBox label="Scan ASN, carton, or dock" placeholder="ASN-… BOX-1 or SSCC" onScan={onScan} />
       {done ? (
         <p className="text-sm text-emerald-700">
@@ -314,9 +330,17 @@ export function FloorAsnPage() {
             ) : (
               <Button onClick={() => void receive()}>Post receive</Button>
             )
+          ) : (active.packages ?? []).some((pkg) => pkg.receivedAt && !pkg.putawayAt) ? (
+            <p className="text-sm text-muted-foreground">Fully received. Unreceive a carton that is still on the dock to reopen lines.</p>
           ) : (
             <p>Fully received.</p>
           )}
+          {(active.packages ?? []).find((pkg) => pkg.id === activePkgId)?.receivedAt &&
+          !(active.packages ?? []).find((pkg) => pkg.id === activePkgId)?.putawayAt ? (
+            <Button variant="secondary" onClick={() => void unreceiveCarton()}>
+              Unreceive carton
+            </Button>
+          ) : null}
           <button className="text-sm underline" onClick={() => setActive(null)}>
             Back to list
           </button>

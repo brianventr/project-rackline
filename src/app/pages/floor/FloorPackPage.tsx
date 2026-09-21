@@ -5,7 +5,7 @@ import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { canPackOrder, canStartPack, canCancelOrder } from "@/domain/status";
 import { hasUnpacked } from "@/domain/partial-pack";
-import { cartonShipGate, hasUncartoned } from "@/domain/cartons";
+import { cartonShipGate, canUncartonOrderPackage, hasUncartoned } from "@/domain/cartons";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 
@@ -159,6 +159,18 @@ export function FloorPackPage() {
     }
   }
 
+  async function uncarton(pkgId: string) {
+    if (!active) return;
+    setError(null);
+    try {
+      const next = await api<Order>(`/api/orders/${active.id}/packages/${pkgId}/uncarton`, { method: "POST" });
+      applyOrder(next);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not drop carton");
+    }
+  }
+
   async function cancel() {
     if (!active) return;
     setError(null);
@@ -194,7 +206,7 @@ export function FloorPackPage() {
   const thisPack = Object.values(qtys).some((value) => Number(value) > 0);
 
   return (
-    <FloorFrame title="Pack" description="Scan the tote, pack remaining qty into BOX-1 / BOX-2, print a pack slip." error={error}>
+    <FloorFrame title="Pack" description="Scan the tote, pack remaining qty into BOX-1 / BOX-2, drop a mispacked box, print a pack slip." error={error}>
       <FloorScanBox label="Scan order or SKU" placeholder="ORD-… or LAMP" onScan={onScan} />
       {!active ? (
         <ClaimList
@@ -301,13 +313,21 @@ export function FloorPackPage() {
           {(active.packages ?? []).length > 0 ? (
             <ul className="space-y-2 text-sm">
               {(active.packages ?? []).map((pkg) => (
-                <li key={pkg.id} className="rounded-md border px-3 py-2">
-                  <span className="font-mono">{pkg.number}</span>
-                  <span className="text-muted-foreground">
-                    {" "}
-                    · {pkg.units ?? 0} units
-                    {pkg.trackingNumber ? ` · ${pkg.trackingNumber}` : " · no label"}
+                <li key={pkg.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2">
+                  <span>
+                    <span className="font-mono">{pkg.number}</span>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {pkg.units ?? 0} units
+                      {pkg.trackingNumber ? ` · ${pkg.trackingNumber}` : " · no label"}
+                      {pkg.shippedAt ? " · shipped" : ""}
+                    </span>
                   </span>
+                  {canUncartonOrderPackage({ status: active.status, shippedAt: pkg.shippedAt }).ok ? (
+                    <Button variant="secondary" onClick={() => void uncarton(pkg.id)}>
+                      Drop carton
+                    </Button>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -323,6 +343,7 @@ export function FloorPackPage() {
             packages: (active.packages ?? []).map((pkg) => ({
               units: pkg.units ?? 0,
               trackingNumber: pkg.trackingNumber ?? null,
+              shippedAt: pkg.shippedAt ?? null,
             })),
           }).ok === false ? (
             <p className="text-sm text-muted-foreground">Label each carton on Ship before closing the order.</p>

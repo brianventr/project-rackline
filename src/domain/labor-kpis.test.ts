@@ -121,6 +121,7 @@ describe("labor KPIs", () => {
 
   it("drops seed rows and unknown createdBy", () => {
     expect(classifyLaborFact({ type: "receive", refType: "seed" }).kind).toBe("ignore");
+    expect(classifyLaborFact({ type: "unreceive", refType: "asn" })).toEqual({ verb: "unpick", kind: "exception" });
     const board = buildLaborKpis({
       members,
       items,
