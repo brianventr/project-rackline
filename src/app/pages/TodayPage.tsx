@@ -479,6 +479,37 @@ export function TodayPage() {
           </ul>
         </Card>
         <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+            <div>
+              <CardTitle>Runs out this week</CardTitle>
+              <CardDescription>Velocity cover, not the reorder threshold. A SKU can be above ROP and still die in days.</CardDescription>
+            </div>
+            <Button variant="ghost" onClick={() => navigate("/analytics/runway")}>
+              Open runway
+            </Button>
+          </CardHeader>
+          <ul className="space-y-2 px-6 pb-6 text-sm">
+            {data?.runwayThisWeek?.length ? (
+              data.runwayThisWeek.map((row) => (
+                <li key={row.itemId} className="flex justify-between gap-4 border-b py-2 last:border-0">
+                  <Link className="hover:underline" to={`/stock/items/${row.itemId}`}>
+                    <span className="font-mono">{row.sku}</span> {row.name}
+                    {row.coveredByOpenPo ? (
+                      <span className="ml-2 text-xs text-muted-foreground">open PO</span>
+                    ) : null}
+                  </Link>
+                  <span className="font-mono tabular-nums">
+                    {row.daysOfCover != null ? `${row.daysOfCover.toFixed(1)}d` : "out"}
+                    {row.suggestedQty ? ` · +${row.suggestedQty}` : ""}
+                  </span>
+                </li>
+              ))
+            ) : (
+              <p className="text-muted-foreground">No SKUs run out in the next 7 days at the current ship rate.</p>
+            )}
+          </ul>
+        </Card>
+        <Card>
           <CardHeader>
             <CardTitle>Recent movements</CardTitle>
             <CardDescription>Last ledger lines across the warehouse.</CardDescription>

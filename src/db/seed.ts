@@ -150,6 +150,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       reorderPoint: 24,
       pickMin: 20,
       trackLot: true,
+      baselineShipRate: 4,
       shopifyInventoryItemGid: demoInventoryItemGid("LED-BULB"),
     }),
     db.insert(schema.items).values({
@@ -161,6 +162,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       barcode: "SHADE",
       createdAt: now,
       reorderPoint: 10,
+      baselineShipRate: 2,
       shopifyInventoryItemGid: demoInventoryItemGid("SHADE"),
     }),
     db.insert(schema.items).values({
@@ -183,6 +185,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       barcode: "CORD",
       createdAt: now,
       reorderPoint: 40,
+      baselineShipRate: 5,
       shopifyInventoryItemGid: demoInventoryItemGid("CORD"),
     }),
     db.insert(schema.items).values({
@@ -196,6 +199,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       reorderPoint: 4,
       pickMin: 12,
       trackSerial: true,
+      baselineShipRate: 1.5,
       shopifyInventoryItemGid: demoInventoryItemGid("LAMP"),
     }),
     db.insert(schema.items).values({
@@ -1034,7 +1038,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     );
 
   const hour = 3_600_000;
-  const sku = { lamp: item.lamp, bulb: item.bulb, shade: item.shade };
+  const sku = { lamp: item.lamp, bulb: item.bulb, shade: item.shade, cord: item.cord };
   const traffic = [
     { number: "ORD-LAX1", customer: "Echo Park Shop", address: "120 Spring St\nLos Angeles, CA 90012", sku: "lamp" as const, qty: 2, hoursAgo: 8, carrier: "ups_ground", tracking: "RL-LAX001" },
     { number: "ORD-SFO1", customer: "Mission Light", address: "18 Valencia St\nSan Francisco, CA 94110", sku: "shade" as const, qty: 3, hoursAgo: 5, carrier: "usps_priority", tracking: "RL-SFO001" },
@@ -1049,6 +1053,9 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
     { number: "ORD-MSP1", customer: "North Loop", address: "1101 S 10th St\nMinneapolis, MN 55415", sku: "lamp" as const, qty: 1, hoursAgo: 12, carrier: "usps_priority", tracking: "RL-MSP001" },
     { number: "ORD-YYZ1", customer: "King West", address: "12 King Street West\nToronto, ON M5H 1A1", sku: "lamp" as const, qty: 1, hoursAgo: 18, carrier: "ups_ground", tracking: "RL-YYZ001" },
     { number: "ORD-LON1", customer: "Shoreditch Works", address: "221B Baker Street\nLondon, UK", sku: "lamp" as const, qty: 1, hoursAgo: 36, carrier: "usps_priority", tracking: "RL-LON001" },
+    { number: "ORD-CORD1", customer: "Hawthorne Works", address: "3530 SE 50th Ave\nPortland, OR 97206", sku: "cord" as const, qty: 3, hoursAgo: 72, carrier: "usps_priority", tracking: "RL-CORD01" },
+    { number: "ORD-CORD2", customer: "Alberta Spare", address: "1500 NE Alberta St\nPortland, OR 97211", sku: "cord" as const, qty: 2, hoursAgo: 240, carrier: "ups_ground", tracking: "RL-CORD02" },
+    { number: "ORD-SEA2", customer: "Ballard Shade", address: "5400 22nd Ave NW\nSeattle, WA 98107", sku: "shade" as const, qty: 4, hoursAgo: 200, carrier: "usps_priority", tracking: "RL-SEA002" },
   ];
   const packedId = newId();
   const packedLineId = newId();

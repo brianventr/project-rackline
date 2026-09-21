@@ -68,6 +68,7 @@ export type Item = {
   type: string;
   barcode: string;
   reorderPoint: number;
+  baselineShipRate?: number | null;
   pickMin?: number;
   trackLot?: boolean;
   trackSerial?: boolean;
@@ -691,6 +692,18 @@ export type Dashboard = {
     suggestedQty?: number;
     coveredByOpenPo?: boolean;
   }[];
+  runwayThisWeek?: {
+    itemId: string;
+    sku: string;
+    name: string;
+    sellable: number;
+    daysOfCover: number | null;
+    stockoutAt: number | null;
+    status: string;
+    suggestedQty: number;
+    coveredByOpenPo: boolean;
+    lastVendorName: string | null;
+  }[];
   recent: { id: string; type: string; qty: number; createdAt: number; sku: string }[];
   hotBays: { locationId: string; locationCode: string; locationName: string; units: number }[];
   replenishSuggestions?: ReplenishSuggestion[];
@@ -1280,3 +1293,13 @@ export type {
   TrafficHorizon,
   TrafficSnapshot,
 } from "@/domain/traffic";
+
+export type {
+  RunwayBoard,
+  RunwayDailyPoint,
+  RunwayDraftLine,
+  RunwayKpis,
+  RunwayRow,
+  RunwayStatus,
+  RunwayWindow,
+} from "@/domain/runway";
