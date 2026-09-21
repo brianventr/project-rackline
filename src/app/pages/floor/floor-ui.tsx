@@ -75,11 +75,11 @@ export function FloorFrame({
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <div className="print:hidden">
-        <p className="mb-1 font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">Floor</p>
-        <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
-        <p className="mt-1 text-muted-foreground">{description}</p>
+        <h1 className="text-xl font-semibold tracking-tight" title={description}>
+          {title}
+        </h1>
       </div>
       <div className="print:hidden">
         <ErrorBanner error={error} />

@@ -106,7 +106,7 @@ function EquipmentList() {
       />
       <ErrorBanner error={error} />
       {me.role === "owner" ? (
-        <Card className="mb-6">
+        <Card className="mb-3">
           <form className="grid gap-3 md:grid-cols-4" onSubmit={onSubmit(create)}>
             <Field label="Code">
               <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="FL-01" required />
@@ -135,22 +135,22 @@ function EquipmentList() {
       <Table columns={["Code", "Name", "Class", "Operator", "Shift / task", "Status"]}>
         {fleet.map((row) => (
           <tr key={row.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/equipment/${row.id}`}>
                 {row.code}
               </Link>
             </td>
-            <td className="px-4 py-3">{row.name}</td>
-            <td className="px-4 py-3">{equipmentClassLabel(row.class)}</td>
-            <td className="px-4 py-3">{row.currentAssignment?.operatorName ?? "—"}</td>
-            <td className="px-4 py-3 font-mono text-xs">
+            <td className="px-2.5 py-1.5">{row.name}</td>
+            <td className="px-2.5 py-1.5">{equipmentClassLabel(row.class)}</td>
+            <td className="px-2.5 py-1.5">{row.currentAssignment?.operatorName ?? "—"}</td>
+            <td className="px-2.5 py-1.5 font-mono text-xs">
               {row.currentAssignment
                 ? [row.currentAssignment.shift, row.currentAssignment.taskNumber || row.currentAssignment.refType]
                     .filter(Boolean)
                     .join(" · ") || "—"
                 : "—"}
             </td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={row.status} />
             </td>
           </tr>
@@ -301,7 +301,7 @@ function EquipmentDetail({ id }: { id: string }) {
   const canCheckIn = Boolean(active.currentAssignment && (mine || me.role === "owner"));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Equipment"
         title={active.code}
@@ -406,12 +406,12 @@ function EquipmentDetail({ id }: { id: string }) {
       <Table columns={["When", "Number", "Operator", "Shift", "Task", "Status"]}>
         {(active.assignments ?? []).map((row) => (
           <tr key={row.id}>
-            <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(row.startedAt).toLocaleString()}</td>
-            <td className="px-4 py-3 font-mono">{row.number}</td>
-            <td className="px-4 py-3">{row.operatorName}</td>
-            <td className="px-4 py-3">{row.shift || "—"}</td>
-            <td className="px-4 py-3 font-mono text-xs">{row.taskNumber || row.refType || "—"}</td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5 text-xs text-muted-foreground">{new Date(row.startedAt).toLocaleString()}</td>
+            <td className="px-2.5 py-1.5 font-mono">{row.number}</td>
+            <td className="px-2.5 py-1.5">{row.operatorName}</td>
+            <td className="px-2.5 py-1.5">{row.shift || "—"}</td>
+            <td className="px-2.5 py-1.5 font-mono text-xs">{row.taskNumber || row.refType || "—"}</td>
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={row.status} />
             </td>
           </tr>

@@ -28,7 +28,7 @@ function LocationDetail({ me, id }: { me: Me; id: string }) {
   if (!location) return <ErrorBanner error={error} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <PageHeader
         eyebrow="Stock"
         title={location.code}
@@ -57,13 +57,13 @@ function LocationDetail({ me, id }: { me: Me; id: string }) {
       <Table columns={["SKU", "Item", "Qty"]}>
         {(location.contents ?? []).map((row) => (
           <tr key={row.itemId}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/stock/items/${row.itemId}`}>
                 {row.sku}
               </Link>
             </td>
-            <td className="px-4 py-3">{row.itemName}</td>
-            <td className="px-4 py-3 font-mono">{row.qty}</td>
+            <td className="px-2.5 py-1.5">{row.itemName}</td>
+            <td className="px-2.5 py-1.5 font-mono">{row.qty}</td>
           </tr>
         ))}
       </Table>
@@ -226,7 +226,7 @@ function LocationList({ me }: { me: Me }) {
         }
       />
       <ErrorBanner error={error} />
-      <Card className="mb-6">
+      <Card className="mb-3">
         <form className="grid gap-3 md:grid-cols-4" onSubmit={onSubmit(create)}>
           <Field label="Code">
             <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="A-01-04" required />
@@ -278,22 +278,22 @@ function LocationList({ me }: { me: Me }) {
           .filter((location) => !warehouseId || location.warehouseId === warehouseId)
           .map((location) => (
           <tr key={location.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="underline decoration-line underline-offset-2" to={`/stock/locations/${location.id}`}>
                 {location.code}
               </Link>
             </td>
-            <td className="px-4 py-3">{location.name}</td>
-            <td className="px-4 py-3 text-sm text-muted-foreground">
+            <td className="px-2.5 py-1.5">{location.name}</td>
+            <td className="px-2.5 py-1.5 text-sm text-muted-foreground">
               {location.area}
               {location.aisle ? ` · ${location.aisle}-${location.rack}-${location.bay}` : ""} L{location.level}
             </td>
-            <td className="px-4 py-3 text-sm">{location.slotRole && location.slotRole !== "none" ? location.slotRole : "—"}</td>
-            <td className="px-4 py-3 font-mono text-xs">
+            <td className="px-2.5 py-1.5 text-sm">{location.slotRole && location.slotRole !== "none" ? location.slotRole : "—"}</td>
+            <td className="px-2.5 py-1.5 font-mono text-xs">
               {location.posX},{location.posY},{location.posZ}
             </td>
-            <td className="px-4 py-3 font-mono text-xs">{location.barcode}</td>
-            <td className="px-4 py-3 text-right">
+            <td className="px-2.5 py-1.5 font-mono text-xs">{location.barcode}</td>
+            <td className="px-2.5 py-1.5 text-right">
               {me.role === "owner" ? (
                 <button className="text-sm text-bad" onClick={() => remove(location.id)}>
                   Delete

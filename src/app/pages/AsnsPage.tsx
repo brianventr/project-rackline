@@ -67,7 +67,7 @@ function AsnList() {
       />
       <ErrorBanner error={error} />
       {creating ? (
-        <Card className="mb-6">
+        <Card className="mb-3">
           <form className="space-y-4" onSubmit={onSubmit(create)}>
             <Field label="Vendor">
               <Input value={vendorName} onChange={(e) => setVendorName(e.target.value)} required placeholder="Harbor Components" />
@@ -83,16 +83,16 @@ function AsnList() {
       <Table columns={["Number", "Vendor", "Status", "Lines"]}>
         {inWarehouse(asns, warehouseId).map((asn) => (
           <tr key={asn.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/inbound/asns/${asn.id}`}>
                 {asn.number}
               </Link>
             </td>
-            <td className="px-4 py-3">{asn.vendorName}</td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">{asn.vendorName}</td>
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={asn.status} />
             </td>
-            <td className="px-4 py-3 text-sm">
+            <td className="px-2.5 py-1.5 text-sm">
               {summarizeLines((asn.lines ?? []).map((line) => ({ sku: line.sku, itemName: line.itemName, qty: line.qtyExpected })))}
             </td>
           </tr>
@@ -204,7 +204,7 @@ function AsnDetail({ id }: { id: string }) {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Inbound"
         title={asn.number}
@@ -294,11 +294,11 @@ function AsnDetail({ id }: { id: string }) {
         <Table columns={["SKU", "Item", "Expected", "Received", "This receive", "Lot / serial"]}>
           {(asn.lines ?? []).map((line) => (
             <tr key={line.id}>
-              <td className="px-4 py-3 font-mono">{line.sku}</td>
-              <td className="px-4 py-3">{line.itemName}</td>
-              <td className="px-4 py-3 font-mono">{line.qtyExpected}</td>
-              <td className="px-4 py-3 font-mono">{line.qtyReceived}</td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5 font-mono">{line.sku}</td>
+              <td className="px-2.5 py-1.5">{line.itemName}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qtyExpected}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qtyReceived}</td>
+              <td className="px-2.5 py-1.5">
                 {line.remaining > 0 ? (
                   <Input
                     type="number"
@@ -311,7 +311,7 @@ function AsnDetail({ id }: { id: string }) {
                   <span className="text-muted-foreground">Done</span>
                 )}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">
                 {line.trackLot ? (
                   <Input
                     placeholder="Lot"

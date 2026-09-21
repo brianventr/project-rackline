@@ -150,7 +150,7 @@ function ItemList() {
         }
       />
       <ErrorBanner error={error} />
-      <Card className="mb-6">
+      <Card className="mb-3">
         <form className="grid gap-3 md:grid-cols-6" onSubmit={onSubmit(create)}>
           <Field label="SKU">
             <Input value={sku} onChange={(e) => setSku(e.target.value)} required />
@@ -200,16 +200,16 @@ function ItemList() {
       <Table columns={["SKU", "Barcode", "Name", "Type", "Reorder", "Pick min"]}>
         {items.map((item) => (
           <tr key={item.id}>
-            <td className="px-4 py-3 font-mono text-sm">
+            <td className="px-2.5 py-1.5 font-mono text-sm">
               <Link className="hover:underline" to={`/stock/items/${item.id}`}>
                 {item.sku}
               </Link>
             </td>
-            <td className="px-4 py-3 font-mono text-sm">{item.barcode}</td>
-            <td className="px-4 py-3">{item.name}</td>
-            <td className="px-4 py-3 capitalize">{item.type}</td>
-            <td className="px-4 py-3">{item.reorderPoint}</td>
-            <td className="px-4 py-3">{item.pickMin ?? 0}</td>
+            <td className="px-2.5 py-1.5 font-mono text-sm">{item.barcode}</td>
+            <td className="px-2.5 py-1.5">{item.name}</td>
+            <td className="px-2.5 py-1.5 capitalize">{item.type}</td>
+            <td className="px-2.5 py-1.5">{item.reorderPoint}</td>
+            <td className="px-2.5 py-1.5">{item.pickMin ?? 0}</td>
           </tr>
         ))}
       </Table>
@@ -282,7 +282,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
   if (!item) return <ErrorBanner error={error} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <PageHeader
         eyebrow="Stock"
         title={item.sku}
@@ -341,14 +341,14 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
       <Table columns={["Location", "On hand", "Allocated", "ATP"]}>
         {(item.onHand ?? []).map((row) => (
           <tr key={row.locationId}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/stock/locations/${row.locationId}`}>
                 {row.locationCode}
               </Link>
             </td>
-            <td className="px-4 py-3 font-mono">{row.qty}</td>
-            <td className="px-4 py-3 font-mono">{row.allocated ?? 0}</td>
-            <td className="px-4 py-3 font-mono">{row.atp ?? row.qty}</td>
+            <td className="px-2.5 py-1.5 font-mono">{row.qty}</td>
+            <td className="px-2.5 py-1.5 font-mono">{row.allocated ?? 0}</td>
+            <td className="px-2.5 py-1.5 font-mono">{row.atp ?? row.qty}</td>
           </tr>
         ))}
       </Table>
@@ -356,10 +356,10 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
         <Table columns={["Location", "Lot", "Expiry", "Qty"]}>
           {(item.lots ?? []).map((row) => (
             <tr key={`${row.locationId}:${row.lotCode}`}>
-              <td className="px-4 py-3 font-mono">{row.locationCode}</td>
-              <td className="px-4 py-3 font-mono">{row.lotCode}</td>
-              <td className="px-4 py-3 font-mono text-xs">{formatExpiresOn(row.expiresOn)}</td>
-              <td className="px-4 py-3 font-mono">{row.qty}</td>
+              <td className="px-2.5 py-1.5 font-mono">{row.locationCode}</td>
+              <td className="px-2.5 py-1.5 font-mono">{row.lotCode}</td>
+              <td className="px-2.5 py-1.5 font-mono text-xs">{formatExpiresOn(row.expiresOn)}</td>
+              <td className="px-2.5 py-1.5 font-mono">{row.qty}</td>
             </tr>
           ))}
         </Table>
@@ -368,10 +368,10 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
         <Table columns={["Serial", "Status", "Location", "Built from"]}>
           {(item.serials ?? []).map((row) => (
             <tr key={row.serialCode}>
-              <td className="px-4 py-3 font-mono">{row.serialCode}</td>
-              <td className="px-4 py-3">{row.status}</td>
-              <td className="px-4 py-3 font-mono">{row.locationCode || "—"}</td>
-              <td className="px-4 py-3 font-mono text-xs">
+              <td className="px-2.5 py-1.5 font-mono">{row.serialCode}</td>
+              <td className="px-2.5 py-1.5">{row.status}</td>
+              <td className="px-2.5 py-1.5 font-mono">{row.locationCode || "—"}</td>
+              <td className="px-2.5 py-1.5 font-mono text-xs">
                 {(row.builtFrom ?? []).length
                   ? (row.builtFrom ?? [])
                       .map((link) =>

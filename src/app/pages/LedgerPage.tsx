@@ -19,7 +19,7 @@ export function LedgerPage() {
   }, []);
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
       <PageHeader
         eyebrow="Stock"
         title="Ledger"
@@ -29,18 +29,18 @@ export function LedgerPage() {
       <Table columns={["When", "Who", "Type", "SKU", "Qty", "Weight", "Lot", "Expiry", "From", "To", "Truck", "Reason"]}>
         {rows.map((row) => (
           <tr key={row.id}>
-            <td className="px-4 py-3 text-xs text-muted-foreground">{formatWhen(row.createdAt)}</td>
-            <td className="px-4 py-3 text-sm">{row.createdByName || "—"}</td>
-            <td className="px-4 py-3 font-mono text-xs uppercase">{row.type}</td>
-            <td className="px-4 py-3 font-mono">{row.sku}</td>
-            <td className="px-4 py-3 font-mono tabular">{row.qty}</td>
-            <td className="px-4 py-3 font-mono text-xs">{formatCatchWeight(row.weightGrams)}</td>
-            <td className="px-4 py-3 font-mono text-xs">{row.lotCode || "—"}</td>
-            <td className="px-4 py-3 font-mono text-xs">{formatExpiresOn(row.expiresOn)}</td>
-            <td className="px-4 py-3 font-mono">{row.fromLocationCode || "—"}</td>
-            <td className="px-4 py-3 font-mono">{row.toLocationCode || "—"}</td>
-            <td className="px-4 py-3 font-mono">{row.equipmentCode || "—"}</td>
-            <td className="px-4 py-3 text-muted-foreground">{row.reason || "—"}</td>
+            <td className="px-2.5 py-1.5 text-xs text-muted-foreground">{formatWhen(row.createdAt)}</td>
+            <td className="px-2.5 py-1.5 text-sm">{row.createdByName || "—"}</td>
+            <td className="px-2.5 py-1.5 font-mono text-xs uppercase">{row.type}</td>
+            <td className="px-2.5 py-1.5 font-mono">{row.sku}</td>
+            <td className="px-2.5 py-1.5 font-mono tabular">{row.qty}</td>
+            <td className="px-2.5 py-1.5 font-mono text-xs">{formatCatchWeight(row.weightGrams)}</td>
+            <td className="px-2.5 py-1.5 font-mono text-xs">{row.lotCode || "—"}</td>
+            <td className="px-2.5 py-1.5 font-mono text-xs">{formatExpiresOn(row.expiresOn)}</td>
+            <td className="px-2.5 py-1.5 font-mono">{row.fromLocationCode || "—"}</td>
+            <td className="px-2.5 py-1.5 font-mono">{row.toLocationCode || "—"}</td>
+            <td className="px-2.5 py-1.5 font-mono">{row.equipmentCode || "—"}</td>
+            <td className="px-2.5 py-1.5 text-muted-foreground">{row.reason || "—"}</td>
           </tr>
         ))}
       </Table>

@@ -58,7 +58,7 @@ function CountList() {
         description="Blind-count a bay, then post. Scan or add a SKU that was not on the snapshot. System qty and variance stay hidden until the count is posted."
       />
       <ErrorBanner error={error} />
-      <Card className="mb-6">
+      <Card className="mb-3">
         <form className="flex flex-wrap items-end gap-3" onSubmit={onSubmit(start)}>
           <Field label="Location">
             <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
@@ -75,13 +75,13 @@ function CountList() {
       <Table columns={["Number", "Location", "Status"]}>
         {inWarehouse(counts, warehouseId).map((count) => (
           <tr key={count.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/stock/counts/${count.id}`}>
                 {count.number}
               </Link>
             </td>
-            <td className="px-4 py-3 font-mono">{count.locationCode}</td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5 font-mono">{count.locationCode}</td>
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={count.status} />
             </td>
           </tr>
@@ -164,7 +164,7 @@ function CountDetail({ id }: { id: string }) {
   const ready = canPostCount(active.status) && allLinesEntered(lines);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Stock"
         title={active.number}
@@ -226,11 +226,11 @@ function CountDetail({ id }: { id: string }) {
         <Table columns={["SKU", "System", "Counted", "Weight", "Variance"]}>
           {lines.map((line) => (
             <tr key={line.id}>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">
                 <span className="font-mono">{line.sku}</span> {line.itemName}
               </td>
-              <td className="px-4 py-3 font-mono">{blind || line.systemQty === null ? "—" : line.systemQty}</td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5 font-mono">{blind || line.systemQty === null ? "—" : line.systemQty}</td>
+              <td className="px-2.5 py-1.5">
                 <Input
                   type="number"
                   min={0}
@@ -255,14 +255,14 @@ function CountDetail({ id }: { id: string }) {
                   }}
                 />
               </td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">
                 <CatchWeightInput
                   show={line.catchWeight}
                   value={weights[line.id] ?? (line.weightGrams != null ? String(line.weightGrams) : "")}
                   onChange={(value) => setWeights((current) => ({ ...current, [line.id]: value }))}
                 />
               </td>
-              <td className="px-4 py-3 font-mono">
+              <td className="px-2.5 py-1.5 font-mono">
                 {blind || line.systemQty === null
                   ? "—"
                   : formatCountVariance(countVariance(line.countedQty, line.systemQty))}

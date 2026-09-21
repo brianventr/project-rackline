@@ -29,7 +29,7 @@ export function InventoryPage() {
   }, [rows, query, warehouseId]);
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
       <PageHeader
         eyebrow="Stock"
         title="On-hand"
@@ -40,21 +40,21 @@ export function InventoryPage() {
       <Table columns={["SKU", "Item", "Location", "Type", "On hand", "Allocated", "ATP"]}>
         {filtered.map((row) => (
           <tr key={row.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/stock/items/${row.itemId}`}>
                 {row.sku}
               </Link>
             </td>
-            <td className="px-4 py-3">{row.itemName}</td>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5">{row.itemName}</td>
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/stock/locations/${row.locationId}`}>
                 {row.locationCode}
               </Link>
             </td>
-            <td className="px-4 py-3 capitalize">{row.itemType}</td>
-            <td className="px-4 py-3 font-mono tabular">{row.qty}</td>
-            <td className="px-4 py-3 font-mono tabular">{row.allocated ?? 0}</td>
-            <td className="px-4 py-3 font-mono tabular">{row.atp ?? row.qty}</td>
+            <td className="px-2.5 py-1.5 capitalize">{row.itemType}</td>
+            <td className="px-2.5 py-1.5 font-mono tabular">{row.qty}</td>
+            <td className="px-2.5 py-1.5 font-mono tabular">{row.allocated ?? 0}</td>
+            <td className="px-2.5 py-1.5 font-mono tabular">{row.atp ?? row.qty}</td>
           </tr>
         ))}
       </Table>

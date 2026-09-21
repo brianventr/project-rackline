@@ -67,7 +67,7 @@ function PurchaseList() {
       />
       <ErrorBanner error={error} />
       {creating ? (
-        <Card className="mb-6">
+        <Card className="mb-3">
           <form className="space-y-4" onSubmit={onSubmit(create)}>
             <Field label="Vendor">
               <Input value={vendorName} onChange={(e) => setVendorName(e.target.value)} required placeholder="Harbor Components" />
@@ -83,16 +83,16 @@ function PurchaseList() {
       <Table columns={["Number", "Vendor", "Status", "Lines"]}>
         {inWarehouse(purchases, warehouseId).map((purchase) => (
           <tr key={purchase.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/inbound/purchases/${purchase.id}`}>
                 {purchase.number}
               </Link>
             </td>
-            <td className="px-4 py-3">{purchase.vendorName}</td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">{purchase.vendorName}</td>
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={purchase.status} />
             </td>
-            <td className="px-4 py-3 text-sm">
+            <td className="px-2.5 py-1.5 text-sm">
               {summarizeLines(
                 (purchase.lines ?? []).map((line) => ({ sku: line.sku, itemName: line.itemName, qty: line.qtyOrdered })),
               )}
@@ -176,7 +176,7 @@ function PurchaseDetail({ id }: { id: string }) {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Inbound"
         title={purchase.number}
@@ -244,11 +244,11 @@ function PurchaseDetail({ id }: { id: string }) {
         <Table columns={["SKU", "Item", "Ordered", "Received", "This receive", "Lot / serial"]}>
           {(purchase.lines ?? []).map((line) => (
             <tr key={line.id}>
-              <td className="px-4 py-3 font-mono">{line.sku}</td>
-              <td className="px-4 py-3">{line.itemName}</td>
-              <td className="px-4 py-3 font-mono">{line.qtyOrdered}</td>
-              <td className="px-4 py-3 font-mono">{line.qtyReceived}</td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5 font-mono">{line.sku}</td>
+              <td className="px-2.5 py-1.5">{line.itemName}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qtyOrdered}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qtyReceived}</td>
+              <td className="px-2.5 py-1.5">
                 {line.remaining > 0 ? (
                   <Input
                     type="number"
@@ -261,7 +261,7 @@ function PurchaseDetail({ id }: { id: string }) {
                   <span className="text-muted-foreground">Done</span>
                 )}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">
                 {line.trackLot ? (
                   <Input
                     placeholder="Lot"

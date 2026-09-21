@@ -18,7 +18,7 @@ export function StatusStepper({
   const value = current === "draft" && steps[0] === "open" ? "open" : current;
   const currentIndex = steps.indexOf(value);
   return (
-    <ol className="flex flex-wrap gap-2">
+    <ol className="flex min-w-0 flex-wrap overflow-hidden rounded-md border text-[10px] font-medium uppercase tracking-wide">
       {steps.map((step, index) => {
         const done = currentIndex >= 0 && index <= currentIndex;
         const active = step === value;
@@ -26,7 +26,7 @@ export function StatusStepper({
           <li
             key={step}
             className={cn(
-              "rounded-full px-3 py-1 text-xs font-medium uppercase tracking-wide",
+              "border-r px-2 py-0.5 last:border-r-0",
               active
                 ? "bg-primary text-primary-foreground"
                 : done
@@ -58,33 +58,27 @@ export function DocumentHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="space-y-4">
-      <PageHeader
-        eyebrow={eyebrow}
-        title={title}
-        description={description}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="uppercase">
-              {statusLabel(status)}
-            </Badge>
-            {actions}
-          </div>
-        }
-      />
-      {status !== "cancelled" ? <StatusStepper steps={steps} current={status} /> : null}
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <PageHeader eyebrow={eyebrow} title={title} description={description} />
+        <Badge variant="outline" className="h-5 px-1.5 text-[10px] uppercase">
+          {statusLabel(status)}
+        </Badge>
+        {status !== "cancelled" ? <StatusStepper steps={steps} current={status} /> : null}
+      </div>
+      {actions ? <div className="flex flex-wrap items-center gap-1.5">{actions}</div> : null}
     </div>
   );
 }
 
 export function DocumentRail({ children }: { children: ReactNode }) {
-  return <aside className="space-y-4 lg:w-80">{children}</aside>;
+  return <aside className="space-y-2 lg:w-64">{children}</aside>;
 }
 
 export function DocumentFrame({ children, rail }: { children: ReactNode; rail?: ReactNode }) {
   return (
-    <div className={cn("grid gap-6", rail ? "xl:grid-cols-[minmax(0,1fr)_20rem]" : "")}>
-      <div className="space-y-4">{children}</div>
+    <div className={cn("grid min-h-0 flex-1 gap-3", rail ? "xl:grid-cols-[minmax(0,1fr)_16rem]" : "")}>
+      <div className="min-w-0 space-y-3">{children}</div>
       {rail}
     </div>
   );
@@ -98,14 +92,14 @@ export function DocumentActivity({ refId, refreshKey }: { refId: string; refresh
       .catch(() => setRows([]));
   }, [refId, refreshKey]);
   return (
-    <div className="rounded-xl border bg-card p-4">
-      <p className="mb-2 text-sm font-medium">Activity</p>
+    <div className="rounded-md border bg-card p-2.5">
+      <p className="mb-1.5 text-xs font-medium">Activity</p>
       {rows.length ? (
-        <ul className="space-y-2 text-sm">
+        <ul className="space-y-1 text-xs">
           {rows.map((row) => (
             <li key={row.id} className="flex justify-between gap-3">
               <span>
-                <span className="font-mono text-xs uppercase text-muted-foreground">{row.type}</span> {row.sku}
+                <span className="font-mono text-[10px] uppercase text-muted-foreground">{row.type}</span> {row.sku}
                 {row.createdByName ? ` · ${row.createdByName}` : ""}
               </span>
               <span className="font-mono tabular-nums">
@@ -118,7 +112,7 @@ export function DocumentActivity({ refId, refreshKey }: { refId: string; refresh
           ))}
         </ul>
       ) : (
-        <p className="text-sm text-muted-foreground">No ledger lines for this document yet.</p>
+        <p className="text-xs text-muted-foreground">No ledger lines for this document yet.</p>
       )}
     </div>
   );
@@ -140,7 +134,7 @@ export function ComingSoonPage({
   return (
     <div>
       <PageHeader eyebrow={eyebrow} title={title} description={body} />
-      <p className="text-sm text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         This slot is reserved in the menu so it has a home when the shop outgrows the current loop.{" "}
         <Link className="font-medium text-foreground underline-offset-4 hover:underline" to={backTo}>
           {backLabel}

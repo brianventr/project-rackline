@@ -66,7 +66,7 @@ export function ZonesPage() {
         description="Pick / put zones for this warehouse. Assign bays so waves can stay in-zone."
       />
       <ErrorBanner error={error} />
-      <Card className="mb-6">
+      <Card className="mb-3">
         <form className="grid gap-3 md:grid-cols-3" onSubmit={onSubmit(create)}>
           <Field label="Code">
             <Input value={code} onChange={(e) => setCode(e.target.value)} required placeholder="A" />
@@ -82,8 +82,8 @@ export function ZonesPage() {
       <Table columns={["Code", "Name"]}>
         {zones.map((zone) => (
           <tr key={zone.id}>
-            <td className="px-4 py-3 font-mono">{zone.code}</td>
-            <td className="px-4 py-3">{zone.name}</td>
+            <td className="px-2.5 py-1.5 font-mono">{zone.code}</td>
+            <td className="px-2.5 py-1.5">{zone.name}</td>
           </tr>
         ))}
       </Table>

@@ -154,7 +154,7 @@ export function MapPage({ me }: { me: Me }) {
           />
         </Suspense>
       ) : data && view === "iso" ? (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_16rem]">
           <Suspense fallback={<div className="grid h-[min(74vh,820px)] place-items-center rounded-xl border text-sm text-muted-foreground">Loading 3D floor…</div>}>
             <WarehouseScene
             warehouse={data.warehouse}
@@ -174,7 +174,7 @@ export function MapPage({ me }: { me: Me }) {
           <BayDetail location={selected} />
         </div>
       ) : data ? (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_16rem]">
           <WarehouseMap
             warehouse={data.warehouse}
             locations={data.locations}

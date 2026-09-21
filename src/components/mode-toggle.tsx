@@ -46,7 +46,7 @@ export function ModeToggle({ variant = "outline" }: ModeToggleProps) {
   return (
     <Button
       variant={variant}
-      size="icon"
+      size="icon-xs"
       onClick={handleToggle}
       className="cursor-pointer mode-toggle-button relative overflow-hidden"
     >

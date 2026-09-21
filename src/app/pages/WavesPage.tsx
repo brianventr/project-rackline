@@ -106,14 +106,14 @@ function WaveList() {
       <Table columns={["Number", "Mode", "Orders", "Status"]}>
         {inWarehouse(waves, warehouseId).map((wave) => (
           <tr key={wave.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/outbound/waves/${wave.id}`}>
                 {wave.number}
               </Link>
             </td>
-            <td className="px-4 py-3 capitalize">{wave.mode}</td>
-            <td className="px-4 py-3 font-mono">{wave.orderCount ?? wave.orders?.length ?? 0}</td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5 capitalize">{wave.mode}</td>
+            <td className="px-2.5 py-1.5 font-mono">{wave.orderCount ?? wave.orders?.length ?? 0}</td>
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={wave.status} />
             </td>
           </tr>
@@ -155,7 +155,7 @@ function WaveDetail({ id }: { id: string }) {
   if (!wave) return <ErrorBanner error={error} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Outbound"
         title={wave.number}
@@ -186,13 +186,13 @@ function WaveDetail({ id }: { id: string }) {
         <Table columns={["Order", "Customer", "Status"]}>
           {(wave.orders ?? []).map((order) => (
             <tr key={order.id}>
-              <td className="px-4 py-3 font-mono">
+              <td className="px-2.5 py-1.5 font-mono">
                 <Link className="hover:underline" to={`/outbound/orders/${order.id}`}>
                   {order.number}
                 </Link>
               </td>
-              <td className="px-4 py-3">{order.customerName}</td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5">{order.customerName}</td>
+              <td className="px-2.5 py-1.5">
                 <StatusBadge status={order.status} />
               </td>
             </tr>
@@ -204,11 +204,11 @@ function WaveDetail({ id }: { id: string }) {
             <Table columns={["SKU", "Item", "Qty", "Picked", "Remaining"]}>
               {(wave.batchLines ?? []).map((line) => (
                 <tr key={line.id}>
-                  <td className="px-4 py-3 font-mono">{line.sku}</td>
-                  <td className="px-4 py-3">{line.itemName}</td>
-                  <td className="px-4 py-3 font-mono">{line.qty}</td>
-                  <td className="px-4 py-3 font-mono">{line.qtyPicked}</td>
-                  <td className="px-4 py-3 font-mono">{line.remaining}</td>
+                  <td className="px-2.5 py-1.5 font-mono">{line.sku}</td>
+                  <td className="px-2.5 py-1.5">{line.itemName}</td>
+                  <td className="px-2.5 py-1.5 font-mono">{line.qty}</td>
+                  <td className="px-2.5 py-1.5 font-mono">{line.qtyPicked}</td>
+                  <td className="px-2.5 py-1.5 font-mono">{line.remaining}</td>
                 </tr>
               ))}
             </Table>

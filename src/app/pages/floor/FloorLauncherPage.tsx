@@ -1,5 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Box,
+  Calculator,
+  ClipboardList,
+  Factory,
+  Forklift,
+  Hammer,
+  Layers,
+  Package,
+  Printer,
+  Repeat,
+  ScanLine,
+  Search,
+  Send,
+  ShieldAlert,
+  SlidersHorizontal,
+  Truck,
+  Undo2,
+  Warehouse,
+} from "lucide-react";
 import { PageHeader } from "../../components/ui";
 import { useSession } from "../../session";
 import { MyDayCard } from "../LaborPage";
@@ -7,25 +29,25 @@ import { useWarehouse } from "../../warehouse";
 import { api, type FloorJob } from "../../api";
 import { VERB_LABELS, type FloorVerb, isFloorVerb } from "@/domain/jobs";
 
-const verbs: { to: string; title: string; body: string; verb?: FloorVerb }[] = [
-  { to: "/floor/lookup", title: "Lookup", body: "Scan a SKU, bay, document, serial, or lot." },
-  { to: "/floor/print", title: "Print", body: "Print a bay, SKU, pack slip, or shipping label." },
-  { to: "/floor/receive", title: "Receive", body: "Post a receipt or purchase onto the dock, including partials.", verb: "receive" },
-  { to: "/floor/asn", title: "ASN", body: "Scan an ASN- notice and receive onto the dock." },
-  { to: "/floor/yard", title: "Yard", body: "Scan a YRD- visit to check in, dock, or check out." },
-  { to: "/floor/checkout", title: "Check out", body: "Scan a truck, inspect it, bind a shift or ticket." },
-  { to: "/floor/putaway", title: "Put away", body: "Post remaining on a putaway ticket, or scan the dock to a bulk bay.", verb: "putaway" },
-  { to: "/floor/replenish", title: "Replenish", body: "Move remaining qty from bulk onto a pick face below min.", verb: "replenish" },
-  { to: "/floor/pick", title: "Pick", body: "Go to the suggested bay, open a pick map, pick remaining qty, or unpick / cancel.", verb: "pick" },
-  { to: "/floor/wave", title: "Wave", body: "Scan a WAV- wave; batch-pick aggregated SKUs when mode is batch." },
-  { to: "/floor/pack", title: "Pack", body: "Pack remaining qty, print a pack slip, close the box.", verb: "pack" },
-  { to: "/floor/ship", title: "Ship", body: "Buy a label, close the order, fulfill Shopify.", verb: "ship" },
-  { to: "/floor/return", title: "Return", body: "Receive an RMA: restock, scrap, or hold at the dock.", verb: "return" },
-  { to: "/floor/rtv", title: "Vendor return", body: "Ship remaining qty back to the vendor from a bay.", verb: "rtv" },
-  { to: "/floor/count", title: "Count", body: "Blind-count a bay. System qty stays hidden until you post.", verb: "count" },
-  { to: "/floor/hold", title: "Hold", body: "Lock a bay, SKU, or lot so pick and replenish skip it.", verb: "hold" },
-  { to: "/floor/assemble", title: "Assemble", body: "Complete a work order on the bench.", verb: "assemble" },
-  { to: "/floor/kit", title: "Kit", body: "Build a finished SKU from its recipe in one step.", verb: "kit" },
+const verbs: { to: string; title: string; body: string; verb?: FloorVerb; icon: ComponentType<{ className?: string }> }[] = [
+  { to: "/floor/lookup", title: "Lookup", body: "Scan a SKU, bay, document, serial, or lot.", icon: Search },
+  { to: "/floor/print", title: "Print", body: "Print a bay, SKU, pack slip, or shipping label.", icon: Printer },
+  { to: "/floor/receive", title: "Receive", body: "Post a receipt or purchase onto the dock, including partials.", verb: "receive", icon: Truck },
+  { to: "/floor/asn", title: "ASN", body: "Scan an ASN- notice and receive onto the dock.", icon: Package },
+  { to: "/floor/yard", title: "Yard", body: "Scan a YRD- visit to check in, dock, or check out.", icon: Warehouse },
+  { to: "/floor/checkout", title: "Check out", body: "Scan a truck, inspect it, bind a shift or ticket.", icon: Forklift },
+  { to: "/floor/putaway", title: "Put away", body: "Post remaining on a putaway ticket, or scan the dock to a bulk bay.", verb: "putaway", icon: Repeat },
+  { to: "/floor/replenish", title: "Replenish", body: "Move remaining qty from bulk onto a pick face below min.", verb: "replenish", icon: ArrowDownToLine },
+  { to: "/floor/pick", title: "Pick", body: "Go to the suggested bay, open a pick map, pick remaining qty, or unpick / cancel.", verb: "pick", icon: ClipboardList },
+  { to: "/floor/wave", title: "Wave", body: "Scan a WAV- wave; batch-pick aggregated SKUs when mode is batch.", icon: Layers },
+  { to: "/floor/pack", title: "Pack", body: "Pack remaining qty, print a pack slip, close the box.", verb: "pack", icon: Box },
+  { to: "/floor/ship", title: "Ship", body: "Buy a label, close the order, fulfill Shopify.", verb: "ship", icon: Send },
+  { to: "/floor/return", title: "Return", body: "Receive an RMA: restock, scrap, or hold at the dock.", verb: "return", icon: Undo2 },
+  { to: "/floor/rtv", title: "Vendor return", body: "Ship remaining qty back to the vendor from a bay.", verb: "rtv", icon: ArrowUpFromLine },
+  { to: "/floor/count", title: "Count", body: "Blind-count a bay. System qty stays hidden until you post.", verb: "count", icon: Calculator },
+  { to: "/floor/hold", title: "Hold", body: "Lock a bay, SKU, or lot so pick and replenish skip it.", verb: "hold", icon: ShieldAlert },
+  { to: "/floor/assemble", title: "Assemble", body: "Complete a work order on the bench.", verb: "assemble", icon: Hammer },
+  { to: "/floor/kit", title: "Kit", body: "Build a finished SKU from its recipe in one step.", verb: "kit", icon: Factory },
 ];
 
 export function FloorLauncherPage() {
@@ -38,7 +60,9 @@ export function FloorLauncherPage() {
   const allowed = new Set(me.floorVerbs ?? []);
   const items = [
     ...verbs.filter((item) => !item.verb || allowed.has(item.verb) || me.role === "owner"),
-    ...(me.role === "owner" ? [{ to: "/floor/adjust", title: "Adjust", body: "Signed qty change with a reason." }] : []),
+    ...(me.role === "owner"
+      ? [{ to: "/floor/adjust", title: "Adjust", body: "Signed qty change with a reason.", icon: SlidersHorizontal }]
+      : []),
   ];
 
   useEffect(() => {
@@ -68,7 +92,7 @@ export function FloorLauncherPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <PageHeader
         eyebrow="Floor"
         title="What are you doing?"
@@ -80,52 +104,55 @@ export function FloorLauncherPage() {
         <button
           type="button"
           onClick={() => void startNext()}
-          className="w-full rounded-2xl border border-primary/40 bg-card p-6 text-left shadow-xs transition hover:border-primary"
+          className="flex w-full items-center justify-between gap-3 rounded-md border border-primary/40 bg-card px-3 py-2 text-left hover:border-primary"
         >
-          <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">Next job</p>
-          <p className="mt-2 text-3xl font-semibold">
-            {isFloorVerb(next.verb) ? VERB_LABELS[next.verb] : next.verb}
-            {next.number ? ` · ${next.number}` : ""}
-          </p>
-          <p className="mt-1 text-muted-foreground">{next.title || "Open work"}</p>
-          <p className="mt-3 font-mono text-sm">
-            {[next.fromCode, next.toCode].filter(Boolean).join(" → ") || "No bay yet"}
-            {next.qty != null ? ` · ${next.qty}` : ""}
-          </p>
-          <p className="mt-2 text-sm font-medium">{next.reason || "Oldest open work"}</p>
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Next job · claim</p>
+            <p className="truncate text-sm font-semibold">
+              {isFloorVerb(next.verb) ? VERB_LABELS[next.verb] : next.verb}
+              {next.number ? ` · ${next.number}` : ""}
+              <span className="ml-2 font-mono font-normal text-muted-foreground">
+                {[next.fromCode, next.toCode].filter(Boolean).join(" → ") || "No bay yet"}
+                {next.qty != null ? ` · ${next.qty}` : ""}
+              </span>
+            </p>
+            <p className="truncate text-xs text-muted-foreground">{next.reason || next.title || "Open work"}</p>
+          </div>
+          <ScanLine className="size-4 shrink-0 text-primary" />
         </button>
       ) : (
-        <div className="rounded-2xl border border-dashed p-6 text-sm text-muted-foreground">
+        <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
           Nothing ranked for you right now. Unassigned jobs stay on the verb screens.
         </div>
       )}
       {mine.length ? (
         <div>
-          <p className="mb-3 font-medium">My jobs</p>
-          <ul className="space-y-2 text-sm">
+          <p className="mb-1 text-xs font-medium">My jobs</p>
+          <ul className="divide-y rounded-md border bg-card text-sm">
             {mine.map((job) => (
               <li key={job.id}>
-                <Link className="block rounded-xl border bg-card px-4 py-3 hover:border-primary/40" to={job.floorPath}>
-                  <span className="font-medium">{isFloorVerb(job.verb) ? VERB_LABELS[job.verb] : job.verb}</span>{" "}
-                  <span className="font-mono">{job.number}</span>
-                  <span className="mt-0.5 block text-muted-foreground">
-                    {job.reason || job.title || "Assigned to you"}
+                <Link className="flex items-center justify-between gap-2 px-3 py-1.5 hover:bg-muted/60" to={job.floorPath}>
+                  <span>
+                    <span className="font-medium">{isFloorVerb(job.verb) ? VERB_LABELS[job.verb] : job.verb}</span>{" "}
+                    <span className="font-mono">{job.number}</span>
                   </span>
+                  <span className="truncate text-xs text-muted-foreground">{job.reason || job.title || "Assigned to you"}</span>
                 </Link>
               </li>
             ))}
           </ul>
         </div>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
         {items.map((item) => (
           <Link
             key={item.to}
             to={item.to}
-            className="rounded-2xl border bg-card p-5 shadow-xs transition hover:border-primary/40"
+            title={item.body}
+            className="flex items-center gap-2 rounded-md border bg-card px-2.5 py-2 text-sm font-medium hover:border-primary/40"
           >
-            <p className="text-xl font-semibold">{item.title}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{item.body}</p>
+            <item.icon className="size-4 shrink-0 text-muted-foreground" />
+            {item.title}
           </Link>
         ))}
       </div>

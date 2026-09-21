@@ -91,7 +91,7 @@ function TransferList() {
       />
       <ErrorBanner error={error} />
       {creating ? (
-        <Card className="mb-6">
+        <Card className="mb-3">
           <form className="space-y-4" onSubmit={onSubmit(create)}>
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="From">
@@ -124,14 +124,14 @@ function TransferList() {
       <Table columns={["Number", "From", "To", "To WH", "Lines", "Status"]}>
         {inWarehouse(transfers, warehouseId).map((transfer) => (
           <tr key={transfer.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/inbound/putaway/${transfer.id}`}>
                 {transfer.number}
               </Link>
             </td>
-            <td className="px-4 py-3 font-mono">{transfer.fromCode}</td>
-            <td className="px-4 py-3 font-mono">{transfer.toCode}</td>
-            <td className="px-4 py-3 text-sm text-muted-foreground">
+            <td className="px-2.5 py-1.5 font-mono">{transfer.fromCode}</td>
+            <td className="px-2.5 py-1.5 font-mono">{transfer.toCode}</td>
+            <td className="px-2.5 py-1.5 text-sm text-muted-foreground">
               {(() => {
                 if (transfer.toWarehouseId) return warehouseName(transfer.toWarehouseId);
                 const toLoc = locations.find((row) => row.id === transfer.toLocationId);
@@ -141,8 +141,8 @@ function TransferList() {
                 return "—";
               })()}
             </td>
-            <td className="px-4 py-3 text-sm">{summarizeLines(transfer.lines)}</td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5 text-sm">{summarizeLines(transfer.lines)}</td>
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={transfer.status} />
             </td>
           </tr>
@@ -214,7 +214,7 @@ function TransferDetail({ id }: { id: string }) {
   const toWh = toWhId ? warehouses.find((row) => row.id === toWhId)?.name ?? toLoc?.warehouseName ?? toWhId : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Putaway"
         title={transfer.number}
@@ -252,11 +252,11 @@ function TransferDetail({ id }: { id: string }) {
         <Table columns={["SKU", "Item", "Expected", "Moved", "This move"]}>
           {(transfer.lines ?? []).map((line) => (
             <tr key={line.id}>
-              <td className="px-4 py-3 font-mono">{line.sku}</td>
-              <td className="px-4 py-3">{line.itemName}</td>
-              <td className="px-4 py-3 font-mono">{line.qty}</td>
-              <td className="px-4 py-3 font-mono">{line.qtyMoved ?? 0}</td>
-              <td className="px-4 py-3">
+              <td className="px-2.5 py-1.5 font-mono">{line.sku}</td>
+              <td className="px-2.5 py-1.5">{line.itemName}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qty}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qtyMoved ?? 0}</td>
+              <td className="px-2.5 py-1.5">
                 {(line.remaining ?? 0) > 0 ? (
                   <Input
                     type="number"

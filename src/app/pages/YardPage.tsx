@@ -59,7 +59,7 @@ function YardList() {
       />
       <ErrorBanner error={error} />
       {creating ? (
-        <Card className="mb-6">
+        <Card className="mb-3">
           <form className="space-y-4" onSubmit={onSubmit(create)}>
             <Field label="Carrier">
               <Input value={carrierName} onChange={(e) => setCarrierName(e.target.value)} required placeholder="Swift Freight" />
@@ -77,14 +77,14 @@ function YardList() {
       <Table columns={["Number", "Carrier", "Trailer", "Status"]}>
         {inWarehouse(visits, warehouseId).map((visit) => (
           <tr key={visit.id}>
-            <td className="px-4 py-3 font-mono">
+            <td className="px-2.5 py-1.5 font-mono">
               <Link className="hover:underline" to={`/inbound/yard/${visit.id}`}>
                 {visit.number}
               </Link>
             </td>
-            <td className="px-4 py-3">{visit.carrierName}</td>
-            <td className="px-4 py-3 font-mono">{visit.trailerNumber || "—"}</td>
-            <td className="px-4 py-3">
+            <td className="px-2.5 py-1.5">{visit.carrierName}</td>
+            <td className="px-2.5 py-1.5 font-mono">{visit.trailerNumber || "—"}</td>
+            <td className="px-2.5 py-1.5">
               <StatusBadge status={visit.status} />
             </td>
           </tr>
@@ -166,7 +166,7 @@ function YardDetail({ id }: { id: string }) {
   const dock = locations.find((row) => row.id === (visit.dockLocationId || dockLocationId));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <DocumentHeader
         eyebrow="Inbound"
         title={visit.number}
