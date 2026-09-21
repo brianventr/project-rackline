@@ -8,6 +8,7 @@ import { canRelabelException } from "@/domain/tracker";
 import { hasUnpicked } from "@/domain/partial-pick";
 import { hasUnpacked } from "@/domain/partial-pack";
 import { canShipLabeledCarton, canUncartonOrderPackage } from "@/domain/cartons";
+import { planShortShip } from "@/domain/short-ship";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { LineFields } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
@@ -276,6 +277,19 @@ function OrderDetail({ id }: { id: string }) {
     }
   }
 
+  async function shortShip() {
+    setError(null);
+    try {
+      const next = await api<Order>(`/api/orders/${id}/short-ship`, { method: "POST" });
+      setOrder(next);
+      setQtys(qtyDefaults(next));
+      setPackQtys(packQtyDefaults(next));
+      setUnpickQtys(unpickQtyDefaults(next));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Short ship failed");
+    }
+  }
+
   async function cancel() {
     setError(null);
     try {
@@ -375,13 +389,31 @@ function OrderDetail({ id }: { id: string }) {
   const unpickable = (order.lines ?? []).some((line) => (line.unpickRemaining ?? 0) > 0);
   const packages = order.packages ?? [];
   const hasPackages = packages.length > 0;
+  const shippedCarton = packages.some((pkg) => pkg.shippedAt);
+  const shortShipOk = planShortShip({
+    status: order.status,
+    lines: (order.lines ?? []).map((line) => ({
+      lineId: line.id,
+      itemId: line.itemId,
+      sku: line.sku,
+      qty: line.qty,
+      qtyPicked: line.qtyPicked ?? 0,
+      qtyPacked: line.qtyPacked ?? 0,
+    })),
+    packages: packages.map((pkg) => ({
+      id: pkg.id,
+      shippedAt: pkg.shippedAt,
+      lines: (pkg.lines ?? []).map((line) => ({ orderLineId: line.orderLineId, qty: line.qty })),
+    })),
+  }).ok;
   const showWorkflow =
     (canStartPick(order.status) && remaining) ||
     (canPickOrder(order.status) && remaining) ||
     (canPackOrder(order.status) && unpacked) ||
     (canUnpickOrder(order.status) && unpickable) ||
-    canCancelOrder(order.status) ||
-    canShipOrder(order.status);
+    (canCancelOrder(order.status) && !shippedCarton) ||
+    canShipOrder(order.status) ||
+    shortShipOk;
 
   return (
     <div className="space-y-3">
@@ -448,10 +480,13 @@ function OrderDetail({ id }: { id: string }) {
                     Unpick
                   </Button>
                 ) : null}
-                {canCancelOrder(order.status) ? (
+                {canCancelOrder(order.status) && !shippedCarton ? (
                   <Button variant="secondary" onClick={() => void cancel()}>
                     Cancel
                   </Button>
+                ) : null}
+                {shortShipOk ? (
+                  <Button onClick={() => void shortShip()}>Short ship</Button>
                 ) : null}
                 {canShipOrder(order.status) ? (
                   <Button onClick={() => void ship()}>{order.source === "shopify" ? "Ship & fulfill" : "Ship"}</Button>
@@ -478,6 +513,24 @@ function OrderDetail({ id }: { id: string }) {
               {order.source === "shopify" ? (
                 <DocumentFact label="Shopify">
                   <StatusBadge status={order.shopifySyncStatus || "inbound"} />
+                </DocumentFact>
+              ) : null}
+              {order.parent ? (
+                <DocumentFact label="Backorder of">
+                  <Link className="underline" to={`/outbound/orders/${order.parent.id}`}>
+                    {order.parent.number}
+                  </Link>
+                </DocumentFact>
+              ) : null}
+              {(order.backorders ?? []).length > 0 ? (
+                <DocumentFact label="Backorder">
+                  <span className="flex flex-col items-end gap-1">
+                    {(order.backorders ?? []).map((row) => (
+                      <Link key={row.id} className="underline" to={`/outbound/orders/${row.id}`}>
+                        {row.number}
+                      </Link>
+                    ))}
+                  </span>
                 </DocumentFact>
               ) : null}
               {order.shopifySyncError ? <p className="text-sm text-destructive">{order.shopifySyncError}</p> : null}
@@ -736,7 +789,7 @@ function OrderDetail({ id }: { id: string }) {
           selectedLocationId={pickLocation}
           onSelectLocation={setPickLocation}
         />
-        <Table columns={["SKU", "Item", "Ordered", "Picked", "Packed", "Allocated", "Bay", "This pick", "This pack", "This unpick", "Lot / serial"]}>
+        <Table columns={["SKU", "Item", "Ordered", "Picked", "Packed", "Shipped", "Allocated", "Bay", "This pick", "This pack", "This unpick", "Lot / serial"]}>
           {(order.lines ?? []).map((line) => (
             <tr key={line.id}>
               <td className="px-2.5 py-1.5 font-mono">{line.sku}</td>
@@ -744,6 +797,7 @@ function OrderDetail({ id }: { id: string }) {
               <td className="px-2.5 py-1.5 font-mono">{line.qty}</td>
               <td className="px-2.5 py-1.5 font-mono">{line.qtyPicked ?? 0}</td>
               <td className="px-2.5 py-1.5 font-mono">{line.qtyPacked ?? 0}</td>
+              <td className="px-2.5 py-1.5 font-mono">{line.qtyShipped ?? 0}</td>
               <td className="px-2.5 py-1.5 font-mono text-sm">
                 {(line.allocations ?? []).length
                   ? (line.allocations ?? []).map((row) => `${row.locationCode} ×${row.qty}`).join(", ")

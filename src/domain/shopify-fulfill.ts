@@ -211,6 +211,18 @@ function orderCompleteAfterPackages(orderStatus: string, packages: OrderPackageR
   return shipped.every((row) => Boolean(row.shopifyFulfillmentId));
 }
 
+async function loadShopifyChannel(db: AppDb, organizationId: string, order: OrderWithLines): Promise<OrderWithLines> {
+  let current = order;
+  const seen = new Set<string>();
+  while (!current.shopifyOrderGid && !current.shopifyFulfillmentOrderId && current.parentOrderId && !seen.has(current.id)) {
+    seen.add(current.id);
+    const parent = await loadOrderWithLines(db, organizationId, current.parentOrderId);
+    if (!parent) break;
+    current = parent;
+  }
+  return current;
+}
+
 export async function fulfillShopifyOrder(
   db: AppDb,
   organizationId: string,
@@ -219,7 +231,8 @@ export async function fulfillShopifyOrder(
 ): Promise<ShopifyFulfillResult> {
   const order = await loadOrderWithLines(db, organizationId, orderId);
   if (!order) return { status: "skipped", error: "Order not found" };
-  if (order.source !== "shopify") return { status: "skipped" };
+  const channel = await loadShopifyChannel(db, organizationId, order);
+  if (order.source !== "shopify" && channel.source !== "shopify") return { status: "skipped" };
 
   const packages = (await loadPackagesForOrders(db, [order.id])).get(order.id) ?? [];
   const target = options?.packageId ? packages.find((row) => row.id === options.packageId) : null;
@@ -250,9 +263,9 @@ export async function fulfillShopifyOrder(
     return { status: "failed", error: "Shopify is not connected" };
   }
 
-  const resolved = await resolveFulfillmentOrder(db, organizationId, order, connection);
+  const resolved = await resolveFulfillmentOrder(db, organizationId, channel, connection);
   if (resolved.error) return { status: "failed", error: resolved.error };
-  const fulfillmentOrderId = resolved.fulfillmentOrderId || demoFulfillmentOrderId(order.shopifyOrderId || order.id);
+  const fulfillmentOrderId = resolved.fulfillmentOrderId || demoFulfillmentOrderId(channel.shopifyOrderId || order.shopifyOrderId || channel.id);
 
   if (target) {
     const lineItems = fulfillmentLineItemsForPackage(order.lines, target.lines);

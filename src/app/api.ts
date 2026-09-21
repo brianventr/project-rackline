@@ -388,6 +388,9 @@ export type Order = {
   packedAt?: number | null;
   waveId?: string | null;
   clientId?: string | null;
+  parentOrderId?: string | null;
+  parent?: { id: string; number: string } | null;
+  backorders?: { id: string; number: string; status: string }[];
   allocatedUnits?: number;
   allocations?: OrderAllocation[];
   packages?: OrderPackage[];

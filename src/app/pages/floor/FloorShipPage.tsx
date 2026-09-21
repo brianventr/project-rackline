@@ -14,6 +14,7 @@ import { DocumentActionGrid } from "../../components/document";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { canShipOrder, canShipCartonOrder } from "@/domain/status";
 import { canShipLabeledCarton, cartonShipGate, hasShippableCarton } from "@/domain/cartons";
+import { planShortShip } from "@/domain/short-ship";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 
@@ -119,12 +120,48 @@ export function FloorShipPage() {
     }
   }
 
+  async function shortShip() {
+    if (!active) return;
+    setError(null);
+    try {
+      const shipped = await api<Order>(`/api/orders/${active.id}/short-ship`, { method: "POST" });
+      const child = shipped.backorders?.[0];
+      setActive(shipped);
+      setDone(
+        child
+          ? `${shipped.number} short-shipped. ${child.number} holds the remainder.`
+          : `${shipped.number} short-shipped.`,
+      );
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Short ship failed");
+    }
+  }
+
   const serviceOptions = services.length
     ? services
     : [{ id: "rackline_ground", company: "Rackline", service: "Ground", connectionId: null, provider: "rackline" }];
+  const shortShipOk = active
+    ? planShortShip({
+        status: active.status,
+        lines: (active.lines ?? []).map((line) => ({
+          lineId: line.id,
+          itemId: line.itemId,
+          sku: line.sku,
+          qty: line.qty,
+          qtyPicked: line.qtyPicked ?? 0,
+          qtyPacked: line.qtyPacked ?? 0,
+        })),
+        packages: (active.packages ?? []).map((pkg) => ({
+          id: pkg.id,
+          shippedAt: pkg.shippedAt,
+          lines: (pkg.lines ?? []).map((line) => ({ orderLineId: line.orderLineId, qty: line.qty })),
+        })),
+      }).ok
+    : false;
 
   return (
-    <FloorFrame title="Ship" description="Scan a packing or packed order, ship one labeled carton, or close the ticket when every packed unit is in a shipped box." error={error}>
+    <FloorFrame title="Ship" description="Scan a packing or packed order, ship one labeled carton, or short-ship once a carton has left." error={error}>
       <FloorScanBox label="Scan packing or packed order" placeholder="ORD-…" onScan={onScan} />
       {done ? <p className="text-sm text-emerald-700">{done}</p> : null}
       {!active ? (
@@ -425,9 +462,16 @@ export function FloorShipPage() {
                       ? "Ship remaining cartons"
                       : "Ship"}
                 </Button>
+              ) : shortShipOk ? (
+                <p className="text-sm text-muted-foreground">Ship a labeled carton. Short ship closes the ticket and returns the rest to the bay.</p>
               ) : (
                 <p className="text-sm text-muted-foreground">Ship a labeled carton. The ticket stays open until every packed unit is in a shipped box.</p>
               )}
+              {shortShipOk ? (
+                <Button className="w-full" variant="secondary" onClick={() => void shortShip()}>
+                  Short ship
+                </Button>
+              ) : null}
             </div>
           )}
         </Card>

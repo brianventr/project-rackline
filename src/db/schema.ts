@@ -293,10 +293,12 @@ export const orders = sqliteTable(
     postageCents: integer("postage_cents"),
     trackerStatus: text("tracker_status"),
     trackerUpdatedAt: integer("tracker_updated_at"),
+    parentOrderId: text("parent_order_id"),
   },
   (t) => [
     uniqueIndex("shopify_orders_org_order").on(t.organizationId, t.shopifyOrderId),
     index("orders_org_status_shipped").on(t.organizationId, t.status, t.shippedAt),
+    index("orders_parent").on(t.parentOrderId),
   ],
 );
 

@@ -224,11 +224,29 @@ export async function cancelShopifyDraft(
     orderId: order.id,
     createdBy: member?.userId ?? order.id,
   }).then(async (ok) => {
+    const children = await db
+      .select({ id: schema.orders.id })
+      .from(schema.orders)
+      .where(and(eq(schema.orders.organizationId, organizationId), eq(schema.orders.parentOrderId, order.id)));
+    let childCancelled = false;
+    for (const child of children) {
+      const cancelledChild = await cancelOrderDocument(db, {
+        organizationId,
+        orderId: child.id,
+        createdBy: member?.userId ?? order.id,
+      });
+      if (!cancelledChild) continue;
+      childCancelled = true;
+      const [nextChild] = await db.select().from(schema.orders).where(eq(schema.orders.id, child.id)).limit(1);
+      if (nextChild) await syncDocumentJob(db, orderJobInput(nextChild));
+    }
     if (ok) {
       const [next] = await db.select().from(schema.orders).where(eq(schema.orders.id, order.id)).limit(1);
       if (next) await syncDocumentJob(db, orderJobInput(next));
       await scheduleShopifySellableSync(db, organizationId);
+    } else if (childCancelled) {
+      await scheduleShopifySellableSync(db, organizationId);
     }
-    return ok;
+    return ok || childCancelled;
   });
 }

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, optionalInt, requireInt, requireString } from "../lib/http";
@@ -80,6 +80,7 @@ import { OverUnpickError } from "../domain/partial-unpick";
 import { resolveLineStockQty, UomConversionError } from "../domain/uom";
 import { orderJobInput, guardFloorJob, syncDocumentJob } from "../db/jobs";
 import { desiredVerb } from "../domain/jobs";
+import { backorderNumber, planShortShip, shopifyBackorderFields } from "../domain/short-ship";
 
 export const ordersRoute = new Hono<AppEnv>();
 
@@ -250,8 +251,23 @@ async function orderWithLines(
     : lines.map(withRemaining);
   const packagesByOrder = await loadPackagesForOrders(db, [order.id]);
   const packages = packagesByOrder.get(order.id) ?? [];
+  let parent: { id: string; number: string } | null = null;
+  if (order.parentOrderId) {
+    const [row] = await db
+      .select({ id: schema.orders.id, number: schema.orders.number })
+      .from(schema.orders)
+      .where(and(eq(schema.orders.id, order.parentOrderId), eq(schema.orders.organizationId, organizationId)))
+      .limit(1);
+    parent = row ?? null;
+  }
+  const backorders = await db
+    .select({ id: schema.orders.id, number: schema.orders.number, status: schema.orders.status })
+    .from(schema.orders)
+    .where(and(eq(schema.orders.organizationId, organizationId), eq(schema.orders.parentOrderId, order.id)));
   return {
     ...order,
+    parent,
+    backorders,
     allocatedUnits: allocatedUnits(allocations),
     allocations,
     packages,
@@ -2037,12 +2053,165 @@ ordersRoute.post("/orders/:id/unpick", async (c) => {
   return c.json(unpicked);
 });
 
+ordersRoute.post("/orders/:id/short-ship", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const user = c.get("user")!;
+  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
+  const plan = planShortShip({
+    status: order.status,
+    lines: order.lines.map((line) => ({
+      lineId: line.id,
+      itemId: line.itemId,
+      sku: line.sku,
+      qty: line.qty,
+      qtyPicked: line.qtyPicked,
+      qtyPacked: line.qtyPacked ?? 0,
+    })),
+    packages: order.packages.map((pkg) => ({
+      id: pkg.id,
+      shippedAt: pkg.shippedAt,
+      lines: pkg.lines.map((line) => ({ orderLineId: line.orderLineId, qty: line.qty })),
+    })),
+  });
+  if (!plan.ok) conflict(plan.error, plan.code);
+
+  for (const packageId of plan.dropPackageIds) {
+    const pkg = order.packages.find((row) => row.id === packageId);
+    if (!pkg || pkg.labelStatus !== "purchased") continue;
+    await tryVoidOldAggregatorLabel(db, organizationId, {
+      orderId: order.id,
+      connectionId: pkg.carrierConnectionId,
+      carrierShipmentId: pkg.carrierShipmentId,
+      carrierLabelId: pkg.carrierLabelId,
+      trackingNumber: pkg.trackingNumber,
+      carrierService: pkg.carrierService,
+      packageId: pkg.id,
+    });
+  }
+
+  const now = Date.now();
+  const kept = order.packages.filter((pkg) => !plan.dropPackageIds.includes(pkg.id));
+  const trackingPatch = orderPatchFromPackages(kept) ?? emptyOrderPackagePatch();
+  const taken = await db
+    .select({ number: schema.orders.number })
+    .from(schema.orders)
+    .where(and(eq(schema.orders.organizationId, organizationId), like(schema.orders.number, `${order.number}-BO%`)));
+  const backorderId = newId();
+  const number = backorderNumber(
+    order.number,
+    taken.map((row) => row.number),
+  );
+  const channel = shopifyBackorderFields(order);
+  const dropStatements =
+    plan.dropPackageIds.length > 0
+      ? [
+          db.delete(schema.orderPackageLines).where(inArray(schema.orderPackageLines.packageId, plan.dropPackageIds)),
+          db.delete(schema.orderPackages).where(inArray(schema.orderPackages.id, plan.dropPackageIds)),
+        ]
+      : [];
+  const closeOrder = db
+    .update(schema.orders)
+    .set({
+      status: "shipped",
+      shippedAt: order.shippedAt ?? now,
+      ...trackingPatch,
+    })
+    .where(eq(schema.orders.id, order.id));
+  const childOrder = db.insert(schema.orders).values({
+    id: backorderId,
+    organizationId,
+    warehouseId: order.warehouseId,
+    number,
+    customerName: order.customerName,
+    status: "open",
+    createdAt: now,
+    source: channel.source,
+    shopifyOrderGid: channel.shopifyOrderGid,
+    shopifyOrderName: channel.shopifyOrderName,
+    shopifyFulfillmentOrderId: channel.shopifyFulfillmentOrderId,
+    shopifyShopDomain: channel.shopifyShopDomain,
+    shopifySyncStatus: channel.shopifySyncStatus,
+    shipToAddress: order.shipToAddress,
+    shipToCity: order.shipToCity,
+    shipToRegion: order.shipToRegion,
+    shipToCountry: order.shipToCountry,
+    shipToLat: order.shipToLat,
+    shipToLng: order.shipToLng,
+    clientId: order.clientId,
+    carrierService: order.carrierService,
+    parentOrderId: order.id,
+  });
+  const childLines = plan.remainder.map((row) => {
+    const parentLine = order.lines.find((line) => line.id === row.lineId);
+    return db.insert(schema.orderLines).values({
+      id: newId(),
+      orderId: backorderId,
+      itemId: row.itemId,
+      qty: row.qty,
+      qtyPicked: 0,
+      qtyPacked: 0,
+      shopifyLineItemId: parentLine?.shopifyLineItemId ?? null,
+      shopifyFulfillmentLineItemId: parentLine?.shopifyFulfillmentLineItemId ?? null,
+    });
+  });
+  const extra = [...dropStatements, closeOrder, ...releaseAllocationStatements(db, order.id, now), childOrder, ...childLines];
+
+  if (plan.unpick.length > 0) {
+    try {
+      await persistUnpick({
+        db,
+        organizationId,
+        createdBy: user.id,
+        warehouseId: order.warehouseId,
+        orderId: order.id,
+        pickLocationId: order.pickLocationId,
+        lines: order.lines.map((line) => ({
+          id: line.id,
+          itemId: line.itemId,
+          sku: line.sku,
+          qty: line.qty,
+          qtyPicked: line.qtyPicked,
+          qtyPacked: line.qtyPacked ?? 0,
+        })),
+        incoming: plan.unpick,
+        includePacked: true,
+        restoreAllocations: false,
+        skipStatusUpdate: true,
+        extra,
+      });
+    } catch (err) {
+      if (err instanceof OverUnpickError) throw err;
+      badRequest(err instanceof Error ? err.message : "Could not return unshipped qty");
+    }
+  } else {
+    await db.batch(extra as [typeof closeOrder, ...(typeof closeOrder)[]]);
+  }
+
+  if (order.source === "shopify") {
+    await fulfillShopifyOrder(db, organizationId, order.id);
+  }
+  const shipped = await orderWithLines(db, organizationId, order.id);
+  const backorder = await orderWithLines(db, organizationId, backorderId);
+  await syncDocumentJob(db, orderJobInput(shipped));
+  await syncDocumentJob(db, orderJobInput(backorder));
+  await scheduleShopifySellableSync(
+    db,
+    organizationId,
+    order.lines.map((line) => line.itemId),
+  );
+  return c.json(shipped);
+});
+
 ordersRoute.post("/orders/:id/cancel", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
   const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
   if (!canCancelOrder(order.status)) conflict("Order cannot be cancelled");
+  if (order.packages.some((pkg) => pkg.shippedAt)) {
+    conflict("Shipped cartons stay out. Short-ship the remainder.", "SHIPPED");
+  }
   const cancelled = await cancelOrderDocument(db, {
     organizationId,
     orderId: order.id,
