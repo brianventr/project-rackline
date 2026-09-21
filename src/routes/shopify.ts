@@ -36,6 +36,13 @@ import {
   syncShopifySellable,
 } from "../db/shopify-sellable";
 import { demoShopifyLocationGid } from "../domain/shopify-sellable";
+import {
+  assertOauthShop,
+  shopifyAuthorizeUrl,
+  signOAuthState,
+  verifyOAuthState,
+  verifyShopifyOAuthHmac,
+} from "../domain/shopify-oauth";
 
 export const shopifyPublicRoute = new Hono<AppEnv>();
 export const shopifyRoute = new Hono<AppEnv>();
@@ -208,6 +215,100 @@ shopifyPublicRoute.post("/shopify/webhooks", (c) => handleSignedBody(c, "webhook
 shopifyPublicRoute.post("/shopify/fulfillment_order_notification", (c) =>
   handleSignedBody(c, "notification"),
 );
+
+function installRedirect(origin: string, query: string): string {
+  return `${origin}/setup/shopify?${query}`;
+}
+
+shopifyPublicRoute.get("/shopify/oauth/callback", async (c) => {
+  const origin = originFrom(c.req.url);
+  const params = new URL(c.req.url).searchParams;
+  const apiKey = c.env.SHOPIFY_API_KEY?.trim();
+  const apiSecret = c.env.SHOPIFY_API_SECRET?.trim();
+  if (!apiKey || !apiSecret) return c.redirect(installRedirect(origin, "error=missing_app"));
+  if (!(await verifyShopifyOAuthHmac(params, apiSecret))) return c.redirect(installRedirect(origin, "error=hmac"));
+  const code = params.get("code")?.trim();
+  const shopParam = params.get("shop")?.trim();
+  const stateToken = params.get("state")?.trim();
+  if (!code || !shopParam || !stateToken) return c.redirect(installRedirect(origin, "error=state"));
+  let state;
+  try {
+    state = await verifyOAuthState(c.env.BETTER_AUTH_SECRET, stateToken);
+    if (assertOauthShop(shopParam) !== state.shop) return c.redirect(installRedirect(origin, "error=shop"));
+  } catch {
+    return c.redirect(installRedirect(origin, "error=state"));
+  }
+  const shop = state.shop;
+  const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ client_id: apiKey, client_secret: apiSecret, code }),
+  });
+  const tokenBody = (await tokenRes.json().catch(() => ({}))) as { access_token?: unknown };
+  const accessToken = typeof tokenBody.access_token === "string" ? tokenBody.access_token.trim() : "";
+  if (!tokenRes.ok || !accessToken) return c.redirect(installRedirect(origin, "error=token"));
+
+  const db = c.get("db");
+  const taken = await connectionByShop(db, shop);
+  if (taken && taken.organizationId !== state.organizationId) {
+    return c.redirect(installRedirect(origin, "error=shop"));
+  }
+  const existing = await connectionByOrg(db, state.organizationId);
+  const now = Date.now();
+  if (existing) {
+    await db
+      .update(schema.shopifyConnections)
+      .set({
+        shopDomain: shop,
+        accessToken,
+        webhookSecret: apiSecret,
+        mode: "live",
+        apiVersion: existing.apiVersion || SHOPIFY_API_VERSION,
+        updatedAt: now,
+      })
+      .where(eq(schema.shopifyConnections.id, existing.id));
+  } else {
+    await db.insert(schema.shopifyConnections).values({
+      id: newId(),
+      organizationId: state.organizationId,
+      shopDomain: shop,
+      accessToken,
+      webhookSecret: apiSecret,
+      apiVersion: SHOPIFY_API_VERSION,
+      shopifyLocationGid: null,
+      mode: "live",
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  return c.redirect(installRedirect(origin, "installed=1"));
+});
+
+shopifyRoute.get("/shopify/oauth/start", async (c) => {
+  requireOwner(c.get("role"));
+  const apiKey = c.env.SHOPIFY_API_KEY?.trim();
+  const apiSecret = c.env.SHOPIFY_API_SECRET?.trim();
+  if (!apiKey || !apiSecret) conflict("Shopify app credentials are not configured", "MISSING_APP");
+  let shop: string;
+  try {
+    shop = assertOauthShop(c.req.query("shop") || "");
+  } catch (err) {
+    badRequest(err instanceof Error ? err.message : "Shop domain is required");
+  }
+  const state = await signOAuthState(c.env.BETTER_AUTH_SECRET, {
+    organizationId: c.get("organizationId")!,
+    shop,
+    exp: Date.now() + 10 * 60 * 1000,
+  });
+  const url = shopifyAuthorizeUrl({
+    shop,
+    clientId: apiKey,
+    redirectUri: `${originFrom(c.req.url)}/api/shopify/oauth/callback`,
+    state,
+    scopes: REQUIRED_SCOPES,
+  });
+  return c.json({ url });
+});
 
 shopifyRoute.get("/shopify/connection", async (c) => {
   const row = await connectionByOrg(c.get("db"), c.get("organizationId")!);

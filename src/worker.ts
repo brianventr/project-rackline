@@ -307,6 +307,7 @@ app.use("/api/*", async (c, next) => {
     path === "/api/demo/seed" ||
     path === "/api/shopify/webhooks" ||
     path === "/api/shopify/fulfillment_order_notification" ||
+    path === "/api/shopify/oauth/callback" ||
     path === "/api/carriers/trackers/webhooks"
   ) {
     return next();

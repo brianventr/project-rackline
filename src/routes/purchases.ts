@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
@@ -9,6 +9,9 @@ import { postReceiveLines } from "../db/stock";
 import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError } from "../domain/partial-receive";
 import { canReceivePurchase, canStartPurchase } from "../domain/status";
 import { sendPurchaseOrder } from "../db/purchase-send";
+import { demoPurchaseMessage } from "../domain/purchase-send";
+import { isEmailAddress } from "../domain/purchase-mail";
+import { sendPurchaseEmail } from "../lib/mail";
 import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
@@ -281,6 +284,52 @@ purchasesRoute.post("/purchases/from-runway", async (c) => {
   return c.json(created, 201);
 });
 
+async function deliverPurchase(
+  c: Context<AppEnv>,
+  purchase: Awaited<ReturnType<typeof purchaseWithLines>>,
+  body: { to?: string; message?: string },
+  options: { requireEmail: boolean },
+) {
+  const toAddress = body.to?.trim() || purchase.vendorName;
+  const message =
+    body.message?.trim() ||
+    demoPurchaseMessage({
+      number: purchase.number,
+      vendorName: purchase.vendorName,
+      lines: purchase.lines,
+    });
+  const apiKey = c.env.MAIL_API_KEY?.trim();
+  const from = c.env.MAIL_FROM?.trim();
+  const mailConfigured = Boolean(apiKey && from);
+  let mode: "demo" | "sent" = "demo";
+  let providerId: string | null = null;
+  if (mailConfigured && isEmailAddress(toAddress)) {
+    try {
+      const sent = await sendPurchaseEmail({
+        apiKey: apiKey!,
+        from: from!,
+        to: toAddress,
+        subject: purchase.number,
+        text: message,
+      });
+      mode = "sent";
+      providerId = sent.id;
+    } catch (err) {
+      conflict(err instanceof Error ? err.message : "Mail failed", "MAIL_FAILED");
+    }
+  } else if (options.requireEmail && mailConfigured) {
+    conflict("Send needs a vendor email address", "MAIL_ADDRESS");
+  }
+  return sendPurchaseOrder(c.get("db"), {
+    organizationId: c.get("organizationId")!,
+    purchase,
+    to: toAddress,
+    message,
+    mode,
+    providerId,
+  });
+}
+
 purchasesRoute.post("/purchases/:id/start", async (c) => {
   const body = await c.req.json<{ to?: string; message?: string }>().catch(() => ({}) as { to?: string; message?: string });
   const db = c.get("db");
@@ -293,12 +342,7 @@ purchasesRoute.post("/purchases/:id/start", async (c) => {
     role: c.get("role")!,
     verb: "receive",
   });
-  const sent = await sendPurchaseOrder(db, {
-    organizationId,
-    purchase,
-    to: body.to,
-    message: body.message,
-  });
+  const sent = await deliverPurchase(c, purchase, body, { requireEmail: true });
   const started = await purchaseWithLines(db, organizationId, purchase.id);
   await syncDocumentJob(db, purchaseJob(started));
   return c.json({ ...started, mintedAsnId: sent.asnId });
@@ -316,12 +360,7 @@ purchasesRoute.post("/purchases/:id/send", async (c) => {
     role: c.get("role")!,
     verb: "receive",
   });
-  const sent = await sendPurchaseOrder(db, {
-    organizationId,
-    purchase,
-    to: body.to,
-    message: body.message,
-  });
+  const sent = await deliverPurchase(c, purchase, body, { requireEmail: true });
   const started = await purchaseWithLines(db, organizationId, purchase.id);
   await syncDocumentJob(db, purchaseJob(started));
   return c.json({ ...started, mintedAsnId: sent.asnId });
@@ -349,10 +388,7 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
   await getOrgLocation(db, organizationId, locationId);
 
   if (purchase.status === "draft") {
-    await sendPurchaseOrder(db, {
-      organizationId,
-      purchase,
-    });
+    await deliverPurchase(c, purchase, {}, { requireEmail: false });
     purchase = await purchaseWithLines(db, organizationId, purchase.id);
   }
 

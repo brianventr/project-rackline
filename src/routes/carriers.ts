@@ -20,7 +20,9 @@ import {
   type CarrierCredentials,
 } from "../domain/carriers";
 import { asCarrierLiveError, pingAggregator } from "../lib/carrier-client";
-import { isLiveAggregator } from "../domain/carrier-live";
+import { pingDirect } from "../lib/direct-carrier";
+import { isLiveAggregator, isLiveDirect } from "../domain/carrier-live";
+import { isDirectProvider } from "../domain/direct-carrier";
 import { normalizeTrackerStatus, parseTrackerWebhook, verifyTrackerHmac } from "../domain/tracker";
 import { loadPackagesForOrders, orderPatchFromPackages } from "../db/packages";
 
@@ -329,6 +331,23 @@ carriersRoute.post("/carriers/:id/test", async (c) => {
   if (result.ok && isLiveAggregator(existing.provider, existing.mode) && existing.apiKey) {
     try {
       result = await pingAggregator(existing.provider as "easypost" | "shipengine", existing.apiKey);
+    } catch (err) {
+      result = { ok: false, error: asCarrierLiveError(err).message };
+    }
+  } else if (
+    result.ok &&
+    isLiveDirect(existing.provider, existing.mode) &&
+    existing.apiKey &&
+    isDirectProvider(existing.provider)
+  ) {
+    try {
+      result = await pingDirect({
+        provider: existing.provider,
+        accountNumber: existing.accountNumber || "",
+        apiKey: existing.apiKey,
+        apiSecret: existing.apiSecret,
+        meterNumber: existing.meterNumber,
+      });
     } catch (err) {
       result = { ok: false, error: asCarrierLiveError(err).message };
     }

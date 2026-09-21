@@ -14,6 +14,7 @@ import { checklistForClass, equipmentBarcode } from "../domain/equipment";
 import { destPatchFromAddress, originColumns, resolveOrigin } from "../domain/geo";
 import { demoInventoryItemGid, demoShopifyLocationGid } from "../domain/shopify-sellable";
 import { syncShopifySellable } from "./shopify-sellable";
+import { rateActivity } from "../domain/billing";
 
 export const DEMO_EMAIL = "demo@northwind.makers";
 export const DEMO_PASSWORD = "rackline-demo";
@@ -635,6 +636,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
   const waveOrderB = newId();
   const crossXfrId = newId();
 
+  const demoBill = rateActivity({ storagePieces: 40, pickedUnits: 4, shippedCartons: 1 });
+
   await db.batch([
     db.insert(schema.clients).values({
       id: clientId,
@@ -864,9 +867,11 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       id: newId(),
       organizationId,
       number: "INV-DEMO1",
+      clientId,
       periodStart: now - 30 * 86_400_000,
       periodEnd: now,
-      amountCents: 500,
+      amountCents: demoBill?.amountCents ?? 0,
+      linesJson: JSON.stringify(demoBill?.lines ?? []),
       status: "draft",
       createdAt: now,
     }),

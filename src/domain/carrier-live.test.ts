@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   isLiveAggregator,
+  isLiveDirect,
+  isLivePostage,
   liveShipAddress,
   mapAggregatorService,
   pickMatchingLiveRate,
+  postagePurchaseMessage,
   resolveParcel,
   shipEngineServiceCode,
 } from "./carrier-live";
@@ -14,6 +17,13 @@ describe("live aggregator postage", () => {
     expect(isLiveAggregator("shipengine", "live")).toBe(true);
     expect(isLiveAggregator("easypost", "demo")).toBe(false);
     expect(isLiveAggregator("ups", "live")).toBe(false);
+    expect(isLiveDirect("ups", "live")).toBe(true);
+    expect(isLiveDirect("fedex", "demo")).toBe(false);
+    expect(isLivePostage("usps", "live")).toBe(true);
+    expect(isLivePostage("easypost", "live")).toBe(true);
+    expect(isLivePostage("rackline", "live")).toBe(false);
+    expect(postagePurchaseMessage({ provider: "ups" })).toBe("Postage purchased from ups.");
+    expect(postagePurchaseMessage({ replacement: true })).toContain("Live postage needs a connected carrier account");
   });
 
   it("maps aggregator service names onto Rackline service ids", () => {
