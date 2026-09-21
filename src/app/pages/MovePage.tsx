@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, type MapContent, type ScanHit, type ScanLocationHit, type Transfer, type WarehouseMapData } from "../api";
+import { api, type Asn, type AsnPackage, type MapContent, type ScanHit, type ScanLocationHit, type Transfer, type WarehouseMapData } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { WarehouseMap } from "../components/WarehouseMap";
 import { Button, Card, ErrorBanner, PageHeader, StatusBadge } from "../components/ui";
@@ -26,6 +26,7 @@ export function MovePage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [cartons, setCartons] = useState<Array<AsnPackage & { asnId: string; asnNumber: string }>>([]);
   const fromRef = useRef(from);
   fromRef.current = from;
   const toRef = useRef(to);
@@ -42,6 +43,8 @@ export function MovePage() {
   useEffect(() => {
     if (params.get("from")) void resolveSlot("from", params.get("from")!);
     else if (params.get("to")) void resolveSlot("to", params.get("to")!);
+    const carton = params.get("carton");
+    if (carton) void resolveCarton(carton);
   }, [params]);
 
   useEffect(() => {
@@ -60,12 +63,17 @@ export function MovePage() {
     setResult(null);
     try {
       const hit = await api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`);
+      if (hit.kind === "asn") {
+        await resolveAsnHit(hit);
+        return;
+      }
       if (hit.kind !== "location") {
-        setError(`${raw} is an item barcode. Scan a location / bay label.`);
+        setError(`${raw} is an item barcode. Scan a location / bay label, or a vendor BOX-/SSCC.`);
         return;
       }
       if (which === "from") {
         setFrom({ barcode: hit.location.barcode, hit });
+        await loadCartonsAt(hit.location.id);
         if (toRef.current.hit) {
           await commit(hit, toRef.current.hit);
         } else {
@@ -85,6 +93,77 @@ export function MovePage() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Barcode not recognized");
+    }
+  }
+
+  async function resolveCarton(raw: string) {
+    setError(null);
+    try {
+      const hit = await api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`);
+      if (hit.kind !== "asn") {
+        setError("Scan a vendor BOX- or SSCC to put away a carton.");
+        return;
+      }
+      await resolveAsnHit(hit);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Carton not recognized");
+    }
+  }
+
+  async function resolveAsnHit(hit: Extract<ScanHit, { kind: "asn" }>) {
+    const pkg = hit.package;
+    if (!pkg) {
+      setError("Scan a vendor BOX- / SSCC, not just the ASN.");
+      return;
+    }
+    if (!pkg.receivedAt) {
+      setError(`Receive ${pkg.number} on Floor ASN before putaway.`);
+      return;
+    }
+    if (pkg.putawayAt) {
+      setError(`${pkg.number} is already put away.`);
+      return;
+    }
+    await putawayCarton(hit.asn, pkg, toRef.current.hit);
+  }
+
+  async function putawayCarton(asn: Asn, pkg: AsnPackage, toHit?: ScanLocationHit | null) {
+    setBusy(true);
+    setError(null);
+    try {
+      const posted = await api<{
+        putaway?: { from: { code: string }; moved: { sku: string; qty: number; toCode: string }[] };
+      }>(`/api/asns/${asn.id}/packages/${pkg.id}/putaway`, {
+        method: "POST",
+        body: JSON.stringify(toHit ? { toBarcode: toHit.location.barcode } : {}),
+      });
+      const moved = posted.putaway?.moved ?? [];
+      const summary = moved.map((row) => `${row.qty} ${row.sku} → ${row.toCode}`).join(", ");
+      setResult(`Put away ${asn.number} ${pkg.number}${summary ? `: ${summary}` : ""}.`);
+      const nextMap = await api<WarehouseMapData>("/api/map");
+      setMap(nextMap);
+      setFrom({ barcode: "", hit: null });
+      setTo({ barcode: "", hit: null });
+      setCartons([]);
+      setStep("from");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Carton putaway failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadCartonsAt(locationId: string) {
+    try {
+      const asns = await api<Asn[]>("/api/asns");
+      const waiting = asns.flatMap((asn) =>
+        (asn.packages ?? [])
+          .filter((pkg) => pkg.receivedAt && !pkg.putawayAt && asn.locationId === locationId)
+          .map((pkg) => ({ ...pkg, asnId: asn.id, asnNumber: asn.number })),
+      );
+      setCartons(waiting);
+    } catch {
+      setCartons([]);
     }
   }
 
@@ -124,6 +203,7 @@ export function MovePage() {
     setFrom({ barcode: hit.location.barcode, hit });
     setTo({ barcode: "", hit: null });
     setStep(hit.contents.length ? "to" : "from");
+    await loadCartonsAt(hit.location.id);
   }
 
   async function putawayLine(fromHit: ScanLocationHit, row: MapContent) {
@@ -164,7 +244,7 @@ export function MovePage() {
       <PageHeader
         eyebrow="Floor"
         title="Put away"
-        description="Scan the bay you are leaving. For dock stock, put each SKU onto the suggested bulk bay — or scan a destination to move the whole slot."
+        description="Scan a vendor BOX-/SSCC onto a suggested bay, or scan the dock to a bulk bay. Cartons are required once a received vendor box is waiting."
         actions={
           <Button variant="secondary" onClick={scanner.openCamera}>
             Open camera
@@ -184,6 +264,33 @@ export function MovePage() {
               onPutawayLine={from.hit ? (row) => void putawayLine(from.hit!, row) : undefined}
             />
           </Card>
+          {cartons.length ? (
+            <Card>
+              <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Vendor cartons</p>
+              <ul className="mt-2 space-y-2 text-sm">
+                {cartons.map((pkg) => (
+                  <li key={pkg.id} className="flex items-start justify-between gap-3">
+                    <span>
+                      <span className="font-mono">{pkg.asnNumber} {pkg.number}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        {(pkg.lines ?? []).map((line) => `${line.sku} × ${line.qty}${line.lotCode ? ` ${line.lotCode}` : ""}`).join(", ")}
+                      </span>
+                    </span>
+                    <Button
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        void api<Asn>(`/api/asns/${pkg.asnId}`).then((asn) => putawayCarton(asn, pkg, to.hit))
+                      }
+                      className="h-8 shrink-0 px-2 text-xs"
+                    >
+                      Put away
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
           <Card className={step === "to" ? "ring-2 ring-amber" : ""}>
             <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">2. To</p>
             <SlotCard slot={to} />
@@ -206,7 +313,7 @@ export function MovePage() {
                     if (value) void resolveSlot(step, value);
                   }
                 }}
-                placeholder="A-01-01"
+                placeholder="A-01-01 or BOX-1"
                 autoComplete="off"
                 className="w-full rounded-lg border border-line bg-paper px-3 py-2.5 font-mono text-sm outline-none ring-amber/40 focus:ring-2"
               />
@@ -215,7 +322,7 @@ export function MovePage() {
               </Button>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              Gun scanners type the barcode and Enter. Camera works on Chromium. You can also tap a bay on the map.
+              Gun scanners type the barcode and Enter. Scan BOX-1 / SSCC to put away a vendor carton onto suggested bays.
             </p>
           </Card>
           <button
@@ -223,6 +330,7 @@ export function MovePage() {
             onClick={() => {
               setFrom({ barcode: "", hit: null });
               setTo({ barcode: "", hit: null });
+              setCartons([]);
               setStep("from");
               setResult(null);
               setError(null);

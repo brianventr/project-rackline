@@ -253,15 +253,15 @@ function AsnDetail({ id }: { id: string }) {
         <Card className="mb-4 space-y-3">
           <p className="font-medium">Vendor cartons</p>
           <p className="text-sm text-muted-foreground">
-            Paste JSON boxes from the vendor (no X12). Floor then receives one carton at a time. Cartons are optional
-            until the first box exists.
+            Paste JSON boxes from the vendor (no X12). Lines may include lotCode, serials, weightGrams, and expiresOn.
+            Floor then receives one carton at a time. Cartons are optional until the first box exists.
           </p>
           <textarea
             value={paste}
             onChange={(e) => setPaste(e.target.value)}
             rows={4}
             className="border-input w-full rounded-md border bg-transparent px-3 py-2 font-mono text-xs shadow-xs outline-none"
-            placeholder='[{"sscc":"00012345678901234567","lines":[{"sku":"LED-BULB","qty":10}]}]'
+            placeholder='[{"sscc":"00012345678901234567","lines":[{"sku":"LED-BULB","qty":10,"lotCode":"LOT-2026-A"}]}]'
           />
           <Button variant="secondary" disabled={!paste.trim()} onClick={() => void pasteCartons()}>
             Paste vendor cartons
@@ -275,13 +275,20 @@ function AsnDetail({ id }: { id: string }) {
                     {pkg.sscc ? <span className="text-muted-foreground"> · {pkg.sscc}</span> : null}
                     <span className="text-muted-foreground">
                       {" "}
-                      · {(pkg.lines ?? []).map((line) => `${line.sku} × ${line.qty}`).join(", ")}
-                      {pkg.receivedAt ? " · received" : " · expected"}
+                      · {(pkg.lines ?? []).map((line) => `${line.sku} × ${line.qty}${line.lotCode ? ` ${line.lotCode}` : ""}`).join(", ")}
+                      {pkg.receivedAt && !pkg.putawayAt ? " · received" : ""}
+                      {pkg.putawayAt ? " · put away" : ""}
+                      {!pkg.receivedAt ? " · expected" : ""}
                     </span>
                   </span>
                   {canReceiveAsn(asn.status) && !pkg.receivedAt ? (
                     <Button variant="secondary" onClick={() => void receiveCarton(pkg.id)}>
                       Receive carton
+                    </Button>
+                  ) : null}
+                  {pkg.receivedAt && !pkg.putawayAt ? (
+                    <Button variant="secondary" asChild>
+                      <Link to={`/floor/putaway?carton=${encodeURIComponent(pkg.sscc || pkg.number)}`}>Put away</Link>
                     </Button>
                   ) : null}
                 </li>

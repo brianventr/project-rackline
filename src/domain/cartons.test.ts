@@ -9,6 +9,8 @@ import {
   orderLevelLabelGate,
   remainingToCarton,
   asnCartonReceiveGate,
+  asnCartonPutawayGate,
+  canPutawayAsnCarton,
 } from "./cartons";
 
 const lamps = { lineId: "l1", sku: "LAMP", qtyPacked: 2, qtyCartoned: 0 };
@@ -74,5 +76,19 @@ describe("cartons", () => {
   it("requires carton receive once the first vendor box exists", () => {
     expect(asnCartonReceiveGate(0)).toEqual({ ok: true });
     expect(asnCartonReceiveGate(2)).toMatchObject({ ok: false, code: "NEED_PACKAGE" });
+  });
+
+  it("requires carton putaway once a received vendor box is waiting", () => {
+    expect(asnCartonPutawayGate(0)).toEqual({ ok: true });
+    expect(asnCartonPutawayGate(1)).toMatchObject({ ok: false, code: "NEED_PACKAGE" });
+    expect(canPutawayAsnCarton({ receivedAt: null, putawayAt: null })).toMatchObject({
+      ok: false,
+      code: "NOT_RECEIVED",
+    });
+    expect(canPutawayAsnCarton({ receivedAt: 1, putawayAt: 2 })).toMatchObject({
+      ok: false,
+      code: "ALREADY_PUTAWAY",
+    });
+    expect(canPutawayAsnCarton({ receivedAt: 1, putawayAt: null })).toEqual({ ok: true });
   });
 });

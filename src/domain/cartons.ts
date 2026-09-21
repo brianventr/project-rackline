@@ -92,3 +92,27 @@ export function asnCartonReceiveGate(packageCount: number): { ok: true } | { ok:
   if (packageCount === 0) return { ok: true };
   return { ok: false, code: "NEED_PACKAGE", error: "Receive each vendor carton" };
 }
+
+export function asnCartonPutawayGate(
+  unputawayReceivedCount: number,
+): { ok: true } | { ok: false; code: "NEED_PACKAGE"; error: string } {
+  if (unputawayReceivedCount === 0) return { ok: true };
+  return { ok: false, code: "NEED_PACKAGE", error: "Put away each vendor carton" };
+}
+
+export type AsnCartonPutawayDecision =
+  | { ok: true }
+  | { ok: false; code: "NOT_RECEIVED" | "ALREADY_PUTAWAY"; error: string };
+
+export function canPutawayAsnCarton(pkg: {
+  receivedAt?: number | null;
+  putawayAt?: number | null;
+}): AsnCartonPutawayDecision {
+  if (!pkg.receivedAt) {
+    return { ok: false, code: "NOT_RECEIVED", error: "Receive the carton before putaway" };
+  }
+  if (pkg.putawayAt) {
+    return { ok: false, code: "ALREADY_PUTAWAY", error: "Carton is already put away" };
+  }
+  return { ok: true };
+}
