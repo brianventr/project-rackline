@@ -189,4 +189,27 @@ describe("buildTrafficSnapshot", () => {
     expect(tracked.kpis.arrived).toBe(1);
     expect(tracked.flights.find((row) => row.number === "ORD-DEMO")?.status).toBe("in_flight");
   });
+
+  it("lists tracker failures as exceptions instead of geodesic flights", () => {
+    const snap = buildTrafficSnapshot({
+      now,
+      warehouses: [portland],
+      horizon: "7d",
+      grain: "city",
+      orders: [
+        order({
+          id: "o10",
+          number: "ORD-FAIL",
+          status: "shipped",
+          shippedAt: now - 8 * 3_600_000,
+          trackingNumber: "1Z-FAIL",
+          trackerStatus: "failure",
+          shipToAddress: "Miami, FL 33127",
+        }),
+      ],
+    });
+    expect(snap.flights.find((row) => row.number === "ORD-FAIL")).toBeUndefined();
+    expect(snap.kpis.exceptions).toBe(1);
+    expect(snap.exceptions).toEqual([{ orderId: "o10", number: "ORD-FAIL", reason: "tracker_exception" }]);
+  });
 });

@@ -8,6 +8,7 @@ import {
   isFullyCartoned,
   orderLevelLabelGate,
   remainingToCarton,
+  asnCartonReceiveGate,
 } from "./cartons";
 
 const lamps = { lineId: "l1", sku: "LAMP", qtyPacked: 2, qtyCartoned: 0 };
@@ -36,7 +37,7 @@ describe("cartons", () => {
 
   it("rejects an over-carton against remaining packed qty", () => {
     expect(() => applyCarton([lamps], [{ lineId: "l1", qty: 3 }])).toThrow(OverCartonError);
-    expect(() => applyCarton([lamps], [{ lineId: "missing", qty: 1 }])).toThrow(/not on this order/);
+    expect(() => applyCarton([lamps], [{ lineId: "missing", qty: 1 }])).toThrow(/not on this document/);
     expect(() => applyCarton([lamps], [])).toThrow(/At least one/);
   });
 
@@ -68,5 +69,10 @@ describe("cartons", () => {
         ],
       }),
     ).toEqual({ ok: true });
+  });
+
+  it("requires carton receive once the first vendor box exists", () => {
+    expect(asnCartonReceiveGate(0)).toEqual({ ok: true });
+    expect(asnCartonReceiveGate(2)).toMatchObject({ ok: false, code: "NEED_PACKAGE" });
   });
 });

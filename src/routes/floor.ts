@@ -35,6 +35,7 @@ import {
 } from "../db/as-built";
 import { completeMatchingSuggestionJobs, guardFloorJob, guardMatchingSuggestionJobs, syncDocumentJob } from "../db/jobs";
 import { loadDocumentNumber, loadOpenAssignmentForEquipment } from "../db/equipment";
+import { loadPackagesForAsns } from "../db/asn-packages";
 
 export const floorRoute = new Hono<AppEnv>();
 
@@ -1147,14 +1148,20 @@ floorRoute.get("/scan", async (c) => {
           qtyReceived: schema.asnLines.qtyReceived,
           sku: schema.items.sku,
           itemName: schema.items.name,
+          trackLot: schema.items.trackLot,
+          trackSerial: schema.items.trackSerial,
+          catchWeight: schema.items.catchWeight,
+          trackExpiry: schema.items.trackExpiry,
         })
         .from(schema.asnLines)
         .innerJoin(schema.items, eq(schema.items.id, schema.asnLines.itemId))
         .where(eq(schema.asnLines.asnId, asn.id));
+      const packages = (await loadPackagesForAsns(db, [asn.id])).get(asn.id) ?? [];
       return c.json({
         kind: "asn" as const,
         asn: {
           ...asn,
+          packages,
           lines: lines.map((line) => ({
             ...line,
             remaining: line.qtyExpected - line.qtyReceived,
@@ -1163,6 +1170,59 @@ floorRoute.get("/scan", async (c) => {
       });
     }
     if (parsed.kind === "asn") notFound("No ASN matches that barcode");
+  }
+
+  if (parsed.kind === "package" || parsed.kind === "unknown") {
+    const needle = parsed.value.trim().toUpperCase();
+    const rows = await db
+      .select()
+      .from(schema.asnPackages)
+      .where(eq(schema.asnPackages.organizationId, organizationId));
+    const pkg = rows.find(
+      (row) =>
+        row.number.toUpperCase() === needle ||
+        row.number.toUpperCase() === `BOX-${needle}` ||
+        (row.sscc && row.sscc.toUpperCase() === needle),
+    );
+    if (pkg) {
+      const [asn] = await db
+        .select()
+        .from(schema.asns)
+        .where(and(eq(schema.asns.id, pkg.asnId), eq(schema.asns.organizationId, organizationId)))
+        .limit(1);
+      if (asn) {
+        const lines = await db
+          .select({
+            id: schema.asnLines.id,
+            itemId: schema.asnLines.itemId,
+            qtyExpected: schema.asnLines.qtyExpected,
+            qtyReceived: schema.asnLines.qtyReceived,
+            sku: schema.items.sku,
+            itemName: schema.items.name,
+            trackLot: schema.items.trackLot,
+            trackSerial: schema.items.trackSerial,
+            catchWeight: schema.items.catchWeight,
+            trackExpiry: schema.items.trackExpiry,
+          })
+          .from(schema.asnLines)
+          .innerJoin(schema.items, eq(schema.items.id, schema.asnLines.itemId))
+          .where(eq(schema.asnLines.asnId, asn.id));
+        const packages = (await loadPackagesForAsns(db, [asn.id])).get(asn.id) ?? [];
+        return c.json({
+          kind: "asn" as const,
+          package: packages.find((row) => row.id === pkg.id) ?? pkg,
+          asn: {
+            ...asn,
+            packages,
+            lines: lines.map((line) => ({
+              ...line,
+              remaining: line.qtyExpected - line.qtyReceived,
+            })),
+          },
+        });
+      }
+    }
+    if (parsed.kind === "package") notFound("No carton matches that barcode");
   }
 
   if (parsed.kind === "yard" || parsed.kind === "unknown") {

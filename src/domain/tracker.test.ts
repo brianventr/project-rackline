@@ -16,16 +16,22 @@ describe("tracker status map", () => {
     expect(normalizeTrackerStatus("out_for_delivery")).toBe("in_transit");
     expect(normalizeTrackerStatus("delivered")).toBe("delivered");
     expect(normalizeTrackerStatus("DE")).toBe("delivered");
+    expect(normalizeTrackerStatus("failure")).toBe("exception");
+    expect(normalizeTrackerStatus("return_to_sender")).toBe("exception");
+    expect(normalizeTrackerStatus("cancelled")).toBe("exception");
     expect(trackerToFlight("pre_transit")).toBe("at_gate");
     expect(trackerToFlight("in_transit")).toBe("in_flight");
     expect(trackerToFlight("delivered")).toBe("arrived");
+    expect(trackerToFlight("exception")).toBe("exception");
   });
 
   it("uses the lagging carton when rolling up an order", () => {
     expect(laggingTrackerStatus(["delivered", "in_transit"])).toBe("in_transit");
     expect(laggingTrackerStatus(["delivered", "delivered"])).toBe("delivered");
+    expect(laggingTrackerStatus(["delivered", "failure"])).toBe("exception");
     expect(rollupOrderTracker([{ trackerStatus: "in_transit" }, { trackerStatus: null }])).toBeNull();
     expect(rollupOrderTracker([{ trackerStatus: "in_transit" }, { trackerStatus: "delivered" }])).toBe("in_transit");
+    expect(rollupOrderTracker([{ trackerStatus: "failure" }, { trackerStatus: null }])).toBe("exception");
   });
 
   it("parses EasyPost, ShipEngine, and demo payloads", () => {

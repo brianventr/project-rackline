@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Asn, type Location } from "../../api";
+import { api, type Asn, type Location, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
@@ -30,11 +30,13 @@ export function FloorAsnPage() {
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
+  const [activePkgId, setActivePkgId] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  function applyAsn(asn: Asn) {
+  function applyAsn(asn: Asn, pkgId?: string | null) {
     setActive(asn);
+    setActivePkgId(pkgId ?? null);
     setQtys(Object.fromEntries((asn.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
   }
 
@@ -60,7 +62,10 @@ export function FloorAsnPage() {
     const dock = nextLocations.find((row) => row.type === "receiving") ?? nextLocations[0];
     if (dock) setLocationId(dock.id);
     const wanted = params.get("id");
-    if (wanted) applyAsn(await api<Asn>(`/api/asns/${wanted}`));
+    if (wanted) {
+      const next = await api<Asn>(`/api/asns/${wanted}`);
+      applyAsn(next, (next.packages ?? []).find((pkg) => !pkg.receivedAt)?.id ?? null);
+    }
   }
 
   useEffect(() => {
@@ -73,20 +78,38 @@ export function FloorAsnPage() {
       setDone(null);
       const match = matchAsn(asns, raw);
       if (match) {
-        void api<Asn>(`/api/asns/${match.id}`).then(applyAsn);
+        void api<Asn>(`/api/asns/${match.id}`).then((asn) => applyAsn(asn));
         return;
       }
-      void api<{ kind: string; location?: Location }>(`/api/scan?code=${encodeURIComponent(raw)}`)
+      const onActive =
+        active &&
+        (active.packages ?? []).find((pkg) => {
+          const needle = raw.trim().toUpperCase();
+          return (
+            pkg.number.toUpperCase() === needle ||
+            pkg.number.toUpperCase() === `BOX-${needle}` ||
+            Boolean(pkg.sscc && pkg.sscc.toUpperCase() === needle)
+          );
+        });
+      if (onActive && active) {
+        setActivePkgId(onActive.id);
+        return;
+      }
+      void api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
         .then((hit) => {
+          if (hit.kind === "asn") {
+            applyAsn(hit.asn, hit.package?.id ?? null);
+            return;
+          }
           if (hit.kind === "location" && hit.location) {
             setLocationId(hit.location.id);
             return;
           }
-          setError("Scan an ASN- notice or a dock barcode.");
+          setError("Scan an ASN-, BOX- / SSCC, or a dock barcode.");
         })
         .catch((err: Error) => setError(err.message));
     },
-    [asns],
+    [asns, active],
   );
 
   async function receive() {
@@ -115,9 +138,25 @@ export function FloorAsnPage() {
     }
   }
 
+  async function receiveCarton() {
+    if (!active || !activePkgId) return;
+    setError(null);
+    try {
+      const posted = await api<Asn>(`/api/asns/${active.id}/packages/${activePkgId}/receive`, {
+        method: "POST",
+        body: JSON.stringify({ locationId, lots, serials }),
+      });
+      applyAsn(posted, (posted.packages ?? []).find((pkg) => !pkg.receivedAt)?.id ?? null);
+      setDone(`${posted.number} carton posted to the dock.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Carton receive failed");
+    }
+  }
+
   return (
-    <FloorFrame title="ASN" description="Scan an ASN-, scan the dock, post remaining qty onto receiving." error={error}>
-      <FloorScanBox label="Scan ASN or dock" placeholder="ASN-… or RECV" onScan={onScan} />
+    <FloorFrame title="ASN" description="Scan an ASN- or BOX-/SSCC, scan the dock, receive remaining qty or one vendor carton." error={error}>
+      <FloorScanBox label="Scan ASN, carton, or dock" placeholder="ASN-… BOX-1 or SSCC" onScan={onScan} />
       {done ? (
         <p className="text-sm text-emerald-700">
           {done}{" "}
@@ -198,6 +237,26 @@ export function FloorAsnPage() {
               </li>
             ))}
           </ul>
+          {(active.packages ?? []).length > 0 ? (
+            <ul className="space-y-2 text-sm">
+              {(active.packages ?? []).map((pkg) => (
+                <li key={pkg.id}>
+                  <button
+                    className={`w-full rounded-md border px-3 py-2 text-left ${activePkgId === pkg.id ? "border-primary" : ""}`}
+                    onClick={() => setActivePkgId(pkg.id)}
+                  >
+                    <span className="font-mono">{pkg.number}</span>
+                    {pkg.sscc ? <span className="text-muted-foreground"> · {pkg.sscc}</span> : null}
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {(pkg.lines ?? []).map((line) => `${line.sku} × ${line.qty}`).join(", ")}
+                      {pkg.receivedAt ? " · received" : ""}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <Field label="Receive into">
             <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
               {locations.map((location) => (
@@ -215,7 +274,16 @@ export function FloorAsnPage() {
               qtyReceived: line.qtyReceived,
             })),
           ) ? (
-            <Button onClick={() => void receive()}>Post receive</Button>
+            (active.packages ?? []).length > 0 ? (
+              <Button
+                disabled={!activePkgId || Boolean((active.packages ?? []).find((pkg) => pkg.id === activePkgId)?.receivedAt)}
+                onClick={() => void receiveCarton()}
+              >
+                Receive carton
+              </Button>
+            ) : (
+              <Button onClick={() => void receive()}>Post receive</Button>
+            )
           ) : (
             <p>Fully received.</p>
           )}

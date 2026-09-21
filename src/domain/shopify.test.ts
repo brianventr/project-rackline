@@ -8,6 +8,7 @@ import {
   mapRestOrder,
   normalizeShopDomain,
   shopifyHmac,
+  shopifyTrackingInfo,
   verifyShopifyHmac,
   REQUIRED_SCOPES,
   buildInventorySetQuantitiesInput,
@@ -175,7 +176,7 @@ describe("fulfill-back payload", () => {
     });
     expect(fulfillment).toEqual({
       notifyCustomer: true,
-      trackingInfo: { number: "1Z999", company: "UPS" },
+      trackingInfo: [{ number: "1Z999", company: "UPS" }],
       lineItemsByFulfillmentOrder: [
         {
           fulfillmentOrderId: "gid://shopify/FulfillmentOrder/demo-1004",
@@ -185,6 +186,34 @@ describe("fulfill-back payload", () => {
         },
       ],
     });
+  });
+
+  it("posts every labeled carton as trackingInfo", () => {
+    expect(
+      shopifyTrackingInfo({
+        tracking: { number: "1ZFIRST", company: "UPS" },
+        packages: [
+          { trackingNumber: "1ZBOX1", trackingCompany: "UPS" },
+          { trackingNumber: "1ZBOX2", trackingCompany: "UPS" },
+        ],
+      }),
+    ).toEqual([
+      { number: "1ZBOX1", company: "UPS" },
+      { number: "1ZBOX2", company: "UPS" },
+    ]);
+    const fulfillment = buildFulfillmentCreateInput({
+      fulfillmentOrderId: "gid://shopify/FulfillmentOrder/demo-1",
+      lineItems: [{ id: "gid://shopify/FulfillmentOrderLineItem/demo-1", quantity: 2 }],
+      tracking: { number: "1ZFIRST", company: "UPS" },
+      packages: [
+        { trackingNumber: "1ZBOX1", trackingCompany: "UPS" },
+        { trackingNumber: "1ZBOX2", trackingCompany: "UPS" },
+      ],
+    });
+    expect(fulfillment.trackingInfo).toEqual([
+      { number: "1ZBOX1", company: "UPS" },
+      { number: "1ZBOX2", company: "UPS" },
+    ]);
   });
 
   it("builds a webhook-shaped demo payload that maps back", () => {
