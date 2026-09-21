@@ -264,6 +264,19 @@ html {
     display: none !important;
   }
 
+  body,
+  html,
+  #root {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  [data-slot="sidebar-inset"] {
+    background: #fff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
   .print-document {
     max-width: none !important;
     padding: 0 !important;
