@@ -232,7 +232,7 @@ function LookupResult({ hit }: { hit: ScanHit }) {
                       to: documentPath("asn", hit.asn.id),
                       floor:
                         hit.package?.receivedAt && !hit.package.putawayAt
-                          ? `/floor/putaway?carton=${encodeURIComponent(hit.package.number)}`
+                          ? `/floor/putaway?carton=${encodeURIComponent(hit.package.sscc || hit.package.number)}`
                           : `/floor/asn?id=${hit.asn.id}`,
                     }
                   : hit.kind === "yard"

@@ -168,7 +168,7 @@ export function FloorAsnPage() {
         body: JSON.stringify({ locationId, lots, serials }),
       });
       applyAsn(posted, (posted.packages ?? []).find((pkg) => !pkg.receivedAt)?.id ?? null);
-      setPutawayCarton(carton?.number ?? null);
+      setPutawayCarton(carton?.sscc || carton?.number || null);
       setDone(`${posted.number} carton posted to the dock.`);
       await load();
     } catch (err) {

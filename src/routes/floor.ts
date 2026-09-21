@@ -1182,12 +1182,17 @@ floorRoute.get("/scan", async (c) => {
       .select()
       .from(schema.asnPackages)
       .where(eq(schema.asnPackages.organizationId, organizationId));
-    const pkg = rows.find(
+    const matches = rows.filter(
       (row) =>
+        (row.sscc && row.sscc.toUpperCase() === needle) ||
         row.number.toUpperCase() === needle ||
-        row.number.toUpperCase() === `BOX-${needle}` ||
-        (row.sscc && row.sscc.toUpperCase() === needle),
+        row.number.toUpperCase() === `BOX-${needle}`,
     );
+    const pkg =
+      matches.find((row) => row.sscc && row.sscc.toUpperCase() === needle) ??
+      matches.find((row) => row.receivedAt && !row.putawayAt) ??
+      matches.find((row) => !row.receivedAt) ??
+      matches[0];
     if (pkg) {
       const [asn] = await db
         .select()

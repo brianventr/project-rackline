@@ -190,7 +190,7 @@ export function TodayPage() {
               title: `${row.asnNumber} ${row.packageNumber}`,
               meta: `${row.fromCode} → ${row.lines.map((line) => line.toCode || "bay").filter(Boolean).join(", ") || "suggested bay"}`,
               status: "carton",
-              actionTo: `/floor/putaway?carton=${encodeURIComponent(row.packageNumber)}`,
+              actionTo: `/floor/putaway?carton=${encodeURIComponent(row.sscc || row.packageNumber)}`,
               action: "Put away",
             })),
           ]}

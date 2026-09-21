@@ -288,7 +288,7 @@ function AsnDetail({ id }: { id: string }) {
                   ) : null}
                   {pkg.receivedAt && !pkg.putawayAt ? (
                     <Button variant="secondary" asChild>
-                      <Link to={`/floor/putaway?carton=${encodeURIComponent(pkg.number)}`}>Put away</Link>
+                      <Link to={`/floor/putaway?carton=${encodeURIComponent(pkg.sscc || pkg.number)}`}>Put away</Link>
                     </Button>
                   ) : null}
                 </li>
