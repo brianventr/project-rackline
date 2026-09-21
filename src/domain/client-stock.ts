@@ -51,5 +51,5 @@ export function isClientInboundMovement(type: string): boolean {
 }
 
 export function isClientOutboundMovement(type: string): boolean {
-  return type === "pick" || type === "ship" || type === "rtv" || type === "scrap";
+  return type === "pick" || type === "ship" || type === "rtv" || type === "scrap" || type === "unreceive";
 }

@@ -9,6 +9,7 @@ import {
   normalizeShopDomain,
   shopifyHmac,
   shopifyTrackingInfo,
+  fulfillmentLineItemsForPackage,
   verifyShopifyHmac,
   REQUIRED_SCOPES,
   buildInventorySetQuantitiesInput,
@@ -213,6 +214,23 @@ describe("fulfill-back payload", () => {
     expect(fulfillment.trackingInfo).toEqual([
       { number: "1ZBOX1", company: "UPS" },
       { number: "1ZBOX2", company: "UPS" },
+    ]);
+  });
+
+  it("builds one carton fulfillment with that box tracking and line items", () => {
+    const lineItems = fulfillmentLineItemsForPackage(
+      [{ id: "ol1", shopifyFulfillmentLineItemId: "gid://shopify/FulfillmentOrderLineItem/9" }],
+      [{ orderLineId: "ol1", qty: 1 }],
+    );
+    expect(lineItems).toEqual([{ id: "gid://shopify/FulfillmentOrderLineItem/9", quantity: 1 }]);
+    const fulfillment = buildFulfillmentCreateInput({
+      fulfillmentOrderId: "gid://shopify/FulfillmentOrder/demo-1",
+      lineItems,
+      packages: [{ trackingNumber: "1ZBOX1", trackingCompany: "UPS" }],
+    });
+    expect(fulfillment.trackingInfo).toEqual([{ number: "1ZBOX1", company: "UPS" }]);
+    expect(fulfillment.lineItemsByFulfillmentOrder[0]?.fulfillmentOrderLineItems).toEqual([
+      { id: "gid://shopify/FulfillmentOrderLineItem/9", quantity: 1 },
     ]);
   });
 

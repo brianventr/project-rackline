@@ -6,7 +6,7 @@ import { badRequest, conflict, notFound, optionalInt, requireInt, requireString 
 import { getOrgItem, getOrgLocation, getOrgLocationByScan, requireOwner } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
 import { postReceiveLines, loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
-import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError } from "../domain/partial-receive";
+import { applyPartialReceive, applyUnreceive, asnStatusAfterUnreceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError, OverUnreceiveError } from "../domain/partial-receive";
 import { canExpectAsn, canReceiveAsn } from "../domain/status";
 import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
@@ -17,6 +17,7 @@ import {
   applyCarton,
   asnCartonReceiveGate,
   canPutawayAsnCarton,
+  canUnreceiveAsnCarton,
   cartonNumber,
   OverCartonError,
 } from "../domain/cartons";
@@ -27,7 +28,7 @@ import {
   withAsnCartonRemaining,
   type AsnPackageRow,
 } from "../db/asn-packages";
-import { chainPlans, planMove } from "../domain/inventory";
+import { chainPlans, planMove, planUnreceive } from "../domain/inventory";
 import { parseScan } from "../domain/barcodes";
 import { suggestPutawayBay } from "../domain/directed-putaway";
 import { loadPutawayBaysByItem } from "../db/putaway-bays";
@@ -660,6 +661,104 @@ async function receiveAsnPackage(
     refId: asn.id,
     qty: posted.reduce((sum, row) => sum + row.qty, 0),
     now,
+  });
+
+  return asnWithLines(db, organizationId, asn.id);
+}
+
+asnsRoute.post("/asns/:id/packages/:pkgId/unreceive", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const asn = await asnWithLines(db, organizationId, c.req.param("id"));
+  return c.json(await unreceiveAsnPackage(db, organizationId, c.get("user")!.id, asn, c.req.param("pkgId")));
+});
+
+async function unreceiveAsnPackage(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  userId: string,
+  asn: Awaited<ReturnType<typeof asnWithLines>>,
+  pkgId: string,
+) {
+  const pkg = asn.packages.find((row) => row.id === pkgId);
+  if (!pkg) notFound("Carton not found");
+  const gate = canUnreceiveAsnCarton(pkg);
+  if (!gate.ok) conflict(gate.error, gate.code);
+  if (!asn.locationId) conflict("Receive the carton onto a dock before unreceiving");
+  await getOrgLocation(db, organizationId, asn.locationId);
+
+  const incoming = pkg.lines.map((row) => ({
+    itemId: row.itemId,
+    sku: row.sku,
+    qty: row.qty,
+    lotCode: row.lotCode,
+    serials: row.serials.length ? row.serials : null,
+    weightGrams: row.weightGrams,
+    expiresOn: row.expiresOn,
+  }));
+
+  let applied;
+  try {
+    applied = applyUnreceive(
+      asn.lines.map(asExpected),
+      incoming.map((row) => ({ itemId: row.itemId, qty: row.qty })),
+    );
+  } catch (err) {
+    if (err instanceof OverUnreceiveError) throw err;
+    badRequest(err instanceof Error ? err.message : "Invalid unreceive");
+  }
+
+  const now = Date.now();
+  const statusPatch = asnStatusAfterUnreceive(applied.next, asn.status);
+  const qtyByItem = new Map(applied.next.map((line) => [line.itemId, line.qtyReceived]));
+  const posted = incoming.filter((row) => row.qty > 0);
+  const loaded = await loadBalanceMap(
+    db,
+    organizationId,
+    posted.map((row) => ({ locationId: asn.locationId!, itemId: row.itemId })),
+  );
+  const plan = chainPlans(
+    qtyMap(loaded),
+    posted.map(
+      (row) => (balances) =>
+        planUnreceive({
+          itemId: row.itemId,
+          sku: row.sku,
+          locationId: asn.locationId!,
+          qty: row.qty,
+          refId: asn.id,
+          balances,
+          lotCode: row.lotCode,
+          serials: row.serials,
+          weightGrams: row.weightGrams,
+          expiresOn: row.expiresOn,
+          clientId: asn.clientId,
+        }),
+    ),
+  );
+
+  await persistStockPlan(db, {
+    organizationId,
+    createdBy: userId,
+    now,
+    loaded,
+    plan,
+    extra: [
+      ...asn.lines.map((line) =>
+        db
+          .update(schema.asnLines)
+          .set({ qtyReceived: qtyByItem.get(line.itemId) ?? line.qtyReceived })
+          .where(eq(schema.asnLines.id, line.id)),
+      ),
+      db.update(schema.asnPackages).set({ receivedAt: null }).where(eq(schema.asnPackages.id, pkg.id)),
+      db
+        .update(schema.asns)
+        .set({
+          status: statusPatch.status,
+          receivedAt: statusPatch.clearReceivedAt ? null : asn.receivedAt,
+        })
+        .where(eq(schema.asns.id, asn.id)),
+    ],
   });
 
   return asnWithLines(db, organizationId, asn.id);

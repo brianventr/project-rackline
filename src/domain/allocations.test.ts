@@ -40,6 +40,7 @@ describe("isAtpRestrictedType", () => {
     expect(isAtpRestrictedType("receive")).toBe(false);
     expect(isAtpRestrictedType("unpick")).toBe(false);
     expect(isAtpRestrictedType("ship")).toBe(false);
+    expect(isAtpRestrictedType("unreceive")).toBe(false);
     expect(isAtpRestrictedType("scrap")).toBe(false);
   });
 });

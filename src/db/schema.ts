@@ -342,6 +342,8 @@ export const orderPackages = sqliteTable(
     labelStatus: text("label_status").notNull().default("none"),
     trackerStatus: text("tracker_status"),
     trackerUpdatedAt: integer("tracker_updated_at"),
+    shippedAt: integer("shipped_at"),
+    shopifyFulfillmentId: text("shopify_fulfillment_id"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [
@@ -908,7 +910,8 @@ export type MovementType =
   | "kit_produce"
   | "scrap"
   | "rtv"
-  | "unpick";
+  | "unpick"
+  | "unreceive";
 export type ReturnDisposition = "restock" | "scrap" | "hold";
 
 export const clients = sqliteTable(

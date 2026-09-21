@@ -502,6 +502,22 @@ export function buildFulfillmentCreateInput(input: {
   return fulfillment;
 }
 
+export function fulfillmentLineItemsForPackage(
+  orderLines: Array<{ id: string; shopifyFulfillmentLineItemId?: string | null }>,
+  packageLines: Array<{ orderLineId: string; qty: number }>,
+): Array<{ id: string; quantity: number }> {
+  const byLine = new Map(orderLines.map((line) => [line.id, line]));
+  return packageLines
+    .map((row) => {
+      const line = byLine.get(row.orderLineId);
+      return {
+        id: line?.shopifyFulfillmentLineItemId || `gid://shopify/FulfillmentOrderLineItem/demo-${row.orderLineId}`,
+        quantity: row.qty,
+      };
+    })
+    .filter((row) => row.quantity > 0);
+}
+
 export function buildDemoOrderPayload(input: {
   id?: number;
   name?: string;

@@ -400,7 +400,14 @@ export function quoteRates(input: {
   });
 }
 
-export function canVoidLabel(input: { status: string; labelStatus?: string | null }): VoidDecision {
+export function canVoidLabel(input: {
+  status: string;
+  labelStatus?: string | null;
+  shippedAt?: number | null;
+}): VoidDecision {
+  if (input.shippedAt) {
+    return { ok: false, error: "Shipped cartons cannot void a label", code: "SHIPPED" };
+  }
   if (input.status === "shipped") {
     return { ok: false, error: "Shipped orders cannot void a label", code: "SHIPPED" };
   }
