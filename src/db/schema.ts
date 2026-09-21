@@ -838,6 +838,34 @@ export const asBuilt = sqliteTable(
   ],
 );
 
+export const buildRequests = sqliteTable(
+  "build_requests",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    qty: integer("qty").notNull(),
+    status: text("status").notNull(),
+    warehouseId: text("warehouse_id"),
+    refType: text("ref_type"),
+    refId: text("ref_id"),
+    createdAt: integer("created_at").notNull(),
+    releasedAt: integer("released_at"),
+    cancelledAt: integer("cancelled_at"),
+  },
+  (t) => [
+    index("build_requests_org_status").on(t.organizationId, t.status),
+    index("build_requests_client").on(t.clientId),
+  ],
+);
+
 export const inventoryHolds = sqliteTable("inventory_holds", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id")
@@ -853,6 +881,7 @@ export const inventoryHolds = sqliteTable("inventory_holds", {
     .references(() => locations.id),
   itemId: text("item_id").references(() => items.id),
   lotCode: text("lot_code"),
+  serialCode: text("serial_code"),
   reason: text("reason").notNull(),
   notes: text("notes"),
   createdAt: integer("created_at").notNull(),

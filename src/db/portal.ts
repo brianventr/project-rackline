@@ -3,6 +3,7 @@ import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { clientRunwayDays } from "../domain/client-portal";
 import { notFound } from "../lib/http";
+import { listBuildRequests, recipeChoices } from "./build-requests";
 
 const PERIOD_MS = 30 * 86_400_000;
 const CLOSED = ["shipped", "cancelled"];
@@ -89,8 +90,23 @@ export async function loadClientPortal(db: AppDb, organizationId: string, client
     )
     .orderBy(schema.invoices.createdAt);
 
+  const [requests, recipes] = await Promise.all([
+    listBuildRequests(db, organizationId, { clientId }),
+    recipeChoices(db, organizationId),
+  ]);
+
   return {
     client: { id: client.id, code: client.code, name: client.name },
+    recipes,
+    requests: requests.map((row) => ({
+      id: row.id,
+      sku: row.sku,
+      itemName: row.itemName,
+      qty: row.qty,
+      status: row.status,
+      refType: row.refType,
+      refNumber: row.refNumber,
+    })),
     stock: stock.filter((row) => row.qty > 0),
     runway: onHandByItem
       .map((row) => ({

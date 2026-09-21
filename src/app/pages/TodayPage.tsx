@@ -35,6 +35,16 @@ type WorkRow = {
   action: string;
   job?: FloorJob;
   relabel?: { orderId: string; packageId?: string };
+  requestId?: string;
+};
+
+type OpenRequest = {
+  id: string;
+  clientName: string;
+  itemId: string;
+  sku: string;
+  qty: number;
+  status: string;
 };
 
 export function TodayPage() {
@@ -44,6 +54,7 @@ export function TodayPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [jobs, setJobs] = useState<FloorJob[]>([]);
   const [team, setTeam] = useState<TeamMember[]>([]);
+  const [requests, setRequests] = useState<OpenRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [drafting, setDrafting] = useState(false);
   const [lane, setLane] = useState<LaneId>("inbound");
@@ -51,14 +62,16 @@ export function TodayPage() {
 
   async function load() {
     const query = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : "";
-    const [nextDashboard, nextJobs, nextTeam] = await Promise.all([
+    const [nextDashboard, nextJobs, nextTeam, nextRequests] = await Promise.all([
       api<Dashboard>(`/api/dashboard${query}`),
       api<FloorJob[]>(`/api/jobs${query}${query ? "&" : "?"}open=1`),
       api<TeamMember[]>("/api/team"),
+      api<OpenRequest[]>("/api/build-requests?status=requested"),
     ]);
     setData(nextDashboard);
     setJobs(nextJobs);
     setTeam(nextTeam);
+    setRequests(nextRequests);
   }
 
   useEffect(() => {
@@ -99,6 +112,26 @@ export function TodayPage() {
     }
   }
 
+  async function releaseRequest(id: string) {
+    setError(null);
+    try {
+      await api(`/api/build-requests/${id}/release`, { method: "POST" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not release");
+    }
+  }
+
+  async function cancelRequest(id: string) {
+    setError(null);
+    try {
+      await api(`/api/build-requests/${id}/cancel`, { method: "POST" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not cancel");
+    }
+  }
+
   async function draftReorderPo() {
     if (!warehouseId) {
       setError("Select a warehouse before drafting a PO");
@@ -119,7 +152,7 @@ export function TodayPage() {
     }
   }
 
-  const rows = useMemo(() => buildRows(data, jobs), [data, jobs]);
+  const rows = useMemo(() => buildRows(data, jobs, requests), [data, jobs, requests]);
   const laneRows = useMemo(
     () =>
       rows
@@ -259,7 +292,34 @@ export function TodayPage() {
                         )}
                       </td>
                       <td className="px-2.5 py-1.5">
-                        {row.relabel ? (
+                        {row.requestId ? (
+                          me.role === "owner" ? (
+                            <span className="flex gap-2">
+                              <button
+                                type="button"
+                                className="font-semibold hover:underline"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void releaseRequest(row.requestId!);
+                                }}
+                              >
+                                Release
+                              </button>
+                              <button
+                                type="button"
+                                className="font-semibold hover:underline"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void cancelRequest(row.requestId!);
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground">Owner</span>
+                          )
+                        ) : row.relabel ? (
                           <button
                             type="button"
                             className="font-semibold hover:underline"
@@ -425,7 +485,7 @@ function floorLabelForOrder(status: string): string {
   return "Pick";
 }
 
-function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
+function buildRows(data: Dashboard | null, jobs: FloorJob[], requests: OpenRequest[]): WorkRow[] {
   const queues = data?.queues;
   if (!queues) return [];
   const rows: WorkRow[] = [
@@ -569,6 +629,18 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: `/floor/kit?id=${row.id}`,
       action: "Kit",
       job: jobForRef(jobs, "kit", row.id, "kit"),
+    })),
+    ...requests.map((row) => ({
+      id: `request-${row.id}`,
+      lane: "make" as const,
+      queue: "Request",
+      to: `/stock/items/${row.itemId}`,
+      title: `${row.sku} × ${row.qty}`,
+      meta: row.clientName,
+      status: row.status,
+      actionTo: `/stock/items/${row.itemId}`,
+      action: "Release",
+      requestId: row.id,
     })),
     ...(queues.replenishments ?? []).map((row) => ({
       id: row.id,

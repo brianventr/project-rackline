@@ -2,6 +2,7 @@ export type HoldKey = {
   locationId: string;
   itemId: string | null;
   lotCode: string | null;
+  serialCode?: string | null;
 };
 
 export type OpenHold = HoldKey & {
@@ -32,7 +33,8 @@ export function isOpenHold(status: string): boolean {
   return status === "open";
 }
 
-export function holdScope(hold: HoldKey): "bay" | "sku" | "lot" {
+export function holdScope(hold: HoldKey): "bay" | "sku" | "lot" | "serial" {
+  if (hold.serialCode) return "serial";
   if (!hold.itemId) return "bay";
   if (!hold.lotCode) return "sku";
   return "lot";
@@ -47,12 +49,14 @@ export function sameHoldScope(a: HoldKey, b: HoldKey): boolean {
 }
 
 export function blocksLocationItem(hold: HoldKey, locationId: string, itemId: string): boolean {
+  if (hold.serialCode) return false;
   if (hold.locationId !== locationId) return false;
   if (!hold.itemId) return true;
   return hold.itemId === itemId && !hold.lotCode;
 }
 
 export function blocksLot(hold: HoldKey, locationId: string, itemId: string, lotCode: string): boolean {
+  if (hold.serialCode) return false;
   if (hold.locationId !== locationId) return false;
   if (!hold.itemId) return true;
   if (hold.itemId !== itemId) return false;
@@ -63,6 +67,7 @@ export function blocksLot(hold: HoldKey, locationId: string, itemId: string, lot
 export function coveringHold(holds: OpenHold[], locationId: string, itemId: string | null, lotCode: string | null): OpenHold | null {
   return (
     holds.find((hold) => {
+      if (hold.serialCode) return false;
       if (hold.locationId !== locationId) return false;
       if (!hold.itemId) return true;
       if (!itemId) return false;
@@ -139,8 +144,26 @@ export function unheldLots<T extends { lotCode: string }>(
   return lots.filter((row) => !holds.some((hold) => blocksLot(hold, locationId, itemId, row.lotCode)));
 }
 
-export function holdLabel(hold: { locationCode?: string | null; sku?: string | null; lotCode?: string | null }): string {
+export function matchingSerialHold(
+  holds: OpenHold[],
+  itemId: string,
+  serial: string,
+  locationId?: string | null,
+): OpenHold | null {
+  const needle = serial.trim().toUpperCase();
+  return (
+    holds.find((hold) => {
+      if (!hold.serialCode || hold.serialCode.toUpperCase() !== needle) return false;
+      if (hold.itemId !== itemId) return false;
+      if (locationId && hold.locationId !== locationId) return false;
+      return true;
+    }) ?? null
+  );
+}
+
+export function holdLabel(hold: { locationCode?: string | null; sku?: string | null; lotCode?: string | null; serialCode?: string | null }): string {
   const locationCode = hold.locationCode || "bay";
+  if (hold.serialCode && hold.sku) return `${hold.sku} ${hold.serialCode} @ ${locationCode}`;
   if (hold.lotCode && hold.sku) return `${hold.sku} ${hold.lotCode} @ ${locationCode}`;
   if (hold.sku) return `${hold.sku} @ ${locationCode}`;
   return locationCode;

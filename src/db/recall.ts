@@ -1,7 +1,13 @@
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, or, sql } from "drizzle-orm";
 import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { expandRecallCodes, movementMatchesRecall, orderIsOpen } from "../domain/recall";
+import { coveringHold, matchingSerialHold } from "../domain/holds";
+import { badRequest, conflict } from "../lib/http";
+import { docNumber, newId } from "../lib/ids";
+import { loadOpenHolds } from "./holds";
+import { syncDocumentJob } from "./jobs";
+import { scheduleShopifySellableSync } from "./shopify-sellable";
 
 export type RecallTracking = { number: string; company: string | null };
 
@@ -107,4 +113,165 @@ export async function loadRecall(
       })
       .sort((a, b) => a.number.localeCompare(b.number)),
   };
+}
+
+export type RecallHold = {
+  id: string;
+  number: string;
+  locationId: string;
+  locationCode: string;
+  itemId: string;
+  sku: string;
+  lotCode: string | null;
+  serialCode: string | null;
+};
+
+function recallCode(value: string): string {
+  return value.trim().toUpperCase();
+}
+
+/** Hold on-hand remainder of a recalled lot or serial. Picked stock stays on the open order. */
+export async function holdRecallRemainder(
+  db: AppDb,
+  organizationId: string,
+  raw: string,
+): Promise<{ query: string; created: RecallHold[] }> {
+  const query = raw.trim();
+  if (!query) badRequest("Lot or serial is required");
+  const links = await db
+    .select({
+      parentLotCode: schema.asBuilt.parentLotCode,
+      parentSerial: schema.asBuilt.parentSerial,
+      componentLotCode: schema.asBuilt.componentLotCode,
+      componentSerial: schema.asBuilt.componentSerial,
+    })
+    .from(schema.asBuilt)
+    .where(eq(schema.asBuilt.organizationId, organizationId));
+  const { lots, serials } = expandRecallCodes(query, links);
+
+  const [balances, onHandSerials] = await Promise.all([
+    db
+      .select({
+        locationId: schema.lotBalances.locationId,
+        itemId: schema.lotBalances.itemId,
+        lotCode: schema.lotBalances.lotCode,
+        qty: schema.lotBalances.qty,
+        warehouseId: schema.locations.warehouseId,
+        locationCode: schema.locations.code,
+        sku: schema.items.sku,
+      })
+      .from(schema.lotBalances)
+      .innerJoin(schema.locations, eq(schema.locations.id, schema.lotBalances.locationId))
+      .innerJoin(schema.items, eq(schema.items.id, schema.lotBalances.itemId))
+      .where(and(eq(schema.lotBalances.organizationId, organizationId), gt(schema.lotBalances.qty, 0))),
+    db
+      .select({
+        itemId: schema.serials.itemId,
+        serialCode: schema.serials.serialCode,
+        locationId: schema.serials.locationId,
+        warehouseId: schema.locations.warehouseId,
+        locationCode: schema.locations.code,
+        sku: schema.items.sku,
+      })
+      .from(schema.serials)
+      .innerJoin(schema.locations, eq(schema.locations.id, schema.serials.locationId))
+      .innerJoin(schema.items, eq(schema.items.id, schema.serials.itemId))
+      .where(and(eq(schema.serials.organizationId, organizationId), eq(schema.serials.status, "on_hand"))),
+  ]);
+
+  const matchedSerials = onHandSerials.filter(
+    (row): row is typeof row & { locationId: string } =>
+      Boolean(row.locationId) && serials.has(recallCode(row.serialCode)),
+  );
+  const serialCodes = new Set(matchedSerials.map((row) => recallCode(row.serialCode)));
+  const matchedLots = balances.filter((row) => {
+    const code = recallCode(row.lotCode);
+    return lots.has(code) && !serialCodes.has(code);
+  });
+  if (matchedLots.length === 0 && matchedSerials.length === 0) {
+    conflict("Nothing of that lot or serial is still on hand", "NOTHING_ON_HAND");
+  }
+
+  const open = await loadOpenHolds(db, organizationId);
+  const created: RecallHold[] = [];
+  const touched = new Set<string>();
+  const now = Date.now();
+
+  async function insertHold(input: {
+    warehouseId: string;
+    locationId: string;
+    locationCode: string;
+    itemId: string;
+    sku: string;
+    lotCode: string | null;
+    serialCode: string | null;
+  }) {
+    const id = newId();
+    const number = docNumber("HLD");
+    await db.insert(schema.inventoryHolds).values({
+      id,
+      organizationId,
+      warehouseId: input.warehouseId,
+      number,
+      status: "open",
+      locationId: input.locationId,
+      itemId: input.itemId,
+      lotCode: input.lotCode,
+      serialCode: input.serialCode,
+      reason: "Recall",
+      notes: query,
+      createdAt: now,
+    });
+    await syncDocumentJob(db, {
+      organizationId,
+      warehouseId: input.warehouseId,
+      refType: "hold",
+      refId: id,
+      status: "open",
+      number,
+      title: "Recall",
+      fromLocationId: input.locationId,
+      itemId: input.itemId,
+      createdAt: now,
+    });
+    touched.add(input.itemId);
+    created.push({
+      id,
+      number,
+      locationId: input.locationId,
+      locationCode: input.locationCode,
+      itemId: input.itemId,
+      sku: input.sku,
+      lotCode: input.lotCode,
+      serialCode: input.serialCode,
+    });
+  }
+
+  for (const row of matchedLots) {
+    if (coveringHold(open, row.locationId, row.itemId, row.lotCode)) continue;
+    await insertHold({
+      warehouseId: row.warehouseId,
+      locationId: row.locationId,
+      locationCode: row.locationCode,
+      itemId: row.itemId,
+      sku: row.sku,
+      lotCode: row.lotCode,
+      serialCode: null,
+    });
+  }
+  for (const row of matchedSerials) {
+    if (matchingSerialHold(open, row.itemId, row.serialCode, row.locationId)) continue;
+    await insertHold({
+      warehouseId: row.warehouseId,
+      locationId: row.locationId,
+      locationCode: row.locationCode,
+      itemId: row.itemId,
+      sku: row.sku,
+      lotCode: null,
+      serialCode: row.serialCode,
+    });
+  }
+
+  if (touched.size) await scheduleShopifySellableSync(db, organizationId, [...touched]);
+  return { query, created };
 }

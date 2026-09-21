@@ -125,6 +125,10 @@ Iteration 55 traces a component lot or finished serial the other way: as-built p
 
 Iteration 56 adds a client login. That user sees only their on-hand, a runway from their own shipped units, open orders, and issued invoices. Floor, pick, and adjust stay on the warehouse side.
 
+Iteration 57 lets that brand ask for more. They post a quantity of a finished or WIP SKU that already has a recipe. Rackline stores the request as `requested`. They do not choose a bay and they do not create the kit. Today lists open requests. An owner releases one: finished becomes a kit onto the pick face, WIP becomes a work order onto the production bay, both consuming from storage and stamped with that client. Completing the document bills the kit or work-order rate that already exists. Cancel is owner-only and only while the request is still open. The portal lists that brand's requests. `POST /api/portal/requests` is the only new client path.
+
+Iteration 58 holds what's still on the shelf. On the recall card, an owner or operator holds the on-hand remainder of the lot or serial, including finished units as-built from it. Each bay gets an inventory hold with reason Recall. A serial hold stops that serial and leaves the rest of the SKU free. Stock already picked stays on the open order. The next pick of that lot or serial returns the hold conflict the floor already uses. Nothing left on hand returns HTTP 409 (`NOTHING_ON_HAND`). No RMA is opened and no customer is emailed.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 Iteration 25 deepens logistics on the same location:item ledger (qty stays integer stock units):

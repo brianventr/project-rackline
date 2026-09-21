@@ -54,6 +54,7 @@ import { printersRoute } from "./routes/printers";
 import { billingRoute } from "./routes/billing";
 import { portalRoute } from "./routes/portal";
 import { recallRoute } from "./routes/recall";
+import { buildRequestsRoute } from "./routes/build-requests";
 import { ediRoute } from "./routes/edi";
 import { equipmentRoute } from "./routes/equipment";
 import { analyticsRoute } from "./routes/analytics";
@@ -340,7 +341,9 @@ app.use("/api/*", async (c, next) => {
       return c.json({ error: "Client login is not linked to a brand" }, 403);
     }
     c.set("clientId", membership.clientId);
-    if (path !== "/api/me" && path !== "/api/portal") {
+    const portalRead = path === "/api/me" || (path === "/api/portal" && c.req.method === "GET");
+    const portalRequest = path === "/api/portal/requests" && c.req.method === "POST";
+    if (!portalRead && !portalRequest) {
       return c.json({ error: "Client portal only" }, 403);
     }
   }
@@ -376,6 +379,7 @@ app.route("/api", printersRoute);
 app.route("/api", billingRoute);
 app.route("/api", portalRoute);
 app.route("/api", recallRoute);
+app.route("/api", buildRequestsRoute);
 app.route("/api", ediRoute);
 app.route("/api", equipmentRoute);
 app.route("/api", analyticsRoute);

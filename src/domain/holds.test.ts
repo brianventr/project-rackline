@@ -9,6 +9,7 @@ import {
   holdScope,
   isHoldRestrictedType,
   matchingHoldForMove,
+  matchingSerialHold,
   unheldLots,
 } from "./holds";
 
@@ -113,6 +114,17 @@ describe("unheldLots", () => {
         "bulb",
       ).map((row) => row.lotCode),
     ).toEqual(["LOT-2026-B"]);
+  });
+});
+
+describe("matchingSerialHold", () => {
+  const serial = { ...sku, id: "h4", number: "HLD-4", reason: "Recall", serialCode: "LAMP-1008", lotCode: null };
+
+  it("stops that serial and leaves the rest of the bay free", () => {
+    expect(blocksLocationItem(serial, "a0102", "bulb")).toBe(false);
+    expect(matchingSerialHold([serial], "bulb", "lamp-1008")?.number).toBe("HLD-4");
+    expect(matchingSerialHold([serial], "bulb", "LAMP-1001")).toBeNull();
+    expect(holdScope(serial)).toBe("serial");
   });
 });
 

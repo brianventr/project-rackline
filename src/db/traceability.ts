@@ -27,6 +27,7 @@ import {
   HeldStockError,
   isHoldRestrictedType,
   matchingHoldForMove,
+  matchingSerialHold,
   unheldLots,
   type OpenHold,
 } from "../domain/holds";
@@ -177,14 +178,14 @@ async function expandOne(
         weightGrams: grams[index],
         expiresOn: row.expiresOn ?? movement.expiresOn ?? null,
       };
-      const withSerials = await attachOutboundSerials(db, organizationId, item, piece, []);
+      const withSerials = await attachOutboundSerials(db, organizationId, item, piece, [], holds);
       split.push(...withSerials);
     }
     return split;
   }
 
   if (isOutbound(movement)) {
-    return attachOutboundSerials(db, organizationId, item, { ...movement, lotCode, serials }, serials);
+    return attachOutboundSerials(db, organizationId, item, { ...movement, lotCode, serials }, serials, holds);
   }
 
   return [{ ...movement, lotCode, serials: serials.length ? serials : null }];
@@ -196,14 +197,25 @@ async function attachOutboundSerials(
   item: TrackedItem,
   movement: MovementDraft,
   provided: string[],
+  holds: OpenHold[],
 ): Promise<MovementDraft[]> {
   if (!item.trackSerial) {
     return [movement];
   }
   let serials = provided.length ? provided : movement.serials?.length ? normalizeSerials(movement.serials) : [];
+  const blocked = (serial: string) => matchingSerialHold(holds, item.id, serial, movement.fromLocationId);
+  const named = serials.map((serial) => blocked(serial)).find((hit) => hit);
+  if (named) {
+    throw new HeldStockError(item.sku, named.locationCode, named.number, named.reason);
+  }
   if (serials.length === 0 && movement.fromLocationId) {
     const onHand = await loadSerialsAt(db, organizationId, movement.fromLocationId, item.id);
-    serials = allocateSerials(onHand, movement.qty, item.sku);
+    const free = onHand.filter((serial) => !blocked(serial));
+    if (free.length < movement.qty && onHand.length >= movement.qty) {
+      const hit = holds.find((hold) => hold.serialCode && hold.itemId === item.id && hold.locationId === movement.fromLocationId);
+      throw new HeldStockError(item.sku, hit?.locationCode ?? movement.fromLocationId, hit?.number ?? "hold", hit?.reason ?? "Recall");
+    }
+    serials = allocateSerials(free, movement.qty, item.sku);
   } else if (serials.length) {
     assertSerialQty(movement.qty, serials, item.sku);
   }

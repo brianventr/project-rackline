@@ -19,6 +19,7 @@ export async function loadOpenHolds(
       itemId: schema.inventoryHolds.itemId,
       sku: schema.items.sku,
       lotCode: schema.inventoryHolds.lotCode,
+      serialCode: schema.inventoryHolds.serialCode,
       warehouseId: schema.inventoryHolds.warehouseId,
     })
     .from(schema.inventoryHolds)
@@ -40,6 +41,7 @@ export async function loadOpenHolds(
     itemId: row.itemId,
     sku: row.sku,
     lotCode: row.lotCode,
+    serialCode: row.serialCode,
   }));
 }
 

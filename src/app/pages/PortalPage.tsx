@@ -1,9 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../api";
-import { Card, ErrorBanner, PageHeader, Table } from "../components/ui";
+import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table } from "../components/ui";
+
+type PortalRequest = {
+  id: string;
+  sku: string;
+  itemName: string;
+  qty: number;
+  status: string;
+  refType: string | null;
+  refNumber: string | null;
+};
 
 type PortalPayload = {
   client: { code: string; name: string };
+  recipes: { itemId: string; sku: string; itemName: string; itemType: string }[];
+  requests: PortalRequest[];
   stock: { sku: string; itemName: string; locationCode: string; qty: number }[];
   runway: { sku: string; itemName: string; onHand: number; shippedUnits: number; days: number | null }[];
   orders: { id: string; number: string; status: string; source: string; customerName: string }[];
@@ -13,23 +25,94 @@ type PortalPayload = {
 export function PortalPage() {
   const [data, setData] = useState<PortalPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [itemId, setItemId] = useState("");
+  const [qty, setQty] = useState("1");
+  const [pending, setPending] = useState(false);
+
+  function load() {
+    return api<PortalPayload>("/api/portal").then((next) => {
+      setData(next);
+      setItemId((current) => current || next.recipes[0]?.itemId || "");
+    });
+  }
 
   useEffect(() => {
-    api<PortalPayload>("/api/portal")
-      .then(setData)
-      .catch((err: Error) => setError(err.message));
+    load().catch((err: Error) => setError(err.message));
   }, []);
+
+  async function ask(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setPending(true);
+    try {
+      await api("/api/portal/requests", {
+        method: "POST",
+        body: JSON.stringify({ itemId, qty: Number(qty) }),
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not request a build");
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
       <PageHeader
         eyebrow="Brand"
         title={data ? data.client.name : "Your stock"}
-        description="On-hand, runway, open orders, and issued invoices for this brand."
+        description="Ask for a build, then see on-hand, runway, open orders, and issued invoices."
       />
       <ErrorBanner error={error} />
       {data ? (
         <>
+          <Card>
+            <p className="mb-2 text-sm font-medium">Ask for a build</p>
+            <form className="mb-3 flex flex-wrap items-end gap-2" onSubmit={(event) => void ask(event)}>
+              <Field label="Recipe">
+                <Select className="h-8 w-56 text-sm" value={itemId} onChange={(event) => setItemId(event.target.value)} required>
+                  {data.recipes.length ? null : <option value="">No recipes</option>}
+                  {data.recipes.map((recipe) => (
+                    <option key={recipe.itemId} value={recipe.itemId}>
+                      {recipe.sku} · {recipe.itemName}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Qty">
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={qty}
+                  onChange={(event) => setQty(event.target.value)}
+                  required
+                />
+              </Field>
+              <Button type="submit" disabled={pending || !itemId}>
+                Request
+              </Button>
+            </form>
+            <Table columns={["SKU", "Qty", "Status", "Document"]}>
+              {data.requests.length ? (
+                data.requests.map((row) => (
+                  <tr key={row.id}>
+                    <td className="px-2.5 py-1.5 font-mono">{row.sku}</td>
+                    <td className="px-2.5 py-1.5 font-mono">{row.qty}</td>
+                    <td className="px-2.5 py-1.5">{row.status}</td>
+                    <td className="px-2.5 py-1.5 font-mono">{row.refNumber ?? "—"}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td className="px-2.5 py-1.5 text-muted-foreground" colSpan={4}>
+                    No build requests yet.
+                  </td>
+                </tr>
+              )}
+            </Table>
+          </Card>
           <Card>
             <p className="mb-2 text-sm font-medium">On hand</p>
             <Table columns={["SKU", "Item", "Bay", "Qty"]}>

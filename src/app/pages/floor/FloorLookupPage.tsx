@@ -5,7 +5,7 @@ import { documentPath } from "@/domain/barcodes";
 import { Button, Card, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { AsBuiltList } from "../../components/as-built";
-import { RecallOrders } from "../../components/recall-panel";
+import { HoldRemainderButton, RecallOrders } from "../../components/recall-panel";
 
 export function FloorLookupPage() {
   const [hit, setHit] = useState<ScanHit | null>(null);
@@ -131,10 +131,11 @@ function LookupResult({ hit }: { hit: ScanHit }) {
             <StatusBadge status={hit.serial.status} />{" "}
             <span className="font-mono">{hit.serial.locationCode || "—"}</span>
           </p>
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex flex-wrap items-start gap-2">
             <Button variant="secondary">
               <Link to={`/stock/items/${hit.item.id}`}>Open item</Link>
             </Button>
+            <HoldRemainderButton code={hit.serial.serialCode} />
           </div>
         </Card>
         <AsBuiltList title="Built from" empty="No kit or work-order genealogy for this serial." rows={hit.builtFrom} mode="from" />
@@ -166,6 +167,9 @@ function LookupResult({ hit }: { hit: ScanHit }) {
               <li className="text-muted-foreground">None on hand.</li>
             )}
           </ul>
+          <div className="mt-4">
+            <HoldRemainderButton code={hit.lotCode} />
+          </div>
         </Card>
         <AsBuiltList title="Used in" empty="This lot was not consumed into a build." rows={hit.usedIn} mode="into" />
         <AsBuiltList title="Built from" empty="No genealogy for this finished lot." rows={hit.builtFrom} mode="from" />
