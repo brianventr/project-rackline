@@ -105,6 +105,12 @@ Iteration 45 ships one labeled carton while the ticket stays `packing` / `packed
 
 Iteration 46 posts Shopify `fulfillmentCreate` per shipped carton with that box’s `trackingInfo` and line items. Orders with no packages keep one order-level fulfillment at final ship. Retry remaining shipped cartons that lack a fulfillment id. Ingest stays a promise until pick start.
 
+Iteration 47 short-ships a packing or packed order once at least one carton has left. Shipped carton qty stays out. Unshipped qty that left the bay returns, and the parent line stamps drop to the shipped qty. Allocations release. The order becomes `shipped` with shipped qty below ordered qty. Nothing shipped returns HTTP 409 (`NOTHING_SHIPPED`) — that case is still Cancel. Every ordered unit already in a shipped carton returns 409 (`NO_REMAINDER`). Cancel after a carton has shipped returns 409 (`SHIPPED`). Unshipped cartons are voided when the label is still live, then dropped. Qty stays integer pieces on location:item.
+
+Iteration 48 mints a child open order for ordered minus shipped, same customer and ship-to. The child does not reserve ATP until pick start. Number is `{parent}-BO`, then `{parent}-BO2` when that number is taken. The parent keeps the cartons that already left.
+
+Iteration 49 does not create a second Shopify order. The child copies the parent fulfillment-order ids and line item ids and omits `shopifyOrderId`. A later ship of the backorder posts `fulfillmentCreate` on the original order for that carton only. Sellable qty updates after the unpick in 47. Cancelling the original Shopify order also cancels open backorder children. Ingest stays a promise until pick start.
+
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 
 Iteration 25 deepens logistics on the same location:item ledger (qty stays integer stock units):
