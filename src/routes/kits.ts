@@ -3,7 +3,8 @@ import { and, desc, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
-import { getOrgItem, getOrgLocation } from "../lib/org";
+import { getOrgItem, getOrgLocation, optionalClientId } from "../lib/org";
+import { stampProducedClient } from "../domain/clients";
 import { docNumber, newId } from "../lib/ids";
 import { planCompleteKit } from "../domain/manufacturing";
 import { planDekit } from "../domain/dekit";
@@ -30,6 +31,7 @@ async function kitWithItem(db: AppEnv["Variables"]["db"], organizationId: string
       outputLocationId: schema.kitBuilds.outputLocationId,
       createdAt: schema.kitBuilds.createdAt,
       completedAt: schema.kitBuilds.completedAt,
+      clientId: schema.kitBuilds.clientId,
       sku: schema.items.sku,
       itemName: schema.items.name,
       trackLot: schema.items.trackLot,
@@ -98,6 +100,7 @@ kitsRoute.post("/kits", async (c) => {
     qty?: number;
     sourceLocationId?: string;
     outputLocationId?: string;
+    clientId?: string | null;
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
   const itemId = requireString(body.itemId, "itemId");
@@ -118,6 +121,7 @@ kitsRoute.post("/kits", async (c) => {
     .where(and(eq(schema.boms.organizationId, organizationId), eq(schema.boms.itemId, itemId)))
     .limit(1);
   if (!bom) badRequest("Create a recipe for this item before releasing a kit");
+  const clientId = await optionalClientId(db, organizationId, body.clientId);
 
   const [row] = await db
     .insert(schema.kitBuilds)
@@ -132,6 +136,7 @@ kitsRoute.post("/kits", async (c) => {
       status: "draft",
       sourceLocationId,
       outputLocationId,
+      clientId,
       createdAt: Date.now(),
     })
     .returning();
@@ -212,6 +217,7 @@ kitsRoute.post("/kits/:id/complete", async (c) => {
     outputLotCode: body.lotCode?.trim() || null,
     outputSerials: serials.length ? serials : null,
   });
+  stampProducedClient(plan, kit.clientId);
 
   const now = Date.now();
   const nextStatus = isFullyCompleted(kit.qty, applied.qtyCompleted) ? "completed" : "in_progress";

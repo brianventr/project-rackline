@@ -287,6 +287,7 @@ export function planScrap(input: {
   serials?: string[] | null;
   weightGrams?: number | null;
   expiresOn?: number | null;
+  clientId?: string | null;
 }): StockPlan {
   requirePositiveQty(input.qty);
   const balances = new Map(input.balances);
@@ -306,6 +307,7 @@ export function planScrap(input: {
         serials: input.serials ?? null,
         weightGrams: input.weightGrams ?? null,
         expiresOn: input.expiresOn ?? null,
+        ...(input.clientId ? { clientId: input.clientId } : {}),
       },
     ],
   };

@@ -6,6 +6,7 @@ import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onS
 import { formatExpiresOn } from "@/domain/expiry";
 import { formatAsBuiltPart } from "@/domain/as-built";
 import { SkuHandlers } from "./LaborPage";
+import { RecallPanel } from "../components/recall-panel";
 import { usePrint } from "../print/PrintProvider";
 
 const types = ["raw", "wip", "finished", "packaging"];
@@ -418,6 +419,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
           ))}
         </Table>
       ) : null}
+      <RecallPanel title="Orders that shipped a lot or serial" />
       <SkuHandlers itemId={item.id} linkStaff={me.role === "owner"} />
     </div>
   );

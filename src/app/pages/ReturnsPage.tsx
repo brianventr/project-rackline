@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type Item, type Location, type Order, type Rma } from "../api";
+import { api, type Client, type Item, type Location, type Order, type Rma } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
 import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
 import { RETURN_STEPS, canReceiveReturn } from "@/domain/status";
@@ -26,6 +26,8 @@ function ReturnList() {
   const [returns, setReturns] = useState<Rma[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [clientId, setClientId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [orderId, setOrderId] = useState("");
   const [notes, setNotes] = useState("");
@@ -34,14 +36,16 @@ function ReturnList() {
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
-    const [nextReturns, nextItems, nextOrders] = await Promise.all([
+    const [nextReturns, nextItems, nextOrders, nextClients] = await Promise.all([
       api<Rma[]>("/api/returns"),
       api<Item[]>("/api/items"),
       api<Order[]>("/api/orders"),
+      api<Client[]>("/api/clients"),
     ]);
     setReturns(nextReturns);
     setItems(nextItems);
     setOrders(nextOrders);
+    setClients(nextClients);
   }
 
   useEffect(() => {
@@ -57,6 +61,7 @@ function ReturnList() {
           warehouseId,
           customerName,
           orderId: orderId || null,
+          clientId: clientId || null,
           notes,
           lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
         }),
@@ -88,6 +93,16 @@ function ReturnList() {
                 {inWarehouse(orders, warehouseId).map((order) => (
                   <option key={order.id} value={order.id}>
                     {order.number} · {order.customerName}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Client">
+              <Select value={clientId} onChange={(e) => setClientId(e.target.value)}>
+                <option value="">From the order, or house</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.code} — {client.name}
                   </option>
                 ))}
               </Select>

@@ -21,6 +21,7 @@ import { JobClaimedError, JobNotReadyError, JobVerbDeniedError } from "./domain/
 import { EquipmentCustodyError } from "./domain/equipment";
 import { CarrierLiveError } from "./domain/carrier-live";
 import { originFrom, type AppEnv } from "./lib/types";
+import type { Role } from "./db/schema";
 import { registerRoute } from "./routes/register";
 import { demoRoute } from "./routes/demo";
 import { meRoute } from "./routes/me";
@@ -51,6 +52,8 @@ import { yardRoute } from "./routes/yard";
 import { laborRoute } from "./routes/labor";
 import { printersRoute } from "./routes/printers";
 import { billingRoute } from "./routes/billing";
+import { portalRoute } from "./routes/portal";
+import { recallRoute } from "./routes/recall";
 import { ediRoute } from "./routes/edi";
 import { equipmentRoute } from "./routes/equipment";
 import { analyticsRoute } from "./routes/analytics";
@@ -326,8 +329,21 @@ app.use("/api/*", async (c, next) => {
     name: session.user.name,
     email: session.user.email,
   });
+  const role = membership.role as Role;
+  if (role !== "owner" && role !== "operator" && role !== "client") {
+    return c.json({ error: "No organization for this user" }, 403);
+  }
   c.set("organizationId", membership.organizationId);
-  c.set("role", membership.role as "owner" | "operator");
+  c.set("role", role);
+  if (role === "client") {
+    if (!membership.clientId) {
+      return c.json({ error: "Client login is not linked to a brand" }, 403);
+    }
+    c.set("clientId", membership.clientId);
+    if (path !== "/api/me" && path !== "/api/portal") {
+      return c.json({ error: "Client portal only" }, 403);
+    }
+  }
   await next();
 });
 
@@ -358,6 +374,8 @@ app.route("/api", yardRoute);
 app.route("/api", laborRoute);
 app.route("/api", printersRoute);
 app.route("/api", billingRoute);
+app.route("/api", portalRoute);
+app.route("/api", recallRoute);
 app.route("/api", ediRoute);
 app.route("/api", equipmentRoute);
 app.route("/api", analyticsRoute);

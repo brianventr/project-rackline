@@ -636,7 +636,14 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
   const waveOrderB = newId();
   const crossXfrId = newId();
 
-  const demoBill = rateActivity({ storagePieces: 40, pickedUnits: 4, shippedCartons: 1 });
+  const demoBill = rateActivity(
+    [
+      { kind: "storage", qty: 40 },
+      { kind: "pick", qty: 4 },
+      { kind: "carton", qty: 1 },
+    ],
+    { storage: 2, pick: 25, carton: 150 },
+  );
 
   await db.batch([
     db.insert(schema.clients).values({
@@ -644,7 +651,29 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       organizationId,
       code: "ACME",
       name: "Acme Retail",
+      billingEmail: "billing@acme.example",
       createdAt: now,
+    }),
+    db.insert(schema.clientRates).values({
+      id: newId(),
+      organizationId,
+      clientId,
+      kind: "storage",
+      unitCents: 2,
+    }),
+    db.insert(schema.clientRates).values({
+      id: newId(),
+      organizationId,
+      clientId,
+      kind: "pick",
+      unitCents: 25,
+    }),
+    db.insert(schema.clientRates).values({
+      id: newId(),
+      organizationId,
+      clientId,
+      kind: "carton",
+      unitCents: 150,
     }),
     db.insert(schema.zones).values({
       id: zoneA,

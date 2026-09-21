@@ -100,6 +100,7 @@ export function isJobRefType(value: string): value is JobRefType {
 }
 
 export function parseFloorVerbs(raw: string | null | undefined, role: string): FloorVerb[] {
+  if (role === "client") return [];
   if (role === "owner") return [...FLOOR_VERBS];
   if (!raw || !raw.trim() || raw.trim() === "*") return [...FLOOR_VERBS];
   let parsed: unknown = raw;

@@ -68,6 +68,7 @@ export const memberships = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").notNull(),
     floorVerbs: text("floor_verbs"),
+    clientId: text("client_id"),
   },
   (t) => [uniqueIndex("memberships_org_user").on(t.organizationId, t.userId)],
 );
@@ -527,6 +528,7 @@ export const workOrders = sqliteTable("work_orders", {
     .references(() => locations.id),
   createdAt: integer("created_at").notNull(),
   completedAt: integer("completed_at"),
+  clientId: text("client_id"),
 });
 
 export const transfers = sqliteTable("transfers", {
@@ -658,6 +660,7 @@ export const rmas = sqliteTable("rmas", {
   customerName: text("customer_name").notNull(),
   status: text("status").notNull(),
   orderId: text("order_id").references(() => orders.id),
+  clientId: text("client_id"),
   locationId: text("location_id").references(() => locations.id),
   notes: text("notes"),
   createdAt: integer("created_at").notNull(),
@@ -803,6 +806,7 @@ export const kitBuilds = sqliteTable("kit_builds", {
     .references(() => locations.id),
   createdAt: integer("created_at").notNull(),
   completedAt: integer("completed_at"),
+  clientId: text("client_id"),
 });
 
 export const asBuilt = sqliteTable(
@@ -884,7 +888,7 @@ export const inventoryAllocations = sqliteTable("inventory_allocations", {
 export type ItemType = "raw" | "wip" | "finished" | "packaging";
 export type LocationType = "receiving" | "storage" | "production" | "shipping";
 export type SlotRole = "pick" | "bulk" | "none";
-export type Role = "owner" | "operator";
+export type Role = "owner" | "operator" | "client";
 export type ReceiptStatus = "draft" | "receiving" | "received";
 export type OrderStatus = "open" | "picking" | "picked" | "packing" | "packed" | "shipped" | "cancelled";
 export type OrderSource = "manual" | "shopify";
@@ -926,9 +930,29 @@ export const clients = sqliteTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     code: text("code").notNull(),
     name: text("name").notNull(),
+    billingEmail: text("billing_email"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [uniqueIndex("clients_org_code").on(t.organizationId, t.code)],
+);
+
+export const clientRates = sqliteTable(
+  "client_rates",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    unitCents: integer("unit_cents").notNull(),
+  },
+  (t) => [
+    uniqueIndex("client_rates_client_kind").on(t.clientId, t.kind),
+    index("client_rates_org").on(t.organizationId),
+  ],
 );
 
 export const clientBalances = sqliteTable(
@@ -1276,6 +1300,8 @@ export const invoices = sqliteTable(
     amountCents: integer("amount_cents").notNull(),
     linesJson: text("lines_json").notNull().default("[]"),
     status: text("status").notNull(),
+    issuedAt: integer("issued_at"),
+    emailedAt: integer("emailed_at"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [uniqueIndex("invoices_org_number").on(t.organizationId, t.number)],

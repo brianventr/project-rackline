@@ -18,6 +18,7 @@ export type Variables = {
   user?: { id: string; name: string; email: string };
   organizationId?: string;
   role?: Role;
+  clientId?: string;
   auth?: ReturnType<typeof createAuth>;
 };
 

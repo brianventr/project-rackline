@@ -51,7 +51,14 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
   const me = useSession();
   const owner = me.role === "owner";
 
-  const navGroups = [
+  const navGroups = me.role === "client"
+    ? [
+        {
+          label: "Brand",
+          items: [{ title: "Your stock", url: "/portal", icon: Boxes }],
+        },
+      ]
+    : [
     {
       label: "Today",
       items: [

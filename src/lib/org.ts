@@ -36,6 +36,7 @@ export async function getMembership(db: AppDb, userId: string) {
     .select({
       organizationId: schema.memberships.organizationId,
       role: schema.memberships.role,
+      clientId: schema.memberships.clientId,
       organizationName: schema.organizations.name,
     })
     .from(schema.memberships)
@@ -47,6 +48,21 @@ export async function getMembership(db: AppDb, userId: string) {
 
 export function requireOwner(role: Role | undefined): void {
   if (role !== "owner") forbidden("Owner role required");
+}
+
+export async function optionalClientId(
+  db: AppDb,
+  organizationId: string,
+  raw: string | null | undefined,
+): Promise<string | null> {
+  if (!raw?.trim()) return null;
+  const [client] = await db
+    .select({ id: schema.clients.id })
+    .from(schema.clients)
+    .where(and(eq(schema.clients.id, raw.trim()), eq(schema.clients.organizationId, organizationId)))
+    .limit(1);
+  if (!client) notFound("Client not found");
+  return client.id;
 }
 
 export async function getOrgWarehouse(db: AppDb, organizationId: string, warehouseId: string) {

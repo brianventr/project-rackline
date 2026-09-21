@@ -252,6 +252,7 @@ export async function postReceiveLines(
           serials: line.serials,
           weightGrams: line.weightGrams,
           expiresOn: line.expiresOn,
+          clientId: input.clientId,
         });
       }
       return [

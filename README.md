@@ -117,7 +117,13 @@ Iteration 51 installs Shopify with OAuth. Owners start from the shop domain; the
 
 Iteration 52 buys, voids, and shops rates on live UPS, FedEx, USPS, and DHL accounts. Demo connections still mint local tracking. A live buy that fails returns HTTP 409 (`CARRIER_LIVE`) and does not invent a tracking number. FedEx stores the client secret in the meter number field. USPS uses the API key as a bearer token. This replaces the direct-carrier limit in iterations 26 and 32.
 
-Iteration 53 drafts one invoice per 3PL client from warehouse activity: 2¢ per on-hand piece, 25¢ per unit picked in the last 30 days, and $1.50 per carton shipped in that period. House stock is not billed. No activity returns HTTP 409 (`NOTHING_TO_BILL`). This replaces the $5-per-client stub in iteration 25.
+Iteration 53 drafts one invoice per 3PL client from warehouse activity: 2¢ per on-hand piece, 25¢ per unit picked in the last 30 days, and $1.50 per carton shipped in that period. House stock is not billed. No activity returns HTTP 409 (`NOTHING_TO_BILL`). This replaces the $5-per-client stub in iteration 25. Iteration 54 replaces those three fixed rates with a per-client rate card.
+
+Iteration 54 stores a rate card on each client for receive, on-hand storage, pick, shipped carton, kit complete, work-order complete, and RMA receive. A missing rate is not billed, and a stored zero stays a zero line. Generate still drafts the trailing 30 days, one line per activity with a document number when the ledger has one, and updates an existing draft instead of stacking another. An issued invoice that overlaps the window is left alone. Issue emails the client's billing address when `MAIL_API_KEY` and `MAIL_FROM` are set. No address returns HTTP 409 (`MAIL_ADDRESS`) and a rejected send returns 409 (`MAIL_FAILED`); the invoice stays draft. With mail unset, Issue marks the invoice issued without claiming it was emailed.
+
+Iteration 55 traces a component lot or finished serial the other way: as-built parents, then the Shopify and manual orders whose picks carried that lot or serial, plus carton tracking when a box has left. Today, Floor Lookup, and the item page show the orders, the qty, and whether the order is still open. There is no automatic RMA and no customer email.
+
+Iteration 56 adds a client login. That user sees only their on-hand, a runway from their own shipped units, open orders, and issued invoices. Floor, pick, and adjust stay on the warehouse side.
 
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
 

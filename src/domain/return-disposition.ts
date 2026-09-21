@@ -59,6 +59,7 @@ export function returnReceiveSteps(input: {
   serials?: string[] | null;
   weightGrams?: number | null;
   expiresOn?: number | null;
+  clientId?: string | null;
 }): Array<(balances: Map<string, number>) => StockPlan> {
   const trace = {
     lotCode: input.lotCode,
@@ -74,6 +75,7 @@ export function returnReceiveSteps(input: {
       refId: input.refId,
       refType: "return",
       balances,
+      clientId: input.clientId,
       ...trace,
     });
   if (input.disposition !== "scrap") return [receive];
@@ -87,6 +89,7 @@ export function returnReceiveSteps(input: {
         qty: input.qty,
         refId: input.refId,
         balances,
+        clientId: input.clientId,
         ...trace,
       }),
   ];

@@ -70,7 +70,7 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
           ))}
         </select>
         <div className="ml-auto flex items-center gap-1.5">
-          <ToggleGroup
+          {me.role === "client" ? null : <ToggleGroup
             type="single"
             value={onFloor ? "floor" : "office"}
             onValueChange={(value) => {
@@ -87,7 +87,9 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
             <ToggleGroupItem value="floor" className="h-7 px-2 text-[11px]">
               Floor
             </ToggleGroupItem>
-          </ToggleGroup>
+          </ToggleGroup>}
+          {me.role === "client" ? null : (
+            <>
           <Button variant="outline" size="xs" className="hidden min-w-40 justify-start gap-2 font-normal text-muted-foreground sm:inline-flex" onClick={() => setSearchOpen(true)}>
             <Search className="size-3.5" />
             <span>Search</span>
@@ -105,6 +107,8 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
             </Button>
           ) : (
             <span className="hidden text-[11px] text-muted-foreground lg:inline">Gun scanners work from any screen</span>
+          )}
+            </>
           )}
           <ModeToggle />
         </div>

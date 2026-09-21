@@ -33,6 +33,7 @@ import {
   loadAsBuiltForLotCode,
   loadAsBuiltForParentSerial,
 } from "../db/as-built";
+import { loadRecall } from "../db/recall";
 import { completeMatchingSuggestionJobs, guardFloorJob, guardMatchingSuggestionJobs, syncDocumentJob } from "../db/jobs";
 import { loadDocumentNumber, loadOpenAssignmentForEquipment } from "../db/equipment";
 import { loadPackagesForAsns, loadUnputawayReceivedCartons } from "../db/asn-packages";
@@ -1300,6 +1301,7 @@ floorRoute.get("/scan", async (c) => {
         item: { id: serial.itemId, sku: serial.sku, name: serial.itemName, barcode: serial.barcode },
         builtFrom,
         usedIn,
+        shipped: (await loadRecall(db, organizationId, serial.serialCode)).orders,
       });
     }
     if (parsed.kind === "serial") notFound("No serial matches that barcode");
@@ -1316,6 +1318,7 @@ floorRoute.get("/scan", async (c) => {
         onHand,
         builtFrom: genealogy.filter((row) => row.parentLotCode === lotCode),
         usedIn: genealogy.filter((row) => row.componentLotCode === lotCode),
+        shipped: (await loadRecall(db, organizationId, lotCode)).orders,
       });
     }
     if (parsed.kind === "lot") notFound("No lot matches that barcode");

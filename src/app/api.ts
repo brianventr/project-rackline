@@ -1,4 +1,5 @@
 import { createAuthClient } from "better-auth/react";
+import type { RateKind } from "../domain/billing";
 
 export const authClient = createAuthClient({
   basePath: "/api/auth",
@@ -42,7 +43,8 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export type Me = {
   user: { id: string; name: string; email: string };
   organization: { id: string; name: string };
-  role: "owner" | "operator";
+  role: "owner" | "operator" | "client";
+  clientId?: string | null;
   floorVerbs?: string[];
   warehouses: { id: string; name: string }[];
 };
@@ -218,6 +220,7 @@ export type ScanSerialHit = {
   item: Pick<Item, "id" | "sku" | "name" | "barcode">;
   builtFrom: AsBuiltLink[];
   usedIn: AsBuiltLink[];
+  shipped?: RecallOrder[];
 };
 export type ScanLotHit = {
   kind: "lot";
@@ -236,6 +239,17 @@ export type ScanLotHit = {
   }[];
   builtFrom: AsBuiltLink[];
   usedIn: AsBuiltLink[];
+  shipped?: RecallOrder[];
+};
+
+export type RecallOrder = {
+  orderId: string;
+  number: string;
+  source: string;
+  status: string;
+  open: boolean;
+  qty: number;
+  tracking: { number: string; company: string | null }[];
 };
 
 export type ScanHit =
@@ -1032,6 +1046,8 @@ export type Client = {
   organizationId?: string;
   code: string;
   name: string;
+  billingEmail?: string | null;
+  rates?: Partial<Record<RateKind, number>>;
   createdAt: number;
 };
 

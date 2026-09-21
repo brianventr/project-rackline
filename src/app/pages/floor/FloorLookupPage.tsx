@@ -5,6 +5,7 @@ import { documentPath } from "@/domain/barcodes";
 import { Button, Card, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { AsBuiltList } from "../../components/as-built";
+import { RecallOrders } from "../../components/recall-panel";
 
 export function FloorLookupPage() {
   const [hit, setHit] = useState<ScanHit | null>(null);
@@ -138,6 +139,10 @@ function LookupResult({ hit }: { hit: ScanHit }) {
         </Card>
         <AsBuiltList title="Built from" empty="No kit or work-order genealogy for this serial." rows={hit.builtFrom} mode="from" />
         <AsBuiltList title="Used in" empty="This serial was not consumed into a build." rows={hit.usedIn} mode="into" />
+        <Card>
+          <p className="mb-2 text-sm font-medium">Shipped on</p>
+          <RecallOrders orders={hit.shipped ?? []} />
+        </Card>
       </div>
     );
   }
@@ -164,6 +169,10 @@ function LookupResult({ hit }: { hit: ScanHit }) {
         </Card>
         <AsBuiltList title="Used in" empty="This lot was not consumed into a build." rows={hit.usedIn} mode="into" />
         <AsBuiltList title="Built from" empty="No genealogy for this finished lot." rows={hit.builtFrom} mode="from" />
+        <Card>
+          <p className="mb-2 text-sm font-medium">Shipped on</p>
+          <RecallOrders orders={hit.shipped ?? []} />
+        </Card>
       </div>
     );
   }

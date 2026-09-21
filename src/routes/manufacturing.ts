@@ -3,7 +3,8 @@ import { and, desc, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
-import { getOrgItem, getOrgLocation, requireOwner } from "../lib/org";
+import { getOrgItem, getOrgLocation, optionalClientId, requireOwner } from "../lib/org";
+import { stampProducedClient } from "../domain/clients";
 import { docNumber, newId } from "../lib/ids";
 import { planCompleteWorkOrder } from "../domain/manufacturing";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
@@ -133,6 +134,7 @@ async function workOrderWithItem(db: AppEnv["Variables"]["db"], organizationId: 
       outputLocationId: schema.workOrders.outputLocationId,
       createdAt: schema.workOrders.createdAt,
       completedAt: schema.workOrders.completedAt,
+      clientId: schema.workOrders.clientId,
       sku: schema.items.sku,
       itemName: schema.items.name,
     })
@@ -182,6 +184,7 @@ manufacturingRoute.post("/work-orders", async (c) => {
     qty?: number;
     sourceLocationId?: string;
     outputLocationId?: string;
+    clientId?: string | null;
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
   const itemId = requireString(body.itemId, "itemId");
@@ -202,6 +205,7 @@ manufacturingRoute.post("/work-orders", async (c) => {
     .where(and(eq(schema.boms.organizationId, organizationId), eq(schema.boms.itemId, itemId)))
     .limit(1);
   if (!bom) badRequest("Create a BOM for this item before releasing a work order");
+  const clientId = await optionalClientId(db, organizationId, body.clientId);
 
   const [row] = await db
     .insert(schema.workOrders)
@@ -216,6 +220,7 @@ manufacturingRoute.post("/work-orders", async (c) => {
       status: "draft",
       sourceLocationId,
       outputLocationId,
+      clientId,
       createdAt: Date.now(),
     })
     .returning();
@@ -349,6 +354,7 @@ manufacturingRoute.post("/work-orders/:id/complete", async (c) => {
     bomLines: components,
     balances: qtyMap(loaded),
   });
+  stampProducedClient(plan, wo.clientId);
 
   const now = Date.now();
   const nextStatus = isFullyCompleted(wo.qty, applied.qtyCompleted) ? "completed" : "in_progress";

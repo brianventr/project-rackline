@@ -20,7 +20,11 @@ meRoute.get("/me", async (c) => {
     .from(schema.warehouses)
     .where(eq(schema.warehouses.organizationId, organizationId));
   const [membership] = await db
-    .select({ floorVerbs: schema.memberships.floorVerbs, role: schema.memberships.role })
+    .select({
+      floorVerbs: schema.memberships.floorVerbs,
+      role: schema.memberships.role,
+      clientId: schema.memberships.clientId,
+    })
     .from(schema.memberships)
     .where(and(eq(schema.memberships.organizationId, organizationId), eq(schema.memberships.userId, user.id)))
     .limit(1);
@@ -28,6 +32,7 @@ meRoute.get("/me", async (c) => {
     user,
     organization: org,
     role: c.get("role"),
+    clientId: c.get("clientId") ?? membership?.clientId ?? null,
     floorVerbs: parseFloorVerbs(membership?.floorVerbs, c.get("role") || "operator"),
     warehouses,
   });

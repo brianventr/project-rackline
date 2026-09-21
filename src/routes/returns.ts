@@ -4,7 +4,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
-import { getOrgItem, getOrgLocation } from "../lib/org";
+import { getOrgItem, getOrgLocation, optionalClientId } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
 import { postReceiveLines } from "../db/stock";
 import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError } from "../domain/partial-receive";
@@ -46,6 +46,8 @@ async function rmaWithLines(db: AppEnv["Variables"]["db"], organizationId: strin
       customerName: schema.rmas.customerName,
       status: schema.rmas.status,
       orderId: schema.rmas.orderId,
+      clientId: schema.rmas.clientId,
+      orderClientId: schema.orders.clientId,
       locationId: schema.rmas.locationId,
       notes: schema.rmas.notes,
       createdAt: schema.rmas.createdAt,
@@ -152,6 +154,7 @@ returnsRoute.post("/returns", async (c) => {
     warehouseId?: string;
     customerName?: string;
     orderId?: string | null;
+    clientId?: string | null;
     notes?: string;
     lines?: { itemId?: string; qty?: number }[];
   }>();
@@ -164,16 +167,19 @@ returnsRoute.post("/returns", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   let orderId: string | null = null;
+  let orderClientId: string | null = null;
   if (body.orderId) {
     const order = requireString(body.orderId, "orderId");
     const [row] = await db
-      .select({ id: schema.orders.id })
+      .select({ id: schema.orders.id, clientId: schema.orders.clientId })
       .from(schema.orders)
       .where(and(eq(schema.orders.id, order), eq(schema.orders.organizationId, organizationId)))
       .limit(1);
     if (!row) notFound("Order not found");
     orderId = row.id;
+    orderClientId = row.clientId;
   }
+  const clientId = (await optionalClientId(db, organizationId, body.clientId)) ?? orderClientId;
 
   const now = Date.now();
   const id = newId();
@@ -198,6 +204,7 @@ returnsRoute.post("/returns", async (c) => {
       customerName,
       status: "open",
       orderId,
+      clientId,
       notes: body.notes?.trim() || null,
       createdAt: now,
     }),
@@ -375,6 +382,7 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
     locationId,
     refType: "return",
     refId: rma.id,
+    clientId: rma.clientId ?? rma.orderClientId,
     lines: applied.posted.map((line) => {
       const extra = incoming.find((row) => row.itemId === line.itemId);
       return {

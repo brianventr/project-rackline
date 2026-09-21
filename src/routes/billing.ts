@@ -1,12 +1,13 @@
 import { Hono } from "hono";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { requireOwner } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
-import { conflict } from "../lib/http";
-import { ACTIVITY_RATES, type ActivityLine } from "../domain/billing";
+import { conflict, notFound } from "../lib/http";
+import { invoiceMailText, isBillingEmail, type ActivityLine } from "../domain/billing";
 import { loadActivityDrafts } from "../db/activity-billing";
+import { sendPurchaseEmail } from "../lib/mail";
 
 export const billingRoute = new Hono<AppEnv>();
 
@@ -54,6 +55,10 @@ function presentInvoice(
   };
 }
 
+function overlaps(start: number, end: number, otherStart: number, otherEnd: number): boolean {
+  return start <= otherEnd && otherStart <= end;
+}
+
 billingRoute.get("/billing", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -75,7 +80,6 @@ billingRoute.get("/billing", async (c) => {
     account,
     invoices: invoices.map((row) => presentInvoice(row, clients)),
     clientCount: clientRows.length,
-    rates: ACTIVITY_RATES,
     periodDays: 30,
   });
 });
@@ -88,10 +92,38 @@ billingRoute.post("/billing/invoices/generate", async (c) => {
   const now = Date.now();
   const { periodStart, periodEnd, drafts } = await loadActivityDrafts(db, organizationId, now);
   if (drafts.length === 0) conflict("No client activity to bill for this period", "NOTHING_TO_BILL");
-  const ids: string[] = [];
+  const existing = await db
+    .select()
+    .from(schema.invoices)
+    .where(eq(schema.invoices.organizationId, organizationId));
+  const touched: string[] = [];
   for (const draft of drafts) {
+    const issued = existing.some(
+      (row) =>
+        row.clientId === draft.clientId &&
+        row.status === "issued" &&
+        overlaps(periodStart, periodEnd, row.periodStart, row.periodEnd),
+    );
+    if (issued) continue;
+    const draftsForClient = existing
+      .filter((row) => row.clientId === draft.clientId && row.status === "draft")
+      .sort((a, b) => b.createdAt - a.createdAt);
+    const current = draftsForClient[0];
+    if (current) {
+      await db
+        .update(schema.invoices)
+        .set({
+          periodStart,
+          periodEnd,
+          amountCents: draft.amountCents,
+          linesJson: JSON.stringify(draft.lines),
+        })
+        .where(eq(schema.invoices.id, current.id));
+      touched.push(current.id);
+      continue;
+    }
     const id = newId();
-    ids.push(id);
+    touched.push(id);
     await db.insert(schema.invoices).values({
       id,
       organizationId,
@@ -105,13 +137,13 @@ billingRoute.post("/billing/invoices/generate", async (c) => {
       createdAt: now,
     });
   }
+  if (touched.length === 0) conflict("Issued invoices already cover this period", "NOTHING_TO_BILL");
   const invoices = await db
     .select()
     .from(schema.invoices)
     .where(eq(schema.invoices.organizationId, organizationId))
-    .orderBy(desc(schema.invoices.createdAt))
-    .limit(ids.length);
-  const created = invoices.filter((row) => ids.includes(row.id));
+    .orderBy(desc(schema.invoices.createdAt));
+  const created = invoices.filter((row) => touched.includes(row.id));
   const clientRows = await db
     .select({ id: schema.clients.id, code: schema.clients.code, name: schema.clients.name })
     .from(schema.clients)
@@ -121,4 +153,57 @@ billingRoute.post("/billing/invoices/generate", async (c) => {
     { invoices: created.map((row) => presentInvoice(row, clients)) },
     201,
   );
+});
+
+billingRoute.post("/billing/invoices/:id/issue", async (c) => {
+  requireOwner(c.get("role"));
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const [invoice] = await db
+    .select()
+    .from(schema.invoices)
+    .where(and(eq(schema.invoices.id, c.req.param("id")), eq(schema.invoices.organizationId, organizationId)))
+    .limit(1);
+  if (!invoice) notFound("Invoice not found");
+  if (invoice.status !== "draft") conflict("Invoice is already issued", "ALREADY_ISSUED");
+  const [client] = invoice.clientId
+    ? await db
+        .select()
+        .from(schema.clients)
+        .where(and(eq(schema.clients.id, invoice.clientId), eq(schema.clients.organizationId, organizationId)))
+        .limit(1)
+    : [];
+  const mailConfigured = Boolean(c.env.MAIL_API_KEY && c.env.MAIL_FROM);
+  const now = Date.now();
+  let emailedAt: number | null = null;
+  if (mailConfigured) {
+    if (!isBillingEmail(client?.billingEmail)) {
+      conflict("Client has no billing email", "MAIL_ADDRESS");
+    }
+    const mail = invoiceMailText({
+      number: invoice.number,
+      clientName: client?.name ?? "Client",
+      lines: parseLines(invoice.linesJson),
+      amountCents: invoice.amountCents,
+    });
+    try {
+      await sendPurchaseEmail({
+        apiKey: c.env.MAIL_API_KEY!,
+        from: c.env.MAIL_FROM!,
+        to: client!.billingEmail!.trim(),
+        subject: mail.subject,
+        text: mail.text,
+      });
+    } catch {
+      conflict("Could not email the invoice", "MAIL_FAILED");
+    }
+    emailedAt = now;
+  }
+  await db
+    .update(schema.invoices)
+    .set({ status: "issued", issuedAt: now, emailedAt })
+    .where(eq(schema.invoices.id, invoice.id));
+  const [row] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, invoice.id)).limit(1);
+  const clients = new Map(client ? [[client.id, { code: client.code, name: client.name }]] : []);
+  return c.json(presentInvoice(row!, clients));
 });

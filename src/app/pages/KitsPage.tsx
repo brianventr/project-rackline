@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type Item, type KitBuild, type Location } from "../api";
+import { api, type Client, type Item, type KitBuild, type Location } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
 import { DocumentHeader, DocumentActivity } from "../components/document";
 import { AsBuiltList } from "../components/as-built";
@@ -23,18 +23,22 @@ function KitList() {
   const [qty, setQty] = useState("1");
   const [sourceLocationId, setSourceLocationId] = useState("");
   const [outputLocationId, setOutputLocationId] = useState("");
+  const [clients, setClients] = useState<Client[]>([]);
+  const [clientId, setClientId] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
-    const [nextKits, nextItems, nextLocations] = await Promise.all([
+    const [nextKits, nextItems, nextLocations, nextClients] = await Promise.all([
       api<KitBuild[]>("/api/kits"),
       api<Item[]>("/api/items"),
       api<Location[]>("/api/locations"),
+      api<Client[]>("/api/clients"),
     ]);
     setKits(nextKits);
     setItems(nextItems);
     setLocations(nextLocations);
+    setClients(nextClients);
     const finished = nextItems.find((item) => item.type === "finished" || item.type === "wip");
     if (finished) setItemId(finished.id);
     const storage = nextLocations.find((location) => location.type === "storage") ?? nextLocations[0];
@@ -52,7 +56,14 @@ function KitList() {
     try {
       const created = await api<KitBuild>("/api/kits", {
         method: "POST",
-        body: JSON.stringify({ warehouseId, itemId, qty: Number(qty), sourceLocationId, outputLocationId }),
+        body: JSON.stringify({
+          warehouseId,
+          itemId,
+          qty: Number(qty),
+          sourceLocationId,
+          outputLocationId,
+          clientId: clientId || null,
+        }),
       });
       navigate(`/make/kits/${created.id}`);
     } catch (err) {
@@ -80,6 +91,16 @@ function KitList() {
                 {parents.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.sku} — {item.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Client">
+              <Select value={clientId} onChange={(e) => setClientId(e.target.value)}>
+                <option value="">House (not billed)</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.code} — {client.name}
                   </option>
                 ))}
               </Select>

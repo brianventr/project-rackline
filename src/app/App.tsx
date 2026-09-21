@@ -45,6 +45,7 @@ import { IntegrationsPage } from "./pages/setup/IntegrationsPage";
 import { ClientsPage } from "./pages/setup/ClientsPage";
 import { ZonesPage } from "./pages/setup/ZonesPage";
 import { BillingPage } from "./pages/setup/BillingPage";
+import { PortalPage } from "./pages/PortalPage";
 import { EdiPage } from "./pages/setup/EdiPage";
 import { ReplenishmentsPage } from "./pages/ReplenishmentsPage";
 import { KitsPage } from "./pages/KitsPage";
@@ -108,6 +109,7 @@ export function App() {
       <Route path="/signup" element={me ? <Navigate to={signedInHome} replace /> : <AuthPage mode="signup" />} />
       <Route element={<Guard me={me} />}>
         <Route path="/today" element={<TodayPage />} />
+        <Route path="/portal" element={<PortalPage />} />
         <Route
           path="/labor"
           element={

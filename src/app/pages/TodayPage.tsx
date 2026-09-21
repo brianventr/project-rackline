@@ -10,6 +10,7 @@ import { formatExpiresOn } from "@/domain/expiry";
 import { desiredVerb } from "@/domain/jobs";
 import { jobForRef, jobForSuggestion } from "../jobs";
 import { cn } from "@/lib/utils";
+import { RecallPanel } from "../components/recall-panel";
 
 const LANES = ["inbound", "outbound", "make", "stock", "exceptions"] as const;
 type LaneId = (typeof LANES)[number];
@@ -171,6 +172,9 @@ export function TodayPage() {
           description="Dispatch board: assign floor jobs, or leave them unassigned so the next scan claims them."
         />
         <ErrorBanner error={error} />
+      </div>
+      <div className="border-b px-3 py-2">
+        <RecallPanel title="Recall a lot or serial" />
       </div>
       <StatStrip items={stats} />
       <div className="flex min-h-0 flex-1">

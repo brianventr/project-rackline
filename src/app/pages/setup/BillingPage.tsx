@@ -2,7 +2,14 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { Button, Card, ErrorBanner, PageHeader } from "../../components/ui";
 
-type InvoiceLine = { kind: string; label: string; qty: number; amountCents: number };
+type InvoiceLine = {
+  kind: string;
+  label: string;
+  qty: number;
+  amountCents: number;
+  refId?: string;
+  refNumber?: string;
+};
 
 type BillingPayload = {
   account: { plan: string; status: string } | null;
@@ -13,10 +20,10 @@ type BillingPayload = {
     status: string;
     clientCode: string | null;
     clientName: string | null;
+    emailedAt: number | null;
     lines: InvoiceLine[];
   }[];
   clientCount: number;
-  rates: { storageCentsPerPiece: number; pickCentsPerUnit: number; cartonCents: number };
   periodDays: number;
 };
 
@@ -42,20 +49,29 @@ export function BillingPage() {
     }
   }
 
+  async function issue(id: string) {
+    setError(null);
+    try {
+      await api(`/api/billing/invoices/${id}/issue`, { method: "POST" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Issue failed");
+    }
+  }
+
   return (
     <div>
       <PageHeader
         eyebrow="Setup"
         title="Billing"
-        description="Draft one invoice per 3PL client from on-hand pieces, picks, and shipped cartons."
+        description="Draft one invoice per client from the rate card on that client. Issue emails it when mail is configured."
       />
       <ErrorBanner error={error} />
       {data ? (
-        <Card className="space-y-4 max-w-lg">
+        <Card className="max-w-xl space-y-4">
           <p className="text-sm">
-            Plan <span className="font-mono">{data.account?.plan ?? "—"}</span> · {data.clientCount} clients · storage{" "}
-            {data.rates.storageCentsPerPiece}¢/piece · picks {data.rates.pickCentsPerUnit}¢/unit · cartons{" "}
-            {(data.rates.cartonCents / 100).toFixed(2)} USD · picks and cartons cover {data.periodDays} days
+            Plan <span className="font-mono">{data.account?.plan ?? "—"}</span> · {data.clientCount} clients · activity
+            window {data.periodDays} days. A missing rate is not billed. House stock stays off the invoice.
           </p>
           <Button onClick={() => void generate()}>Generate draft invoices</Button>
           <ul className="space-y-3 text-sm">
@@ -63,16 +79,23 @@ export function BillingPage() {
               <li key={inv.id}>
                 <p>
                   {inv.number}
-                  {inv.clientCode ? ` · ${inv.clientCode}` : ""} — {(inv.amountCents / 100).toFixed(2)} ({inv.status})
+                  {inv.clientCode ? ` · ${inv.clientCode}` : ""} — {(inv.amountCents / 100).toFixed(2)} ({inv.status}
+                  {inv.emailedAt ? ", emailed" : ""})
                 </p>
                 {inv.lines.length > 0 ? (
                   <ul className="mt-1 text-muted-foreground">
                     {inv.lines.map((line) => (
-                      <li key={`${inv.id}-${line.kind}`}>
-                        {line.label} × {line.qty} · {(line.amountCents / 100).toFixed(2)}
+                      <li key={`${inv.id}-${line.kind}-${line.refId ?? "none"}`}>
+                        {line.label}
+                        {line.refNumber ? ` · ${line.refNumber}` : ""} × {line.qty} · {(line.amountCents / 100).toFixed(2)}
                       </li>
                     ))}
                   </ul>
+                ) : null}
+                {inv.status === "draft" ? (
+                  <Button className="mt-2" variant="secondary" onClick={() => void issue(inv.id)}>
+                    Issue
+                  </Button>
                 ) : null}
               </li>
             ))}

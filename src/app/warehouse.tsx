@@ -44,7 +44,9 @@ export function useWarehouse(): WarehouseState {
 }
 
 export function homePath(role: string): string {
-  return role === "operator" ? "/floor" : "/today";
+  if (role === "operator") return "/floor";
+  if (role === "client") return "/portal";
+  return "/today";
 }
 
 export function inWarehouse<T extends { warehouseId?: string }>(rows: T[], warehouseId: string): T[] {
