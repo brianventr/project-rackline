@@ -32,6 +32,10 @@ function createApp(vars?: { role?: "owner" | "operator"; organizationId?: string
     if (!org || itemOrg !== org) throw new HttpError(404, "Item not found");
     throw new InsufficientAtpError("LED-BULB", 0, 2, "A-01-01");
   });
+  app.get("/audit", (c) => {
+    requireOwner(c.get("role"));
+    return c.json([]);
+  });
   return app;
 }
 
@@ -75,12 +79,16 @@ describe("409 contract", () => {
 });
 
 describe("route guards", () => {
-  it("forbids an operator from posting an adjustment", async () => {
+  it("forbids an operator from posting an adjustment or reading audit", async () => {
     const denied = await createApp({ role: "operator" }).request("http://localhost/adjustments", {
       method: "POST",
     });
     expect(denied.status).toBe(403);
     expect(await denied.json()).toEqual({ error: "Owner role required" });
+
+    const audit = await createApp({ role: "operator" }).request("http://localhost/audit");
+    expect(audit.status).toBe(403);
+    expect(await audit.json()).toEqual({ error: "Owner role required" });
   });
 
   it("lets an owner adjust and 404s another org's SKU", async () => {

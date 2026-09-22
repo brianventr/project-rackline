@@ -10,8 +10,10 @@ import { originFrom } from "../lib/types";
 import { sendMail } from "../lib/mail";
 import { FLOOR_VERBS, isFloorVerb, parseFloorVerbs, serializeFloorVerbs, type FloorVerb } from "../domain/jobs";
 import {
+  type InviteKind,
   inviteMailText,
   mailConfigured,
+  notePendingInvite,
   parseTeamInvite,
   randomPassword,
   resolveInvitePassword,
@@ -104,34 +106,35 @@ teamRoute.post("/team", async (c) => {
     role: parsed.role,
   });
 
-  let invite: "emailed" | "password" = resolved.emailed ? "emailed" : "password";
+  const [org] = await db
+    .select({ name: schema.organizations.name })
+    .from(schema.organizations)
+    .where(eq(schema.organizations.id, organizationId))
+    .limit(1);
+  const organizationName = org?.name || "your warehouse";
+
+  let invite: InviteKind = resolved.emailed ? "created" : "password";
   if (resolved.emailed) {
-    const reset = await auth.api.requestPasswordReset({
-      body: { email: parsed.email, redirectTo: `${origin}/reset-password` },
-    }).catch((err: unknown) => {
-      throw new HttpError(409, err instanceof Error ? err.message : "Could not send invite email", "MAIL_FAILED");
-    });
-    if (!reset) conflict("Could not send invite email", "MAIL_FAILED");
-    invite = "emailed";
+    notePendingInvite(parsed.email, organizationName);
+    const reset = await auth.api
+      .requestPasswordReset({
+        body: { email: parsed.email, redirectTo: `${origin}/reset-password` },
+      })
+      .catch(() => null);
+    invite = reset ? "emailed" : "created";
   } else if (canMail) {
-    const [org] = await db
-      .select({ name: schema.organizations.name })
-      .from(schema.organizations)
-      .where(eq(schema.organizations.id, organizationId))
-      .limit(1);
     await sendMail({
       apiKey: c.env.MAIL_API_KEY!,
       from: c.env.MAIL_FROM!,
       to: parsed.email,
-      subject: `You were added to ${org?.name || "Rackline"}`,
+      subject: `You were added to ${organizationName}`,
       text: inviteMailText({
         name: parsed.name,
-        organizationName: org?.name || "your warehouse",
+        organizationName,
         url: `${origin}/login`,
         setPassword: false,
       }),
     }).catch(() => undefined);
-    invite = "emailed";
   }
 
   const [row] = await db

@@ -25,6 +25,21 @@ export type ParsedTeamInvite = {
   password: string | null;
 };
 
+export type InviteKind = "emailed" | "password" | "created";
+
+const pendingInvites = new Map<string, { organizationName: string }>();
+
+export function notePendingInvite(email: string, organizationName: string) {
+  pendingInvites.set(email.trim().toLowerCase(), { organizationName });
+}
+
+export function takePendingInvite(email: string): { organizationName: string } | null {
+  const key = email.trim().toLowerCase();
+  const row = pendingInvites.get(key) ?? null;
+  if (row) pendingInvites.delete(key);
+  return row;
+}
+
 export function parseTeamInvite(body: TeamInviteBody): ParsedTeamInvite {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
@@ -95,6 +110,36 @@ export function inviteMailText(input: {
     "",
     "If you were not expecting this, tell your owner.",
   ].join("\n");
+}
+
+export function resetMailFor(
+  user: { name?: string | null; email: string },
+  url: string,
+): { subject: string; text: string } {
+  const pending = takePendingInvite(user.email);
+  if (pending) {
+    return {
+      subject: `You were added to ${pending.organizationName}`,
+      text: inviteMailText({
+        name: user.name?.trim() || "there",
+        organizationName: pending.organizationName,
+        url,
+        setPassword: true,
+      }),
+    };
+  }
+  return {
+    subject: "Reset your Rackline password",
+    text: resetMailText({ name: user.name, url }),
+  };
+}
+
+export function inviteOwnerMessage(invite: InviteKind, name: string, email: string): string {
+  if (invite === "emailed") return `Invite sent to ${email}.`;
+  if (invite === "created") {
+    return `${name} is on the team. Email did not send — they can use Forgot password.`;
+  }
+  return `${name} can sign in with the starter password.`;
 }
 
 export function mailConfigured(env: { MAIL_API_KEY?: string; MAIL_FROM?: string }): boolean {

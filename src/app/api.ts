@@ -859,7 +859,7 @@ export type TeamMember = {
   name: string;
   email: string;
   floorVerbs?: string[];
-  invite?: "emailed" | "password";
+  invite?: "emailed" | "password" | "created";
 };
 
 export type AuditEvent = {

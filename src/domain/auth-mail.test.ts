@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   inviteMailText,
+  inviteOwnerMessage,
   mailConfigured,
+  notePendingInvite,
   parseTeamInvite,
+  resetMailFor,
   resetMailText,
   resolveInvitePassword,
+  takePendingInvite,
   TeamInviteError,
 } from "./auth-mail";
 
@@ -55,5 +59,32 @@ describe("team invite", () => {
     expect(invite).not.toMatch(/rackline-demo|generated-password/);
     expect(mailConfigured({ MAIL_API_KEY: "re_1", MAIL_FROM: "floor@rackline.example" })).toBe(true);
     expect(mailConfigured({ MAIL_API_KEY: "", MAIL_FROM: "floor@rackline.example" })).toBe(false);
+  });
+
+  it("uses invite copy once for a pending teammate, then reset copy", () => {
+    notePendingInvite("Jordan@Shop.Example", "Northwind Makers");
+    const first = resetMailFor(
+      { name: "Jordan", email: "jordan@shop.example" },
+      "https://app.example/api/auth/reset-password/tok",
+    );
+    expect(first.subject).toBe("You were added to Northwind Makers");
+    expect(first.text).toContain("You were added to Northwind Makers");
+    expect(first.text).toContain("set your password");
+    expect(takePendingInvite("jordan@shop.example")).toBeNull();
+
+    const second = resetMailFor(
+      { name: "Jordan", email: "jordan@shop.example" },
+      "https://app.example/api/auth/reset-password/tok2",
+    );
+    expect(second.subject).toBe("Reset your Rackline password");
+    expect(second.text).toContain("reset the Rackline password");
+  });
+
+  it("tells the owner whether mail went out without implying a starter password was emailed", () => {
+    expect(inviteOwnerMessage("emailed", "Maya", "maya@shop.example")).toBe("Invite sent to maya@shop.example.");
+    expect(inviteOwnerMessage("password", "Maya", "maya@shop.example")).toBe(
+      "Maya can sign in with the starter password.",
+    );
+    expect(inviteOwnerMessage("created", "Maya", "maya@shop.example")).toMatch(/Forgot password/);
   });
 });

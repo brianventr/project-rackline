@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import type { AppDb } from "../db/stock";
 import * as schema from "../db/schema";
-import { resetMailText } from "../domain/auth-mail";
+import { resetMailFor } from "../domain/auth-mail";
 import { sendMail } from "./mail";
 
 const LOCAL_DEV_SECRET = "dev-only-local-secret-do-not-use-in-prod-32ch";
@@ -39,13 +39,14 @@ export function createAuth(
       sendResetPassword: async ({ user, url }) => {
         const apiKey = env.MAIL_API_KEY?.trim();
         const from = env.MAIL_FROM?.trim();
+        const mail = resetMailFor(user, url);
         if (apiKey && from) {
           await sendMail({
             apiKey,
             from,
             to: user.email,
-            subject: "Reset your Rackline password",
-            text: resetMailText({ name: user.name, url }),
+            subject: mail.subject,
+            text: mail.text,
           });
           return;
         }

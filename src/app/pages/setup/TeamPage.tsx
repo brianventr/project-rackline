@@ -4,6 +4,7 @@ import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onS
 import { FLOOR_VERBS, VERB_LABELS, type FloorVerb } from "@/domain/jobs";
 import { EQUIPMENT_CLASSES, equipmentClassLabel } from "@/domain/equipment";
 import { formatExpiresOn } from "@/domain/expiry";
+import { inviteOwnerMessage, type InviteKind } from "@/domain/auth-mail";
 
 export function TeamPage() {
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -36,7 +37,7 @@ export function TeamPage() {
     setError(null);
     setOk(null);
     try {
-      const created = await api<TeamMember & { invite?: string }>("/api/team", {
+      const created = await api<TeamMember & { invite?: InviteKind }>("/api/team", {
         method: "POST",
         body: JSON.stringify({
           name,
@@ -48,11 +49,7 @@ export function TeamPage() {
       setName("");
       setEmail("");
       setPassword("");
-      setOk(
-        created.invite === "emailed"
-          ? `Invite sent to ${created.email}.`
-          : `${created.name} can sign in with the starter password.`,
-      );
+      setOk(inviteOwnerMessage(created.invite ?? "password", created.name, created.email));
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not invite teammate");
