@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type Dashboard, type FloorJob, type Purchase, type TeamMember } from "../api";
-import { ErrorBanner, PageHeader, Select, StatStrip, StatusBadge } from "../components/ui";
+import { EmptyState, ErrorBanner, PageHeader, Select, StatStrip, StatusBadge } from "../components/ui";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
 import { statusLabel } from "@/domain/status";
@@ -21,6 +21,14 @@ const LANE_LABEL: Record<LaneId, string> = {
   make: "Make",
   stock: "Stock",
   exceptions: "Exceptions",
+};
+
+const LANE_NEXT: Record<LaneId, string> = {
+  inbound: "Receive a purchase or receipt onto the dock.",
+  outbound: "Open orders stay on the floor until someone picks them.",
+  make: "Start a kit or work order when a recipe is ready.",
+  stock: "Scan a bay to start a count, or wait for replenishment.",
+  exceptions: "Tracker exceptions and posted variances show up here.",
 };
 
 type WorkRow = {
@@ -287,8 +295,11 @@ export function TodayPage() {
                 })
               ) : (
                 <tr>
-                  <td className="px-2.5 py-6 text-muted-foreground" colSpan={6}>
-                    Nothing in {LANE_LABEL[lane].toLowerCase()} right now.
+                  <td className="px-2.5 py-4" colSpan={6}>
+                    <EmptyState
+                      title={`Nothing in ${LANE_LABEL[lane].toLowerCase()} right now.`}
+                      body={LANE_NEXT[lane]}
+                    />
                   </td>
                 </tr>
               )}

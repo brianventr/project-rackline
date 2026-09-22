@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Location, type Order, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
-import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
+import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { SkuThumb } from "../../components/sku-thumb";
 import { PickMap } from "../../components/PickMap";
@@ -78,34 +78,40 @@ export function FloorPickPage() {
   }, []);
 
   const onScan = useCallback(
-    (raw: string) => {
+    (raw: string, report?: ScanReport) => {
       setError(null);
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
-        .then((hit) => {
+        .then(async (hit) => {
           if (hit.kind === "order") {
-            void api<Order>(`/api/orders/${hit.order.id}`).then((order) => {
-              const job = jobForRef(jobs, "order", order.id, desiredVerb("order", order.status) ?? "pick");
-              openFloorRow(order, me.user.id, job, (next) => applyOrder(next, locations), setError);
-            });
+            const order = await api<Order>(`/api/orders/${hit.order.id}`);
+            const job = jobForRef(jobs, "order", order.id, desiredVerb("order", order.status) ?? "pick");
+            report?.(openFloorRow(order, me.user.id, job, (next) => applyOrder(next, locations), setError));
             return;
           }
           if (hit.kind === "location") {
             setLocationId(hit.location.id);
+            report?.(true);
             return;
           }
           if (hit.kind === "item" && active) {
             const line = (active.lines ?? []).find((row) => row.itemId === hit.item.id || row.sku === hit.item.sku);
             if (!line) {
               setError(`${hit.item.sku} is not on this order.`);
+              report?.(false);
               return;
             }
             if (line.suggestedLocation) setLocationId(line.suggestedLocation.locationId);
             setQtys((current) => ({ ...current, [line.id]: String(line.remaining ?? 0) }));
+            report?.(true);
             return;
           }
           setError("Scan an order, a pick bay, or a SKU on the ticket.");
+          report?.(false);
         })
-        .catch((err: Error) => setError(err.message));
+        .catch((err: Error) => {
+          setError(err.message);
+          report?.(false);
+        });
     },
     [locations, active, jobs, me.user.id],
   );

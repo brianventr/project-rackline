@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api, type ScanHit } from "../../api";
 import { documentPath } from "@/domain/barcodes";
 import { Button, Card, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { FloorFrame, FloorScanBox, type ScanReport } from "./floor-ui";
 import { AsBuiltList } from "../../components/as-built";
 import { SkuThumb } from "../../components/sku-thumb";
 
@@ -11,13 +11,17 @@ export function FloorLookupPage() {
   const [hit, setHit] = useState<ScanHit | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const onScan = useCallback((raw: string) => {
+  const onScan = useCallback((raw: string, report?: ScanReport) => {
     setError(null);
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
-      .then(setHit)
+      .then((next) => {
+        setHit(next);
+        report?.(true);
+      })
       .catch((err: Error) => {
         setHit(null);
         setError(err.message);
+        report?.(false);
       });
   }, []);
 

@@ -61,11 +61,20 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
   }
 
   return (
-    <div className="bg-muted flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
-      <div className="absolute right-4 top-4">
+    <div className="bg-muted relative flex min-h-svh flex-col items-center justify-center gap-6 overflow-hidden p-6 md:p-10">
+      <div className="pointer-events-none absolute -top-32 flex h-full w-full items-center justify-end">
+        <div className="flex w-3/4 items-center justify-center">
+          <div className="h-150 w-12 rounded-3xl bg-primary blur-[70px] will-change-transform max-sm:rotate-15 sm:rotate-35" />
+        </div>
+      </div>
+      <div className="absolute right-4 top-4 z-10">
         <ModeToggle />
       </div>
-      <div className="flex w-full max-w-sm flex-col gap-6">
+      <div className="relative z-10 flex w-full max-w-sm flex-col gap-6">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <span className="w-fit rounded-full border border-border bg-card px-2 py-1 text-sm">Garage Mode</span>
+          <p className="text-sm text-muted-foreground">A bench, a few shelves, and a real ledger.</p>
+        </div>
         <Link to="/" className="flex items-center gap-2 self-center font-medium">
           <div className="bg-primary text-primary-foreground flex size-9 items-center justify-center rounded-md">
             <Logo size={20} />

@@ -9,7 +9,7 @@ import {
   type ScanHit,
   type ShippingLabel,
 } from "../../api";
-import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
+import { Button, Card, DoneBanner, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { DocumentActionGrid } from "../../components/document";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
 import { canShipOrder, canShipCartonOrder } from "@/domain/status";
@@ -163,7 +163,7 @@ export function FloorShipPage() {
   return (
     <FloorFrame title="Ship" description="Scan a packing or packed order, ship one labeled carton, or short-ship once a carton has left." error={error}>
       <FloorScanBox label="Scan packing or packed order" placeholder="ORD-…" onScan={onScan} />
-      {done ? <p className="text-sm text-emerald-700">{done}</p> : null}
+      <DoneBanner>{done}</DoneBanner>
       {!active ? (
         <ClaimList
           title="Ready to ship"
