@@ -89,6 +89,7 @@ export const warehouses = sqliteTable("warehouses", {
   country: text("country"),
   lat: real("lat"),
   lng: real("lng"),
+  timeZone: text("time_zone").notNull().default("UTC"),
 });
 
 export const locations = sqliteTable(

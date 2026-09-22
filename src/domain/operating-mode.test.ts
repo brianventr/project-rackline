@@ -16,6 +16,7 @@ describe("operating mode", () => {
 
   it("keeps the founder bench and hides the leased warehouse", () => {
     expect(garageAllowsPath("/today")).toBe(true);
+    expect(garageAllowsPath("/live")).toBe(true);
     expect(garageAllowsPath("/floor")).toBe(true);
     expect(garageAllowsPath("/floor/pick?id=o1")).toBe(true);
     expect(garageAllowsPath("/floor/kit")).toBe(true);

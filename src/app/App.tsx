@@ -6,6 +6,7 @@ import { AuthPage } from "./pages/AuthPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { LandingPage } from "./pages/LandingPage";
 import { TodayPage } from "./pages/TodayPage";
+import { LivePage } from "./pages/LivePage";
 import { ItemsPage } from "./pages/ItemsPage";
 import { LocationsPage } from "./pages/LocationsPage";
 import { InventoryPage } from "./pages/InventoryPage";
@@ -112,6 +113,14 @@ export function App() {
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route element={<Guard me={me} />}>
         <Route path="/today" element={<TodayPage />} />
+        <Route
+          path="/live"
+          element={
+            <OwnerOnly>
+              <LivePage />
+            </OwnerOnly>
+          }
+        />
         <Route
           path="/labor"
           element={
