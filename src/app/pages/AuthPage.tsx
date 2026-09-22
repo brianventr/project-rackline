@@ -6,14 +6,33 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Logo } from "@/components/logo";
 import { ModeToggle } from "@/components/mode-toggle";
 
+function postAuth(action: string, fields: Record<string, string>) {
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = action;
+  for (const [name, value] of Object.entries(fields)) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  }
+  document.body.appendChild(form);
+  form.submit();
+}
+
 export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "signup" | "forgot" }) {
   const [mode, setMode] = useState<"login" | "signup" | "forgot">(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [organizationName, setOrganizationName] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => {
+    const message = new URLSearchParams(window.location.search).get("error");
+    return message ? message.slice(0, 240) : null;
+  });
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
 
   async function submit() {
@@ -30,21 +49,11 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
         return;
       }
       if (mode === "login") {
-        const result = await authClient.signIn.email({ email, password });
-        if (result.error) throw new Error(result.error.message || "Sign in failed");
-      } else {
-        const res = await fetch("/api/register", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, email, password, organizationName }),
-        });
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) {
-          throw new Error(data.error || "Sign up failed");
-        }
+        postAuth("/api/session/login", { email, password, next: "/today" });
+        return;
       }
-      window.location.assign("/");
+      postAuth("/api/register", { name, email, password, organizationName, next: "/today" });
+      return;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -54,18 +63,15 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
 
   async function loadDemo() {
     setError(null);
+    setStatus("Stocking Northwind. The first load can take about a minute.");
     setBusy(true);
     try {
       const demo = await api<{ email: string; password: string }>("/api/demo/seed", { method: "POST" });
-      const result = await authClient.signIn.email({
-        email: demo.email,
-        password: demo.password,
-      });
-      if (result.error) throw new Error(result.error.message || "Demo sign in failed");
-      window.location.assign("/");
+      setStatus("Signing in…");
+      postAuth("/api/session/login", { email: demo.email, password: demo.password, next: "/today" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load demo");
-    } finally {
+      setStatus(null);
       setBusy(false);
     }
   }
@@ -129,6 +135,7 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
               </div>
             ) : null}
             <ErrorBanner error={error} />
+            {status ? <p className="mb-3 text-sm text-muted-foreground">{status}</p> : null}
             {mode === "forgot" && resetSent ? (
               <p className="text-sm text-muted-foreground">
                 If that email is on a warehouse, we sent a reset link. Check the inbox, then{" "}
@@ -155,12 +162,22 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
                   </>
                 ) : null}
                 <Field label="Email">
-                  <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                  <Input
+                    type="text"
+                    inputMode="email"
+                    autoComplete="username"
+                    name="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
                 </Field>
                 {mode !== "forgot" ? (
                   <Field label="Password">
                     <Input
                       type="password"
+                      name="password"
+                      autoComplete={mode === "login" ? "current-password" : "new-password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       minLength={8}
@@ -203,7 +220,9 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
             ) : null}
             {mode !== "forgot" ? (
               <div className="mt-6 border-t pt-4">
-                <p className="mb-3 text-xs text-muted-foreground">Want a stocked shop instead of an empty one?</p>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Want a stocked shop instead of an empty one? The first load takes about a minute.
+                </p>
                 <Button variant="secondary" onClick={() => void loadDemo()} disabled={busy}>
                   Load Northwind Makers demo
                 </Button>

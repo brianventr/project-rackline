@@ -14,6 +14,8 @@ describe("audit", () => {
     expect(shouldAudit({ method: "GET", path: "/api/items", status: 200 })).toBe(false);
     expect(shouldAudit({ method: "GET", path: "/api/orders/o1/pick", status: 409 })).toBe(true);
     expect(shouldAudit({ method: "POST", path: "/api/auth/sign-in/email", status: 200 })).toBe(false);
+    expect(shouldAudit({ method: "POST", path: "/api/session/login", status: 302 })).toBe(false);
+    expect(shouldAudit({ method: "POST", path: "/api/register", status: 302 })).toBe(false);
     expect(shouldAudit({ method: "POST", path: "/api/shopify/webhooks", status: 200 })).toBe(false);
     expect(shouldAudit({ method: "DELETE", path: "/api/team/u1", status: 403 })).toBe(true);
   });

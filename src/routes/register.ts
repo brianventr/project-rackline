@@ -3,25 +3,36 @@ import { eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import { createAuth } from "../lib/auth";
 import { provisionOrganization } from "../lib/org";
-import { requireString } from "../lib/http";
+import { HttpError, requireString } from "../lib/http";
 import type { AppEnv } from "../lib/types";
 import { originFrom } from "../lib/types";
+import { redirectWithSession, safeNextPath } from "./session";
 
 export const registerRoute = new Hono<AppEnv>();
 
 registerRoute.post("/register", async (c) => {
-  const body = await c.req.json<{
-    name?: string;
-    email?: string;
-    password?: string;
-    organizationName?: string;
-  }>();
-  const name = requireString(body.name, "name");
-  const email = requireString(body.email, "email");
-  const password = requireString(body.password, "password");
-  const organizationName = requireString(body.organizationName, "organizationName");
+  const type = c.req.header("content-type") || "";
+  const form = type.includes("application/x-www-form-urlencoded") || type.includes("multipart/form-data");
+  const raw = (form ? await c.req.parseBody() : await c.req.json()) as Record<string, unknown>;
+  const fail = (message: string, status: 400 | 401 | 403 | 409 = 400) => {
+    if (form) return c.redirect(`/signup?error=${encodeURIComponent(message)}`);
+    return c.json({ error: message }, status);
+  };
+  let name: string;
+  let email: string;
+  let password: string;
+  let organizationName: string;
+  try {
+    name = requireString(raw.name, "name");
+    email = requireString(raw.email, "email");
+    password = requireString(raw.password, "password");
+    organizationName = requireString(raw.organizationName, "organizationName");
+  } catch (err) {
+    if (err instanceof HttpError) return fail(err.message, 400);
+    throw err;
+  }
   if (password.length < 8) {
-    return c.json({ error: "Password must be at least 8 characters" }, 400);
+    return fail("Password must be at least 8 characters");
   }
 
   const db = c.get("db");
@@ -38,10 +49,7 @@ registerRoute.post("/register", async (c) => {
       message?: string;
       error?: { message?: string };
     };
-    return c.json(
-      { error: payload.error?.message || payload.message || "Sign up failed" },
-      result.status as 400,
-    );
+    return fail(payload.error?.message || payload.message || "Sign up failed", result.status as 400);
   }
 
   const signed = (await result.clone().json()) as { user?: { id: string } };
@@ -57,5 +65,6 @@ registerRoute.post("/register", async (c) => {
     }
   }
 
+  if (form) return redirectWithSession(result, safeNextPath(raw.next));
   return result;
 });

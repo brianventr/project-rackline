@@ -1,6 +1,8 @@
 const SKIP_PREFIXES = [
   "/api/auth",
   "/api/demo/seed",
+  "/api/session/login",
+  "/api/register",
   "/api/shopify/webhooks",
   "/api/shopify/fulfillment_order_notification",
   "/api/shopify/oauth/callback",

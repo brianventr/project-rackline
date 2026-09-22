@@ -14,6 +14,7 @@ import {
   shouldAudit,
 } from "./domain/audit";
 import { registerRoute } from "./routes/register";
+import { sessionRoute } from "./routes/session";
 import { demoRoute } from "./routes/demo";
 import { meRoute } from "./routes/me";
 import { organizationRoute } from "./routes/organization";
@@ -70,6 +71,7 @@ app.on(["GET", "POST"], "/api/auth/*", (c) => {
 });
 
 app.route("/api", registerRoute);
+app.route("/api", sessionRoute);
 app.route("/api", demoRoute);
 app.route("/api", shopifyPublicRoute);
 app.route("/api", carriersPublicRoute);
@@ -79,6 +81,7 @@ app.use("/api/*", async (c, next) => {
   if (
     path.startsWith("/api/auth") ||
     path === "/api/register" ||
+    path === "/api/session/login" ||
     path === "/api/demo/seed" ||
     path === "/api/shopify/webhooks" ||
     path === "/api/shopify/fulfillment_order_notification" ||
