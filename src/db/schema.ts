@@ -1575,3 +1575,28 @@ export const floorJobs = sqliteTable(
     index("floor_jobs_org_ref").on(t.organizationId, t.refType, t.refId),
   ],
 );
+
+export const auditEvents = sqliteTable(
+  "audit_events",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    actorUserId: text("actor_user_id").references(() => user.id, { onDelete: "set null" }),
+    actorEmail: text("actor_email").notNull().default(""),
+    actorName: text("actor_name").notNull().default(""),
+    action: text("action").notNull(),
+    method: text("method").notNull(),
+    path: text("path").notNull(),
+    status: integer("status").notNull(),
+    code: text("code"),
+    summary: text("summary").notNull().default(""),
+    payloadJson: text("payload_json"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("audit_events_org_created").on(t.organizationId, t.createdAt),
+    index("audit_events_org_code").on(t.organizationId, t.code),
+  ],
+);

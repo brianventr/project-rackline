@@ -25,7 +25,8 @@ describe("operating mode", () => {
     expect(garageAllowsPath("/map?edit=1")).toBe(true);
     expect(garageAllowsPath("/analytics/runway")).toBe(true);
     expect(garageAllowsPath("/stock")).toBe(true);
-    expect(garageAllowsPath("/stock/items/sku1")).toBe(true);
+    expect(garageAllowsPath("/setup/team")).toBe(true);
+    expect(garageAllowsPath("/setup/audit")).toBe(true);
 
     expect(garageAllowsPath("/floor/yard")).toBe(false);
     expect(garageAllowsPath("/floor/wave")).toBe(false);

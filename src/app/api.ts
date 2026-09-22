@@ -859,6 +859,21 @@ export type TeamMember = {
   name: string;
   email: string;
   floorVerbs?: string[];
+  invite?: "emailed" | "password" | "created";
+};
+
+export type AuditEvent = {
+  id: string;
+  actorUserId: string | null;
+  actorEmail: string;
+  actorName: string;
+  action: string;
+  method: string;
+  path: string;
+  status: number;
+  code: string | null;
+  summary: string;
+  createdAt: number;
 };
 
 export type Transfer = {

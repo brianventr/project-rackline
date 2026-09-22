@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { api, type Me } from "./api";
 import { AppShell } from "./pages/AppShell";
 import { AuthPage } from "./pages/AuthPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { LandingPage } from "./pages/LandingPage";
 import { TodayPage } from "./pages/TodayPage";
 import { ItemsPage } from "./pages/ItemsPage";
@@ -39,6 +40,7 @@ import { FloorReplenishPage } from "./pages/floor/FloorReplenishPage";
 import { FloorKitPage } from "./pages/floor/FloorKitPage";
 import { WarehouseSetupPage } from "./pages/setup/WarehouseSetupPage";
 import { TeamPage } from "./pages/setup/TeamPage";
+import { AuditPage } from "./pages/setup/AuditPage";
 import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
 import { CarriersPage } from "./pages/setup/CarriersPage";
 import { IntegrationsPage } from "./pages/setup/IntegrationsPage";
@@ -106,6 +108,8 @@ export function App() {
       <Route path="/" element={me ? <Navigate to={signedInHome} replace /> : <LandingPage />} />
       <Route path="/login" element={me ? <Navigate to={signedInHome} replace /> : <AuthPage />} />
       <Route path="/signup" element={me ? <Navigate to={signedInHome} replace /> : <AuthPage mode="signup" />} />
+      <Route path="/forgot" element={me ? <Navigate to={signedInHome} replace /> : <AuthPage mode="forgot" />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route element={<Guard me={me} />}>
         <Route path="/today" element={<TodayPage />} />
         <Route
@@ -254,6 +258,14 @@ export function App() {
           element={
             <OwnerOnly>
               <TeamPage />
+            </OwnerOnly>
+          }
+        />
+        <Route
+          path="/setup/audit"
+          element={
+            <OwnerOnly>
+              <AuditPage />
             </OwnerOnly>
           }
         />

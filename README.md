@@ -121,6 +121,8 @@ Iteration 53 drafts one invoice per 3PL client from warehouse activity: 2¢ per 
 
 Iteration 55 names the founder bench **Garage Mode**. New organizations start there: receive, make, pick, pack, ship, recipes, and runway. Yard, waves, ASN, equipment, replenishment, holds, counts, 3PL clients, EDI, and traffic stay packed away until Setup → Warehouse opens the full warehouse on the same ledger. Northwind stays a full warehouse so the seeded shop is unchanged. Invalid mode is HTTP 400.
 
+Iteration 56 is trust: password reset and teammate invite email (same Resend-compatible mail as purchase send), an append-only Setup → Audit log of mutations and 409s, `BETTER_AUTH_SECRET` out of committed wrangler vars, and route-guard tests for owner-only 403s, org 404s, and the 409 contract. Invite without a starter password returns HTTP 409 (`MAIL_UNAVAILABLE`) until mail is set. Production without a 32-character secret fails closed.
+
 Iteration 54 adds one photo per SKU and numbered kitting steps on the recipe. Floor Kit and Assemble show the photo, steps, and components; Pick and Lookup use the same thumbnail. Paste a URL or upload to R2 (`MEDIA`). Shopify copies a line image onto a new or photo-less SKU only. Complete is still one-step explode. Qty stays integer pieces on location:item.
 
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
@@ -155,6 +157,7 @@ Iteration 26 adds hardware support for the floor:
 
 ```bash
 npm install
+cp dev.vars.example .dev.vars
 npx wrangler d1 migrations apply rackline --local
 npm test
 npm run dev
@@ -175,10 +178,11 @@ npx wrangler d1 create rackline
 # paste the returned database_id into wrangler.jsonc
 npx wrangler r2 bucket create rackline-media
 npx wrangler d1 migrations apply rackline --remote
+npx wrangler secret put BETTER_AUTH_SECRET
 npm run deploy
 ```
 
-Set a real `BETTER_AUTH_SECRET` (32+ characters) and `BETTER_AUTH_URL` before production. Optional: `MAIL_API_KEY` and `MAIL_FROM` send purchase orders through a Resend-compatible API. Optional: `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET` enable the Shopify OAuth install. Do not commit those secrets.
+Set `BETTER_AUTH_SECRET` (32+ characters) as a Wrangler secret — it is not in `wrangler.jsonc`. Optional `BETTER_AUTH_URL` is the public origin. Optional: `MAIL_API_KEY` and `MAIL_FROM` send purchase orders, password resets, and teammate invites through a Resend-compatible API. Optional: `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET` enable the Shopify OAuth install. Do not commit those secrets. Local `.dev.vars` is gitignored; start from `dev.vars.example`.
 
 ## Shopify channel
 
@@ -255,7 +259,7 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 
 ## Roles
 
-- `owner` — full catalog, including deletes, Shopify credentials, clients, zones, and extra warehouses
+- `owner` — full catalog, including deletes, Shopify credentials, clients, zones, extra warehouses, and Setup → Audit
 - `operator` — floor actions (receive, ASN, transfer, pick, wave batch-pick, unpick, cancel, ship, complete WO, kit, dekit, vendor RTV, cycle count, hold, yard, equipment checkout, adjust) and Shopify order simulation. Cannot delete items, locations, or BOMs
 
-Signup creates an organization plus a default **Main warehouse**.
+Signup creates an organization plus a default **Main warehouse**. Forgot password is on `/login`. Team invite emails a set-password link when `MAIL_API_KEY` and `MAIL_FROM` are set; otherwise the owner still types a starter password.

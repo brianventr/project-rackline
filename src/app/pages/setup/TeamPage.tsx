@@ -4,6 +4,7 @@ import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onS
 import { FLOOR_VERBS, VERB_LABELS, type FloorVerb } from "@/domain/jobs";
 import { EQUIPMENT_CLASSES, equipmentClassLabel } from "@/domain/equipment";
 import { formatExpiresOn } from "@/domain/expiry";
+import { inviteOwnerMessage, type InviteKind } from "@/domain/auth-mail";
 
 export function TeamPage() {
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -16,6 +17,7 @@ export function TeamPage() {
   const [certClass, setCertClass] = useState<(typeof EQUIPMENT_CLASSES)[number]>("sit_down");
   const [expiresOn, setExpiresOn] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
 
   async function load() {
     const [nextMembers, nextCerts] = await Promise.all([
@@ -33,14 +35,21 @@ export function TeamPage() {
 
   async function invite() {
     setError(null);
+    setOk(null);
     try {
-      await api("/api/team", {
+      const created = await api<TeamMember & { invite?: InviteKind }>("/api/team", {
         method: "POST",
-        body: JSON.stringify({ name, email, password, role }),
+        body: JSON.stringify({
+          name,
+          email,
+          role,
+          password: password.trim() || undefined,
+        }),
       });
       setName("");
       setEmail("");
       setPassword("");
+      setOk(inviteOwnerMessage(created.invite ?? "password", created.name, created.email));
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not invite teammate");
@@ -89,9 +98,10 @@ export function TeamPage() {
       <PageHeader
         eyebrow="Setup"
         title="Team"
-        description="Owners see setup. Operators land on the floor. Optionally limit floor verbs for next job. Certifications gate forklift checkout."
+        description="Owners see setup. Operators land on the floor. Leave starter password blank to email a set-password link (needs mail)."
       />
       <ErrorBanner error={error} />
+      {ok ? <p className="mb-3 text-sm text-emerald-700">{ok}</p> : null}
       <Card className="mb-3">
         <form className="grid gap-3 md:grid-cols-4" onSubmit={onSubmit(invite)}>
           <Field label="Name">
@@ -100,8 +110,14 @@ export function TeamPage() {
           <Field label="Email">
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
           </Field>
-          <Field label="Starter password">
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required />
+          <Field label="Starter password (optional)">
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              minLength={8}
+              placeholder="Email a reset link instead"
+            />
           </Field>
           <Field label="Role">
             <Select value={role} onChange={(e) => setRole(e.target.value)}>

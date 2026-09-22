@@ -4,6 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { originFrom } from "../lib/types";
+import { resolveAuthSecret } from "../lib/auth";
 import { badRequest, conflict, requireString, unauthorized } from "../lib/http";
 import { requireOwner } from "../lib/org";
 import { newId } from "../lib/ids";
@@ -233,7 +234,7 @@ shopifyPublicRoute.get("/shopify/oauth/callback", async (c) => {
   if (!code || !shopParam || !stateToken) return c.redirect(installRedirect(origin, "error=state"));
   let state;
   try {
-    state = await verifyOAuthState(c.env.BETTER_AUTH_SECRET, stateToken);
+    state = await verifyOAuthState(resolveAuthSecret(c.env, origin), stateToken);
     if (assertOauthShop(shopParam) !== state.shop) return c.redirect(installRedirect(origin, "error=shop"));
   } catch {
     return c.redirect(installRedirect(origin, "error=state"));
@@ -295,7 +296,7 @@ shopifyRoute.get("/shopify/oauth/start", async (c) => {
   } catch (err) {
     badRequest(err instanceof Error ? err.message : "Shop domain is required");
   }
-  const state = await signOAuthState(c.env.BETTER_AUTH_SECRET, {
+  const state = await signOAuthState(resolveAuthSecret(c.env, originFrom(c.req.url)), {
     organizationId: c.get("organizationId")!,
     shop,
     exp: Date.now() + 10 * 60 * 1000,
