@@ -46,8 +46,8 @@ export function WarehouseSetupPage() {
       await operating.setMode(operatingMode);
       setOk(
         operatingMode === "garage"
-          ? "Garage Mode is on. Same parts, orders, and builds."
-          : "Manufacturer is on. The rest of the floor is open.",
+          ? "Garage is on. Same parts, orders, and builds, at a smaller scale."
+          : "Manufacturer is on. The full floor is open.",
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not change mode");
@@ -107,8 +107,8 @@ export function WarehouseSetupPage() {
           <p className="text-sm font-medium">{garage ? GARAGE_MODE_LABEL : MANUFACTURER_MODE_LABEL}</p>
           <p className="text-sm text-muted-foreground">
             {garage
-              ? "The bench founders and inventors start on. Receive, make, pick, and ship. Yard, waves, ASN, equipment, and 3PL stay packed away until you switch to Manufacturer — same parts, orders, and builds."
-              : "Yard, waves, ASN, equipment, and 3PL are on this floor. Garage Mode puts them away and leaves the founder bench: receive, make, pick, and ship. Same parts, orders, and builds."}
+              ? "Small scale. Receive, make, pick, and ship while the product is still early. Yard, waves, ASN, equipment, and 3PL stay out of the way. The same records are ready when you switch to Manufacturer."
+              : "Full scale, once the product takes off. Yard, waves, ASN, equipment, and 3PL are on this floor. Garage runs the smaller shop on the same parts, orders, and builds."}
           </p>
           <div className="flex flex-wrap gap-2">
             <Button

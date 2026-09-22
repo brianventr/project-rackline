@@ -7,8 +7,6 @@ import { SiteHeader } from "@/components/site-header";
 import { useSidebarConfig } from "@/hooks/use-sidebar-config";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
-import { useSession } from "@/app/session";
-import { isGarageMode } from "@/domain/operating-mode";
 
 interface BaseLayoutProps {
   children: ReactNode;
@@ -19,9 +17,7 @@ interface BaseLayoutProps {
 export function BaseLayout({ children, title, description }: BaseLayoutProps) {
   const { config } = useSidebarConfig();
   const location = useLocation();
-  const me = useSession();
   const floor = location.pathname.startsWith("/floor");
-  const garage = isGarageMode(me.organization.operatingMode);
 
   return (
     <SidebarProvider
@@ -34,7 +30,6 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
         } as React.CSSProperties
       }
       className={config.collapsible === "none" ? "sidebar-none-mode" : ""}
-      data-garage={garage ? "on" : "off"}
     >
       {floor ? null : <AppSidebar variant={config.variant} collapsible={config.collapsible} side={config.side} />}
       <SidebarInset>

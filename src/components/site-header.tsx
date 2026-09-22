@@ -124,7 +124,8 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
   );
 }
 
-const MODE_HINT = "Same parts, orders, and builds. Manufacturer opens the rest of the floor.";
+const MODE_HINT =
+  "Same parts, orders, and builds. Garage is the small shop. Manufacturer is the full floor once the product takes off.";
 
 function GarageModeSwitch() {
   const { garage, owner, busy, setMode } = useOperatingMode();
@@ -140,10 +141,10 @@ function GarageModeSwitch() {
 
   return (
     <div
-      className="flex shrink-0 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5"
+      className="flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5"
       title={owner ? MODE_HINT : "The owner switches Garage and Manufacturer for the whole shop."}
     >
-      <span className={cn("text-[11px] font-medium", garage ? "text-primary" : "text-muted-foreground")}>
+      <span className={cn("text-[11px] font-medium", garage ? "text-foreground" : "text-muted-foreground")}>
         {GARAGE_SWITCH_LABEL}
       </span>
       <Switch

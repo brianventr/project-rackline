@@ -101,7 +101,7 @@ export function FloorLauncherPage() {
         title={garage ? "What are you making?" : "What are you doing?"}
         description={
           garage
-            ? "Founder bench. Receive, make, pick, and ship. Unassigned work stays pickable — scan first, or pick a verb."
+            ? "Small scale: receive, make, pick, and ship. Manufacturer opens the rest of the floor when the product takes off."
             : "Next job is ranked from the same ledger. Unassigned work stays pickable — scan first, or pick a verb."
         }
       />

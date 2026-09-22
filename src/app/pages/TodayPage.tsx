@@ -32,7 +32,7 @@ const LANE_NEXT: Record<LaneId, string> = {
 };
 
 const GARAGE_LANE_NEXT: Record<LaneId, string> = {
-  inbound: "Buy parts or receive a box onto the bench.",
+  inbound: "Buy parts or receive them in.",
   outbound: "Orders wait here until you pick, pack, and ship them.",
   make: "Start a kit or a build when the recipe is ready.",
   stock: "The shelf is quiet. On-hand and runway live with your parts.",
@@ -193,7 +193,7 @@ export function TodayPage() {
           title="Today"
           description={
             garage
-              ? "Founder bench for today: receive, make, pick, and ship."
+              ? "Small scale for today: receive, make, pick, and ship. The same records open in Manufacturer."
               : "Dispatch board: assign floor jobs, or leave them unassigned so the next scan claims them."
           }
         />
