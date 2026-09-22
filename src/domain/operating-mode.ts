@@ -4,6 +4,10 @@ export type OperatingMode = (typeof OPERATING_MODES)[number];
 
 export const GARAGE_MODE_LABEL = "Garage Mode";
 
+export const MANUFACTURER_MODE_LABEL = "Manufacturer";
+
+export const GARAGE_SWITCH_LABEL = "Garage";
+
 export function parseOperatingMode(value: unknown): OperatingMode {
   if (value === "garage" || value === "warehouse") return value;
   throw new Error("Operating mode must be garage or warehouse");
@@ -73,4 +77,69 @@ export function garageAllowsPath(path: string): boolean {
   return GARAGE_PATHS.some((entry) =>
     entry.exact ? bare === entry.prefix : bare === entry.prefix || bare.startsWith(`${entry.prefix}/`),
   );
+}
+
+export type GarageNavItem = { title: string; url: string };
+
+export type GarageNavGroup = { label: string; ownerOnly?: boolean; items: GarageNavItem[] };
+
+/** Short maker menu. Ledger, office putaway, and audit stay open by direct link. */
+export const GARAGE_NAV: GarageNavGroup[] = [
+  {
+    label: "Bench",
+    items: [
+      { title: "Today", url: "/today" },
+      { title: "Floor", url: "/floor" },
+      { title: "Shelf map", url: "/map" },
+    ],
+  },
+  {
+    label: "Parts",
+    items: [
+      { title: "Buy parts", url: "/inbound/purchases" },
+      { title: "Receive", url: "/inbound/receipts" },
+    ],
+  },
+  {
+    label: "Build",
+    items: [
+      { title: "Recipes", url: "/make/recipes" },
+      { title: "Builds", url: "/make/work-orders" },
+      { title: "Kits", url: "/make/kits" },
+    ],
+  },
+  {
+    label: "Ship",
+    items: [
+      { title: "Orders", url: "/outbound/orders" },
+      { title: "Returns", url: "/outbound/returns" },
+    ],
+  },
+  {
+    label: "Shelf",
+    items: [
+      { title: "On hand", url: "/stock" },
+      { title: "Items", url: "/stock/items" },
+    ],
+  },
+  {
+    label: "Runway",
+    items: [{ title: "Runway", url: "/analytics/runway" }],
+  },
+  {
+    label: "Shop",
+    ownerOnly: true,
+    items: [
+      { title: "Shopify", url: "/setup/shopify" },
+      { title: "Carriers", url: "/setup/carriers" },
+      { title: "Team", url: "/setup/team" },
+      { title: "Printers", url: "/setup/labels" },
+      { title: "Bench setup", url: "/setup/warehouse" },
+    ],
+  },
+];
+
+export function garageNavForRole(role: string | null | undefined): GarageNavGroup[] {
+  const owner = role === "owner";
+  return GARAGE_NAV.filter((group) => owner || !group.ownerOnly);
 }

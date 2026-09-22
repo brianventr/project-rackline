@@ -31,6 +31,14 @@ const LANE_NEXT: Record<LaneId, string> = {
   exceptions: "Tracker exceptions and posted variances show up here.",
 };
 
+const GARAGE_LANE_NEXT: Record<LaneId, string> = {
+  inbound: "Buy parts or receive a box onto the bench.",
+  outbound: "Orders wait here until you pick, pack, and ship them.",
+  make: "Start a kit or a build when the recipe is ready.",
+  stock: "The shelf is quiet. On-hand and runway live with your parts.",
+  exceptions: "A label that bounced shows up here.",
+};
+
 type WorkRow = {
   id: string;
   lane: LaneId;
@@ -147,6 +155,7 @@ export function TodayPage() {
   }, [rows]);
 
   const selected = laneRows.find((row) => row.id === selectedId) ?? laneRows[0] ?? null;
+  const laneNext = garage ? GARAGE_LANE_NEXT : LANE_NEXT;
 
   useEffect(() => {
     if (!laneRows.length) {
@@ -216,7 +225,7 @@ export function TodayPage() {
                 <th className="px-2.5 py-1.5 font-medium">Document</th>
                 <th className="px-2.5 py-1.5 font-medium">Status</th>
                 <th className="px-2.5 py-1.5 font-medium">Bay / reason</th>
-                <th className="px-2.5 py-1.5 font-medium">Assignee</th>
+                {garage ? null : <th className="px-2.5 py-1.5 font-medium">Assignee</th>}
                 <th className="px-2.5 py-1.5 font-medium">Act</th>
               </tr>
             </thead>
@@ -243,6 +252,7 @@ export function TodayPage() {
                       <td className="px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
                         {bayFor(row.job) || row.job?.reason || "—"}
                       </td>
+                      {garage ? null : (
                       <td className="px-2.5 py-1.5" onClick={(event) => event.stopPropagation()}>
                         {row.job ? (
                           <div className="flex items-center gap-1.5">
@@ -272,6 +282,7 @@ export function TodayPage() {
                           <span className="text-[11px] text-muted-foreground">—</span>
                         )}
                       </td>
+                      )}
                       <td className="px-2.5 py-1.5">
                         {row.relabel ? (
                           <button
@@ -295,10 +306,10 @@ export function TodayPage() {
                 })
               ) : (
                 <tr>
-                  <td className="px-2.5 py-4" colSpan={6}>
+                  <td className="px-2.5 py-4" colSpan={garage ? 5 : 6}>
                     <EmptyState
                       title={`Nothing in ${LANE_LABEL[lane].toLowerCase()} right now.`}
-                      body={LANE_NEXT[lane]}
+                      body={laneNext[lane]}
                     />
                   </td>
                 </tr>

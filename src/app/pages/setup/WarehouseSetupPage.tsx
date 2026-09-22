@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { api, type WarehouseMapInfo } from "../../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, onSubmit } from "../../components/ui";
 import { useWarehouse } from "../../warehouse";
-import { useSession } from "../../session";
-import { GARAGE_MODE_LABEL, isGarageMode, type OperatingMode } from "@/domain/operating-mode";
+import { useOperatingMode } from "../../use-operating-mode";
+import { GARAGE_MODE_LABEL, GARAGE_SWITCH_LABEL, MANUFACTURER_MODE_LABEL, type OperatingMode } from "@/domain/operating-mode";
 
 export function WarehouseSetupPage() {
-  const me = useSession();
-  const garage = isGarageMode(me.organization.operatingMode);
+  const operating = useOperatingMode();
+  const garage = operating.garage;
   const warehouse = useWarehouse();
   const [name, setName] = useState("");
   const [mapWidth, setMapWidth] = useState("42");
@@ -20,7 +20,6 @@ export function WarehouseSetupPage() {
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
-  const [modeBusy, setModeBusy] = useState(false);
   const currentId = warehouse.warehouseId;
 
   useEffect(() => {
@@ -43,16 +42,15 @@ export function WarehouseSetupPage() {
   async function setOperatingMode(operatingMode: OperatingMode) {
     setError(null);
     setOk(null);
-    setModeBusy(true);
     try {
-      await api("/api/organization", {
-        method: "PATCH",
-        body: JSON.stringify({ operatingMode }),
-      });
-      window.location.assign("/today");
+      await operating.setMode(operatingMode);
+      setOk(
+        operatingMode === "garage"
+          ? "Garage Mode is on. Same parts, orders, and builds."
+          : "Manufacturer is on. The rest of the floor is open.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not change mode");
-      setModeBusy(false);
     }
   }
 
@@ -106,28 +104,28 @@ export function WarehouseSetupPage() {
       {ok ? <p className="mb-4 text-sm">{ok}</p> : null}
       <Card className="mb-6 max-w-xl space-y-3">
         <div className="space-y-2">
-          <p className="text-sm font-medium">{garage ? GARAGE_MODE_LABEL : "Full warehouse"}</p>
+          <p className="text-sm font-medium">{garage ? GARAGE_MODE_LABEL : MANUFACTURER_MODE_LABEL}</p>
           <p className="text-sm text-muted-foreground">
             {garage
-              ? "The bench founders and inventors start on. Receive, make, pick, and ship. Yard, waves, ASN, equipment, and 3PL stay packed away until you open the full warehouse — same ledger."
-              : "Yard, waves, ASN, equipment, and 3PL are on this floor. Garage Mode puts them away and leaves the founder bench: receive, make, pick, and ship."}
+              ? "The bench founders and inventors start on. Receive, make, pick, and ship. Yard, waves, ASN, equipment, and 3PL stay packed away until you switch to Manufacturer — same parts, orders, and builds."
+              : "Yard, waves, ASN, equipment, and 3PL are on this floor. Garage Mode puts them away and leaves the founder bench: receive, make, pick, and ship. Same parts, orders, and builds."}
           </p>
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               variant={garage ? "primary" : "ghost"}
-              disabled={modeBusy || garage}
+              disabled={operating.busy || garage || !operating.owner}
               onClick={() => void setOperatingMode("garage")}
             >
-              {GARAGE_MODE_LABEL}
+              {GARAGE_SWITCH_LABEL}
             </Button>
             <Button
               type="button"
               variant={garage ? "ghost" : "primary"}
-              disabled={modeBusy || !garage}
+              disabled={operating.busy || !garage || !operating.owner}
               onClick={() => void setOperatingMode("warehouse")}
             >
-              Open the full warehouse
+              {MANUFACTURER_MODE_LABEL}
             </Button>
           </div>
         </div>
@@ -159,7 +157,7 @@ export function WarehouseSetupPage() {
           </div>
           <p className="text-xs text-muted-foreground">
             {garage
-              ? "Ship-from for labels. A second building and Traffic open with the full warehouse."
+              ? "Ship-from for labels. A second building and Traffic open with Manufacturer."
               : "Origin for Analytics → Traffic. Lane estimates fly from this city, not live GPS."}
           </p>
           <div className="grid grid-cols-3 gap-3">

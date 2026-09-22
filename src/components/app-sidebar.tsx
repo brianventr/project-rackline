@@ -31,6 +31,7 @@ import {
   Gauge,
   Plug,
   Hourglass,
+  type LucideIcon,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Logo } from "@/components/logo";
@@ -47,7 +48,32 @@ import {
 } from "@/components/ui/sidebar";
 import { useSession } from "@/app/session";
 import { homePath } from "@/app/warehouse";
-import { GARAGE_MODE_LABEL, garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
+import { garageNavForRole, isGarageMode, type GarageNavItem } from "@/domain/operating-mode";
+
+const GARAGE_ICONS: Record<string, LucideIcon> = {
+  "/today": LayoutDashboard,
+  "/floor": ScanLine,
+  "/map": Map,
+  "/inbound/purchases": ShoppingCart,
+  "/inbound/receipts": Truck,
+  "/make/recipes": Factory,
+  "/make/work-orders": Hammer,
+  "/make/kits": Layers,
+  "/outbound/orders": ClipboardList,
+  "/outbound/returns": Undo2,
+  "/stock": Boxes,
+  "/stock/items": Package,
+  "/analytics/runway": Hourglass,
+  "/setup/shopify": Plug,
+  "/setup/carriers": Truck,
+  "/setup/team": Users,
+  "/setup/labels": Tag,
+  "/setup/warehouse": Settings2,
+};
+
+function garageIcon(item: GarageNavItem): LucideIcon | undefined {
+  return GARAGE_ICONS[item.url];
+}
 
 export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
   const me = useSession();
@@ -143,16 +169,10 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
   ];
 
   const visibleGroups = garage
-    ? navGroups
-        .map((group) => ({
-          ...group,
-          items: group.items.flatMap((item) => {
-            const children = item.items?.filter((child) => garageAllowsPath(child.url));
-            if (!garageAllowsPath(item.url) && !children?.length) return [];
-            return [{ ...item, items: item.items ? children : undefined }];
-          }),
-        }))
-        .filter((group) => group.items.length > 0)
+    ? garageNavForRole(me.role).map((group) => ({
+        label: group.label,
+        items: group.items.map((item) => ({ ...item, icon: garageIcon(item) })),
+      }))
     : navGroups;
 
   return (
@@ -168,7 +188,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
                 <div className="grid flex-1 text-left text-xs leading-tight">
                   <span className="truncate font-semibold">Rackline</span>
                   <span className="truncate text-[11px] opacity-80">
-                    {garage ? `${GARAGE_MODE_LABEL} · ${me.organization.name}` : me.organization.name}
+                    {garage ? "Garage" : me.organization.name}
                   </span>
                 </div>
               </Link>
