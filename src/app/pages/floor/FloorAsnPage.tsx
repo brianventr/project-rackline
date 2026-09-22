@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Asn, type Location, type ScanHit } from "../../api";
-import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
+import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
+import { BayCombobox } from "../../components/BayCombobox";
 import { FloorFrame, FloorScanBox } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
 import { canReceiveAsn, isOpenAsn } from "@/domain/status";
+import { useWarehouse } from "../../warehouse";
 import { hasRemaining } from "@/domain/partial-receive";
 
 function matchAsn(asns: Asn[], raw: string): Asn | undefined {
@@ -20,6 +22,7 @@ function matchAsn(asns: Asn[], raw: string): Asn | undefined {
 }
 
 export function FloorAsnPage() {
+  const { warehouseId } = useWarehouse();
   const [params] = useSearchParams();
   const [asns, setAsns] = useState<Asn[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -304,13 +307,13 @@ export function FloorAsnPage() {
             </ul>
           ) : null}
           <Field label="Receive into">
-            <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-              {locations.map((location) => (
-                <option key={location.id} value={location.id}>
-                  {location.code} — {location.name}
-                </option>
-              ))}
-            </Select>
+            <BayCombobox
+              locations={locations}
+              warehouseId={active.warehouseId || warehouseId}
+              value={locationId}
+              onChange={setLocationId}
+              onCreated={(location) => setLocations((current) => [...current, location])}
+            />
           </Field>
           {canReceiveAsn(active.status) &&
           hasRemaining(

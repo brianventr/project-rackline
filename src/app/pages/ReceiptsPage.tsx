@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Item, type Location, type Receipt } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
+import { BayCombobox } from "../components/BayCombobox";
 import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
 import { RECEIPT_STEPS, canReceive } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
@@ -96,6 +97,7 @@ function ReceiptList() {
 
 function ReceiptDetail({ id }: { id: string }) {
   const navigate = useNavigate();
+  const { warehouseId } = useWarehouse();
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationId, setLocationId] = useState("");
@@ -194,13 +196,13 @@ function ReceiptDetail({ id }: { id: string }) {
           <DocumentRail>
             <Card>
               <Field label="Receive into">
-                <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-                  {locations.map((location) => (
-                    <option key={location.id} value={location.id}>
-                      {location.code} — {location.name}
-                    </option>
-                  ))}
-                </Select>
+                <BayCombobox
+                  locations={locations}
+                  warehouseId={receipt.warehouseId || warehouseId}
+                  value={locationId}
+                  onChange={setLocationId}
+                  onCreated={(location) => setLocations((current) => [...current, location])}
+                />
               </Field>
             </Card>
             <DocumentActivity refId={receipt.id} refreshKey={`${receipt.status}:${(receipt.lines ?? []).map((line) => line.qtyReceived).join(",")}`} />

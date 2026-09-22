@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Location, type Rma, type ScanHit } from "../../api";
-import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
+import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
+import { BayCombobox } from "../../components/BayCombobox";
 import { FloorFrame, FloorScanBox, ClaimList, openFloorRow } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
@@ -9,6 +10,7 @@ import { DispositionSelect } from "../../components/disposition-field";
 import { canReceiveReturn } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
 import { useSession } from "../../session";
+import { useWarehouse } from "../../warehouse";
 import { jobForRef, useOpenJobs } from "../../jobs";
 import {
   parseDisposition,
@@ -19,6 +21,7 @@ import {
 
 export function FloorReturnPage() {
   const me = useSession();
+  const { warehouseId } = useWarehouse();
   const { jobs, reload: reloadJobs } = useOpenJobs("return");
   const [params] = useSearchParams();
   const [returns, setReturns] = useState<Rma[]>([]);
@@ -240,13 +243,13 @@ export function FloorReturnPage() {
             ))}
           </ul>
           <Field label="Receive into">
-            <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-              {locations.map((location) => (
-                <option key={location.id} value={location.id}>
-                  {location.code} — {location.name}
-                </option>
-              ))}
-            </Select>
+            <BayCombobox
+              locations={locations}
+              warehouseId={active.warehouseId || warehouseId}
+              value={locationId}
+              onChange={setLocationId}
+              onCreated={(location) => setLocations((current) => [...current, location])}
+            />
           </Field>
           {canReceiveReturn(active.status) && remaining ? (
             <Button onClick={() => void receive()}>Post return</Button>
