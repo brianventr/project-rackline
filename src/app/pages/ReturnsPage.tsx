@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Item, type Location, type Order, type Rma } from "../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
+import { BayCombobox } from "../components/BayCombobox";
 import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
 import { RETURN_STEPS, canReceiveReturn } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
@@ -135,6 +136,7 @@ function ReturnList() {
 
 function ReturnDetail({ id }: { id: string }) {
   const navigate = useNavigate();
+  const { warehouseId } = useWarehouse();
   const [rma, setRma] = useState<Rma | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationId, setLocationId] = useState("");
@@ -262,13 +264,13 @@ function ReturnDetail({ id }: { id: string }) {
                 <p className="text-sm text-muted-foreground">No original order linked.</p>
               )}
               <Field label="Receive into">
-                <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-                  {locations.map((location) => (
-                    <option key={location.id} value={location.id}>
-                      {location.code} — {location.name}
-                    </option>
-                  ))}
-                </Select>
+                <BayCombobox
+                  locations={locations}
+                  warehouseId={rma.warehouseId || warehouseId}
+                  value={locationId}
+                  onChange={setLocationId}
+                  onCreated={(location) => setLocations((current) => [...current, location])}
+                />
               </Field>
             </Card>
             <DocumentActivity refId={rma.id} refreshKey={`${rma.status}:${(rma.lines ?? []).map((line) => line.qtyReceived).join(",")}`} />

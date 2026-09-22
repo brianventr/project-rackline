@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Location, type Purchase, type Receipt, type ScanHit } from "../../api";
-import { Button, Card, DoneBanner, Field, Input, Select, StatusBadge } from "../../components/ui";
+import { Button, Card, DoneBanner, Field, Input, StatusBadge } from "../../components/ui";
+import { BayCombobox } from "../../components/BayCombobox";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { SkuThumb } from "../../components/sku-thumb";
@@ -9,10 +10,12 @@ import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
 import { canReceive, canReceivePurchase } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
 import { useSession } from "../../session";
+import { useWarehouse } from "../../warehouse";
 import { jobForRef, useOpenJobs } from "../../jobs";
 
 export function FloorReceivePage() {
   const me = useSession();
+  const { warehouseId } = useWarehouse();
   const { jobs, reload: reloadJobs } = useOpenJobs("receive");
   const [params] = useSearchParams();
   const [receipts, setReceipts] = useState<Receipt[]>([]);
@@ -301,13 +304,13 @@ export function FloorReceivePage() {
             ))}
           </ul>
           <Field label="Receive into">
-            <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-              {locations.map((location) => (
-                <option key={location.id} value={location.id}>
-                  {location.code} — {location.name}
-                </option>
-              ))}
-            </Select>
+            <BayCombobox
+              locations={locations}
+              warehouseId={activePurchase.warehouseId || warehouseId}
+              value={locationId}
+              onChange={setLocationId}
+              onCreated={(location) => setLocations((current) => [...current, location])}
+            />
           </Field>
           {canReceivePurchase(activePurchase.status) &&
           hasRemaining(
@@ -392,13 +395,13 @@ export function FloorReceivePage() {
             ))}
           </ul>
           <Field label="Receive into">
-            <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-              {locations.map((location) => (
-                <option key={location.id} value={location.id}>
-                  {location.code} — {location.name}
-                </option>
-              ))}
-            </Select>
+            <BayCombobox
+              locations={locations}
+              warehouseId={activeReceipt!.warehouseId || warehouseId}
+              value={locationId}
+              onChange={setLocationId}
+              onCreated={(location) => setLocations((current) => [...current, location])}
+            />
           </Field>
           {canReceive(activeReceipt!.status) &&
           hasRemaining(
