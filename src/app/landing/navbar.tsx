@@ -40,6 +40,7 @@ const productItems = [
 ];
 
 const menuItems = [
+  { name: "Modes", href: "#modes" },
   { name: "Features", href: "#features" },
   { name: "Pricing", href: "#pricing" },
   { name: "FAQ", href: "#faq" },

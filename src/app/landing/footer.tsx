@@ -6,6 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import { Logo } from "@/components/logo";
 
 const footerLinks = [
+  { name: "Modes", href: "#modes" },
   { name: "Features", href: "#features" },
   { name: "Pricing", href: "#pricing" },
   { name: "FAQ", href: "#faq" },
@@ -35,7 +36,7 @@ export function LandingFooter() {
                 Rackline
               </Link>
               <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">
-                Cloudflare-native warehouse management. Start in Garage Mode, then open the full warehouse.
+                Cloudflare-native warehouse management. Start in Garage. Switch to Manufacturer when the product takes off — same records.
               </p>
             </div>
 
