@@ -20,6 +20,7 @@ export function isGarageMode(mode: string | null | undefined): boolean {
 /** Office and floor routes a founder bench can open. Query strings are ignored. */
 const GARAGE_PATHS: { prefix: string; exact?: boolean }[] = [
   { prefix: "/today", exact: true },
+  { prefix: "/live", exact: true },
   { prefix: "/dashboard", exact: true },
   { prefix: "/floor", exact: true },
   { prefix: "/floor/lookup" },

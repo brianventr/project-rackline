@@ -101,7 +101,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
   const mainOrigin = originColumns(resolveOrigin({ city: "Portland", region: "OR", country: "US" }));
   await db
     .update(schema.warehouses)
-    .set({ shipFromAddress: "14 Dock St, Portland, OR 97209", ...mainOrigin })
+    .set({ shipFromAddress: "14 Dock St, Portland, OR 97209", timeZone: "America/Los_Angeles", ...mainOrigin })
     .where(eq(schema.warehouses.id, warehouseId));
 
   const locIds = Object.fromEntries(DEMO_LOCATIONS.map((row) => [row.key, newId()])) as Record<string, string>;
@@ -713,6 +713,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       mapWidth: 24,
       mapDepth: 18,
       mapHeight: 8,
+      timeZone: "America/Los_Angeles",
       ...originColumns(resolveOrigin({ city: "Vancouver", region: "WA", country: "US" })),
     }),
     db.insert(schema.locations).values({

@@ -18,12 +18,22 @@ type Props = {
   toId?: string | null;
   pickIds?: string[];
   pickMarkers?: PickMapMarker[];
+  pins?: MapPin[];
   view: MapView;
   levelFilter: "all" | number;
   canDrag?: boolean;
   className?: string;
   onSelect: (location: MapLocation) => void;
+  onSelectPin?: (pinId: string) => void;
   onReposition?: (locationId: string, posX: number, posY: number) => void;
+};
+
+export type MapPin = {
+  id: string;
+  locationId: string;
+  label: string;
+  name?: string;
+  tone: "working" | "idle" | "clear";
 };
 
 function floorCells(locations: MapLocation[]) {
@@ -80,11 +90,13 @@ export function WarehouseMap({
   toId,
   pickIds,
   pickMarkers,
+  pins,
   view,
   levelFilter,
   canDrag,
   className,
   onSelect,
+  onSelectPin,
   onReposition,
 }: Props) {
   const visible = locations.filter((location) => levelFilter === "all" || location.level === levelFilter);
@@ -180,6 +192,13 @@ export function WarehouseMap({
   }
 
   const pad = 1.5;
+  const cells = floorCells(visible);
+  const cellByLocation = new Map<string, { x: number; y: number; sizeX: number; sizeY: number }>();
+  for (const cell of cells) {
+    for (const location of cell.locations) {
+      cellByLocation.set(location.id, { x: cell.posX, y: cell.posY, sizeX: cell.sizeX, sizeY: cell.sizeY });
+    }
+  }
   return (
     <svg
       ref={svgRef}
@@ -216,7 +235,7 @@ export function WarehouseMap({
           </text>
         </g>
       ))}
-      {floorCells(visible).map((cell) => {
+      {cells.map((cell) => {
           const selected = cell.locations.some((location) => location.id === selectedId);
           const from = cell.locations.some((location) => location.id === fromId);
           const to = cell.locations.some((location) => location.id === toId);
@@ -298,6 +317,39 @@ export function WarehouseMap({
             </g>
           );
         })}
+      {(pins ?? []).map((pin) => {
+        const cell = cellByLocation.get(pin.locationId);
+        if (!cell) return null;
+        const stack = (pins ?? []).filter((row) => row.locationId === pin.locationId);
+        const offset = Math.max(0, stack.findIndex((row) => row.id === pin.id));
+        const fill = pin.tone === "idle" ? "#c47b14" : pin.tone === "clear" ? "#6b542e" : "#1f7a4d";
+        const cx = cell.x + cell.sizeX / 2;
+        const cy = cell.y + 1.15 + offset * 2.1;
+        return (
+          <g
+            key={pin.id}
+            className="cursor-pointer"
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelectPin?.(pin.id);
+            }}
+          >
+            <title>{pin.name ?? pin.label}</title>
+            <circle cx={cx} cy={cy} r="0.95" fill={fill} stroke="#f4f0ea" strokeWidth="0.08" />
+            <text
+              x={cx}
+              y={cy + 0.32}
+              textAnchor="middle"
+              fontSize="0.72"
+              fill="#f4f0ea"
+              fontFamily="ui-monospace, monospace"
+              pointerEvents="none"
+            >
+              {pin.label.slice(0, 2)}
+            </text>
+          </g>
+        );
+      })}
     </svg>
   );
 }

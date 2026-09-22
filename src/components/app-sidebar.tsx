@@ -29,6 +29,7 @@ import {
   Forklift,
   Radar,
   Gauge,
+  Activity,
   Plug,
   Hourglass,
   type LucideIcon,
@@ -85,6 +86,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
       label: "Today",
       items: [
         { title: "Today", url: "/today", icon: LayoutDashboard },
+        ...(owner ? [{ title: "Live", url: "/live", icon: Activity }] : []),
         ...(owner ? [{ title: "Performance", url: "/labor", icon: Gauge }] : []),
         { title: "Floor", url: "/floor", icon: ScanLine },
         { title: "Map", url: "/map", icon: Map },

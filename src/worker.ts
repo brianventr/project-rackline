@@ -48,6 +48,7 @@ import { equipmentRoute } from "./routes/equipment";
 import { analyticsRoute } from "./routes/analytics";
 import { mediaRoute } from "./routes/media";
 import { auditRoute } from "./routes/audit";
+import { liveRoute } from "./routes/live";
 
 const app = new Hono<AppEnv>();
 
@@ -180,5 +181,6 @@ app.route("/api", ediRoute);
 app.route("/api", equipmentRoute);
 app.route("/api", analyticsRoute);
 app.route("/api", auditRoute);
+app.route("/api", liveRoute);
 
 export default app;

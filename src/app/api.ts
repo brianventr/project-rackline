@@ -177,6 +177,73 @@ export type WarehouseMapInfo = {
   country?: string | null;
   lat?: number | null;
   lng?: number | null;
+  timeZone?: string | null;
+};
+
+export type LiveFlowId = "inbound" | "outbound" | "make" | "stock" | "yard";
+export type LivePresence = "working" | "idle" | "clear";
+
+export type LiveDay = {
+  asOf: number;
+  timeZone: string;
+  dayStart: number;
+  warehouse: { id: string; name: string };
+  pulse: {
+    unitsDone: number;
+    unitsRemaining: number;
+    pacePerHour: number | null;
+    clearBy: number | null;
+    peopleWorking: number;
+    peopleIdle: number;
+  };
+  flows: {
+    id: LiveFlowId;
+    done: number;
+    remaining: number;
+    visits?: {
+      id: string;
+      number: string;
+      status: string;
+      carrierName: string;
+      trailerNumber: string | null;
+      dockCode: string | null;
+      eta: number | null;
+    }[];
+  }[];
+  people: {
+    userId: string;
+    name: string;
+    initials: string;
+    state: LivePresence;
+    verb: string | null;
+    jobId: string | null;
+    documentNumber: string | null;
+    documentTo: string | null;
+    lastBay: { locationId: string; code: string; posX: number; posY: number } | null;
+    lastAt: number | null;
+    unitsToday: number;
+    equipmentCode: string | null;
+  }[];
+  attention: {
+    id: string;
+    kind: "idle" | "due" | "dock" | "tracker";
+    title: string;
+    detail: string;
+    to: string;
+    jobId: string | null;
+  }[];
+  activity: {
+    id: string;
+    at: number;
+    userId: string;
+    userName: string;
+    verb: string;
+    qty: number;
+    sku: string | null;
+    bayCode: string | null;
+    summary: string;
+  }[];
+  team: { userId: string; name: string }[];
 };
 
 export type WarehouseMapData = {

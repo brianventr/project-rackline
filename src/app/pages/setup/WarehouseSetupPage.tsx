@@ -17,6 +17,7 @@ export function WarehouseSetupPage() {
   const [city, setCity] = useState("");
   const [region, setRegion] = useState("");
   const [country, setCountry] = useState("");
+  const [timeZone, setTimeZone] = useState("UTC");
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -35,6 +36,7 @@ export function WarehouseSetupPage() {
         setCity(current.city || "");
         setRegion(current.region || "");
         setCountry(current.country || "");
+        setTimeZone(current.timeZone || "UTC");
       })
       .catch((err: Error) => setError(err.message));
   }, [currentId]);
@@ -70,6 +72,7 @@ export function WarehouseSetupPage() {
           city,
           region,
           country,
+          timeZone,
         }),
       });
       setOk("Warehouse saved.");
@@ -155,6 +158,12 @@ export function WarehouseSetupPage() {
               <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="US" />
             </Field>
           </div>
+          <Field label="Timezone">
+            <Input value={timeZone} onChange={(e) => setTimeZone(e.target.value)} placeholder="America/Los_Angeles" />
+          </Field>
+          <p className="text-xs text-muted-foreground">
+            Live starts this building&apos;s day at local midnight. Use an IANA name such as America/Los_Angeles.
+          </p>
           <p className="text-xs text-muted-foreground">
             {garage
               ? "Ship-from for labels. A second building and Traffic open with Manufacturer."

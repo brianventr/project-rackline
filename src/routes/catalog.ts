@@ -7,6 +7,7 @@ import { requireOwner, isItemType, isLocationType, isSlotRole, getOrgLocation, g
 import { badRequest, requireInt, requireString, optionalInt, optionalString, optionalFloat } from "../lib/http";
 import { newId } from "../lib/ids";
 import { suggestPlacement } from "../domain/map-layout";
+import { parseTimeZone } from "../domain/time-zone";
 import { suggestReplenishments } from "../domain/replenishment";
 import { suggestPutawayJobs, suggestPutawayBay } from "../domain/directed-putaway";
 import { loadPutawayBaysByItem } from "../db/putaway-bays";
@@ -73,6 +74,7 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     city?: string | null;
     region?: string | null;
     country?: string | null;
+    timeZone?: string | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -95,6 +97,7 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     country?: string | null;
     lat?: number | null;
     lng?: number | null;
+    timeZone?: string;
   } = {};
   const name = optionalString(body.name);
   if (name) patch.name = name;
@@ -120,6 +123,13 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
   if ("city" in body) patch.city = optionalString(body.city) ?? null;
   if ("region" in body) patch.region = optionalString(body.region) ?? null;
   if ("country" in body) patch.country = optionalString(body.country) ?? null;
+  if ("timeZone" in body) {
+    try {
+      patch.timeZone = parseTimeZone(body.timeZone);
+    } catch (err) {
+      badRequest(err instanceof Error ? err.message : "Invalid timezone");
+    }
+  }
   if ("city" in body || "region" in body || "country" in body) {
     const next = {
       city: patch.city !== undefined ? patch.city : warehouse.city,
