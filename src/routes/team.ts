@@ -2,14 +2,30 @@ import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
-import { badRequest, conflict, notFound, requireString } from "../lib/http";
+import { badRequest, conflict, HttpError, notFound } from "../lib/http";
 import { requireOwner } from "../lib/org";
 import { createAuth } from "../lib/auth";
 import { newId } from "../lib/ids";
 import { originFrom } from "../lib/types";
+import { sendMail } from "../lib/mail";
 import { FLOOR_VERBS, isFloorVerb, parseFloorVerbs, serializeFloorVerbs, type FloorVerb } from "../domain/jobs";
+import {
+  inviteMailText,
+  mailConfigured,
+  parseTeamInvite,
+  randomPassword,
+  resolveInvitePassword,
+  TeamInviteError,
+} from "../domain/auth-mail";
 
 export const teamRoute = new Hono<AppEnv>();
+
+function inviteHttp(err: unknown): never {
+  if (err instanceof TeamInviteError) {
+    throw new HttpError(err.status, err.message, err.code);
+  }
+  throw err;
+}
 
 teamRoute.get("/team", async (c) => {
   const db = c.get("db");
@@ -36,22 +52,23 @@ teamRoute.get("/team", async (c) => {
 
 teamRoute.post("/team", async (c) => {
   requireOwner(c.get("role"));
-  const body = await c.req.json<{
-    name?: string;
-    email?: string;
-    password?: string;
-    role?: string;
-  }>();
-  const name = requireString(body.name, "name");
-  const email = requireString(body.email, "email").toLowerCase();
-  const password = requireString(body.password, "password");
-  const role = (body.role || "operator").trim();
-  if (role !== "owner" && role !== "operator") badRequest("Role must be owner or operator");
-  if (password.length < 8) badRequest("Password must be at least 8 characters");
+  let parsed;
+  try {
+    parsed = parseTeamInvite(await c.req.json<Record<string, unknown>>().catch(() => ({})));
+  } catch (err) {
+    inviteHttp(err);
+  }
+  const canMail = mailConfigured(c.env);
+  let resolved;
+  try {
+    resolved = resolveInvitePassword(parsed.password, canMail, randomPassword);
+  } catch (err) {
+    inviteHttp(err);
+  }
 
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const [existingUser] = await db.select().from(schema.user).where(eq(schema.user.email, email)).limit(1);
+  const [existingUser] = await db.select().from(schema.user).where(eq(schema.user.email, parsed.email)).limit(1);
   if (existingUser) {
     const [membership] = await db
       .select()
@@ -65,7 +82,7 @@ teamRoute.post("/team", async (c) => {
   const origin = originFrom(c.req.url);
   const auth = createAuth(db, c.env, origin);
   const result = await auth.api.signUpEmail({
-    body: { name, email, password },
+    body: { name: parsed.name, email: parsed.email, password: resolved.password },
     headers: new Headers(),
     asResponse: true,
   });
@@ -84,8 +101,38 @@ teamRoute.post("/team", async (c) => {
     id: newId(),
     organizationId,
     userId,
-    role,
+    role: parsed.role,
   });
+
+  let invite: "emailed" | "password" = resolved.emailed ? "emailed" : "password";
+  if (resolved.emailed) {
+    const reset = await auth.api.requestPasswordReset({
+      body: { email: parsed.email, redirectTo: `${origin}/reset-password` },
+    }).catch((err: unknown) => {
+      throw new HttpError(409, err instanceof Error ? err.message : "Could not send invite email", "MAIL_FAILED");
+    });
+    if (!reset) conflict("Could not send invite email", "MAIL_FAILED");
+    invite = "emailed";
+  } else if (canMail) {
+    const [org] = await db
+      .select({ name: schema.organizations.name })
+      .from(schema.organizations)
+      .where(eq(schema.organizations.id, organizationId))
+      .limit(1);
+    await sendMail({
+      apiKey: c.env.MAIL_API_KEY!,
+      from: c.env.MAIL_FROM!,
+      to: parsed.email,
+      subject: `You were added to ${org?.name || "Rackline"}`,
+      text: inviteMailText({
+        name: parsed.name,
+        organizationName: org?.name || "your warehouse",
+        url: `${origin}/login`,
+        setPassword: false,
+      }),
+    }).catch(() => undefined);
+    invite = "emailed";
+  }
 
   const [row] = await db
     .select({
@@ -100,7 +147,7 @@ teamRoute.post("/team", async (c) => {
     .where(and(eq(schema.memberships.organizationId, organizationId), eq(schema.memberships.userId, userId)))
     .limit(1);
 
-  return c.json(row, 201);
+  return c.json({ ...row, invite }, 201);
 });
 
 teamRoute.patch("/team/:userId", async (c) => {

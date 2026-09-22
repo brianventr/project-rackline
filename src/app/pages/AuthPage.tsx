@@ -6,19 +6,29 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Logo } from "@/components/logo";
 import { ModeToggle } from "@/components/mode-toggle";
 
-export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "signup" }) {
-  const [mode, setMode] = useState<"login" | "signup">(initialMode);
+export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "signup" | "forgot" }) {
+  const [mode, setMode] = useState<"login" | "signup" | "forgot">(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [organizationName, setOrganizationName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   async function submit() {
     setError(null);
     setBusy(true);
     try {
+      if (mode === "forgot") {
+        const result = await authClient.requestPasswordReset({
+          email,
+          redirectTo: `${window.location.origin}/reset-password`,
+        });
+        if (result.error) throw new Error(result.error.message || "Could not send reset email");
+        setResetSent(true);
+        return;
+      }
       if (mode === "login") {
         const result = await authClient.signIn.email({ email, password });
         if (result.error) throw new Error(result.error.message || "Sign in failed");
@@ -60,6 +70,15 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
     }
   }
 
+  const title =
+    mode === "signup" ? "Start in Garage Mode" : mode === "forgot" ? "Reset your password" : "Welcome back";
+  const description =
+    mode === "signup"
+      ? "A bench for founders and inventors. Open the full warehouse when you grow."
+      : mode === "forgot"
+        ? "We email a link if that address is on a warehouse."
+        : "Sign in to the floor board, map, and Shopify channel.";
+
   return (
     <div className="bg-muted relative flex min-h-svh flex-col items-center justify-center gap-6 overflow-hidden p-6 md:p-10">
       <div className="pointer-events-none absolute -top-32 flex h-full w-full items-center justify-end">
@@ -83,61 +102,113 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
         </Link>
         <Card>
           <CardHeader className="text-center">
-            <CardTitle className="text-xl">{mode === "login" ? "Welcome back" : "Start in Garage Mode"}</CardTitle>
-            <CardDescription>
-              {mode === "login"
-                ? "Sign in to the floor board, map, and Shopify channel."
-                : "A bench for founders and inventors. Open the full warehouse when you grow."}
-            </CardDescription>
+            <CardTitle className="text-xl">{title}</CardTitle>
+            <CardDescription>{description}</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="mb-4 grid grid-cols-2 gap-2">
-              <Button variant={mode === "login" ? "primary" : "ghost"} onClick={() => setMode("login")}>
-                Sign in
-              </Button>
-              <Button variant={mode === "signup" ? "primary" : "ghost"} onClick={() => setMode("signup")}>
-                Create org
-              </Button>
-            </div>
+            {mode !== "forgot" ? (
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                <Button
+                  variant={mode === "login" ? "primary" : "ghost"}
+                  onClick={() => {
+                    setMode("login");
+                    setResetSent(false);
+                  }}
+                >
+                  Sign in
+                </Button>
+                <Button
+                  variant={mode === "signup" ? "primary" : "ghost"}
+                  onClick={() => {
+                    setMode("signup");
+                    setResetSent(false);
+                  }}
+                >
+                  Create org
+                </Button>
+              </div>
+            ) : null}
             <ErrorBanner error={error} />
-            <form className="grid gap-3" onSubmit={onSubmit(submit)}>
-              {mode === "signup" ? (
-                <>
-                  <Field label="Your name">
-                    <Input value={name} onChange={(e) => setName(e.target.value)} required />
-                  </Field>
-                  <Field label="Organization">
+            {mode === "forgot" && resetSent ? (
+              <p className="text-sm text-muted-foreground">
+                If that email is on a warehouse, we sent a reset link. Check the inbox, then{" "}
+                <button type="button" className="underline" onClick={() => setMode("login")}>
+                  sign in
+                </button>
+                .
+              </p>
+            ) : (
+              <form className="grid gap-3" onSubmit={onSubmit(submit)}>
+                {mode === "signup" ? (
+                  <>
+                    <Field label="Your name">
+                      <Input value={name} onChange={(e) => setName(e.target.value)} required />
+                    </Field>
+                    <Field label="Organization">
+                      <Input
+                        value={organizationName}
+                        onChange={(e) => setOrganizationName(e.target.value)}
+                        placeholder="Northwind Makers"
+                        required
+                      />
+                    </Field>
+                  </>
+                ) : null}
+                <Field label="Email">
+                  <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                </Field>
+                {mode !== "forgot" ? (
+                  <Field label="Password">
                     <Input
-                      value={organizationName}
-                      onChange={(e) => setOrganizationName(e.target.value)}
-                      placeholder="Northwind Makers"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      minLength={8}
                       required
                     />
                   </Field>
-                </>
-              ) : null}
-              <Field label="Email">
-                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-              </Field>
-              <Field label="Password">
-                <Input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  minLength={8}
-                  required
-                />
-              </Field>
-              <Button type="submit" disabled={busy}>
-                {busy ? "Working…" : mode === "login" ? "Enter warehouse" : "Open Garage Mode"}
-              </Button>
-            </form>
-            <div className="mt-6 border-t pt-4">
-              <p className="mb-3 text-xs text-muted-foreground">Want a stocked shop instead of an empty one?</p>
-              <Button variant="secondary" onClick={() => void loadDemo()} disabled={busy}>
-                Load Northwind Makers demo
-              </Button>
-            </div>
+                ) : null}
+                {mode === "login" ? (
+                  <button
+                    type="button"
+                    className="justify-self-start text-xs text-muted-foreground underline"
+                    onClick={() => {
+                      setMode("forgot");
+                      setError(null);
+                      setResetSent(false);
+                    }}
+                  >
+                    Forgot password?
+                  </button>
+                ) : null}
+                <Button type="submit" disabled={busy}>
+                  {busy
+                    ? "Working…"
+                    : mode === "login"
+                      ? "Enter warehouse"
+                      : mode === "forgot"
+                        ? "Send reset link"
+                        : "Open Garage Mode"}
+                </Button>
+              </form>
+            )}
+            {mode === "forgot" && !resetSent ? (
+              <button
+                type="button"
+                className="mt-4 text-xs text-muted-foreground underline"
+                onClick={() => setMode("login")}
+              >
+                Back to sign in
+              </button>
+            ) : null}
+            {mode !== "forgot" ? (
+              <div className="mt-6 border-t pt-4">
+                <p className="mb-3 text-xs text-muted-foreground">Want a stocked shop instead of an empty one?</p>
+                <Button variant="secondary" onClick={() => void loadDemo()} disabled={busy}>
+                  Load Northwind Makers demo
+                </Button>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
         <p className="text-center text-xs text-muted-foreground">

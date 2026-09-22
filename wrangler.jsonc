@@ -9,7 +9,6 @@
     "run_worker_first": ["/api/*"]
   },
   "vars": {
-    "BETTER_AUTH_SECRET": "dev-only-change-me-to-32-chars-min",
     "BETTER_AUTH_URL": "http://localhost:5173"
   },
   "d1_databases": [

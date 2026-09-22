@@ -1,6 +1,6 @@
 import { purchaseMailRequest } from "../domain/purchase-mail";
 
-export async function sendPurchaseEmail(input: {
+export async function sendMail(input: {
   apiKey: string;
   from: string;
   to: string;
@@ -24,3 +24,5 @@ export async function sendPurchaseEmail(input: {
   if (!id) throw new Error("Mail provider did not return an id");
   return { id };
 }
+
+export const sendPurchaseEmail = sendMail;

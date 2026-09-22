@@ -56,6 +56,7 @@ const GARAGE_PATHS: { prefix: string; exact?: boolean }[] = [
   { prefix: "/setup/carriers" },
   { prefix: "/setup/warehouse" },
   { prefix: "/setup/team" },
+  { prefix: "/setup/audit" },
   { prefix: "/setup/labels" },
   { prefix: "/shopify" },
   { prefix: "/adjustments", exact: true },

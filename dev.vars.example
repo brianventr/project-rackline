@@ -1,0 +1,9 @@
+# Copy to .dev.vars for local `npm run dev`. Do not commit .dev.vars.
+# Production: `npx wrangler secret put BETTER_AUTH_SECRET`
+
+BETTER_AUTH_SECRET=replace-me-with-32-plus-random-chars
+BETTER_AUTH_URL=http://localhost:5173
+
+# Optional. Purchase-order send, password reset, and teammate invite.
+# MAIL_API_KEY=
+# MAIL_FROM=Rackline <floor@your-domain>
