@@ -3,11 +3,12 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type Asn, type AsnPackage, type MapContent, type ScanHit, type ScanLocationHit, type Transfer, type WarehouseMapData } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { WarehouseMap } from "../components/WarehouseMap";
-import { Button, Card, ErrorBanner, PageHeader, StatusBadge } from "../components/ui";
+import { Button, Card, DoneBanner, ErrorBanner, PageHeader, StatusBadge } from "../components/ui";
 import { useScanner } from "../scanner/ScannerProvider";
+import { cn } from "@/lib/utils";
 import { canPostTransfer } from "@/domain/status";
 import { hasUnmoved } from "@/domain/partial-transfer";
-import { ClaimList, openFloorRow } from "./floor/floor-ui";
+import { ClaimList, openFloorRow, useScanFlash } from "./floor/floor-ui";
 import { useSession } from "../session";
 import { jobForRef, useOpenJobs } from "../jobs";
 
@@ -19,6 +20,7 @@ type Slot = {
 export function MovePage() {
   const [params] = useSearchParams();
   const scanner = useScanner();
+  const { flash, report } = useScanFlash();
   const [from, setFrom] = useState<Slot>({ barcode: params.get("from") ?? "", hit: null });
   const [to, setTo] = useState<Slot>({ barcode: params.get("to") ?? "", hit: null });
   const [step, setStep] = useState<"from" | "to">(params.get("from") ? "to" : "from");
@@ -55,44 +57,52 @@ export function MovePage() {
     const scan = scanner.lastScan;
     if (!scan || scan.at === handledAt.current) return;
     handledAt.current = scan.at;
-    void resolveSlot(step, scan.raw);
+    void resolveSlot(step, scan.raw, true);
   }, [scanner.lastScan, step, handledAt]);
 
-  async function resolveSlot(which: "from" | "to", raw: string) {
+  async function resolveSlot(which: "from" | "to", raw: string, heard = false) {
     setError(null);
     setResult(null);
+    const finish = (accepted: boolean) => {
+      if (heard) report(accepted);
+    };
     try {
       const hit = await api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`);
       if (hit.kind === "asn") {
-        await resolveAsnHit(hit);
+        finish(await resolveAsnHit(hit));
         return;
       }
       if (hit.kind !== "location") {
         setError(`${raw} is an item barcode. Scan a location / bay label, or a vendor BOX-/SSCC.`);
+        finish(false);
         return;
       }
       if (which === "from") {
         setFrom({ barcode: hit.location.barcode, hit });
         await loadCartonsAt(hit.location.id);
         if (toRef.current.hit) {
-          await commit(hit, toRef.current.hit);
+          finish(await commit(hit, toRef.current.hit));
         } else {
           setStep("to");
+          finish(true);
         }
       } else {
         if (fromRef.current.hit && hit.location.id === fromRef.current.hit.location.id) {
           setError("Scan a different bay for the destination.");
+          finish(false);
           return;
         }
         setTo({ barcode: hit.location.barcode, hit });
         if (fromRef.current.hit) {
-          await commit(fromRef.current.hit, hit);
+          finish(await commit(fromRef.current.hit, hit));
         } else {
           setStep("from");
+          finish(true);
         }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Barcode not recognized");
+      finish(false);
     }
   }
 
@@ -114,17 +124,17 @@ export function MovePage() {
     const pkg = hit.package;
     if (!pkg) {
       setError("Scan a vendor BOX- / SSCC, not just the ASN.");
-      return;
+      return false;
     }
     if (!pkg.receivedAt) {
       setError(`Receive ${pkg.number} on Floor ASN before putaway.`);
-      return;
+      return false;
     }
     if (pkg.putawayAt) {
       setError(`${pkg.number} is already put away.`);
-      return;
+      return false;
     }
-    await putawayCarton(hit.asn, pkg, toRef.current.hit);
+    return putawayCarton(hit.asn, pkg, toRef.current.hit);
   }
 
   async function putawayCarton(asn: Asn, pkg: AsnPackage, toHit?: ScanLocationHit | null) {
@@ -146,8 +156,10 @@ export function MovePage() {
       setTo({ barcode: "", hit: null });
       setCartons([]);
       setStep("from");
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Carton putaway failed");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -171,7 +183,7 @@ export function MovePage() {
     if (!fromHit) {
       setError("Scan the previous location first.");
       setStep("from");
-      return;
+      return false;
     }
     setBusy(true);
     setError(null);
@@ -190,8 +202,10 @@ export function MovePage() {
       setFrom({ barcode: "", hit: null });
       setTo({ barcode: "", hit: null });
       setStep("from");
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Move failed");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -234,7 +248,7 @@ export function MovePage() {
 
   function onTypedScan() {
     const value = (step === "from" ? from.barcode : to.barcode).trim();
-    if (value) void resolveSlot(step, value);
+    if (value) void resolveSlot(step, value, true);
   }
 
   const prompt = step === "from" ? "Scan previous location" : "Scan new location";
@@ -253,7 +267,7 @@ export function MovePage() {
       />
       <ErrorBanner error={error} />
       <OpenTransferTickets />
-      {result ? <p className="mb-4 rounded-lg border border-ok/30 bg-ok/10 px-2.5 py-1.5 text-sm text-ok">{result}</p> : null}
+      <DoneBanner className="mb-4">{result}</DoneBanner>
       <div className="grid gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <div className="space-y-4">
           <Card className={step === "from" ? "ring-2 ring-amber" : ""}>
@@ -310,12 +324,16 @@ export function MovePage() {
                   if (event.key === "Enter") {
                     event.preventDefault();
                     const value = event.currentTarget.value.trim();
-                    if (value) void resolveSlot(step, value);
+                    if (value) void resolveSlot(step, value, true);
                   }
                 }}
                 placeholder="A-01-01 or BOX-1"
                 autoComplete="off"
-                className="w-full rounded-lg border border-line bg-paper px-3 py-2.5 font-mono text-sm outline-none ring-amber/40 focus:ring-2"
+                className={cn(
+                  "w-full rounded-lg border border-line bg-paper px-3 py-2.5 font-mono text-sm outline-none ring-amber/40 transition-shadow focus:ring-2",
+                  flash === "ok" && "ring-2 ring-ok",
+                  flash === "bad" && "ring-2 ring-destructive",
+                )}
               />
               <Button onClick={onTypedScan} disabled={busy}>
                 {busy ? "Moving…" : "Use"}

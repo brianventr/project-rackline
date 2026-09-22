@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Location, type Purchase, type Receipt, type ScanHit } from "../../api";
-import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
-import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
+import { Button, Card, DoneBanner, Field, Input, Select, StatusBadge } from "../../components/ui";
+import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { SkuThumb } from "../../components/sku-thumb";
 import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
@@ -88,38 +88,45 @@ export function FloorReceivePage() {
     load().catch((err: Error) => setError(err.message));
   }, []);
 
-  const onScan = useCallback((raw: string) => {
+  const onScan = useCallback((raw: string, report?: ScanReport) => {
     setError(null);
     setDone(null);
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
-      .then((hit) => {
+      .then(async (hit) => {
         if (hit.kind === "receipt") {
-          void api<Receipt>(`/api/receipts/${hit.receipt.id}`).then((receipt) => {
+          const receipt = await api<Receipt>(`/api/receipts/${hit.receipt.id}`);
+          report?.(
             openFloorRow(receipt, me.user.id, jobForRef(jobs, "receipt", receipt.id, "receive"), (next) => {
               setActiveReceipt(next);
               setActivePurchase(null);
               setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
-            }, setError);
-          });
+            }, setError),
+          );
           return;
         }
         if (hit.kind === "purchase") {
-          void api<Purchase>(`/api/purchases/${hit.purchase.id}`).then((purchase) => {
+          const purchase = await api<Purchase>(`/api/purchases/${hit.purchase.id}`);
+          report?.(
             openFloorRow(purchase, me.user.id, jobForRef(jobs, "purchase", purchase.id, "receive"), (next) => {
               setActivePurchase(next);
               setActiveReceipt(null);
               setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
-            }, setError);
-          });
+            }, setError),
+          );
           return;
         }
         if (hit.kind === "location") {
           setLocationId(hit.location.id);
+          report?.(true);
           return;
         }
         setError("Scan a receipt, purchase order, or a dock / bay barcode.");
+        report?.(false);
       })
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => {
+        setError(err.message);
+        report?.(false);
+      });
   }, [jobs, me.user.id]);
 
   async function receiveReceipt() {
@@ -179,17 +186,19 @@ export function FloorReceivePage() {
   return (
     <FloorFrame title="Receive" description="Scan a receipt or purchase order, scan the dock, post it into the bay." error={error}>
       <FloorScanBox label="Scan receipt, PO, or bay" placeholder="PO-DEMO1, RCP-DEMO1, or RECV" onScan={onScan} />
-      {done ? (
-        <p className="text-sm text-emerald-700">
-          {done}{" "}
-          <Link
-            className="font-medium underline"
-            to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
-          >
-            Put away
-          </Link>
-        </p>
-      ) : null}
+      <DoneBanner>
+        {done ? (
+          <>
+            {done}{" "}
+            <Link
+              className="font-medium underline"
+              to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
+            >
+              Put away
+            </Link>
+          </>
+        ) : null}
+      </DoneBanner>
       {!activeReceipt && !activePurchase ? (
         <div className="grid gap-4 md:grid-cols-2">
           <ClaimList

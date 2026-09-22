@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, type CycleCount, type Location, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox, ClaimList, openFloorRow } from "./floor-ui";
+import { FloorFrame, FloorScanBox, ClaimList, openFloorRow, type ScanReport } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { useWarehouse } from "../../warehouse";
 import { canPostCount } from "@/domain/status";
@@ -49,13 +49,13 @@ export function FloorCountPage() {
   }, []);
 
   const onScan = useCallback(
-    (raw: string) => {
+    (raw: string, report?: ScanReport) => {
       setError(null);
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
         .then(async (hit) => {
           if (hit.kind === "cycleCount") {
             const match = await api<CycleCount>(`/api/cycle-counts/${hit.cycleCount.id}`);
-            openFloorRow(match, me.user.id, jobForRef(jobs, "cycleCount", match.id, "count"), setActive, setError);
+            report?.(openFloorRow(match, me.user.id, jobForRef(jobs, "cycleCount", match.id, "count"), setActive, setError));
             return;
           }
           if (hit.kind === "location") {
@@ -66,28 +66,38 @@ export function FloorCountPage() {
             });
             await api(`/api/cycle-counts/${created.id}/start`, { method: "POST" }).catch(() => undefined);
             setActive(await api<CycleCount>(`/api/cycle-counts/${created.id}`));
+            report?.(true);
             return;
           }
           if (hit.kind === "item") {
             if (!active || !canPostCount(active.status)) {
               setError("Scan a bay first, then scan a SKU you found.");
+              report?.(false);
               return;
             }
             const existing = (active.lines ?? []).find(
               (line) => line.itemId === hit.item.id || line.sku === hit.item.sku,
             );
-            if (existing) return;
+            if (existing) {
+              report?.(true);
+              return;
+            }
             setActive(
               await api<CycleCount>(`/api/cycle-counts/${active.id}/lines`, {
                 method: "POST",
                 body: JSON.stringify({ itemId: hit.item.id }),
               }),
             );
+            report?.(true);
             return;
           }
           setError("Scan a bay to count it, or a SKU you found in the bay.");
+          report?.(false);
         })
-        .catch((err: Error) => setError(err.message));
+        .catch((err: Error) => {
+          setError(err.message);
+          report?.(false);
+        });
     },
     [warehouseId, active, jobs, me.user.id],
   );
@@ -144,6 +154,7 @@ export function FloorCountPage() {
           <ClaimList
             title="Open counts"
             empty="No open cycle counts."
+            emptyBody="Scan a bay to start a count."
             rows={counts}
             userId={me.user.id}
             jobFor={(row) => jobForRef(jobs, "cycleCount", row.id, "count")}

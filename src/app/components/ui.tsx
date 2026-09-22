@@ -35,12 +35,19 @@ export function PageHeader({
   description?: string;
   actions?: ReactNode;
 }) {
-  const heading = eyebrow ? `${eyebrow} · ${title}` : title;
   return (
-    <div className="flex min-h-7 flex-wrap items-center justify-between gap-2">
-      <h1 className="text-sm font-semibold tracking-tight" title={description}>
-        {heading}
-      </h1>
+    <div className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-2">
+      <div className="min-w-0">
+        {eyebrow ? (
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{eyebrow}</p>
+        ) : null}
+        <h1 className="text-sm font-semibold tracking-tight">{title}</h1>
+        {description ? (
+          <p className="line-clamp-1 max-w-2xl text-xs text-muted-foreground" title={description}>
+            {description}
+          </p>
+        ) : null}
+      </div>
       {actions ? <div className="flex flex-wrap items-center gap-1.5">{actions}</div> : null}
     </div>
   );
@@ -232,11 +239,29 @@ export function ErrorBanner({ error }: { error: string | null }) {
   );
 }
 
-export function EmptyState({ title, body }: { title: string; body: string }) {
+export function DoneBanner({ children, className }: { children?: ReactNode; className?: string }) {
+  if (children == null || children === false || children === "") return null;
+  return (
+    <div className={cn("rounded-md border border-ok/30 bg-ok/10 px-2.5 py-1.5 text-xs text-ok", className)}>
+      {children}
+    </div>
+  );
+}
+
+export function EmptyState({
+  title,
+  body,
+  action,
+}: {
+  title: string;
+  body?: string;
+  action?: ReactNode;
+}) {
   return (
     <div className="rounded-md border border-dashed px-4 py-6 text-center">
       <p className="text-sm font-medium">{title}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{body}</p>
+      {body ? <p className="mt-0.5 text-xs text-muted-foreground">{body}</p> : null}
+      {action ? <div className="mt-2">{action}</div> : null}
     </div>
   );
 }

@@ -22,7 +22,7 @@ import {
   Undo2,
   Warehouse,
 } from "lucide-react";
-import { PageHeader } from "../../components/ui";
+import { EmptyState, PageHeader } from "../../components/ui";
 import { useSession } from "../../session";
 import { MyDayCard } from "../LaborPage";
 import { useWarehouse } from "../../warehouse";
@@ -111,7 +111,7 @@ export function FloorLauncherPage() {
         <button
           type="button"
           onClick={() => void startNext()}
-          className="flex w-full items-center justify-between gap-3 rounded-md border border-primary/40 bg-card px-3 py-2 text-left hover:border-primary"
+          className="flex w-full items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-left hover:border-primary"
         >
           <div className="min-w-0">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Next job · claim</p>
@@ -128,9 +128,15 @@ export function FloorLauncherPage() {
           <ScanLine className="size-4 shrink-0 text-primary" />
         </button>
       ) : (
-        <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-          Nothing ranked for you right now. Unassigned jobs stay on the verb screens.
-        </div>
+        <EmptyState
+          title="Nothing ranked for you right now."
+          body="Unassigned work is on the verb screens."
+          action={
+            <Link className="text-xs font-medium underline" to="/floor/lookup">
+              Lookup
+            </Link>
+          }
+        />
       )}
       {mine.length ? (
         <div>
@@ -156,10 +162,15 @@ export function FloorLauncherPage() {
             key={item.to}
             to={item.to}
             title={item.body}
-            className="flex items-center gap-2 rounded-md border bg-card px-2.5 py-2 text-sm font-medium hover:border-primary/40"
+            className="flex items-center gap-2 rounded-md border bg-card px-2.5 py-2 text-sm font-medium hover:border-primary/40 sm:items-start"
           >
-            <item.icon className="size-4 shrink-0 text-muted-foreground" />
-            {item.title}
+            <item.icon className="size-4 shrink-0 text-muted-foreground sm:mt-0.5" />
+            <span className="min-w-0">
+              <span className="block">{item.title}</span>
+              <span className="mt-0.5 hidden text-xs font-normal text-muted-foreground sm:line-clamp-2">
+                {item.body}
+              </span>
+            </span>
           </Link>
         ))}
       </div>

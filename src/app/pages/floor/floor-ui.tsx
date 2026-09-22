@@ -1,9 +1,37 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ScanLine } from "lucide-react";
 import { useScanner } from "../../scanner/ScannerProvider";
-import { Button, Card, ErrorBanner, Input } from "../../components/ui";
+import { Button, Card, EmptyState, ErrorBanner, Input } from "../../components/ui";
 import type { FloorJob } from "../../api";
 import { claimedByMessage, jobClaimedByOther, splitByClaim } from "../../jobs";
+import { cn } from "@/lib/utils";
+
+export type ScanReport = (accepted: boolean) => void;
+
+export function useScanFlash() {
+  const scanner = useScanner();
+  const [flash, setFlash] = useState<"ok" | "bad" | null>(null);
+  const timer = useRef<number | null>(null);
+
+  const report = useCallback<ScanReport>(
+    (accepted) => {
+      if (!accepted) scanner.emitScanError();
+      setFlash(accepted ? "ok" : "bad");
+      if (timer.current) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setFlash(null), 300);
+    },
+    [scanner],
+  );
+
+  useEffect(
+    () => () => {
+      if (timer.current) window.clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  return { flash, report };
+}
 
 export function FloorScanBox({
   label,
@@ -12,9 +40,10 @@ export function FloorScanBox({
 }: {
   label: string;
   placeholder: string;
-  onScan: (raw: string) => void;
+  onScan: (raw: string, report?: ScanReport) => void;
 }) {
   const scanner = useScanner();
+  const { flash, report } = useScanFlash();
   const [value, setValue] = useState("");
   const handledAt = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -28,15 +57,14 @@ export function FloorScanBox({
     if (!scan || scan.at === handledAt.current) return;
     handledAt.current = scan.at;
     setValue(scan.raw);
-    onScan(scan.raw);
-  }, [scanner.lastScan, onScan]);
+    onScan(scan.raw, report);
+  }, [scanner.lastScan, onScan, report]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
     const raw = value.trim();
     if (!raw) return;
     scanner.emitScan(raw, "typed");
-    onScan(raw);
   }
 
   return (
@@ -45,7 +73,11 @@ export function FloorScanBox({
       <Input
         ref={inputRef}
         data-scan-capture
-        className="h-14 text-xl"
+        className={cn(
+          "h-14 text-xl transition-shadow",
+          flash === "ok" && "ring-2 ring-ok",
+          flash === "bad" && "ring-2 ring-destructive",
+        )}
         placeholder={placeholder}
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -77,9 +109,12 @@ export function FloorFrame({
   return (
     <div className="space-y-3">
       <div className="print:hidden">
-        <h1 className="text-xl font-semibold tracking-tight" title={description}>
-          {title}
-        </h1>
+        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+        {description ? (
+          <p className="line-clamp-1 text-xs text-muted-foreground" title={description}>
+            {description}
+          </p>
+        ) : null}
       </div>
       <div className="print:hidden">
         <ErrorBanner error={error} />
@@ -92,6 +127,7 @@ export function FloorFrame({
 export function ClaimList<T extends { id?: string }>({
   title,
   empty,
+  emptyBody = "Unassigned work stays on this screen.",
   rows,
   userId,
   jobFor,
@@ -101,6 +137,7 @@ export function ClaimList<T extends { id?: string }>({
 }: {
   title: string;
   empty: string;
+  emptyBody?: string;
   rows: T[];
   userId: string;
   jobFor: (row: T) => FloorJob | undefined;
@@ -147,7 +184,7 @@ export function ClaimList<T extends { id?: string }>({
   return (
     <Card className="space-y-4">
       <p className="font-medium">{title}</p>
-      {rows.length === 0 ? <p className="text-sm text-muted-foreground">{empty}</p> : null}
+      {rows.length === 0 ? <EmptyState title={empty} body={emptyBody} /> : null}
       {section("Mine", mine, false)}
       {section("Unassigned", pool, false)}
       {section("Claimed by others", others, true)}
@@ -162,11 +199,12 @@ export function openFloorRow<T>(
   job: FloorJob | undefined,
   onOpen: (row: T) => void,
   setError: (message: string | null) => void,
-): void {
+): boolean {
   if (jobClaimedByOther(job, userId)) {
     setError(claimedByMessage(job));
-    return;
+    return false;
   }
   setError(null);
   onOpen(row);
+  return true;
 }
