@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { garageAllowsPath, isGarageMode, parseOperatingMode } from "./operating-mode";
+import { GARAGE_NAV, garageAllowsPath, garageNavForRole, isGarageMode, parseOperatingMode } from "./operating-mode";
 
 describe("operating mode", () => {
   it("accepts garage and warehouse", () => {
@@ -42,5 +42,39 @@ describe("operating mode", () => {
     expect(garageAllowsPath("/setup/clients")).toBe(false);
     expect(garageAllowsPath("/setup/edi")).toBe(false);
     expect(garageAllowsPath("/labor")).toBe(false);
+  });
+
+  it("keeps the maker menu short and on the same allowlist", () => {
+    const urls = GARAGE_NAV.flatMap((group) => group.items.map((item) => item.url));
+    expect(urls).toEqual([
+      "/today",
+      "/floor",
+      "/map",
+      "/inbound/purchases",
+      "/inbound/receipts",
+      "/make/recipes",
+      "/make/work-orders",
+      "/make/kits",
+      "/outbound/orders",
+      "/outbound/returns",
+      "/stock",
+      "/stock/items",
+      "/analytics/runway",
+      "/setup/shopify",
+      "/setup/carriers",
+      "/setup/team",
+      "/setup/labels",
+      "/setup/warehouse",
+    ]);
+    for (const url of urls) expect(garageAllowsPath(url)).toBe(true);
+    expect(garageNavForRole("operator").map((group) => group.label)).not.toContain("Shop");
+    expect(garageNavForRole("owner").map((group) => group.label)).toContain("Shop");
+    expect(urls).not.toContain("/stock/ledger");
+    expect(urls).not.toContain("/inbound/putaway");
+    expect(urls).not.toContain("/setup/audit");
+    expect(urls).not.toContain("/map?edit=1");
+    expect(garageAllowsPath("/stock/ledger")).toBe(true);
+    expect(garageAllowsPath("/inbound/putaway/x1")).toBe(true);
+    expect(garageAllowsPath("/setup/audit")).toBe(true);
   });
 });

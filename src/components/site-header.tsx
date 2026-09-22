@@ -9,8 +9,9 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ModeToggle } from "@/components/mode-toggle";
 import { useScanner } from "@/app/scanner/ScannerProvider";
 import { useSession } from "@/app/session";
+import { useOperatingMode } from "@/app/use-operating-mode";
 import { homePath, useWarehouse } from "@/app/warehouse";
-import { GARAGE_MODE_LABEL, isGarageMode } from "@/domain/operating-mode";
+import { GARAGE_SWITCH_LABEL, MANUFACTURER_MODE_LABEL, garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 import { api, type ScanHit, type SearchResults } from "@/app/api";
 import { documentPath } from "@/domain/barcodes";
 import {
@@ -21,7 +22,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 export function SiteHeader({ floor }: { floor?: boolean }) {
   const scanner = useScanner();
@@ -48,7 +52,10 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
   }, []);
 
   return (
-    <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height) print:hidden">
+    <header
+      data-slot="site-header"
+      className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height) print:hidden"
+    >
       <div className="flex w-full items-center gap-1.5 px-3">
         {onFloor ? (
           <Link to="/floor" className="text-xs font-semibold">
@@ -70,21 +77,7 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
             </option>
           ))}
         </select>
-        {isGarageMode(me.organization.operatingMode) ? (
-          me.role === "owner" ? (
-            <Link
-              to="/setup/warehouse"
-              className="hidden rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary sm:inline"
-              title="Founder bench. Open the full warehouse from Setup."
-            >
-              {GARAGE_MODE_LABEL}
-            </Link>
-          ) : (
-            <span className="hidden rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary sm:inline">
-              {GARAGE_MODE_LABEL}
-            </span>
-          )
-        ) : null}
+        <GarageModeSwitch />
         <div className="ml-auto flex items-center gap-1.5">
           <ToggleGroup
             type="single"
@@ -125,9 +118,44 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
           <ModeToggle />
         </div>
       </div>
-      <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
+      <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} garage={isGarageMode(me.organization.operatingMode)} />
       <ScanNavigate enabled={!onFloor} />
     </header>
+  );
+}
+
+const MODE_HINT = "Same parts, orders, and builds. Manufacturer opens the rest of the floor.";
+
+function GarageModeSwitch() {
+  const { garage, owner, busy, setMode } = useOperatingMode();
+
+  async function onChecked(checked: boolean) {
+    if (!owner || busy) return;
+    try {
+      await setMode(checked ? "garage" : "warehouse");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not switch Garage Mode");
+    }
+  }
+
+  return (
+    <div
+      className="flex shrink-0 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5"
+      title={owner ? MODE_HINT : "The owner switches Garage and Manufacturer for the whole shop."}
+    >
+      <span className={cn("text-[11px] font-medium", garage ? "text-primary" : "text-muted-foreground")}>
+        {GARAGE_SWITCH_LABEL}
+      </span>
+      <Switch
+        checked={garage}
+        disabled={!owner || busy}
+        onCheckedChange={(checked) => void onChecked(checked)}
+        aria-label="Garage Mode"
+      />
+      <span className={cn("hidden text-[11px] font-medium sm:inline", garage ? "text-muted-foreground" : "text-foreground")}>
+        {MANUFACTURER_MODE_LABEL}
+      </span>
+    </div>
   );
 }
 
@@ -197,7 +225,15 @@ function pathForScan(hit: ScanHit): string | null {
   }
 }
 
-function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+function GlobalSearch({
+  open,
+  onOpenChange,
+  garage,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  garage: boolean;
+}) {
   const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [results, setResults] = useState<SearchResults | null>(null);
@@ -222,6 +258,49 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
     navigate(path);
   }
 
+  function show(path: string) {
+    return !garage || garageAllowsPath(path);
+  }
+
+  const items = (results?.items ?? []).filter((row) => show(`/stock/items/${row.id}`));
+  const locations = (results?.locations ?? []).filter((row) => show(`/stock/locations/${row.id}`));
+  const orders = (results?.orders ?? []).filter((row) => show(`/outbound/orders/${row.id}`));
+  const receipts = (results?.receipts ?? []).filter((row) => show(`/inbound/receipts/${row.id}`));
+  const transfers = (results?.transfers ?? []).filter((row) => show(`/inbound/putaway/${row.id}`));
+  const workOrders = (results?.workOrders ?? []).filter((row) => show(`/make/work-orders/${row.id}`));
+  const counts = (results?.counts ?? []).filter((row) => show(`/stock/counts/${row.id}`));
+  const purchases = (results?.purchases ?? []).filter((row) => show(`/inbound/purchases/${row.id}`));
+  const returns = (results?.returns ?? []).filter((row) => show(`/outbound/returns/${row.id}`));
+  const vendorReturns = (results?.vendorReturns ?? []).filter((row) => show(`/inbound/vendor-returns/${row.id}`));
+  const replenishments = (results?.replenishments ?? []).filter((row) => show(`/stock/replenish/${row.id}`));
+  const kits = (results?.kits ?? []).filter((row) => show(`/make/kits/${row.id}`));
+  const holds = (results?.holds ?? []).filter((row) => show(`/stock/holds/${row.id}`));
+  const waves = (results?.waves ?? []).filter((row) => show(`/outbound/waves/${row.id}`));
+  const asns = (results?.asns ?? []).filter((row) => show(`/inbound/asns/${row.id}`));
+  const yard = (results?.yard ?? []).filter((row) => show(`/inbound/yard/${row.id}`));
+  const equipment = (results?.equipment ?? []).filter((row) => show(`/equipment/${row.id}`));
+  const serials = (results?.serials ?? []).filter((row) => show(`/stock/items/${row.itemId}`));
+  const empty =
+    !!results &&
+    !items.length &&
+    !locations.length &&
+    !orders.length &&
+    !receipts.length &&
+    !transfers.length &&
+    !workOrders.length &&
+    !counts.length &&
+    !purchases.length &&
+    !returns.length &&
+    !vendorReturns.length &&
+    !replenishments.length &&
+    !kits.length &&
+    !holds.length &&
+    !waves.length &&
+    !asns.length &&
+    !yard.length &&
+    !equipment.length &&
+    !serials.length;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 p-0 sm:max-w-lg">
@@ -237,12 +316,12 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           onChange={(e) => setQ(e.target.value)}
         />
         <div className="max-h-80 space-y-0.5 overflow-auto p-1.5 text-xs">
-          {results?.items.map((item) => (
+          {items.map((item) => (
             <button key={item.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/stock/items/${item.id}`)}>
               <span className="font-mono">{item.sku}</span> {item.name}
             </button>
           ))}
-          {results?.locations.map((location) => (
+          {locations.map((location) => (
             <button
               key={location.id}
               className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
@@ -251,7 +330,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               <span className="font-mono">{location.code}</span> {location.name}
             </button>
           ))}
-          {results?.orders.map((order) => (
+          {orders.map((order) => (
             <button
               key={order.id}
               className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
@@ -260,7 +339,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               Order {order.number} · {order.customerName}
             </button>
           ))}
-          {results?.receipts.map((receipt) => (
+          {receipts.map((receipt) => (
             <button
               key={receipt.id}
               className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
@@ -269,7 +348,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               Receipt {receipt.number}
             </button>
           ))}
-          {results?.transfers.map((transfer) => (
+          {transfers.map((transfer) => (
             <button
               key={transfer.id}
               className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
@@ -278,7 +357,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               Putaway {transfer.number}
             </button>
           ))}
-          {results?.workOrders.map((order) => (
+          {workOrders.map((order) => (
             <button
               key={order.id}
               className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
@@ -287,7 +366,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               Work order {order.number}
             </button>
           ))}
-          {results?.counts.map((count) => (
+          {counts.map((count) => (
             <button
               key={count.id}
               className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
@@ -296,7 +375,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               Count {count.number}
             </button>
           ))}
-          {results?.purchases.map((purchase) => (
+          {purchases.map((purchase) => (
             <button
               key={purchase.id}
               className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
@@ -305,52 +384,52 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               Purchase {purchase.number} · {purchase.vendorName}
             </button>
           ))}
-          {results?.returns.map((rma) => (
+          {returns.map((rma) => (
             <button key={rma.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/outbound/returns/${rma.id}`)}>
               Return {rma.number} · {rma.customerName}
             </button>
           ))}
-          {results?.vendorReturns?.map((row) => (
+          {vendorReturns.map((row) => (
             <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/inbound/vendor-returns/${row.id}`)}>
               Vendor return {row.number} · {row.vendorName}
             </button>
           ))}
-          {results?.replenishments?.map((row) => (
+          {replenishments.map((row) => (
             <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/stock/replenish/${row.id}`)}>
               Replenish {row.number}
             </button>
           ))}
-          {results?.kits?.map((row) => (
+          {kits.map((row) => (
             <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/make/kits/${row.id}`)}>
               Kit {row.number}
             </button>
           ))}
-          {results?.holds?.map((row) => (
+          {holds.map((row) => (
             <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/stock/holds/${row.id}`)}>
               Hold {row.number}
             </button>
           ))}
-          {results?.waves?.map((row) => (
+          {waves.map((row) => (
             <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/outbound/waves/${row.id}`)}>
               Wave {row.number}
             </button>
           ))}
-          {results?.asns?.map((row) => (
+          {asns.map((row) => (
             <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/inbound/asns/${row.id}`)}>
               ASN {row.number} · {row.vendorName}
             </button>
           ))}
-          {results?.yard?.map((row) => (
+          {yard.map((row) => (
             <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/inbound/yard/${row.id}`)}>
               Yard {row.number} · {row.carrierName}
             </button>
           ))}
-          {results?.equipment?.map((row) => (
+          {equipment.map((row) => (
             <button key={row.id} className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted" onClick={() => go(`/equipment/${row.id}`)}>
               {row.code} · {row.name}
             </button>
           ))}
-          {results?.serials?.map((row) => (
+          {serials.map((row) => (
             <button
               key={`${row.itemId}:${row.serialCode}`}
               className="block w-full rounded-sm px-2 py-1 text-left hover:bg-muted"
@@ -359,27 +438,7 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               Serial {row.serialCode} · {row.sku}
             </button>
           ))}
-          {results &&
-          !results.items.length &&
-          !results.locations.length &&
-          !results.orders.length &&
-          !results.receipts.length &&
-          !results.transfers.length &&
-          !results.workOrders.length &&
-          !results.counts.length &&
-          !results.purchases.length &&
-          !results.returns.length &&
-          !results.vendorReturns?.length &&
-          !results.replenishments?.length &&
-          !results.kits?.length &&
-          !results.holds?.length &&
-          !results.waves?.length &&
-          !results.asns?.length &&
-          !results.yard?.length &&
-          !results.equipment?.length &&
-          !results.serials?.length ? (
-            <p className="text-muted-foreground">Nothing matches that search.</p>
-          ) : null}
+          {empty ? <p className="text-muted-foreground">Nothing matches that search.</p> : null}
         </div>
       </DialogContent>
     </Dialog>
