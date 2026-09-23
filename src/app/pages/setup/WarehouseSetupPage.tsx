@@ -1,14 +1,48 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Factory, Plus, Wrench, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
-import { api, type WarehouseMapInfo } from "../../api";
+import { z } from "zod";
+import { api, errorText, type WarehouseMapInfo } from "../../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, ToneBadge, onSubmit } from "../../components/ui";
+import { NumberField, TextField, TextareaField, useZodForm, type ZodFormOutput } from "../../components/form-kit";
+import { Term } from "../../components/term";
 import { useWarehouse } from "../../warehouse";
 import { useOperatingMode } from "../../use-operating-mode";
 import { useWrite } from "../../use-write";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { optionalText, wholeNumber } from "@/domain/form-schemas";
 import { GARAGE_MODE_LABEL, GARAGE_SWITCH_LABEL, MANUFACTURER_MODE_LABEL, type OperatingMode } from "@/domain/operating-mode";
+import { isValidTimeZone } from "@/domain/time-zone";
+
+function mapSize(label: string) {
+  return wholeNumber(1, {
+    empty: `Enter the map ${label}.`,
+    notWhole: `Map ${label} must be a whole number.`,
+    tooSmall: `Map ${label} must be 1 or more.`,
+  });
+}
+
+/**
+ * PATCH /api/warehouses/:id (`src/routes/catalog.ts`): a blank name keeps the old one, map sizes are
+ * whole numbers above 0, and the timezone must be an IANA name (`parseTimeZone`).
+ */
+const buildingFormSchema = z.object({
+  name: optionalText,
+  timeZone: z.string().superRefine((value, ctx) => {
+    if (!value.trim()) {
+      ctx.addIssue({ code: "custom", message: "Enter a timezone, like America/Los_Angeles.", input: value });
+    } else if (!isValidTimeZone(value.trim())) {
+      ctx.addIssue({ code: "custom", message: "Use an IANA timezone name, like America/Los_Angeles.", input: value });
+    }
+  }),
+  shipFromAddress: optionalText,
+  city: optionalText,
+  region: optionalText,
+  country: optionalText,
+  mapWidth: mapSize("width"),
+  mapDepth: mapSize("depth"),
+  mapHeight: mapSize("height"),
+});
 
 export function WarehouseSetupPage() {
   const operating = useOperatingMode();
@@ -16,35 +50,41 @@ export function WarehouseSetupPage() {
   const warehouse = useWarehouse();
   const write = useWrite();
   const [loaded, setLoaded] = useState(false);
-  const [name, setName] = useState("");
-  const [mapWidth, setMapWidth] = useState("42");
-  const [mapDepth, setMapDepth] = useState("28");
-  const [mapHeight, setMapHeight] = useState("8");
-  const [shipFromAddress, setShipFromAddress] = useState("");
-  const [city, setCity] = useState("");
-  const [region, setRegion] = useState("");
-  const [country, setCountry] = useState("");
-  const [timeZone, setTimeZone] = useState("UTC");
+  const form = useZodForm(buildingFormSchema, {
+    name: "",
+    timeZone: "UTC",
+    shipFromAddress: "",
+    city: "",
+    region: "",
+    country: "",
+    mapWidth: "42",
+    mapDepth: "28",
+    mapHeight: "8",
+  });
   const [newName, setNewName] = useState("");
   const currentId = warehouse.warehouseId;
 
+  // Load this building's settings into the form.
+  const { reset } = form;
   useEffect(() => {
     api<WarehouseMapInfo[]>("/api/warehouses")
       .then((rows) => {
         const current = rows.find((row) => row.id === currentId) ?? rows[0];
         setLoaded(true);
         if (!current) return;
-        setName(current.name);
-        setMapWidth(String(current.mapWidth));
-        setMapDepth(String(current.mapDepth));
-        setMapHeight(String(current.mapHeight));
-        setShipFromAddress(current.shipFromAddress || "");
-        setCity(current.city || "");
-        setRegion(current.region || "");
-        setCountry(current.country || "");
-        setTimeZone(current.timeZone || "UTC");
+        reset({
+          name: current.name,
+          timeZone: current.timeZone || "UTC",
+          shipFromAddress: current.shipFromAddress || "",
+          city: current.city || "",
+          region: current.region || "",
+          country: current.country || "",
+          mapWidth: String(current.mapWidth),
+          mapDepth: String(current.mapDepth),
+          mapHeight: String(current.mapHeight),
+        });
       })
-      .catch((err: Error) => write.setError(err.message));
+      .catch((err: unknown) => write.setError(errorText(err, "Could not load this warehouse.")));
   }, [currentId]);
 
   const setOperatingMode = (operatingMode: OperatingMode) =>
@@ -56,7 +96,7 @@ export function WarehouseSetupPage() {
         : "Manufacturer is on. The rest of the floor is open.",
     );
 
-  async function save() {
+  async function save(values: ZodFormOutput<typeof buildingFormSchema>) {
     if (!currentId) return;
     await write.run(
       "Save warehouse",
@@ -64,15 +104,15 @@ export function WarehouseSetupPage() {
         api<WarehouseMapInfo>(`/api/warehouses/${currentId}`, {
           method: "PATCH",
           body: JSON.stringify({
-            name,
-            mapWidth: Number(mapWidth),
-            mapDepth: Number(mapDepth),
-            mapHeight: Number(mapHeight),
-            shipFromAddress,
-            city,
-            region,
-            country,
-            timeZone,
+            name: values.name,
+            mapWidth: values.mapWidth,
+            mapDepth: values.mapDepth,
+            mapHeight: values.mapHeight,
+            shipFromAddress: values.shipFromAddress,
+            city: values.city,
+            region: values.region,
+            country: values.country,
+            timeZone: values.timeZone,
           }),
         }),
       "Warehouse saved.",
@@ -104,13 +144,23 @@ export function WarehouseSetupPage() {
         <div className="space-y-3">
           <SectionHeading
             title="Operating mode"
-            description="Switching keeps the same parts, orders, and builds. Only what shows on the floor changes."
+            description={
+              <>
+                Switching between <Term id="garage-mode">Garage Mode</Term> and Manufacturer keeps the same parts, orders, and
+                builds. Only what shows on the floor changes.
+              </>
+            }
           />
           <div className="grid gap-3 md:grid-cols-2">
             <ModeOption
               icon={Wrench}
               title={GARAGE_MODE_LABEL}
-              body="The bench founders and inventors start on. Receive, make, pick, and ship. Yard, waves, ASN, equipment, and 3PL stay packed away."
+              body={
+                <>
+                  The bench founders and inventors start on. Receive, make, pick, and ship. Yard, waves,{" "}
+                  <Term id="asn">ASN</Term>, equipment, and <Term id="3pl-client">3PL</Term> stay packed away.
+                </>
+              }
               current={garage}
               switchLabel={`Switch to ${GARAGE_SWITCH_LABEL}`}
               disabled={operating.busy || write.busy || !operating.owner}
@@ -130,19 +180,18 @@ export function WarehouseSetupPage() {
       </Card>
 
       <Card>
-        <form className="space-y-4" onSubmit={onSubmit(save)}>
+        <form className="space-y-4" onSubmit={form.handleSubmit(save)}>
           <SectionHeading title="Building" description={`Settings for ${warehouse.warehouse?.name ?? "this warehouse"}.`} />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Name">
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </Field>
-            <Field label="Timezone">
-              <Input value={timeZone} onChange={(e) => setTimeZone(e.target.value)} placeholder="America/Los_Angeles" />
-            </Field>
+          <div className="grid gap-3 sm:grid-cols-2 sm:items-start">
+            <TextField form={form} name="name" label="Name" />
+            <TextField
+              form={form}
+              name="timeZone"
+              label="Timezone"
+              placeholder="America/Los_Angeles"
+              description="Live starts this building's day at local midnight."
+            />
           </div>
-          <p className="-mt-2 text-xs text-muted-foreground">
-            Live starts this building&apos;s day at local midnight. Use an IANA name such as America/Los_Angeles.
-          </p>
 
           <div className="space-y-3 border-t pt-4">
             <SectionHeading
@@ -153,39 +202,26 @@ export function WarehouseSetupPage() {
                   : "Ship-from for labels, and the origin for Analytics → Traffic. Lane estimates fly from this city, not live GPS."
               }
             />
-            <Field label="Ship-from address">
-              <Textarea
-                value={shipFromAddress}
-                onChange={(e) => setShipFromAddress(e.target.value)}
-                rows={3}
-                placeholder="14 Dock St, Portland, OR 97209"
-              />
-            </Field>
-            <div className="grid grid-cols-3 gap-3">
-              <Field label="City">
-                <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Portland" />
-              </Field>
-              <Field label="State">
-                <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="OR" />
-              </Field>
-              <Field label="Country">
-                <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="US" />
-              </Field>
+            <TextareaField
+              form={form}
+              name="shipFromAddress"
+              label="Ship-from address"
+              rows={3}
+              placeholder="14 Dock St, Portland, OR 97209"
+            />
+            <div className="grid grid-cols-3 items-start gap-3">
+              <TextField form={form} name="city" label="City" placeholder="Portland" />
+              <TextField form={form} name="region" label="State" placeholder="OR" />
+              <TextField form={form} name="country" label="Country" placeholder="US" />
             </div>
           </div>
 
           <div className="space-y-3 border-t pt-4">
             <SectionHeading title="Map size" description="The floor size the Map draws bays on." />
-            <div className="grid grid-cols-3 gap-3">
-              <Field label="Map width">
-                <Input type="number" min={1} value={mapWidth} onChange={(e) => setMapWidth(e.target.value)} />
-              </Field>
-              <Field label="Map depth">
-                <Input type="number" min={1} value={mapDepth} onChange={(e) => setMapDepth(e.target.value)} />
-              </Field>
-              <Field label="Map height">
-                <Input type="number" min={1} value={mapHeight} onChange={(e) => setMapHeight(e.target.value)} />
-              </Field>
+            <div className="grid grid-cols-3 items-start gap-3">
+              <NumberField form={form} name="mapWidth" label="Map width" min={1} />
+              <NumberField form={form} name="mapDepth" label="Map depth" min={1} />
+              <NumberField form={form} name="mapHeight" label="Map height" min={1} />
             </div>
           </div>
 
@@ -242,7 +278,7 @@ function ModeOption({
 }: {
   icon: LucideIcon;
   title: string;
-  body: string;
+  body: ReactNode;
   current: boolean;
   switchLabel: string;
   disabled: boolean;

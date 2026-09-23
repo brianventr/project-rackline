@@ -1,34 +1,99 @@
 import { useEffect, useMemo, useState } from "react";
 import { Copy, FlaskConical, Plug, Star, Truck, Unplug } from "lucide-react";
 import { toast } from "sonner";
-import { api, type CarrierCatalogProvider, type CarrierConnection, type CarrierHub, type CarrierOutbound } from "../../api";
-import { useWarehouse } from "../../warehouse";
+import { z } from "zod";
 import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorBanner,
-  Field,
-  Input,
-  PageHeader,
-  Select,
-  StatusBadge,
-  onSubmit,
-} from "../../components/ui";
+  api,
+  errorText,
+  type CarrierCatalogProvider,
+  type CarrierConnection,
+  type CarrierHub,
+  type CarrierOutbound,
+} from "../../api";
+import { useWarehouse } from "../../warehouse";
+import { Button, Card, EmptyState, ErrorBanner, Field, PageHeader, StatusBadge, onSubmit } from "../../components/ui";
 import { ActionButton, DocumentFact } from "../../components/document";
 import { DataTable, type DataColumn, type FacetDef } from "../../components/data-table/DataTable";
 import { Muted, RelativeTime } from "../../components/cells";
 import { useConfirm } from "../../components/confirm";
+import { SelectField, TextField, useZodForm, type ZodFormInput, type ZodFormOutput } from "../../components/form-kit";
 import { useWrite } from "../../use-write";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { choiceOf, optionalText } from "@/domain/form-schemas";
 
-const CREDENTIAL_LABELS: Record<string, string> = {
+type CredentialField = "accountNumber" | "apiKey" | "apiSecret" | "meterNumber";
+
+const CREDENTIAL_LABELS: Record<CredentialField, string> = {
   accountNumber: "Account number",
   apiKey: "API key",
   apiSecret: "API secret",
   meterNumber: "Meter number",
+};
+
+const LIVE_NEEDS: Record<CredentialField, string> = {
+  accountNumber: "Enter the account number to go live.",
+  apiKey: "Enter the API key to go live.",
+  apiSecret: "Enter the API secret to go live.",
+  meterNumber: "Enter the meter number to go live.",
+};
+
+const MODE_OPTIONS = [
+  { value: "demo", label: "Demo — mint tracking locally" },
+  { value: "live", label: "Live — EasyPost / ShipEngine buy postage" },
+];
+
+const CREDENTIAL_FIELDS = Object.keys(CREDENTIAL_LABELS) as CredentialField[];
+
+function isCredentialField(field: string): field is CredentialField {
+  return field in CREDENTIAL_LABELS;
+}
+
+/** A blank credential keeps the saved one, so only a field with nothing saved behind it can be missing. */
+function hasSaved(connection: CarrierConnection | null, field: CredentialField): boolean {
+  if (!connection) return false;
+  if (field === "accountNumber") return Boolean(connection.accountNumber);
+  if (field === "apiKey") return connection.hasApiKey;
+  if (field === "apiSecret") return connection.hasApiSecret;
+  return connection.hasMeterNumber;
+}
+
+/**
+ * POST /api/carriers and PATCH /api/carriers/:id (`validateConnectionCredentials`): demo needs no keys;
+ * live needs every credential the provider lists, typed here or already saved.
+ */
+function carrierFormSchema(provider: CarrierCatalogProvider | null, connection: CarrierConnection | null) {
+  return z
+    .object({
+      nickname: optionalText,
+      accountNumber: optionalText,
+      apiKey: optionalText,
+      apiSecret: optionalText,
+      meterNumber: optionalText,
+      webhookSecret: optionalText,
+      mode: choiceOf(["demo", "live"], "Pick demo or live."),
+    })
+    .superRefine((values, ctx) => {
+      if (!provider || values.mode !== "live") return;
+      for (const field of provider.credentialFields) {
+        if (!isCredentialField(field) || values[field].trim() || hasSaved(connection, field)) continue;
+        ctx.addIssue({ code: "custom", message: LIVE_NEEDS[field], path: [field], input: values[field] });
+      }
+    });
+}
+
+type CarrierFormSchema = ReturnType<typeof carrierFormSchema>;
+type CarrierFormInput = ZodFormInput<CarrierFormSchema>;
+
+const BLANK_CARRIER_FORM: CarrierFormInput = {
+  nickname: "",
+  accountNumber: "",
+  apiKey: "",
+  apiSecret: "",
+  meterNumber: "",
+  webhookSecret: "",
+  mode: "demo",
 };
 
 const ACTIVITY_FACETS: FacetDef<CarrierOutbound>[] = [
@@ -72,18 +137,21 @@ export function CarriersPage() {
   const [outbound, setOutbound] = useState<CarrierOutbound[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState<string>("ups");
-  const [nickname, setNickname] = useState("");
-  const [accountNumber, setAccountNumber] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [apiSecret, setApiSecret] = useState("");
-  const [meterNumber, setMeterNumber] = useState("");
-  const [webhookSecret, setWebhookSecret] = useState("");
-  const [mode, setMode] = useState("demo");
   const [enabled, setEnabled] = useState<string[]>([]);
   const [shipFrom, setShipFrom] = useState("");
 
   const provider = hub?.catalog.find((row) => row.id === selected) ?? null;
   const connection = hub?.connections.find((row) => row.provider === selected) ?? null;
+  const schema = useMemo(() => carrierFormSchema(provider, connection), [provider, connection]);
+  const form = useZodForm(schema, BLANK_CARRIER_FORM);
+
+  // Keys are only needed for live, so a mode change re-checks any key message already showing.
+  const formMode = form.watch("mode");
+  const { getFieldState, trigger } = form;
+  useEffect(() => {
+    const showing = CREDENTIAL_FIELDS.filter((field) => getFieldState(field).invalid);
+    if (showing.length) void trigger(showing);
+  }, [formMode, getFieldState, trigger]);
 
   async function load(nextSelected?: string) {
     const [nextHub, nextOutbound] = await Promise.all([
@@ -103,24 +171,27 @@ export function CarriersPage() {
   }
 
   function applyConnection(nextProvider?: CarrierCatalogProvider | null, nextConnection?: CarrierConnection | null) {
-    setNickname(nextConnection?.nickname || nextProvider?.name || "");
-    setAccountNumber(nextConnection?.accountNumber || "");
-    setApiKey("");
-    setApiSecret("");
-    setMeterNumber("");
-    setWebhookSecret("");
-    setMode(nextConnection?.mode || "demo");
+    form.reset({
+      nickname: nextConnection?.nickname || nextProvider?.name || "",
+      accountNumber: nextConnection?.accountNumber || "",
+      apiKey: "",
+      apiSecret: "",
+      meterNumber: "",
+      webhookSecret: "",
+      mode: nextConnection?.mode === "live" ? "live" : "demo",
+    });
     setEnabled(nextConnection?.enabledServices ?? nextProvider?.services.map((row) => row.id) ?? []);
   }
 
   useEffect(() => {
-    load().catch((err: Error) => write.setError(err.message));
+    load().catch((err: unknown) => write.setError(errorText(err, "Could not load carriers.")));
   }, [warehouse.warehouseId]);
 
   const connectedProviders = useMemo(() => new Set(hub?.connections.map((row) => row.provider) ?? []), [hub]);
 
-  async function saveConnection() {
+  async function saveConnection(values: ZodFormOutput<CarrierFormSchema>) {
     if (!provider) return;
+    const { mode } = values;
     if (mode === "live" && connection?.mode !== "live") {
       const ok = await confirm({
         title: `Switch ${provider.name} to live?`,
@@ -131,12 +202,12 @@ export function CarriersPage() {
       if (!ok) return;
     }
     const body = {
-      nickname,
-      accountNumber: accountNumber || undefined,
-      apiKey: apiKey || undefined,
-      apiSecret: apiSecret || undefined,
-      meterNumber: meterNumber || undefined,
-      webhookSecret: webhookSecret || undefined,
+      nickname: values.nickname,
+      accountNumber: values.accountNumber || undefined,
+      apiKey: values.apiKey || undefined,
+      apiSecret: values.apiSecret || undefined,
+      meterNumber: values.meterNumber || undefined,
+      webhookSecret: values.webhookSecret || undefined,
       mode,
       enabledServices: enabled,
     };
@@ -337,70 +408,60 @@ export function CarriersPage() {
             ) : null}
 
             {provider ? (
-              <form className="space-y-4" onSubmit={onSubmit(saveConnection)}>
+              <form className="space-y-4" onSubmit={form.handleSubmit(saveConnection)}>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="sm:col-span-2">
-                    <Field label="Nickname">
-                      <Input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder={provider.name} />
-                    </Field>
-                  </div>
+                  <TextField form={form} name="nickname" label="Nickname" placeholder={provider.name} className="sm:col-span-2" />
                   {provider.credentialFields.includes("accountNumber") ? (
-                    <Field label={CREDENTIAL_LABELS.accountNumber!}>
-                      <Input
-                        value={accountNumber}
-                        onChange={(e) => setAccountNumber(e.target.value)}
-                        placeholder={provider.id === "ups" ? "A1B2C3" : "Account number"}
-                      />
-                    </Field>
+                    <TextField
+                      form={form}
+                      name="accountNumber"
+                      label={CREDENTIAL_LABELS.accountNumber}
+                      placeholder={provider.id === "ups" ? "A1B2C3" : "Account number"}
+                    />
                   ) : null}
                   {provider.credentialFields.includes("apiKey") ? (
-                    <Field label={CREDENTIAL_LABELS.apiKey!}>
-                      <Input
-                        type="password"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        placeholder={connection?.hasApiKey ? "Leave blank to keep current" : "API key"}
-                      />
-                    </Field>
+                    <TextField
+                      form={form}
+                      name="apiKey"
+                      label={CREDENTIAL_LABELS.apiKey}
+                      type="password"
+                      autoComplete="off"
+                      placeholder={connection?.hasApiKey ? "Leave blank to keep current" : "API key"}
+                    />
                   ) : null}
                   {provider.credentialFields.includes("apiSecret") ? (
-                    <Field label={CREDENTIAL_LABELS.apiSecret!}>
-                      <Input
-                        type="password"
-                        value={apiSecret}
-                        onChange={(e) => setApiSecret(e.target.value)}
-                        placeholder={connection?.hasApiSecret ? "Leave blank to keep current" : "API secret"}
-                      />
-                    </Field>
+                    <TextField
+                      form={form}
+                      name="apiSecret"
+                      label={CREDENTIAL_LABELS.apiSecret}
+                      type="password"
+                      autoComplete="off"
+                      placeholder={connection?.hasApiSecret ? "Leave blank to keep current" : "API secret"}
+                    />
                   ) : null}
                   {provider.credentialFields.includes("meterNumber") ? (
-                    <Field label={CREDENTIAL_LABELS.meterNumber!}>
-                      <Input
-                        type="password"
-                        value={meterNumber}
-                        onChange={(e) => setMeterNumber(e.target.value)}
-                        placeholder={connection?.hasMeterNumber ? "Leave blank to keep current" : "Meter number"}
-                      />
-                    </Field>
+                    <TextField
+                      form={form}
+                      name="meterNumber"
+                      label={CREDENTIAL_LABELS.meterNumber}
+                      type="password"
+                      autoComplete="off"
+                      placeholder={connection?.hasMeterNumber ? "Leave blank to keep current" : "Meter number"}
+                    />
                   ) : null}
                   {provider.id === "easypost" || provider.id === "shipengine" ? (
-                    <Field label="Tracker webhook secret">
-                      <Input
-                        type="password"
-                        value={webhookSecret}
-                        onChange={(e) => setWebhookSecret(e.target.value)}
-                        placeholder={connection?.hasWebhookSecret ? "Leave blank to keep current" : "HMAC secret"}
-                      />
-                    </Field>
+                    <TextField
+                      form={form}
+                      name="webhookSecret"
+                      label="Tracker webhook secret"
+                      type="password"
+                      autoComplete="off"
+                      placeholder={connection?.hasWebhookSecret ? "Leave blank to keep current" : "HMAC secret"}
+                    />
                   ) : null}
                 </div>
 
-                <Field label="Mode">
-                  <Select value={mode} onChange={(e) => setMode(e.target.value)}>
-                    <option value="demo">Demo — mint tracking locally</option>
-                    <option value="live">Live — EasyPost / ShipEngine buy postage</option>
-                  </Select>
-                </Field>
+                <SelectField form={form} name="mode" label="Mode" options={MODE_OPTIONS} />
 
                 <fieldset className="space-y-2">
                   <legend className="mb-1.5 text-sm font-medium">Services</legend>
@@ -498,11 +559,17 @@ export function CarriersPage() {
                 <h2 className="text-sm font-semibold">Enabled for the floor</h2>
                 <p className="text-sm text-muted-foreground">Services packers can pick from on the ship screen.</p>
               </div>
-              {(hub?.enabledServices.length ?? 0) === 0 ? (
-                <p className="text-sm text-muted-foreground">Connect a carrier to offer services at ship.</p>
+              {!hub ? null : hub.enabledServices.length === 0 ? (
+                <EmptyState
+                  icon={Truck}
+                  title="No services yet."
+                  body="Connect a carrier to offer services at ship."
+                  action={<ActionButton action={{ label: "Enable demo carriers", icon: FlaskConical, onSelect: enableDemo }} />}
+                  className="py-6"
+                />
               ) : (
                 <ul className="divide-y rounded-md border text-sm">
-                  {(hub?.enabledServices ?? []).map((row) => (
+                  {hub.enabledServices.map((row) => (
                     <li
                       key={`${row.connectionId ?? "none"}:${row.id}`}
                       className="flex items-center justify-between gap-2 px-3 py-1.5"

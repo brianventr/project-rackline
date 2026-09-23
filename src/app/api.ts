@@ -1,17 +1,79 @@
 import { createAuthClient } from "better-auth/react";
+import { composeErrorText, explainError, type ExplainedError } from "@/domain/error-copy";
 
 export const authClient = createAuthClient({
   basePath: "/api/auth",
 });
 
+/**
+ * A failed API call. `message` is the plain sentence plus the fix (what banners and toasts show);
+ * `detail` keeps the raw server text, `code` the server's error code, `hint` the fix on its own.
+ */
 export class ApiError extends Error {
-  constructor(
-    message: string,
-    public status: number,
-    public body: unknown,
-  ) {
-    super(message);
+  status: number;
+  body: unknown;
+  code: string | null;
+  hint: string | null;
+  /** The raw server text, before it was made plain. */
+  detail: string;
+  /** The plain sentence without the hint. */
+  summary: string;
+
+  constructor(message: string, status: number, body: unknown) {
+    const explained = explainError(status, body, message);
+    super(composeErrorText(explained));
     this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+    this.code = explained.code;
+    this.hint = explained.hint;
+    this.summary = explained.message;
+    this.detail = message;
+    rememberExplained(this.message, explained);
+  }
+}
+
+/* Banners only get the composed string, so remember how recent errors split into sentence + fix. */
+const explainedByText = new Map<string, { message: string; hint: string | null }>();
+const EXPLAINED_LIMIT = 50;
+
+function rememberExplained(text: string, explained: ExplainedError) {
+  if (!explained.hint) return;
+  explainedByText.delete(text);
+  explainedByText.set(text, { message: explained.message, hint: explained.hint });
+  while (explainedByText.size > EXPLAINED_LIMIT) {
+    const oldest = explainedByText.keys().next().value;
+    if (oldest === undefined) break;
+    explainedByText.delete(oldest);
+  }
+}
+
+/** Split an error string from an `ApiError` back into its sentence and fix; any other text comes back whole. */
+export function splitErrorText(text: string): { message: string; hint: string | null } {
+  return explainedByText.get(text) ?? { message: text, hint: null };
+}
+
+/** The text to show for anything a write threw. */
+export function errorText(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
+/** The raw text the server sent (`error`, or better-auth's `message`), else the status line. */
+function serverMessage(data: unknown, statusText: string): string {
+  if (data && typeof data === "object") {
+    const record = data as { error?: unknown; message?: unknown };
+    if (typeof record.error === "string" && record.error) return record.error;
+    if (typeof record.message === "string" && record.message) return record.message;
+  }
+  return statusText || "Request failed";
+}
+
+async function send(path: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(path, init);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ApiError(err instanceof Error ? err.message : "Network request failed", 0, null);
   }
 }
 
@@ -20,7 +82,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (init?.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const res = await fetch(path, {
+  const res = await send(path, {
     ...init,
     headers,
     credentials: "include",
@@ -30,11 +92,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const message =
-      (data && typeof data === "object" && "error" in data && typeof data.error === "string"
-        ? data.error
-        : res.statusText) || "Request failed";
-    throw new ApiError(message, res.status, data);
+    throw new ApiError(serverMessage(data, res.statusText), res.status, data);
   }
   return data as T;
 }
@@ -42,18 +100,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export async function uploadFile<T>(path: string, file: File): Promise<T> {
   const body = new FormData();
   body.append("file", file);
-  const res = await fetch(path, {
+  const res = await send(path, {
     method: "POST",
     body,
     credentials: "include",
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const message =
-      (data && typeof data === "object" && "error" in data && typeof data.error === "string"
-        ? data.error
-        : res.statusText) || "Request failed";
-    throw new ApiError(message, res.status, data);
+    throw new ApiError(serverMessage(data, res.statusText), res.status, data);
   }
   return data as T;
 }

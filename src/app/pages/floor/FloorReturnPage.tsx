@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Location, type Rma, type ScanHit } from "../../api";
-import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
+import { Undo2 } from "lucide-react";
+import { api, errorText, type Location, type Rma, type ScanHit } from "../../api";
+import { Button, Card, DoneBanner, Field, Input, StatusBadge } from "../../components/ui";
+import { Term } from "../../components/term";
 import { BayCombobox } from "../../components/BayCombobox";
-import { FloorFrame, FloorScanBox, ClaimList, openFloorRow } from "./floor-ui";
+import { FloorFrame, FloorScanBox, ClaimList, openFloorRow, type ScanReport } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
 import { DispositionSelect } from "../../components/disposition-field";
@@ -18,6 +20,11 @@ import {
   showPutawayAfterReturn,
   type ReturnDisposition,
 } from "@/domain/return-disposition";
+
+const textLink =
+  "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
+/** BayCombobox takes no className, so size its input like the other floor inputs (44px, 16px text on phones). */
+const bayPicker = "[&_[role=combobox]]:h-11 [&_[role=combobox]]:text-base md:[&_[role=combobox]]:text-sm";
 
 export function FloorReturnPage() {
   const me = useSession();
@@ -34,6 +41,7 @@ export function FloorReturnPage() {
   const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [dispositions, setDispositions] = useState<Record<string, ReturnDisposition>>({});
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [postedDispositions, setPostedDispositions] = useState<string[]>([]);
 
@@ -71,36 +79,43 @@ export function FloorReturnPage() {
     setLocations(nextLocations);
     const dock = nextLocations.find((row) => row.type === "receiving") ?? nextLocations[0];
     if (dock) setLocationId(dock.id);
+    // Jobs load before the screen counts as loaded, so a waiting scan sees who has claimed what.
+    const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
       const match = await api<Rma>(`/api/returns/${wanted}`);
-      const nextJobs = await reloadJobs();
       openFloorRow(match, me.user.id, jobForRef(nextJobs, "rma", match.id, "return"), openRma, setError);
     }
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load()
+      .catch((err) => setError(errorText(err, "Could not load open returns.")))
+      .finally(() => setLoaded(true));
   }, []);
 
-  const onScan = useCallback((raw: string) => {
+  const onScan = useCallback((raw: string, report?: ScanReport) => {
     setError(null);
     setDone(null);
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
-      .then((hit) => {
+      .then(async (hit) => {
         if (hit.kind === "rma") {
-          void api<Rma>(`/api/returns/${hit.rma.id}`).then((rma) =>
-            openFloorRow(rma, me.user.id, jobForRef(jobs, "rma", rma.id, "return"), openRma, setError),
-          );
+          const rma = await api<Rma>(`/api/returns/${hit.rma.id}`);
+          report?.(openFloorRow(rma, me.user.id, jobForRef(jobs, "rma", rma.id, "return"), openRma, setError));
           return;
         }
         if (hit.kind === "location") {
           setLocationId(hit.location.id);
+          report?.(true);
           return;
         }
         setError("Scan a return number or a bay barcode.");
+        report?.(false);
       })
-      .catch((err: Error) => setError(err.message));
+      .catch((err) => {
+        setError(errorText(err, "That barcode did not scan. Try again."));
+        report?.(false);
+      });
   }, [jobs, me.user.id]);
 
   async function receive() {
@@ -127,7 +142,7 @@ export function FloorReturnPage() {
       setDone(returnPostedMessage(posted.number, kinds));
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Receive failed");
+      setError(errorText(err, "Could not post the return."));
     }
   }
 
@@ -152,34 +167,46 @@ export function FloorReturnPage() {
 
   return (
     <FloorFrame title="Return" description="Scan an RMA, scan the bay, restock, scrap, or hold." error={error}>
-      <FloorScanBox label="Scan return or bay" placeholder="RMA-DEMO1 or RECV" onScan={onScan} />
-      {done ? (
-        <p className="text-sm text-emerald-700">
-          {done}{" "}
-          {putaway ? (
-            <Link
-              className="font-medium underline"
-              to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
-            >
-              Put away
-            </Link>
-          ) : held ? (
-            <Link className="font-medium underline" to="/floor/hold">
-              Holds
-            </Link>
-          ) : null}
-        </p>
-      ) : null}
+      <FloorScanBox label="Scan return or bay" placeholder="RMA-DEMO1 or RECV" onScan={onScan} ready={loaded} />
+      <DoneBanner>
+        {done ? (
+          <>
+            {done}{" "}
+            {putaway ? (
+              <Link
+                className="font-medium underline"
+                to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
+              >
+                Put away
+              </Link>
+            ) : held ? (
+              <Link className="font-medium underline" to="/floor/hold">
+                Holds
+              </Link>
+            ) : null}
+          </>
+        ) : null}
+      </DoneBanner>
       {!active ? (
         <ClaimList
+          loading={!loaded}
           title="Open returns"
           empty="Nothing to receive back."
+          emptyBody="Customer returns booked in the office show here until every line is back in a bay."
+          emptyIcon={Undo2}
+          emptyAction={
+            <Button variant="secondary" className="h-11" asChild>
+              <Link to="/outbound/returns">Office returns</Link>
+            </Button>
+          }
           rows={returns}
           userId={me.user.id}
           jobFor={(row) => jobForRef(jobs, "rma", row.id, "return")}
           onOpen={(row) =>
             openFloorRow(row, me.user.id, jobForRef(jobs, "rma", row.id, "return"), (rma) => {
-              void api<Rma>(`/api/returns/${rma.id}`).then(openRma);
+              api<Rma>(`/api/returns/${rma.id}`)
+                .then(openRma)
+                .catch((err) => setError(errorText(err, "Could not open that return.")));
             }, setError)
           }
           render={(row) => (
@@ -190,13 +217,18 @@ export function FloorReturnPage() {
         />
       ) : (
         <Card className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
               <h2 className="text-xl font-semibold">{active.number}</h2>
               <p className="text-sm text-muted-foreground">{active.customerName}</p>
             </div>
             <StatusBadge status={active.status} />
           </div>
+          {canReceiveReturn(active.status) && remaining ? (
+            <p className="text-sm text-muted-foreground">
+              Choose a <Term id="disposition">disposition</Term> for each line before you post.
+            </p>
+          ) : null}
           <ul className="space-y-3 text-sm">
             {(active.lines ?? []).map((line) => (
               <li key={line.id} className="space-y-2">
@@ -206,7 +238,9 @@ export function FloorReturnPage() {
                 </span>
                 {line.remaining > 0 ? (
                   <Input
+                    className="h-11 text-base"
                     type="number"
+                    aria-label={`${line.sku} qty to receive`}
                     min={0}
                     max={line.remaining}
                     value={qtys[line.itemId] ?? "0"}
@@ -217,24 +251,32 @@ export function FloorReturnPage() {
                 )}
                 </div>
                 {line.remaining > 0 ? (
-                  <DispositionSelect
-                    value={dispositions[line.itemId] ?? "restock"}
-                    onChange={(value) => setDispositions((current) => ({ ...current, [line.itemId]: value }))}
-                  />
+                  // DispositionSelect takes no className or label, so the wrapping label names and sizes it.
+                  <label className="block [&_select]:h-11 [&_select]:text-base md:[&_select]:text-sm">
+                    <span className="sr-only">{line.sku} disposition</span>
+                    <DispositionSelect
+                      value={dispositions[line.itemId] ?? "restock"}
+                      onChange={(value) => setDispositions((current) => ({ ...current, [line.itemId]: value }))}
+                    />
+                  </label>
                 ) : null}
                 {line.trackSerial ? (
                   <Input
+                    className="h-11 text-base"
+                    aria-label={`${line.sku} serials`}
                     placeholder="Serials"
                     value={serials[line.itemId] ?? ""}
                     onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
                   />
                 ) : null}
                 <CatchWeightInput
+                  className="h-11 text-base"
                   show={line.catchWeight}
                   value={weights[line.itemId] ?? ""}
                   onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
                 />
                 <ExpiryInput
+                  className="h-11 text-base"
                   show={line.trackExpiry}
                   value={expiries[line.itemId] ?? ""}
                   onChange={(value) => setExpiries((current) => ({ ...current, [line.itemId]: value }))}
@@ -242,37 +284,42 @@ export function FloorReturnPage() {
               </li>
             ))}
           </ul>
-          <Field label="Receive into">
-            <BayCombobox
-              locations={locations}
-              warehouseId={active.warehouseId || warehouseId}
-              value={locationId}
-              onChange={setLocationId}
-              onCreated={(location) => setLocations((current) => [...current, location])}
-            />
-          </Field>
+          <div className={bayPicker}>
+            <Field label="Receive into">
+              <BayCombobox
+                locations={locations}
+                warehouseId={active.warehouseId || warehouseId}
+                value={locationId}
+                onChange={setLocationId}
+                onCreated={(location) => setLocations((current) => [...current, location])}
+              />
+            </Field>
+          </div>
           {canReceiveReturn(active.status) && remaining ? (
-            <Button onClick={() => void receive()}>Post return</Button>
+            <Button className="h-14 w-full text-lg sm:w-auto" onClick={() => void receive()}>
+              Post return
+            </Button>
           ) : (
             <div className="space-y-2">
               <p>Already received.</p>
               {putaway ? (
-                <Link
-                  className="block text-sm underline"
-                  to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
-                >
-                  Put away from this bay
-                </Link>
+                <Button className="h-14 w-full text-lg sm:w-auto" asChild>
+                  <Link to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}>
+                    Put away from this bay
+                  </Link>
+                </Button>
               ) : held ? (
-                <Link className="block text-sm underline" to="/floor/hold">
+                <Link className={textLink} to="/floor/hold">
                   Held at the dock
                 </Link>
               ) : null}
             </div>
           )}
-          <Link className="block text-sm underline" to="/outbound/returns">
-            Office returns
-          </Link>
+          <div>
+            <Link className={textLink} to="/outbound/returns">
+              Office returns
+            </Link>
+          </div>
         </Card>
       )}
     </FloorFrame>

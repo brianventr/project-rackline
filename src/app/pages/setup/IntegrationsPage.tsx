@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Store, Truck, type LucideIcon } from "lucide-react";
 import type { CarrierHub, ShopifyConnection } from "../../api";
 import { Button, PageHeader, StatusBadge, ToneBadge } from "../../components/ui";
+import { Term } from "../../components/term";
 import { useApiQuery } from "../../query";
 import { useWarehouse } from "../../warehouse";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,7 +33,11 @@ export function IntegrationsPage() {
         <IntegrationCard
           icon={Store}
           name="Shopify"
-          summary="Checkout → pick ticket. Sellable qty and fulfillment post back."
+          summary={
+            <>
+              Checkout → pick ticket. <Term id="sellable">Sellable qty</Term> and fulfillment post back.
+            </>
+          }
           to="/setup/shopify"
           loading={shopify.isLoading}
           error={shopify.error?.message}
@@ -123,7 +128,8 @@ function IntegrationCard({
 }: {
   icon: LucideIcon;
   name: string;
-  summary: string;
+  /** A card subtitle; may hold a `<Term>`. */
+  summary: ReactNode;
   to: string;
   loading: boolean;
   error?: string;

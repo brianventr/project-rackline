@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { Send } from "lucide-react";
 import {
   api,
+  errorText,
   type CarrierHub,
   type CarrierRate,
   type CarrierServiceOption,
@@ -11,12 +13,18 @@ import {
 } from "../../api";
 import { Button, Card, DoneBanner, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { DocumentActionGrid } from "../../components/document";
-import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
-import { canShipOrder, canShipCartonOrder } from "@/domain/status";
+import { Term } from "../../components/term";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
+import { canShipOrder, canShipCartonOrder, normalizeOrderStatus } from "@/domain/status";
 import { canShipLabeledCarton, cartonShipGate, hasShippableCarton } from "@/domain/cartons";
 import { planShortShip } from "@/domain/short-ship";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
+import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
+
+const textLink =
+  "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 function shippableOrder(order: Order): boolean {
   const packages = (order.packages ?? []).map((pkg) => ({
@@ -27,11 +35,23 @@ function shippableOrder(order: Order): boolean {
   return canShipOrder(order.status) || (canShipCartonOrder(order.status) && hasShippableCarton(packages));
 }
 
+function notShippableMessage(order: Order): string {
+  const status = normalizeOrderStatus(order.status);
+  if (status === "shipped") return `${order.number} is already shipped.`;
+  if (status === "cancelled") return `${order.number} is cancelled.`;
+  return `${order.number} is not packed yet.`;
+}
+
 export function FloorShipPage() {
   const me = useSession();
+  const garage = isGarageMode(me.organization.operatingMode);
+  // Same test the floor launcher uses to show the Pack tile.
+  const canPack =
+    (me.role === "owner" || (me.floorVerbs ?? []).includes("pack")) && (!garage || garageAllowsPath("/floor/pack"));
   const { jobs, reload: reloadJobs } = useOpenJobs("ship");
   const [params] = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [active, setActive] = useState<Order | null>(null);
   const [trackingNumber, setTrackingNumber] = useState("");
   const [trackingCompany, setTrackingCompany] = useState("");
@@ -70,15 +90,24 @@ export function FloorShipPage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load()
+      .catch((err) => setError(errorText(err, "Could not load orders ready to ship.")))
+      .finally(() => setLoaded(true));
   }, []);
 
-  const onScan = useCallback((raw: string) => {
+  const onScan = useCallback((raw: string, report?: ScanReport) => {
     setError(null);
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
-      .then((hit) => {
+      .then(async (hit) => {
         if (hit.kind === "order") {
-          void api<Order>(`/api/orders/${hit.order.id}`).then((order) =>
+          const order = await api<Order>(`/api/orders/${hit.order.id}`);
+          // Ship only takes orders the screen can act on: a packing or packed ticket.
+          if (!canShipCartonOrder(order.status)) {
+            setError(notShippableMessage(order));
+            report?.(false);
+            return;
+          }
+          report?.(
             openFloorRow(order, me.user.id, jobForRef(jobs, "order", order.id, "ship"), (next) => {
               setActive(next);
               setTrackingNumber(next.trackingNumber || "");
@@ -90,9 +119,15 @@ export function FloorShipPage() {
               setHeightIn(String(next.packageHeightIn || 6));
             }, setError),
           );
-        } else setError("Scan a packing or packed order.");
+          return;
+        }
+        setError("Scan a packing or packed order.");
+        report?.(false);
       })
-      .catch((err: Error) => setError(err.message));
+      .catch((err) => {
+        setError(errorText(err, "That barcode did not scan. Try again."));
+        report?.(false);
+      });
   }, [jobs, me.user.id, services]);
 
   async function ship() {
@@ -116,7 +151,7 @@ export function FloorShipPage() {
       setDone(`${shipped.number}${shipped.status === "shipped" ? " shipped." : " carton shipped."}`);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ship failed");
+      setError(errorText(err, "Could not ship the order."));
     }
   }
 
@@ -134,10 +169,21 @@ export function FloorShipPage() {
       );
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Short ship failed");
+      setError(errorText(err, "Could not short-ship the order."));
     }
   }
 
+  // Why the main Ship button is off: cartons still to box or label.
+  const shipGate = active
+    ? cartonShipGate({
+        packedUnits: (active.lines ?? []).reduce((sum, line) => sum + (line.qtyPacked ?? 0), 0),
+        packages: (active.packages ?? []).map((pkg) => ({
+          units: pkg.units ?? 0,
+          trackingNumber: pkg.trackingNumber ?? null,
+          shippedAt: pkg.shippedAt ?? null,
+        })),
+      })
+    : null;
   const serviceOptions = services.length
     ? services
     : [{ id: "rackline_ground", company: "Rackline", service: "Ground", connectionId: null, provider: "rackline" }];
@@ -162,43 +208,56 @@ export function FloorShipPage() {
 
   return (
     <FloorFrame title="Ship" description="Scan a packing or packed order, ship one labeled carton, or short-ship once a carton has left." error={error}>
-      <FloorScanBox label="Scan packing or packed order" placeholder="ORD-…" onScan={onScan} />
+      <FloorScanBox label="Scan packing or packed order" placeholder="ORD-…" onScan={onScan} ready={loaded} />
       <DoneBanner>{done}</DoneBanner>
       {!active ? (
-        <ClaimList
-          title="Ready to ship"
-          empty="Nothing packed yet."
-          rows={orders}
-          userId={me.user.id}
-          jobFor={(row) => jobForRef(jobs, "order", row.id, "ship")}
-          onOpen={(row) =>
-            openFloorRow(
-              row,
-              me.user.id,
-              jobForRef(jobs, "order", row.id, "ship"),
-              (order) => {
-                setActive(order);
-                setTrackingNumber(order.trackingNumber || "");
-                setTrackingCompany(order.trackingCompany || "");
-                setCarrierService(order.carrierService || services.find((s) => s.isDefault)?.id || "rackline_ground");
-                setWeightOz(String(order.packageWeightOz || 16));
-                setLengthIn(String(order.packageLengthIn || 12));
-                setWidthIn(String(order.packageWidthIn || 9));
-                setHeightIn(String(order.packageHeightIn || 6));
-              },
-              setError,
-            )
-          }
-          render={(row) => (
-            <>
-              <span className="font-mono">{row.number}</span> {row.customerName} <StatusBadge status={row.status} />
-            </>
-          )}
-        />
+        loaded ? (
+          <ClaimList
+            title="Ready to ship"
+            empty="Nothing packed yet."
+            emptyBody="Orders show up here once they are packed."
+            emptyIcon={Send}
+            emptyAction={
+              canPack ? (
+                <Button variant="secondary" className="h-11" asChild>
+                  <Link to="/floor/pack">Go pack</Link>
+                </Button>
+              ) : undefined
+            }
+            rows={orders}
+            userId={me.user.id}
+            jobFor={(row) => jobForRef(jobs, "order", row.id, "ship")}
+            onOpen={(row) =>
+              openFloorRow(
+                row,
+                me.user.id,
+                jobForRef(jobs, "order", row.id, "ship"),
+                (order) => {
+                  setActive(order);
+                  setTrackingNumber(order.trackingNumber || "");
+                  setTrackingCompany(order.trackingCompany || "");
+                  setCarrierService(order.carrierService || services.find((s) => s.isDefault)?.id || "rackline_ground");
+                  setWeightOz(String(order.packageWeightOz || 16));
+                  setLengthIn(String(order.packageLengthIn || 12));
+                  setWidthIn(String(order.packageWidthIn || 9));
+                  setHeightIn(String(order.packageHeightIn || 6));
+                },
+                setError,
+              )
+            }
+            render={(row) => (
+              <>
+                <span className="font-mono">{row.number}</span> {row.customerName} <StatusBadge status={row.status} />
+              </>
+            )}
+          />
+        ) : (
+          <Skeleton className="h-40 w-full rounded-xl motion-reduce:animate-none" />
+        )
       ) : (
         <Card className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">{active.number}</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="min-w-0 text-xl font-semibold">{active.number}</h2>
             <StatusBadge status={active.status} />
           </div>
           <p>{active.customerName}</p>
@@ -227,8 +286,8 @@ export function FloorShipPage() {
                     </div>
                     {canShip ? (
                       <Button
-                        className="w-full"
-                        size="sm"
+                        // The main action while the order is still packing; beside "Ship remaining" once packed.
+                        className={canShipOrder(active.status) ? "h-11 w-full" : "h-14 w-full text-lg"}
                         onClick={() =>
                           void api<Order>(`/api/orders/${active.id}/packages/${pkg.id}/ship`, { method: "POST" })
                             .then((next) => {
@@ -237,7 +296,7 @@ export function FloorShipPage() {
                                 `${pkg.number} shipped${next.status === "shipped" ? `. ${next.number} closed.` : ". Ticket stays open."}`,
                               );
                             })
-                            .catch((err: Error) => setError(err.message))
+                            .catch((err) => setError(errorText(err, "Could not ship the carton.")))
                         }
                       >
                         Ship carton
@@ -248,7 +307,7 @@ export function FloorShipPage() {
                         {canBuy ? (
                           <Button
                             variant="secondary"
-                            size="sm"
+                            className="h-11"
                             onClick={() =>
                               void api<ShippingLabel>(`/api/orders/${active.id}/packages/${pkg.id}/label`, {
                                 method: "POST",
@@ -269,28 +328,28 @@ export function FloorShipPage() {
                                   const next = await api<Order>(`/api/orders/${active.id}`);
                                   setActive(next);
                                 })
-                                .catch((err: Error) => setError(err.message))
+                                .catch((err) => setError(errorText(err, "Could not buy the label.")))
                             }
                           >
                             Buy
                           </Button>
                         ) : null}
                         {canPrint ? (
-                          <Button variant="secondary" size="sm" asChild>
+                          <Button variant="secondary" className="h-11" asChild>
                             <Link to={`/outbound/orders/${active.id}/packages/${pkg.id}/shipping-label`}>Print</Link>
                           </Button>
                         ) : null}
                         {canVoid ? (
                           <Button
                             variant="secondary"
-                            size="sm"
+                            className="h-11"
                             onClick={() =>
                               void api<Order>(`/api/orders/${active.id}/packages/${pkg.id}/label/void`, { method: "POST" })
                                 .then((next) => {
                                   setActive(next);
                                   setDone(`${pkg.number} voided.`);
                                 })
-                                .catch((err: Error) => setError(err.message))
+                                .catch((err) => setError(errorText(err, "Could not void the label.")))
                             }
                           >
                             Void
@@ -304,7 +363,7 @@ export function FloorShipPage() {
             </ul>
           ) : null}
           <Field label="Carrier service">
-            <Select value={carrierService} onChange={(e) => setCarrierService(e.target.value)}>
+            <Select className="h-11 text-base" value={carrierService} onChange={(e) => setCarrierService(e.target.value)}>
               {serviceOptions.map((row) => (
                 <option key={row.id} value={row.id}>
                   {row.company} {row.service}
@@ -313,23 +372,61 @@ export function FloorShipPage() {
             </Select>
           </Field>
           <Field label="Tracking number">
-            <Input value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} />
+            <Input
+              className="h-11 text-base"
+              autoComplete="off"
+              value={trackingNumber}
+              onChange={(e) => setTrackingNumber(e.target.value)}
+            />
           </Field>
           <Field label="Carrier">
-            <Input value={trackingCompany} onChange={(e) => setTrackingCompany(e.target.value)} placeholder="UPS, USPS…" />
+            <Input
+              className="h-11 text-base"
+              value={trackingCompany}
+              onChange={(e) => setTrackingCompany(e.target.value)}
+              placeholder="UPS, USPS…"
+            />
           </Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Weight oz">
-              <Input type="number" min={1} value={weightOz} onChange={(e) => setWeightOz(e.target.value)} />
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={1}
+                className="h-11 text-base"
+                value={weightOz}
+                onChange={(e) => setWeightOz(e.target.value)}
+              />
             </Field>
             <Field label="L in">
-              <Input type="number" min={1} value={lengthIn} onChange={(e) => setLengthIn(e.target.value)} />
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={1}
+                className="h-11 text-base"
+                value={lengthIn}
+                onChange={(e) => setLengthIn(e.target.value)}
+              />
             </Field>
             <Field label="W in">
-              <Input type="number" min={1} value={widthIn} onChange={(e) => setWidthIn(e.target.value)} />
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={1}
+                className="h-11 text-base"
+                value={widthIn}
+                onChange={(e) => setWidthIn(e.target.value)}
+              />
             </Field>
             <Field label="H in">
-              <Input type="number" min={1} value={heightIn} onChange={(e) => setHeightIn(e.target.value)} />
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={1}
+                className="h-11 text-base"
+                value={heightIn}
+                onChange={(e) => setHeightIn(e.target.value)}
+              />
             </Field>
           </div>
           {active.postageCents ? (
@@ -338,10 +435,10 @@ export function FloorShipPage() {
           {rates.length > 0 ? (
             <ul className="space-y-1 text-sm">
               {rates.map((rate) => (
-                <li key={`${rate.id}:${rate.liveRateId ?? ""}`}>
+                <li key={`${rate.id}:${rate.liveRateId ?? ""}`} className="flex min-h-11 flex-wrap items-center gap-x-1">
                   <button
                     type="button"
-                    className="underline-offset-4 hover:underline"
+                    className="min-h-11 rounded-sm text-left underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
                     onClick={() => {
                       setCarrierService(rate.id);
                       setTrackingCompany(rate.company);
@@ -365,8 +462,7 @@ export function FloorShipPage() {
               <DocumentActionGrid>
                 <Button
                   variant="secondary"
-                  size="sm"
-                  className={(active.packages ?? []).length > 0 ? "col-span-2" : undefined}
+                  className={(active.packages ?? []).length > 0 ? "col-span-2 h-11" : "h-11"}
                   onClick={() =>
                     void api<{ rates: CarrierRate[] }>(`/api/orders/${active.id}/rates`, {
                       method: "POST",
@@ -379,7 +475,7 @@ export function FloorShipPage() {
                       }),
                     })
                       .then((result) => setRates(result.rates))
-                      .catch((err: Error) => setError(err.message))
+                      .catch((err) => setError(errorText(err, "Could not shop rates.")))
                   }
                 >
                   Shop rates
@@ -388,7 +484,7 @@ export function FloorShipPage() {
                   <>
                     <Button
                       variant="secondary"
-                      size="sm"
+                      className="h-11"
                       onClick={() => {
                         void api<ShippingLabel>(`/api/orders/${active.id}/label`, {
                           method: "POST",
@@ -409,7 +505,7 @@ export function FloorShipPage() {
                             const next = await api<Order>(`/api/orders/${active.id}`);
                             setActive(next);
                           })
-                          .catch((err: Error) => setError(err.message));
+                          .catch((err) => setError(errorText(err, "Could not buy the label.")));
                       }}
                     >
                       Buy label
@@ -417,7 +513,7 @@ export function FloorShipPage() {
                     {active.labelStatus === "purchased" ? (
                       <Button
                         variant="secondary"
-                        size="sm"
+                        className="h-11"
                         onClick={() =>
                           void api<Order>(`/api/orders/${active.id}/label/void`, { method: "POST" })
                             .then((next) => {
@@ -425,14 +521,14 @@ export function FloorShipPage() {
                               setTrackingNumber("");
                               setDone("Label voided.");
                             })
-                            .catch((err: Error) => setError(err.message))
+                            .catch((err) => setError(errorText(err, "Could not void the label.")))
                         }
                       >
                         Void
                       </Button>
                     ) : null}
                     {trackingNumber || active.trackingNumber ? (
-                      <Button variant="secondary" size="sm" asChild>
+                      <Button variant="secondary" className="h-11" asChild>
                         <Link to={`/outbound/orders/${active.id}/shipping-label`}>Print label</Link>
                       </Button>
                     ) : null}
@@ -440,40 +536,38 @@ export function FloorShipPage() {
                 ) : null}
               </DocumentActionGrid>
               {canShipOrder(active.status) ? (
-                <Button
-                  className="w-full"
-                  disabled={
-                    !cartonShipGate({
-                      packedUnits: (active.lines ?? []).reduce((sum, line) => sum + (line.qtyPacked ?? 0), 0),
-                      packages: (active.packages ?? []).map((pkg) => ({
-                        units: pkg.units ?? 0,
-                        trackingNumber: pkg.trackingNumber ?? null,
-                        shippedAt: pkg.shippedAt ?? null,
-                      })),
-                    }).ok
-                  }
-                  onClick={() => void ship()}
-                >
-                  {active.source === "shopify"
-                    ? (active.packages ?? []).length > 0
-                      ? "Ship remaining & fulfill"
-                      : "Ship & fulfill"
-                    : (active.packages ?? []).length > 0
-                      ? "Ship remaining cartons"
-                      : "Ship"}
-                </Button>
+                <>
+                  <Button className="h-14 w-full text-lg" disabled={!shipGate?.ok} onClick={() => void ship()}>
+                    {active.source === "shopify"
+                      ? (active.packages ?? []).length > 0
+                        ? "Ship remaining & fulfill"
+                        : "Ship & fulfill"
+                      : (active.packages ?? []).length > 0
+                        ? "Ship remaining cartons"
+                        : "Ship"}
+                  </Button>
+                  {shipGate && !shipGate.ok ? (
+                    <p className="text-sm text-muted-foreground">{shipGate.error}.</p>
+                  ) : null}
+                </>
               ) : shortShipOk ? (
-                <p className="text-sm text-muted-foreground">Ship a labeled carton. Short ship closes the ticket and returns the rest to the bay.</p>
+                <p className="text-sm text-muted-foreground">
+                  Ship a labeled carton. <Term id="short-ship">Short ship</Term> closes the ticket and returns the rest
+                  to the bay.
+                </p>
               ) : (
                 <p className="text-sm text-muted-foreground">Ship a labeled carton. The ticket stays open until every packed unit is in a shipped box.</p>
               )}
               {shortShipOk ? (
-                <Button className="w-full" variant="secondary" onClick={() => void shortShip()}>
+                <Button className="h-11 w-full" variant="secondary" onClick={() => void shortShip()}>
                   Short ship
                 </Button>
               ) : null}
             </div>
           )}
+          <button type="button" className={textLink} onClick={() => setActive(null)}>
+            Back to list
+          </button>
         </Card>
       )}
     </FloorFrame>

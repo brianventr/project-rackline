@@ -1,26 +1,33 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ScanLine } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
+import { ChevronLeft, ScanLine, type LucideIcon } from "lucide-react";
 import { useScanner } from "../../scanner/ScannerProvider";
 import { Button, Card, EmptyState, ErrorBanner, Input } from "../../components/ui";
 import type { FloorJob } from "../../api";
 import { claimedByMessage, jobClaimedByOther, splitByClaim } from "../../jobs";
+import { jobReasonText } from "@/domain/floor-usage";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export type ScanReport = (accepted: boolean) => void;
 
+/**
+ * `report(accepted)` answers a scan: tone, buzz, and the full-screen flash come from the scanner
+ * (`emitScanResult`), and `flash` drives a ring on the field that took the scan.
+ */
 export function useScanFlash() {
-  const scanner = useScanner();
+  const { emitScanResult } = useScanner();
   const [flash, setFlash] = useState<"ok" | "bad" | null>(null);
   const timer = useRef<number | null>(null);
 
   const report = useCallback<ScanReport>(
     (accepted) => {
-      if (!accepted) scanner.emitScanError();
+      emitScanResult(accepted);
       setFlash(accepted ? "ok" : "bad");
       if (timer.current) window.clearTimeout(timer.current);
       timer.current = window.setTimeout(() => setFlash(null), 300);
     },
-    [scanner],
+    [emitScanResult],
   );
 
   useEffect(
@@ -37,10 +44,17 @@ export function FloorScanBox({
   label,
   placeholder,
   onScan,
+  ready = true,
 }: {
   label: string;
   placeholder: string;
   onScan: (raw: string, report?: ScanReport) => void;
+  /**
+   * False while the screen is still loading its lists and open jobs. A scan that arrives before
+   * then (including one made on the launcher before this screen opened) waits and is handled once
+   * `ready` turns true, so claim checks see who holds each job.
+   */
+  ready?: boolean;
 }) {
   const scanner = useScanner();
   const { flash, report } = useScanFlash();
@@ -53,12 +67,18 @@ export function FloorScanBox({
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
     const scan = scanner.lastScan;
     if (!scan || scan.at === handledAt.current) return;
     handledAt.current = scan.at;
     setValue(scan.raw);
+    // Select what was scanned, so the next scan into this field replaces it instead of appending.
+    // (No cleanup: handling the scan often re-renders with a new onScan, which must not cancel this.)
+    window.requestAnimationFrame(() => {
+      if (inputRef.current && document.activeElement === inputRef.current) inputRef.current.select();
+    });
     onScan(scan.raw, report);
-  }, [scanner.lastScan, onScan, report]);
+  }, [scanner.lastScan, onScan, report, ready]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -73,6 +93,12 @@ export function FloorScanBox({
       <Input
         ref={inputRef}
         data-scan-capture
+        aria-label={label}
+        autoComplete="off"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
+        enterKeyHint="go"
         className={cn(
           "h-14 text-xl transition-shadow",
           flash === "ok" && "ring-2 ring-ok",
@@ -83,9 +109,11 @@ export function FloorScanBox({
         onChange={(e) => setValue(e.target.value)}
       />
       <div className="flex flex-wrap gap-2">
-        <Button type="submit">Use scan</Button>
+        <Button type="submit" className="h-11 min-w-28">
+          Use scan
+        </Button>
         {scanner.cameraSupported ? (
-          <Button type="button" variant="secondary" onClick={() => scanner.openCamera()}>
+          <Button type="button" variant="secondary" className="h-11" onClick={() => scanner.openCamera()}>
             <ScanLine className="mr-1 size-4" />
             Camera
           </Button>
@@ -95,6 +123,7 @@ export function FloorScanBox({
   );
 }
 
+/** Title, back-to-floor link, and error banner for every floor verb screen. */
 export function FloorFrame({
   title,
   description,
@@ -102,19 +131,37 @@ export function FloorFrame({
   children,
 }: {
   title: string;
-  description: string;
+  /** One line on what this screen is for. May hold a `<Term>`. */
+  description: ReactNode;
   error: string | null;
   children: ReactNode;
 }) {
+  const { pathname } = useLocation();
+  const onLauncher = pathname === "/floor" || pathname === "/floor/";
   return (
     <div className="space-y-3">
-      <div className="print:hidden">
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-        {description ? (
-          <p className="line-clamp-1 text-xs text-muted-foreground" title={description}>
-            {description}
-          </p>
-        ) : null}
+      <div className="flex items-start gap-1 print:hidden">
+        {onLauncher ? null : (
+          <Link
+            to="/floor"
+            aria-label="Back to floor"
+            title="Back to floor"
+            className="-ml-2.5 flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          >
+            <ChevronLeft className="size-6" />
+          </Link>
+        )}
+        <div className="min-w-0 pt-1">
+          <h1 className="text-2xl font-semibold leading-tight tracking-tight">{title}</h1>
+          {description ? (
+            <p
+              className="mt-0.5 line-clamp-2 text-sm text-muted-foreground"
+              title={typeof description === "string" ? description : undefined}
+            >
+              {description}
+            </p>
+          ) : null}
+        </div>
       </div>
       <div className="print:hidden">
         <ErrorBanner error={error} />
@@ -128,6 +175,9 @@ export function ClaimList<T extends { id?: string }>({
   title,
   empty,
   emptyBody = "Unassigned work stays on this screen.",
+  emptyIcon,
+  emptyAction,
+  loading = false,
   rows,
   userId,
   jobFor,
@@ -137,7 +187,12 @@ export function ClaimList<T extends { id?: string }>({
 }: {
   title: string;
   empty: string;
-  emptyBody?: string;
+  emptyBody?: ReactNode;
+  emptyIcon?: LucideIcon;
+  /** A next step when the list is empty, such as a link to another verb. */
+  emptyAction?: ReactNode;
+  /** True until the first load settles, so the empty state does not flash before rows arrive. */
+  loading?: boolean;
   rows: T[];
   userId: string;
   jobFor: (row: T) => FloorJob | undefined;
@@ -155,22 +210,23 @@ export function ClaimList<T extends { id?: string }>({
         <ul className="space-y-2 text-sm">
           {items.map((row, index) => {
             const job = jobFor(row);
+            const reason = job ? jobReasonText(job) : null;
             const key = (row as { id?: string }).id || job?.id || String(index);
             return (
               <li key={key}>
                 <button
                   type="button"
-                  className="w-full text-left disabled:cursor-not-allowed disabled:opacity-60"
+                  className="-mx-2 block min-h-11 w-[calc(100%+1rem)] rounded-md px-2 py-1.5 text-left outline-none hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
                   disabled={disabled}
                   onClick={() => onOpen(row)}
                 >
                   {render(row)}
                   {job?.assigneeName ? (
                     <span className="mt-0.5 block text-xs text-muted-foreground">
-                      {disabled ? claimedByMessage(job) : job.reason ? job.reason : `Assigned to ${job.assigneeName}`}
+                      {disabled ? claimedByMessage(job) : reason ? reason : `Assigned to ${job.assigneeName}`}
                     </span>
-                  ) : job?.reason ? (
-                    <span className="mt-0.5 block text-xs text-muted-foreground">{job.reason}</span>
+                  ) : reason ? (
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{reason}</span>
                   ) : null}
                 </button>
               </li>
@@ -184,7 +240,16 @@ export function ClaimList<T extends { id?: string }>({
   return (
     <Card className="space-y-4">
       <p className="font-medium">{title}</p>
-      {rows.length === 0 ? <EmptyState title={empty} body={emptyBody} /> : null}
+      {rows.length === 0 ? (
+        loading ? (
+          <div role="status" aria-label="Loading" className="space-y-2">
+            <Skeleton className="h-11 w-full motion-reduce:animate-none" />
+            <Skeleton className="h-11 w-full motion-reduce:animate-none" />
+          </div>
+        ) : (
+          <EmptyState title={empty} body={emptyBody} icon={emptyIcon} action={emptyAction} />
+        )
+      ) : null}
       {section("Mine", mine, false)}
       {section("Unassigned", pool, false)}
       {section("Claimed by others", others, true)}

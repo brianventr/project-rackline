@@ -1,9 +1,11 @@
+import { Link } from "react-router-dom";
 import { FileText, Receipt } from "lucide-react";
 import { api } from "../../api";
-import { Card, EmptyState, ErrorBanner, PageHeader, StatusBadge } from "../../components/ui";
+import { Button, Card, EmptyState, ErrorBanner, PageHeader, StatusBadge } from "../../components/ui";
 import { DataTable, type DataColumn, type FacetDef } from "../../components/data-table/DataTable";
 import { Muted, RelativeTime } from "../../components/cells";
-import { ActionButton, DocumentFact } from "../../components/document";
+import { ActionButton, DocumentFact, type DocumentAction } from "../../components/document";
+import { Term } from "../../components/term";
 import { useApiQuery } from "../../query";
 import { useWrite } from "../../use-write";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -138,12 +140,29 @@ export function BillingPage() {
       },
     );
 
+  const generateAction: DocumentAction = {
+    label: "Generate draft invoices",
+    icon: FileText,
+    onSelect: generate,
+    disabled: !data,
+    confirm: {
+      title: "Generate draft invoices?",
+      body: `One draft per 3PL client with activity in the last ${data?.periodDays ?? 30} days. Running it again makes another set.`,
+      confirmLabel: "Generate drafts",
+    },
+  };
+
   return (
     <div className="space-y-(--density-gap)">
       <PageHeader
         eyebrow="Setup"
         title="Billing"
-        description="Draft one invoice per 3PL client from on-hand pieces, picks, and shipped cartons."
+        description={
+          <>
+            Draft one invoice per <Term id="3pl-client">3PL client</Term> from on-hand pieces, picks, and shipped{" "}
+            <Term id="carton">cartons</Term>.
+          </>
+        }
       />
       <ErrorBanner error={billing.error?.message ?? null} />
 
@@ -194,19 +213,7 @@ export function BillingPage() {
             <h2 className="text-sm font-semibold">Invoices</h2>
             <p className="text-sm text-muted-foreground">The 50 most recent invoices.</p>
           </div>
-          <ActionButton
-            action={{
-              label: "Generate draft invoices",
-              icon: FileText,
-              onSelect: generate,
-              disabled: !data,
-              confirm: {
-                title: "Generate draft invoices?",
-                body: `One draft per 3PL client with activity in the last ${data?.periodDays ?? 30} days. Running it again makes another set.`,
-                confirmLabel: "Generate drafts",
-              },
-            }}
-          />
+          <ActionButton action={generateAction} />
         </div>
         <ErrorBanner error={write.error} />
         <DataTable
@@ -226,7 +233,20 @@ export function BillingPage() {
             <EmptyState
               icon={Receipt}
               title="No invoices yet."
-              body="Generate drafts once clients have stock on hand, picks, or shipped cartons."
+              body={
+                data?.clientCount === 0
+                  ? "Add a client first. Drafts cover each client's stock on hand, picks, and shipped cartons."
+                  : "Generate drafts once clients have stock on hand, picks, or shipped cartons."
+              }
+              action={
+                data?.clientCount === 0 ? (
+                  <Button size="sm" asChild>
+                    <Link to="/setup/clients">Add a client</Link>
+                  </Button>
+                ) : (
+                  <ActionButton action={generateAction} />
+                )
+              }
             />
           }
         />

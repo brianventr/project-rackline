@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
+  BookOpen,
   Boxes,
   ClipboardList,
   Clock,
@@ -14,6 +15,7 @@ import {
   Hammer,
   Inbox,
   Keyboard,
+  ListChecks,
   Loader2,
   Lock,
   MapPin,
@@ -35,7 +37,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -51,8 +54,18 @@ import { useWarehouse } from "@/app/warehouse";
 import { useDensity } from "@/app/density";
 import { destinationsForSession } from "@/app/navigation";
 import { refreshApi } from "@/app/query";
+import { reopenOnboarding } from "@/app/onboarding";
+import { GETTING_STARTED_HASH } from "@/app/components/onboarding";
 import { StatusBadge } from "@/app/components/ui";
-import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
+import { garageAllowsPath, isGarageMode, pathOnly } from "@/domain/operating-mode";
+import {
+  glossaryPaletteSlot,
+  glossaryPathFor,
+  glossaryScore,
+  isGlossaryQuestion,
+  searchGlossary,
+  type GlossaryEntry,
+} from "@/domain/glossary";
 import { matchesSearch } from "@/app/components/data-table/table-state";
 import { useTheme } from "@/hooks/use-theme";
 
@@ -71,6 +84,16 @@ type ActionEntry = Entry & { keywords: string; path: string };
 type Recent = { path: string; label: string; sub?: string; kind: string };
 
 const RECENT_KEY = "rackline-recent";
+
+/** A plain query shows only strong glossary hits (term or alias prefix); a question shows every hit. */
+const GLOSSARY_MIN_SCORE = 75;
+
+/** Floor pages a glossary entry can open that are not in the office nav. */
+const EXTRA_PAGE_TITLES: Record<string, string> = {
+  "/floor": "Floor",
+  "/floor/lookup": "Lookup",
+  "/floor/adjust": "Adjust",
+};
 
 function readRecents(): Recent[] {
   try {
@@ -151,6 +174,7 @@ export function CommandPalette({
   onShowShortcuts: () => void;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const me = useSession();
   const garage = isGarageMode(me.organization.operatingMode);
   const warehouse = useWarehouse();
@@ -159,6 +183,7 @@ export function CommandPalette({
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
   const [recents, setRecents] = useState<Recent[]>([]);
+  const [definition, setDefinition] = useState<GlossaryEntry | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -259,6 +284,21 @@ export function CommandPalette({
         close();
       },
     },
+    ...(me.role === "owner"
+      ? [
+          {
+            id: "action:getting-started",
+            label: "Getting started checklist",
+            icon: ListChecks,
+            keywords: "onboarding setup checklist sample data first steps help",
+            path: "/today",
+            run: () => {
+              reopenOnboarding(me.organization.id);
+              go(`/today${GETTING_STARTED_HASH}`);
+            },
+          },
+        ]
+      : []),
     {
       id: "action:shortcuts",
       label: "Keyboard shortcuts",
@@ -279,6 +319,49 @@ export function CommandPalette({
   const pageMatches = destinations.filter((item) => matchesSearch(`${item.title} ${item.keywords ?? ""}`, query));
   const actionMatches = actions.filter((entry) => matchesSearch(`${String(entry.label)} ${entry.keywords}`, query));
   const searching = query.length > 0 && (search.isFetching || debounced !== query);
+  const question = isGlossaryQuestion(query);
+  // Page names like Waves or Ledger are glossary words too: Enter must still open the page, action, or record.
+  const glossaryPlace = glossaryPaletteSlot(query, {
+    pageOrActionMatches: pageMatches.length + actionMatches.length,
+    searchingRecords: searching,
+  });
+  const glossaryMatches =
+    glossaryPlace === "hidden"
+      ? []
+      : searchGlossary(query)
+          .filter((entry) => question || glossaryScore(entry, query) >= GLOSSARY_MIN_SCORE)
+          .slice(0, question ? 6 : 3);
+  const definitionTarget = definition ? glossaryPathFor(definition, { role: me.role, garage }) : null;
+  // Already on the page that explains it: offer Close rather than an "Open" that goes nowhere.
+  const definitionHere = definitionTarget !== null && pathOnly(definitionTarget) === pathOnly(location.pathname);
+  const definitionPath = definitionHere ? null : definitionTarget;
+  const definitionPage = definitionPath
+    ? (destinations.find((item) => item.url === definitionPath)?.title ?? EXTRA_PAGE_TITLES[definitionPath] ?? null)
+    : null;
+
+  function openDefinition(entry: GlossaryEntry) {
+    close();
+    setDefinition(entry);
+  }
+
+  const glossaryGroup = glossaryMatches.length ? (
+    <CommandGroup heading="Glossary">
+      {glossaryMatches.map((entry) => (
+        <CommandItem
+          key={`glossary:${entry.id}`}
+          value={`glossary:${entry.id}`}
+          onSelect={() => openDefinition(entry)}
+          className="items-start"
+        >
+          <BookOpen className="mt-0.5 text-muted-foreground" />
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium">{entry.term}</span>
+            <span className="line-clamp-2 text-xs text-muted-foreground">{entry.short}</span>
+          </span>
+        </CommandItem>
+      ))}
+    </CommandGroup>
+  ) : null;
 
   function openRecord(row: Recent) {
     rememberRecent({ path: row.path, label: row.label, sub: row.sub, kind: row.kind });
@@ -286,105 +369,152 @@ export function CommandPalette({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-[20%] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-xl" showCloseButton={false}>
-        <DialogHeader className="sr-only">
-          <DialogTitle>Search Rackline</DialogTitle>
-          <DialogDescription>Find a SKU, bay, or document, jump to a page, or run an action.</DialogDescription>
-        </DialogHeader>
-        <Command
-          shouldFilter={false}
-          loop
-          className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide [&_[cmdk-item]]:py-2 [&_[data-slot=command-input-wrapper]]:h-12"
-        >
-          <CommandInput
-            value={q}
-            onValueChange={setQ}
-            placeholder="Search SKUs, bays, ORD-…, Shopify #1004, or type a page"
-            className="text-base"
-          />
-          <CommandList className="max-h-[min(60vh,28rem)]">
-            {!searching ? <CommandEmpty>Nothing matches “{query}”.</CommandEmpty> : null}
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="top-[20%] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-xl" showCloseButton={false}>
+          <DialogHeader className="sr-only">
+            <DialogTitle>Search Rackline</DialogTitle>
+            <DialogDescription>Find a SKU, bay, or document, jump to a page, or run an action.</DialogDescription>
+          </DialogHeader>
+          <Command
+            shouldFilter={false}
+            loop
+            className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide [&_[cmdk-item]]:py-2 [&_[data-slot=command-input-wrapper]]:h-12"
+          >
+            <CommandInput
+              value={q}
+              onValueChange={setQ}
+              placeholder="Search SKUs, bays, ORD-…, Shopify #1004, or type a page"
+              className="text-base"
+            />
+            <CommandList className="max-h-[min(60vh,28rem)]">
+              {!searching ? <CommandEmpty>Nothing matches “{query}”.</CommandEmpty> : null}
 
-            {query && (results.length || searching) ? (
-              <CommandGroup heading="Records">
-                {searching && !results.length ? (
-                  <div className="flex items-center gap-2 px-2 py-3 text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" />
-                    Searching…
-                  </div>
-                ) : null}
-                {results.slice(0, 12).map((row) => {
-                  const Icon = KIND_ICON[row.kind] ?? Boxes;
-                  return (
-                    <CommandItem key={`${row.kind}:${row.path}:${row.label}`} value={`${row.kind}:${row.path}:${row.label}`} onSelect={() => openRecord(row)}>
-                      <Icon className="text-muted-foreground" />
-                      <span className="font-mono font-medium">{row.label}</span>
-                      {row.sub ? <span className="truncate text-muted-foreground">{row.sub}</span> : null}
-                      <span className="ml-auto flex shrink-0 items-center gap-2">
-                        {row.status ? <StatusBadge status={row.status} /> : null}
-                        <span className="text-[11px] capitalize text-muted-foreground">{row.kind}</span>
-                      </span>
+              {glossaryPlace === "first" ? glossaryGroup : null}
+
+              {query && (results.length || searching) ? (
+                <CommandGroup heading="Records">
+                  {searching && !results.length ? (
+                    <div className="flex items-center gap-2 px-2 py-3 text-sm text-muted-foreground">
+                      <Loader2 className="size-4 animate-spin" />
+                      Searching…
+                    </div>
+                  ) : null}
+                  {results.slice(0, 12).map((row) => {
+                    const Icon = KIND_ICON[row.kind] ?? Boxes;
+                    return (
+                      <CommandItem key={`${row.kind}:${row.path}:${row.label}`} value={`${row.kind}:${row.path}:${row.label}`} onSelect={() => openRecord(row)}>
+                        <Icon className="text-muted-foreground" />
+                        <span className="font-mono font-medium">{row.label}</span>
+                        {row.sub ? <span className="truncate text-muted-foreground">{row.sub}</span> : null}
+                        <span className="ml-auto flex shrink-0 items-center gap-2">
+                          {row.status ? <StatusBadge status={row.status} /> : null}
+                          <span className="text-[11px] capitalize text-muted-foreground">{row.kind}</span>
+                        </span>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              ) : null}
+
+              {!query && recents.length ? (
+                <CommandGroup heading="Recent">
+                  {recents.filter((row) => allow(row.path)).map((row) => {
+                    const Icon = KIND_ICON[row.kind] ?? Clock;
+                    return (
+                      <CommandItem key={`recent:${row.path}`} value={`recent:${row.path}`} onSelect={() => openRecord(row)}>
+                        <Icon className="text-muted-foreground" />
+                        <span className="font-mono font-medium">{row.label}</span>
+                        {row.sub ? <span className="truncate text-muted-foreground">{row.sub}</span> : null}
+                        <span className="ml-auto text-[11px] capitalize text-muted-foreground">{row.kind}</span>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              ) : null}
+
+              {actionMatches.length ? (
+                <CommandGroup heading="Actions">
+                  {actionMatches.map((entry) => (
+                    <CommandItem key={entry.id} value={entry.id} onSelect={entry.run}>
+                      <entry.icon className="text-muted-foreground" />
+                      {entry.label}
+                      {entry.hint ? <CommandShortcut>{entry.hint}</CommandShortcut> : null}
                     </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            ) : null}
+                  ))}
+                </CommandGroup>
+              ) : null}
 
-            {!query && recents.length ? (
-              <CommandGroup heading="Recent">
-                {recents.filter((row) => allow(row.path)).map((row) => {
-                  const Icon = KIND_ICON[row.kind] ?? Clock;
-                  return (
-                    <CommandItem key={`recent:${row.path}`} value={`recent:${row.path}`} onSelect={() => openRecord(row)}>
-                      <Icon className="text-muted-foreground" />
-                      <span className="font-mono font-medium">{row.label}</span>
-                      {row.sub ? <span className="truncate text-muted-foreground">{row.sub}</span> : null}
-                      <span className="ml-auto text-[11px] capitalize text-muted-foreground">{row.kind}</span>
+              {pageMatches.length ? (
+                <CommandGroup heading="Go to">
+                  {pageMatches.slice(0, query ? 8 : 40).map((item) => (
+                    <CommandItem key={`page:${item.url}`} value={`page:${item.url}`} onSelect={() => go(item.url)}>
+                      <item.icon className="text-muted-foreground" />
+                      {item.title}
+                      <ArrowRight className="ml-auto size-3.5 opacity-40" />
                     </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            ) : null}
+                  ))}
+                </CommandGroup>
+              ) : null}
 
-            {actionMatches.length ? (
-              <CommandGroup heading="Actions">
-                {actionMatches.map((entry) => (
-                  <CommandItem key={entry.id} value={entry.id} onSelect={entry.run}>
-                    <entry.icon className="text-muted-foreground" />
-                    {entry.label}
-                    {entry.hint ? <CommandShortcut>{entry.hint}</CommandShortcut> : null}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            ) : null}
-
-            {pageMatches.length ? (
-              <CommandGroup heading="Go to">
-                {pageMatches.slice(0, query ? 8 : 40).map((item) => (
-                  <CommandItem key={`page:${item.url}`} value={`page:${item.url}`} onSelect={() => go(item.url)}>
-                    <item.icon className="text-muted-foreground" />
-                    {item.title}
-                    <ArrowRight className="ml-auto size-3.5 opacity-40" />
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            ) : null}
-          </CommandList>
-          <div className="flex items-center gap-3 border-t px-3 py-2 text-[11px] text-muted-foreground">
-            <span>
-              <kbd className="rounded border bg-muted px-1 font-mono">↑↓</kbd> move
-            </span>
-            <span>
-              <kbd className="rounded border bg-muted px-1 font-mono">↵</kbd> open
-            </span>
-            <span>
-              <kbd className="rounded border bg-muted px-1 font-mono">esc</kbd> close
-            </span>
-            <span className="ml-auto hidden sm:inline">A gun scan anywhere opens that record too.</span>
-          </div>
-        </Command>
-      </DialogContent>
-    </Dialog>
+              {glossaryPlace === "last" ? glossaryGroup : null}
+            </CommandList>
+            <div className="flex items-center gap-3 border-t px-3 py-2 text-[11px] text-muted-foreground">
+              <span>
+                <kbd className="rounded border bg-muted px-1 font-mono">↑↓</kbd> move
+              </span>
+              <span>
+                <kbd className="rounded border bg-muted px-1 font-mono">↵</kbd> open
+              </span>
+              <span>
+                <kbd className="rounded border bg-muted px-1 font-mono">esc</kbd> close
+              </span>
+              <span className="ml-auto hidden sm:inline">A gun scan anywhere opens that record too.</span>
+            </div>
+          </Command>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={definition !== null}
+        onOpenChange={(next) => {
+          if (!next) setDefinition(null);
+        }}
+      >
+        {definition ? (
+          <DialogContent className="gap-3 sm:max-w-md">
+            <DialogHeader className="pr-6 text-left">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Glossary</p>
+              <DialogTitle>{definition.term}</DialogTitle>
+              <DialogDescription className="text-sm text-foreground">{definition.short}</DialogDescription>
+            </DialogHeader>
+            {definition.long ? <p className="text-sm text-muted-foreground">{definition.long}</p> : null}
+            <DialogFooter className="pt-1">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDefinition(null);
+                  onOpenChange(true);
+                }}
+              >
+                Search again
+              </Button>
+              {definitionPath ? (
+                <Button
+                  onClick={() => {
+                    setDefinition(null);
+                    navigate(definitionPath);
+                  }}
+                >
+                  {definitionPage ? `Open ${definitionPage}` : "Open page"}
+                  <ArrowRight />
+                </Button>
+              ) : definitionHere ? (
+                <Button onClick={() => setDefinition(null)}>Close</Button>
+              ) : null}
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
+      </Dialog>
+    </>
   );
 }

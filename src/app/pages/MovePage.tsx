@@ -1,14 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, type Asn, type AsnPackage, type MapContent, type ScanHit, type ScanLocationHit, type Transfer, type WarehouseMapData } from "../api";
+import { RotateCcw, ScanLine } from "lucide-react";
+import {
+  api,
+  errorText,
+  type Asn,
+  type AsnPackage,
+  type MapContent,
+  type ScanHit,
+  type ScanLocationHit,
+  type Transfer,
+  type WarehouseMapData,
+} from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { WarehouseMap } from "../components/WarehouseMap";
-import { Button, Card, DoneBanner, ErrorBanner, PageHeader, StatusBadge } from "../components/ui";
+import { Button, Card, DoneBanner, ErrorBanner, StatusBadge } from "../components/ui";
+import { Term } from "../components/term";
+import { Button as UiButton } from "@/components/ui/button";
 import { useScanner } from "../scanner/ScannerProvider";
 import { cn } from "@/lib/utils";
 import { canPostTransfer } from "@/domain/status";
 import { hasUnmoved } from "@/domain/partial-transfer";
-import { ClaimList, openFloorRow, useScanFlash } from "./floor/floor-ui";
+import { ClaimList, FloorFrame, openFloorRow, useScanFlash } from "./floor/floor-ui";
 import { useSession } from "../session";
 import { jobForRef, useOpenJobs } from "../jobs";
 
@@ -39,7 +52,7 @@ export function MovePage() {
   useEffect(() => {
     api<WarehouseMapData>("/api/map")
       .then(setMap)
-      .catch((err: Error) => setError(err.message));
+      .catch((err) => setError(errorText(err, "Could not load the map.")));
   }, []);
 
   useEffect(() => {
@@ -73,7 +86,7 @@ export function MovePage() {
         return;
       }
       if (hit.kind !== "location") {
-        setError(`${raw} is an item barcode. Scan a location / bay label, or a vendor BOX-/SSCC.`);
+        setError(`${raw} is not a bay. Scan a bay label, or a vendor BOX- / SSCC.`);
         finish(false);
         return;
       }
@@ -101,7 +114,7 @@ export function MovePage() {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Barcode not recognized");
+      setError(errorText(err, "That barcode did not scan. Try again."));
       finish(false);
     }
   }
@@ -116,7 +129,7 @@ export function MovePage() {
       }
       await resolveAsnHit(hit);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Carton not recognized");
+      setError(errorText(err, "That carton did not scan. Try again."));
     }
   }
 
@@ -158,7 +171,7 @@ export function MovePage() {
       setStep("from");
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Carton putaway failed");
+      setError(errorText(err, "Could not put the carton away."));
       return false;
     } finally {
       setBusy(false);
@@ -204,7 +217,7 @@ export function MovePage() {
       setStep("from");
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Move failed");
+      setError(errorText(err, "Could not post the move."));
       return false;
     } finally {
       setBusy(false);
@@ -240,7 +253,7 @@ export function MovePage() {
       setMap(nextMap);
       await refreshFrom(fromHit.location.barcode);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Move failed");
+      setError(errorText(err, "Could not post the move."));
     } finally {
       setBusy(false);
     }
@@ -254,20 +267,13 @@ export function MovePage() {
   const prompt = step === "from" ? "Scan previous location" : "Scan new location";
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Floor"
-        title="Put away"
-        description="Scan a vendor BOX-/SSCC onto a suggested bay, or scan the dock to a bulk bay. Cartons are required once a received vendor box is waiting."
-        actions={
-          <Button variant="secondary" onClick={scanner.openCamera}>
-            Open camera
-          </Button>
-        }
-      />
-      <ErrorBanner error={error} />
+    <FloorFrame
+      title="Put away"
+      description="Scan a vendor BOX-/SSCC onto a suggested bay, or scan the dock to a bulk bay. Cartons are required once a received vendor box is waiting."
+      error={error}
+    >
       <OpenTransferTickets />
-      <DoneBanner className="mb-4">{result}</DoneBanner>
+      <DoneBanner>{result}</DoneBanner>
       <div className="grid gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <div className="space-y-4">
           <Card className={step === "from" ? "ring-2 ring-amber" : ""}>
@@ -294,9 +300,11 @@ export function MovePage() {
                       variant="secondary"
                       disabled={busy}
                       onClick={() =>
-                        void api<Asn>(`/api/asns/${pkg.asnId}`).then((asn) => putawayCarton(asn, pkg, to.hit))
+                        void api<Asn>(`/api/asns/${pkg.asnId}`)
+                          .then((asn) => putawayCarton(asn, pkg, to.hit))
+                          .catch((err) => setError(errorText(err, "Could not open that ASN.")))
                       }
-                      className="h-8 shrink-0 px-2 text-xs"
+                      className="h-11 shrink-0 px-3"
                     >
                       Put away
                     </Button>
@@ -309,11 +317,16 @@ export function MovePage() {
             <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">2. To</p>
             <SlotCard slot={to} />
           </Card>
-          <Card data-scan-capture="true">
-            <p className="mb-2 font-semibold">{prompt}</p>
+          <Card>
+            <p className="mb-2 font-semibold" id="move-scan-prompt">
+              {prompt}
+            </p>
             <div className="flex gap-2">
+              {/* data-scan-capture: a gun's Enter lands here once, and the tab bar's Scan finds this field. */}
               <input
                 ref={inputRef}
+                data-scan-capture
+                aria-labelledby="move-scan-prompt"
                 value={step === "from" ? from.barcode : to.barcode}
                 onChange={(event) => {
                   const value = event.target.value.toUpperCase();
@@ -329,33 +342,47 @@ export function MovePage() {
                 }}
                 placeholder="A-01-01 or BOX-1"
                 autoComplete="off"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="go"
                 className={cn(
-                  "w-full rounded-lg border border-line bg-paper px-3 py-2.5 font-mono text-sm outline-none ring-amber/40 transition-shadow focus:ring-2",
+                  "h-14 w-full min-w-0 rounded-lg border border-line bg-paper px-3 font-mono text-xl outline-none ring-amber/40 transition-shadow focus:ring-2",
                   flash === "ok" && "ring-2 ring-ok",
                   flash === "bad" && "ring-2 ring-destructive",
                 )}
               />
-              <Button onClick={onTypedScan} disabled={busy}>
+              <Button className="h-14 shrink-0 px-5 text-lg" onClick={onTypedScan} disabled={busy}>
                 {busy ? "Moving…" : "Use"}
               </Button>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              Gun scanners type the barcode and Enter. Scan BOX-1 / SSCC to put away a vendor carton onto suggested bays.
+              Gun scanners type the barcode and Enter. Scan BOX-1 / SSCC to put away a{" "}
+              <Term id="sscc">vendor carton</Term> onto suggested bays.
             </p>
           </Card>
-          <button
-            className="text-sm text-muted-foreground hover:text-ink"
-            onClick={() => {
-              setFrom({ barcode: "", hit: null });
-              setTo({ barcode: "", hit: null });
-              setCartons([]);
-              setStep("from");
-              setResult(null);
-              setError(null);
-            }}
-          >
-            Reset move
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" className="h-11 flex-1 sm:flex-none" onClick={scanner.openCamera}>
+              <ScanLine className="size-4" />
+              Open camera
+            </Button>
+            <UiButton
+              type="button"
+              variant="ghost"
+              className="h-11 flex-1 text-muted-foreground sm:flex-none"
+              onClick={() => {
+                setFrom({ barcode: "", hit: null });
+                setTo({ barcode: "", hit: null });
+                setCartons([]);
+                setStep("from");
+                setResult(null);
+                setError(null);
+              }}
+            >
+              <RotateCcw className="size-4" />
+              Reset move
+            </UiButton>
+          </div>
         </div>
         {map ? (
           <WarehouseMap
@@ -372,7 +399,7 @@ export function MovePage() {
           />
         ) : null}
       </div>
-    </div>
+    </FloorFrame>
   );
 }
 
@@ -407,7 +434,7 @@ function OpenTransferTickets() {
   if (!tickets.length) return null;
 
   return (
-    <div className="mb-3">
+    <div className="space-y-3">
       <ErrorBanner error={error} />
       <ClaimList
         title="Open putaway tickets"
@@ -478,7 +505,7 @@ function SlotCard({
                   variant="secondary"
                   disabled={busy}
                   onClick={() => onPutawayLine(row)}
-                  className="h-8 shrink-0 px-2 text-xs"
+                  className="h-11 shrink-0 px-3"
                 >
                   Put on {row.suggestedLocation.locationCode}
                 </Button>
@@ -489,7 +516,10 @@ function SlotCard({
           <li className="text-muted-foreground">Empty</li>
         )}
       </ul>
-      <Link className="mt-2 inline-block text-xs underline" to={`/map?location=${location.id}`}>
+      <Link
+        className="mt-1 inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        to={`/map?location=${location.id}`}
+      >
         Show on map
       </Link>
     </div>

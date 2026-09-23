@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useWatch, type FieldErrors, type FieldPath, type FieldValues, type UseFormReturn } from "react-hook-form";
+import { z } from "zod";
 import { ImageOff, Package, Plus, Printer, Save, Tags, Trash2, Upload } from "lucide-react";
 import { BarcodeLabel } from "../components/BarcodeLabel";
-import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Table, ToneBadge } from "../components/ui";
+import { Button, Card, EmptyState, ErrorBanner, PageHeader, Table, ToneBadge } from "../components/ui";
+import { NumberField, SelectField, TextField, useZodForm, type ZodFormInput, type ZodFormOutput } from "../components/form-kit";
+import { SampleDataButton } from "../components/onboarding";
+import { Term } from "../components/term";
 import { SkuThumb } from "../components/sku-thumb";
 import {
   ActionButton,
@@ -16,12 +21,15 @@ import {
 import { DataTable, type DataColumn, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, Muted, SkuCell } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
-import { api, uploadFile, type InventoryRow, type Item, type Me } from "../api";
+import { api, errorText, uploadFile, type InventoryRow, type Item, type Me } from "../api";
 import { useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { Checkbox } from "@/components/ui/checkbox";
+import { FormField } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatExpiresOn } from "@/domain/expiry";
+import { FORM_ITEM_TYPES, itemFormSchema } from "@/domain/form-schemas";
+import { normalizeImageUrl } from "@/domain/media";
 import { formatAsBuiltPart } from "@/domain/as-built";
 import { isBelowReorder } from "@/domain/reorder";
 import { cn } from "@/lib/utils";
@@ -241,7 +249,11 @@ function ItemList() {
       <PageHeader
         eyebrow="Stock"
         title="Items"
-        description="Raw materials, WIP, packaging, and finished goods. Each SKU has a barcode."
+        description={
+          <>
+            Raw materials, <Term id="wip" />, packaging, and finished goods. Each SKU has a barcode.
+          </>
+        }
       />
       <DataTable
         id="items"
@@ -277,9 +289,12 @@ function ItemList() {
             title="No items yet."
             body="Add each SKU you stock, make, or ship. Receipts, orders, and counts pick from this list."
             action={
-              <Button size="sm" onClick={() => setCreating(true)}>
-                New item
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button size="sm" onClick={() => setCreating(true)}>
+                  New item
+                </Button>
+                <SampleDataButton />
+              </div>
             }
           />
         }
@@ -289,66 +304,99 @@ function ItemList() {
   );
 }
 
-function FlagField({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+/** Any form built by `useZodForm` (the flag only needs its values type). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyForm<T extends FieldValues> = UseFormReturn<T, any, any>;
+
+/** A tracking checkbox bound to the form. A checkbox cannot be invalid, so it has no message. */
+function FlagField<T extends FieldValues>({ form, name, label }: { form: AnyForm<T>; name: FieldPath<T>; label: string }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 text-sm">
-      <Checkbox checked={checked} onCheckedChange={(value) => onChange(value === true)} />
-      {label}
-    </label>
+    <FormField
+      control={form.control}
+      name={name}
+      render={({ field }) => (
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <Checkbox
+            ref={field.ref}
+            name={field.name}
+            checked={field.value === true}
+            onCheckedChange={(value) => field.onChange(value === true)}
+            onBlur={field.onBlur}
+          />
+          {label}
+        </label>
+      )}
+    />
   );
 }
+
+/** What the tracking flags do, under the Track checkboxes. */
+function TrackHint() {
+  return (
+    <p className="text-xs leading-snug text-muted-foreground">
+      Expiry turns on lots too. <Term id="catch-weight" /> SKUs take a weight in grams on receive, pick, and count.
+    </p>
+  );
+}
+
+const ITEM_TYPE_OPTIONS = FORM_ITEM_TYPES.map((value) => ({ value, label: typeLabel(value) }));
+
+type NewItemInput = ZodFormInput<typeof itemFormSchema>;
+type NewItemValues = ZodFormOutput<typeof itemFormSchema>;
+
+const NEW_ITEM_DEFAULTS: NewItemInput = {
+  sku: "",
+  name: "",
+  type: "raw",
+  barcode: "",
+  reorderPoint: "0",
+  baselineShipRate: "",
+  pickMin: "0",
+  trackLot: false,
+  trackSerial: false,
+  catchWeight: false,
+  trackExpiry: false,
+};
 
 function NewItemSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate();
   const { error, setError, busy, run } = useWrite();
-  const [sku, setSku] = useState("");
-  const [name, setName] = useState("");
-  const [type, setType] = useState("raw");
-  const [barcode, setBarcode] = useState("");
-  const [reorderPoint, setReorderPoint] = useState("0");
-  const [baselineShipRate, setBaselineShipRate] = useState("");
-  const [pickMin, setPickMin] = useState("0");
-  const [trackLot, setTrackLot] = useState(false);
-  const [trackSerial, setTrackSerial] = useState(false);
-  const [catchWeight, setCatchWeight] = useState(false);
-  const [trackExpiry, setTrackExpiry] = useState(false);
+  const form = useZodForm(itemFormSchema, NEW_ITEM_DEFAULTS);
 
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
   useEffect(() => {
-    if (open) setError(null);
-  }, [open, setError]);
+    if (!open) return;
+    setError(null);
+    reset(getValues(), { keepDefaultValues: true });
+  }, [open, setError, reset, getValues]);
 
-  async function create() {
+  async function create(values: NewItemValues) {
     const created = await run(
       "Create item",
       () =>
         api<Item>("/api/items", {
           method: "POST",
+          // Same body as before: numbers are already coerced (blank reorder point and pick min are 0,
+          // blank baseline is null) and text is sent as typed.
           body: JSON.stringify({
-            sku,
-            name,
-            type,
-            barcode: barcode || sku,
-            reorderPoint: Number(reorderPoint),
-            baselineShipRate: baselineShipRate === "" ? null : Number(baselineShipRate),
-            pickMin: Number(pickMin),
-            trackLot,
-            trackSerial,
-            catchWeight,
-            trackExpiry,
+            sku: values.sku,
+            name: values.name,
+            type: values.type,
+            barcode: values.barcode || values.sku,
+            reorderPoint: values.reorderPoint,
+            baselineShipRate: values.baselineShipRate,
+            pickMin: values.pickMin,
+            trackLot: values.trackLot,
+            trackSerial: values.trackSerial,
+            catchWeight: values.catchWeight,
+            trackExpiry: values.trackExpiry,
           }),
         }),
       (row) => `Item ${row.sku} created.`,
     );
     if (!created) return;
-    setSku("");
-    setName("");
-    setBarcode("");
-    setReorderPoint("0");
-    setBaselineShipRate("");
-    setPickMin("0");
-    setTrackLot(false);
-    setTrackSerial(false);
-    setCatchWeight(false);
+    reset(NEW_ITEM_DEFAULTS);
     onOpenChange(false);
     navigate(`/stock/items/${created.id}`);
   }
@@ -360,72 +408,77 @@ function NewItemSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (op
       title="New item"
       description="One SKU per thing you stock, make, or ship. The barcode defaults to the SKU."
       submitLabel="Add item"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="SKU">
-          <Input value={sku} onChange={(e) => setSku(e.target.value)} required autoFocus />
-        </Field>
-        <Field label="Type">
-          <Select value={type} onChange={(e) => setType(e.target.value)}>
-            {types.map((value) => (
-              <option key={value} value={value}>
-                {typeLabel(value)}
-              </option>
-            ))}
-          </Select>
-        </Field>
+      <div className="grid items-start gap-3 sm:grid-cols-2">
+        <TextField form={form} name="sku" label="SKU" autoFocus />
+        <SelectField form={form} name="type" label="Type" options={ITEM_TYPE_OPTIONS} />
       </div>
-      <Field label="Name">
-        <Input value={name} onChange={(e) => setName(e.target.value)} required />
-      </Field>
-      <Field label="Barcode">
-        <Input value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Defaults to SKU" />
-      </Field>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="Reorder point">
-          <Input type="number" min={0} value={reorderPoint} onChange={(e) => setReorderPoint(e.target.value)} />
-        </Field>
-        <Field label="Baseline / day">
-          <Input
-            type="number"
-            min={0}
-            step="0.1"
-            value={baselineShipRate}
-            onChange={(e) => setBaselineShipRate(e.target.value)}
-            placeholder="Auto"
-          />
-        </Field>
-        <Field label="Pick min">
-          <Input type="number" min={0} value={pickMin} onChange={(e) => setPickMin(e.target.value)} />
-        </Field>
+      <TextField form={form} name="name" label="Name" />
+      <TextField form={form} name="barcode" label="Barcode" placeholder="Defaults to SKU" />
+      <div className="grid items-start gap-3 sm:grid-cols-3">
+        <NumberField form={form} name="reorderPoint" label="Reorder point" min={0} />
+        <NumberField form={form} name="baselineShipRate" label="Baseline / day" min={0} step={0.1} placeholder="Auto" />
+        <NumberField form={form} name="pickMin" label="Pick min" min={0} />
       </div>
       <div className="space-y-2">
         <p className="text-sm font-medium">Track</p>
         <div className="grid grid-cols-2 gap-2">
-          <FlagField label="Lots" checked={trackLot} onChange={setTrackLot} />
-          <FlagField label="Serials" checked={trackSerial} onChange={setTrackSerial} />
-          <FlagField label="Catch-weight" checked={catchWeight} onChange={setCatchWeight} />
-          <FlagField label="Expiry" checked={trackExpiry} onChange={setTrackExpiry} />
+          <FlagField form={form} name="trackLot" label="Lots" />
+          <FlagField form={form} name="trackSerial" label="Serials" />
+          <FlagField form={form} name="catchWeight" label="Catch-weight" />
+          <FlagField form={form} name="trackExpiry" label="Expiry" />
         </div>
+        <TrackHint />
       </div>
     </FormSheet>
   );
 }
 
-type ItemForm = {
-  name: string;
-  barcode: string;
-  reorderPoint: string;
-  baselineShipRate: string;
-  pickMin: string;
-  trackLot: boolean;
-  trackSerial: boolean;
-  catchWeight: boolean;
-  trackExpiry: boolean;
-  imageUrl: string;
+/**
+ * The Settings tab and the photo link: PATCH /api/items/:id (`src/routes/catalog.ts`). Same number
+ * and name rules as a new item; a blank barcode keeps the current one. The photo link must pass the
+ * server's `normalizeImageUrl` (an http(s) link, or a path Rackline serves).
+ */
+const itemEditSchema = itemFormSchema
+  .pick({
+    name: true,
+    barcode: true,
+    reorderPoint: true,
+    baselineShipRate: true,
+    pickMin: true,
+    trackLot: true,
+    trackSerial: true,
+    catchWeight: true,
+    trackExpiry: true,
+  })
+  .extend({
+    imageUrl: z.string().refine((value) => {
+      try {
+        normalizeImageUrl(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }, "Enter a full link that starts with https://, or upload a photo."),
+  });
+
+type ItemForm = ZodFormInput<typeof itemEditSchema>;
+type ItemEditValues = ZodFormOutput<typeof itemEditSchema>;
+
+const EMPTY_ITEM_FORM: ItemForm = {
+  name: "",
+  barcode: "",
+  reorderPoint: "0",
+  baselineShipRate: "",
+  pickMin: "0",
+  trackLot: false,
+  trackSerial: false,
+  catchWeight: false,
+  trackExpiry: false,
+  imageUrl: "",
 };
 
 function formFromItem(item: Item): ItemForm {
@@ -446,57 +499,71 @@ function formFromItem(item: Item): ItemForm {
 function ItemDetail({ me, id }: { me: Me; id: string }) {
   const navigate = useNavigate();
   const [item, setItem] = useState<Item | null>(null);
-  const [form, setForm] = useState<ItemForm | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [view, setView] = useState("stock");
   const { error, run } = useWrite();
+  const form = useZodForm(itemEditSchema, EMPTY_ITEM_FORM);
+  const watched = useWatch({ control: form.control });
+  const values = { ...EMPTY_ITEM_FORM, ...watched } as ItemForm;
 
+  const { reset } = form;
   useEffect(() => {
     api<Item>(`/api/items/${id}`)
       .then((next) => {
+        reset(formFromItem(next));
         setItem(next);
-        setForm(formFromItem(next));
       })
-      .catch((err: Error) => setLoadError(err.message));
-  }, [id]);
+      .catch((err: unknown) => setLoadError(errorText(err, "Could not load this item. Try again.")));
+  }, [id, reset]);
 
-  if (!item || !form) {
+  if (!item) {
     return loadError ? <ErrorBanner error={loadError} /> : <DetailSkeleton />;
   }
 
-  const set = <K extends keyof ItemForm>(key: K, value: ItemForm[K]) =>
-    setForm((current) => (current ? { ...current, [key]: value } : current));
-
   const saved = formFromItem(item);
-  const dirty = (Object.keys(saved) as (keyof ItemForm)[]).some((key) => saved[key] !== form[key]);
+  const dirty = (Object.keys(saved) as (keyof ItemForm)[]).some((key) => saved[key] !== values[key]);
 
-  async function save() {
-    if (!form) return;
-    const next = await run(
+  async function save(next: ItemEditValues) {
+    const updated = await run(
       "Save item",
       () =>
         api<Item>(`/api/items/${id}`, {
           method: "PATCH",
+          // Same body as before: numbers are coerced the way `Number(...)` did, blank baseline is null.
           body: JSON.stringify({
-            name: form.name,
-            barcode: form.barcode,
-            reorderPoint: Number(form.reorderPoint),
-            baselineShipRate: form.baselineShipRate === "" ? null : Number(form.baselineShipRate),
-            pickMin: Number(form.pickMin),
-            trackLot: form.trackLot,
-            trackSerial: form.trackSerial,
-            catchWeight: form.catchWeight,
-            trackExpiry: form.trackExpiry,
-            imageUrl: form.imageUrl || null,
+            name: next.name,
+            barcode: next.barcode,
+            reorderPoint: next.reorderPoint,
+            baselineShipRate: next.baselineShipRate,
+            pickMin: next.pickMin,
+            trackLot: next.trackLot,
+            trackSerial: next.trackSerial,
+            catchWeight: next.catchWeight,
+            trackExpiry: next.trackExpiry,
+            imageUrl: next.imageUrl || null,
           }),
         }),
       (row) => `Saved ${row.sku}.`,
     );
-    if (next) {
+    if (updated) {
       // The PATCH answer carries no stock, so keep what the page already shows.
-      setItem((current) => ({ ...next, onHand: current?.onHand, lots: current?.lots, serials: current?.serials }));
-      setForm(formFromItem(next));
+      setItem((current) => ({ ...updated, onHand: current?.onHand, lots: current?.lots, serials: current?.serials }));
+      reset(formFromItem(updated));
     }
+  }
+
+  /** The header's Save can be pressed from any tab: open the tab that holds the first bad field. */
+  function showInvalid(errors: FieldErrors<ItemForm>) {
+    const first = Object.keys(errors)[0] as keyof ItemForm | undefined;
+    if (!first) return;
+    if (first !== "imageUrl") setView("settings");
+    window.setTimeout(() => form.setFocus(first), 0);
+  }
+
+  const submitSave = form.handleSubmit(save, showInvalid);
+
+  function setImageUrl(value: string) {
+    form.setValue("imageUrl", value, { shouldValidate: true });
   }
 
   async function remove() {
@@ -508,7 +575,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
     const next = await run("Upload photo", () => uploadFile<Item>(`/api/items/${id}/image`, file), "Photo uploaded.");
     if (next) {
       setItem((current) => ({ ...next, onHand: current?.onHand, lots: current?.lots, serials: current?.serials }));
-      set("imageUrl", next.imageUrl ?? "");
+      setImageUrl(next.imageUrl ?? "");
     }
   }
 
@@ -516,7 +583,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
     const next = await run("Clear photo", () => api<Item>(`/api/items/${id}/image`, { method: "DELETE" }), "Photo cleared.");
     if (next) {
       setItem((current) => ({ ...next, onHand: current?.onHand, lots: current?.lots, serials: current?.serials }));
-      set("imageUrl", "");
+      setImageUrl("");
     }
   }
 
@@ -574,7 +641,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
             {belowReorder ? <ToneBadge tone="warning">Below reorder</ToneBadge> : null}
           </>
         }
-        primary={dirty ? { label: "Save changes", icon: Save, onSelect: save } : null}
+        primary={dirty ? { label: "Save changes", icon: Save, onSelect: submitSave } : null}
         menu={menu}
       />
       <ErrorBanner error={error} />
@@ -608,13 +675,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
                 <div className="flex items-start gap-3">
                   <SkuThumb sku={item.sku} name={item.name} imageUrl={item.imageUrl} size="lg" />
                   <div className="min-w-0 flex-1 space-y-2">
-                    <Field label="Photo URL">
-                      <Input
-                        value={form.imageUrl}
-                        onChange={(e) => set("imageUrl", e.target.value)}
-                        placeholder="https://… or /demo-sku/LAMP.svg"
-                      />
-                    </Field>
+                    <TextField form={form} name="imageUrl" label="Photo URL" placeholder="https://… or /demo-sku/LAMP.svg" />
                     <div className="flex flex-wrap gap-2">
                       <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border bg-card px-3 text-sm font-medium shadow-xs hover:bg-muted/60">
                         <Upload className="size-4" />
@@ -755,53 +816,39 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
           <TabsContent value="settings">
             <Card>
               <div className="space-y-4">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Field label="Name">
-                    <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
-                  </Field>
-                  <Field label="Barcode">
-                    <Input value={form.barcode} onChange={(e) => set("barcode", e.target.value)} />
-                  </Field>
+                <div className="grid items-start gap-3 md:grid-cols-2">
+                  <TextField form={form} name="name" label="Name" />
+                  <TextField form={form} name="barcode" label="Barcode" />
                 </div>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <Field label="Reorder point">
-                    <Input
-                      type="number"
-                      min={0}
-                      value={form.reorderPoint}
-                      onChange={(e) => set("reorderPoint", e.target.value)}
-                    />
-                  </Field>
-                  <Field label="Baseline / day">
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.1"
-                      value={form.baselineShipRate}
-                      onChange={(e) => set("baselineShipRate", e.target.value)}
-                      placeholder="Auto from ships"
-                    />
-                  </Field>
-                  <Field label="Pick min">
-                    <Input type="number" min={0} value={form.pickMin} onChange={(e) => set("pickMin", e.target.value)} />
-                  </Field>
+                <div className="grid items-start gap-3 sm:grid-cols-3">
+                  <NumberField form={form} name="reorderPoint" label="Reorder point" min={0} />
+                  <NumberField
+                    form={form}
+                    name="baselineShipRate"
+                    label="Baseline / day"
+                    min={0}
+                    step={0.1}
+                    placeholder="Auto from ships"
+                  />
+                  <NumberField form={form} name="pickMin" label="Pick min" min={0} />
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Track</p>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <FlagField label="Track lots" checked={form.trackLot} onChange={(value) => set("trackLot", value)} />
-                    <FlagField label="Track serials" checked={form.trackSerial} onChange={(value) => set("trackSerial", value)} />
-                    <FlagField label="Catch-weight" checked={form.catchWeight} onChange={(value) => set("catchWeight", value)} />
-                    <FlagField label="Track expiry" checked={form.trackExpiry} onChange={(value) => set("trackExpiry", value)} />
+                    <FlagField form={form} name="trackLot" label="Track lots" />
+                    <FlagField form={form} name="trackSerial" label="Track serials" />
+                    <FlagField form={form} name="catchWeight" label="Catch-weight" />
+                    <FlagField form={form} name="trackExpiry" label="Track expiry" />
                   </div>
+                  <TrackHint />
                 </div>
                 <div className="flex items-center justify-end gap-2 border-t pt-3">
                   {dirty ? (
-                    <Button size="sm" variant="ghost" onClick={() => setForm(formFromItem(item))}>
+                    <Button size="sm" variant="ghost" onClick={() => reset(formFromItem(item))}>
                       Discard
                     </Button>
                   ) : null}
-                  <ActionButton action={{ label: "Save changes", icon: Save, onSelect: save, disabled: !dirty }} />
+                  <ActionButton action={{ label: "Save changes", icon: Save, onSelect: submitSave, disabled: !dirty }} />
                 </div>
               </div>
             </Card>

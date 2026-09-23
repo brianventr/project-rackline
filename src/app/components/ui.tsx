@@ -3,6 +3,7 @@ import {
   forwardRef,
   isValidElement,
   useId,
+  type ComponentProps,
   type FormEvent,
   type InputHTMLAttributes,
   type ReactElement,
@@ -25,6 +26,9 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { statusText, statusTone, type StatusTone } from "@/domain/status";
+import { glossaryEntry } from "@/domain/glossary";
+import { splitErrorText } from "../api";
+import { Term } from "./term";
 
 export function PageHeader({
   eyebrow,
@@ -34,7 +38,8 @@ export function PageHeader({
 }: {
   eyebrow?: string;
   title: string;
-  description?: string;
+  /** A sentence on what the page is for. May hold a `<Term>`. */
+  description?: ReactNode;
   actions?: ReactNode;
 }) {
   return (
@@ -47,7 +52,12 @@ export function PageHeader({
         ) : null}
         <h1 className="text-(length:--density-title) font-semibold leading-tight tracking-tight">{title}</h1>
         {description ? (
-          <p className="mt-0.5 line-clamp-2 max-w-3xl text-(length:--density-meta) text-muted-foreground" title={description}>
+          // Phones show the whole sentence (a clipped glossary word could not be tapped); wider screens clamp to
+          // two lines and keep the full text in the tooltip.
+          <p
+            className="mt-0.5 max-w-3xl text-(length:--density-meta) text-muted-foreground sm:line-clamp-2"
+            title={nodeText(description).replace(/\s+/g, " ").trim() || undefined}
+          >
             {description}
           </p>
         ) : null}
@@ -57,9 +67,27 @@ export function PageHeader({
   );
 }
 
+/** The plain text of a small ReactNode (strings, fragments, `<Term>`s), for a `title` tooltip. */
+function nodeText(node: ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number" || typeof node === "bigint") return String(node);
+  if (Array.isArray(node)) return node.map(nodeText).join("");
+  if (isValidElement<{ id?: string; children?: ReactNode }>(node)) {
+    const { id, children } = node.props;
+    // `<Term id="atp" />` shows the glossary word.
+    if (node.type === Term && children == null && id) return glossaryEntry(id)?.term ?? id;
+    return nodeText(children);
+  }
+  return "";
+}
+
 /** A padded surface. `className` lands on the card itself, so both layout (`col-span-2`) and spacing (`space-y-3`) work. */
-export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <UiCard className={cn("block gap-0 p-(--density-gap)", className)}>{children}</UiCard>;
+export function Card({ children, className = "", ...props }: ComponentProps<"div">) {
+  return (
+    <UiCard {...props} className={cn("block gap-0 p-(--density-gap)", className)}>
+      {children}
+    </UiCard>
+  );
 }
 
 export function Button({
@@ -283,15 +311,24 @@ export function StatStrip({
   );
 }
 
+/** Shows a failure. When the text came from an `ApiError` with a fix, the fix gets its own line. */
 export function ErrorBanner({ error }: { error: string | null }) {
   if (!error) return null;
+  const { message, hint } = splitErrorText(error);
   return (
     <div
       role="alert"
       className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-tone-danger-bg px-3 py-2 text-sm text-tone-danger"
     >
-      <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-      <span className="min-w-0">{error}</span>
+      <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+      {hint ? (
+        <span className="min-w-0">
+          <span className="block font-medium">{message}</span>
+          <span className="block">{hint}</span>
+        </span>
+      ) : (
+        <span className="min-w-0">{error}</span>
+      )}
     </div>
   );
 }
@@ -320,7 +357,7 @@ export function EmptyState({
   className,
 }: {
   title: string;
-  body?: string;
+  body?: ReactNode;
   action?: ReactNode;
   icon?: LucideIcon;
   className?: string;

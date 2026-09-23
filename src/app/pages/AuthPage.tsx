@@ -1,22 +1,103 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, authClient } from "../api";
-import { Button, ErrorBanner, Field, Input, onSubmit } from "../components/ui";
+import { useForm, type FieldErrors } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { api, ApiError, authClient, errorText } from "../api";
+import { Button, ErrorBanner } from "../components/ui";
+import { TextField, type ZodFormInput, type ZodFormOutput } from "../components/form-kit";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/logo";
 import { ModeToggle } from "@/components/mode-toggle";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/domain/form-schemas";
 
-export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "signup" | "forgot" }) {
-  const [mode, setMode] = useState<"login" | "signup" | "forgot">(initialMode);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [organizationName, setOrganizationName] = useState("");
+type AuthMode = "login" | "signup" | "forgot";
+
+/** Better Auth's default `maxPasswordLength` (src/lib/auth.ts keeps the defaults). */
+
+/** Better Auth checks every email with `z.email()` (sign in, sign up, and password reset). */
+function emailProblem(value: string): string | null {
+  if (!value.trim()) return "Enter your email.";
+  if (!z.email().safeParse(value.trim()).success) return "Enter a full email, like sam@example.com.";
+  return null;
+}
+
+/**
+ * What the server accepts for each mode:
+ * - Sign in: an email and any password (Better Auth checks it against the account).
+ * - Create org: POST /api/register (`src/routes/register.ts`) needs a name, an email, and an
+ *   organization; it trims the password, then it must be 8 to 128 characters.
+ * - Reset: an email.
+ */
+function authFormSchema(mode: AuthMode) {
+  return z
+    .object({
+      name: z.string(),
+      organizationName: z.string(),
+      email: z.string(),
+      password: z.string(),
+    })
+    .superRefine((values, ctx) => {
+      const flag = (path: "name" | "organizationName" | "email" | "password", message: string) =>
+        ctx.addIssue({ code: "custom", message, path: [path], input: values[path] });
+      if (mode === "signup") {
+        if (!values.name.trim()) flag("name", "Enter your name.");
+        if (!values.organizationName.trim()) flag("organizationName", "Enter a name for your organization.");
+      }
+      const email = emailProblem(values.email);
+      if (email) flag("email", email);
+      if (mode === "login" && !values.password) flag("password", "Enter your password.");
+      if (mode === "signup") {
+        const password = values.password.trim();
+        if (!password) flag("password", "Choose a password.");
+        else if (password.length < MIN_PASSWORD_LENGTH) {
+          flag("password", `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+        } else if (password.length > MAX_PASSWORD_LENGTH) {
+          flag("password", `Password must be ${MAX_PASSWORD_LENGTH} characters or fewer.`);
+        }
+      }
+    });
+}
+
+/** Better Auth's sign-in refusal in plain words; anything else shows as Better Auth words it. */
+function signInProblem(error: { code?: string; message?: string }, fallback: string): string {
+  if (error.code === "INVALID_EMAIL_OR_PASSWORD") {
+    return "That email and password do not match. Check both, or reset the password.";
+  }
+  return error.message || fallback;
+}
+
+type AuthFormValues = ZodFormOutput<ReturnType<typeof authFormSchema>>;
+type AuthFormInput = ZodFormInput<ReturnType<typeof authFormSchema>>;
+
+/** Top to bottom, as the fields sit on the card. */
+const FIELD_ORDER = ["name", "organizationName", "email", "password"] as const;
+
+export function AuthPage({ mode: initialMode = "login" }: { mode?: AuthMode }) {
+  const [mode, setMode] = useState<AuthMode>(initialMode);
+  const schema = useMemo(() => authFormSchema(mode), [mode]);
+  // useZodForm's settings, except the form does not move focus itself on a failed submit: it would
+  // pick the first field it ever registered (Email, when the page opened on Sign in), undoing
+  // focusFirstProblem below.
+  const form = useForm<AuthFormInput, unknown, AuthFormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: { name: "", organizationName: "", email: "", password: "" },
+    mode: "onTouched",
+    reValidateMode: "onChange",
+    shouldFocusError: false,
+  });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resetSent, setResetSent] = useState(false);
 
-  async function submit() {
+  // What was typed carries across modes; the inline messages start over.
+  const { clearErrors } = form;
+  useEffect(() => {
+    clearErrors();
+  }, [mode, clearErrors]);
+
+  async function submit(values: AuthFormValues) {
+    const { name, email, password, organizationName } = values;
     setError(null);
     setBusy(true);
     try {
@@ -25,13 +106,13 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
           email,
           redirectTo: `${window.location.origin}/reset-password`,
         });
-        if (result.error) throw new Error(result.error.message || "Could not send reset email");
+        if (result.error) throw new Error(result.error.message || "Could not send the reset email.");
         setResetSent(true);
         return;
       }
       if (mode === "login") {
         const result = await authClient.signIn.email({ email, password });
-        if (result.error) throw new Error(result.error.message || "Sign in failed");
+        if (result.error) throw new Error(signInProblem(result.error, "Could not sign in."));
       } else {
         const res = await fetch("/api/register", {
           method: "POST",
@@ -41,15 +122,21 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
         });
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         if (!res.ok) {
-          throw new Error(data.error || "Sign up failed");
+          throw new ApiError(data.error || "Could not create the organization.", res.status, data);
         }
       }
       window.location.assign("/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(errorText(err, "Something went wrong. Try again."));
     } finally {
       setBusy(false);
     }
+  }
+
+  /** Focus the top field with a message, in the order the fields sit on the card. */
+  function focusFirstProblem(errors: FieldErrors<AuthFormInput>) {
+    const first = FIELD_ORDER.find((name) => errors[name]);
+    if (first) form.setFocus(first);
   }
 
   async function loadDemo() {
@@ -61,10 +148,10 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
         email: demo.email,
         password: demo.password,
       });
-      if (result.error) throw new Error(result.error.message || "Demo sign in failed");
+      if (result.error) throw new Error(signInProblem(result.error, "Could not sign in to the demo."));
       window.location.assign("/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load demo");
+      setError(errorText(err, "Could not load the demo."));
     } finally {
       setBusy(false);
     }
@@ -128,7 +215,11 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
                 </Button>
               </div>
             ) : null}
-            <ErrorBanner error={error} />
+            {error ? (
+              <div className="mb-3">
+                <ErrorBanner error={error} />
+              </div>
+            ) : null}
             {mode === "forgot" && resetSent ? (
               <p className="text-sm text-muted-foreground">
                 If that email is on a warehouse, we sent a reset link. Check the inbox, then{" "}
@@ -138,35 +229,28 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: "login" | "si
                 .
               </p>
             ) : (
-              <form className="grid gap-3" onSubmit={onSubmit(submit)}>
+              <form className="grid gap-3" onSubmit={form.handleSubmit(submit, focusFirstProblem)}>
                 {mode === "signup" ? (
                   <>
-                    <Field label="Your name">
-                      <Input value={name} onChange={(e) => setName(e.target.value)} required />
-                    </Field>
-                    <Field label="Organization">
-                      <Input
-                        value={organizationName}
-                        onChange={(e) => setOrganizationName(e.target.value)}
-                        placeholder="Northwind Makers"
-                        required
-                      />
-                    </Field>
+                    <TextField form={form} name="name" label="Your name" autoComplete="name" />
+                    <TextField
+                      form={form}
+                      name="organizationName"
+                      label="Organization"
+                      placeholder="Northwind Makers"
+                      autoComplete="organization"
+                    />
                   </>
                 ) : null}
-                <Field label="Email">
-                  <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-                </Field>
+                <TextField form={form} name="email" label="Email" type="email" autoComplete="email" />
                 {mode !== "forgot" ? (
-                  <Field label="Password">
-                    <Input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      minLength={8}
-                      required
-                    />
-                  </Field>
+                  <TextField
+                    form={form}
+                    name="password"
+                    label="Password"
+                    type="password"
+                    autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                  />
                 ) : null}
                 {mode === "login" ? (
                   <button

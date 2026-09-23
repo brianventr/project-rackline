@@ -5,6 +5,8 @@ import { type InventoryRow } from "../api";
 import { Button, EmptyState, PageHeader } from "../components/ui";
 import { DataTable, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, Muted, RelativeTime, SkuCell } from "../components/cells";
+import { SampleDataButton } from "../components/onboarding";
+import { Term } from "../components/term";
 import { useApiQuery } from "../query";
 import { cn } from "@/lib/utils";
 import { useWarehouse, inWarehouse } from "../warehouse";
@@ -127,7 +129,11 @@ export function InventoryPage() {
       <PageHeader
         eyebrow="Stock"
         title="On hand"
-        description="Every unit sits in a location. ATP is on hand minus holds and reservations."
+        description={
+          <>
+            Every unit sits in a location. <Term id="atp" /> is on hand minus holds and reservations.
+          </>
+        }
       />
       <DataTable
         id="on-hand"
@@ -152,9 +158,12 @@ export function InventoryPage() {
             title="Nothing on hand yet."
             body="Stock shows here once a receipt is put away into a bay."
             action={
-              <Button size="sm" asChild>
-                <Link to="/inbound/receipts">Go to receipts</Link>
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button size="sm" asChild>
+                  <Link to="/inbound/receipts">Go to receipts</Link>
+                </Button>
+                <SampleDataButton />
+              </div>
             }
           />
         }

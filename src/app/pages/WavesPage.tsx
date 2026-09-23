@@ -1,21 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, ClipboardList, Layers, Plus, ScanLine, Send } from "lucide-react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { CheckCircle2, ClipboardList, Layers, Plus, ScanLine, Send, Waves } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Wave, type WaveOpenOrder, type WaveOrderLine } from "../api";
-import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorBanner,
-  Field,
-  Input,
-  PageHeader,
-  Select,
-  StatusBadge,
-  Table,
-  ToneBadge,
-} from "../components/ui";
+import { z } from "zod";
+import { api, errorText, type Wave, type WaveOpenOrder, type WaveOrderLine } from "../api";
+import { Button, Card, EmptyState, ErrorBanner, PageHeader, StatusBadge, Table, ToneBadge } from "../components/ui";
 import {
   DetailSkeleton,
   DocumentActivity,
@@ -28,9 +17,13 @@ import {
 import { DataTable, type BulkAction, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, LineChips, Muted, ProgressCell, RelativeTime, SkuCell, ProgressRow } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { SelectField, TextField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
+import { choiceOf, optionalText } from "@/domain/form-schemas";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { WAVE_STEPS, canCompleteWave, canReleaseWave, isOpenWave } from "@/domain/status";
@@ -131,7 +124,10 @@ function WaveList() {
         void refreshApi();
         const failed = results.filter((result) => result.status === "rejected") as PromiseRejectedResult[];
         if (failed.length) {
-          toast.error(`${failed.length} could not release: ${failed[0]!.reason instanceof Error ? failed[0]!.reason.message : "error"}`);
+          // The count leads; the server's own sentence (and its fix) goes underneath, unwrapped.
+          toast.error(`${failed.length} could not release.`, {
+            description: errorText(failed[0]!.reason, "Something went wrong. Try again."),
+          });
         }
         const released = selected.length - failed.length;
         if (released) toast.success(`Released ${released} ${released === 1 ? "wave" : "waves"} to the floor.`);
@@ -144,7 +140,12 @@ function WaveList() {
       <PageHeader
         eyebrow="Outbound"
         title="Waves"
-        description="Group open orders into a wave or batch pick, release to the floor, then complete."
+        description={
+          <>
+            Group open orders into a <Term id="wave">wave</Term> or <Term id="batch-pick">batch pick</Term>, release to
+            the floor, then complete.
+          </>
+        }
       />
       <DataTable
         id="waves"
@@ -172,7 +173,7 @@ function WaveList() {
         }
         empty={
           <EmptyState
-            icon={Layers}
+            icon={Waves}
             title="No waves yet."
             body="Group open orders so one picker walks the floor once. Batch mode adds up SKUs across orders."
             action={
@@ -188,47 +189,58 @@ function WaveList() {
   );
 }
 
+/** POST /api/waves (`src/routes/waves.ts`): at least one order. The server reads any mode but batch as wave. */
+const waveFormSchema = z.object({
+  mode: choiceOf(["wave", "batch"], "Pick wave or batch."),
+  notes: optionalText,
+  orderIds: z.array(z.string()).min(1, "Pick at least one order for the wave."),
+});
+
+const WAVE_MODE_OPTIONS = [
+  { value: "wave", label: "Wave (pick per order)" },
+  { value: "batch", label: "Batch (aggregate SKUs)" },
+];
+
 function NewWaveSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
   const query = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : "";
   const openOrders = useApiQuery<WaveOpenOrder[]>(open ? `/api/waves-open-orders${query}` : null);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [mode, setMode] = useState<"wave" | "batch">("wave");
-  const [notes, setNotes] = useState("");
+  const form = useZodForm(waveFormSchema, { mode: "wave", notes: "", orderIds: [] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const listLabelId = useId();
 
+  // Keep what was picked between opens, but start each open without stale inline errors.
+  const { reset, getValues, watch } = form;
+  useEffect(() => {
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  const selected = watch("orderIds");
   const available = openOrders.data ?? [];
   const allSelected = available.length > 0 && available.every((order) => selected.includes(order.id));
 
-  function toggle(orderId: string) {
-    setSelected((current) => (current.includes(orderId) ? current.filter((id) => id !== orderId) : [...current, orderId]));
-  }
-
-  async function create() {
-    if (selected.length === 0) {
-      setError("Pick at least one order for the wave.");
-      return;
-    }
+  async function create(values: ZodFormOutput<typeof waveFormSchema>) {
     setError(null);
     setBusy(true);
     try {
+      // Same body as before: notes trimmed and left out when blank.
       const created = await apiMutate<Wave>("/api/waves", {
         body: JSON.stringify({
           warehouseId,
-          mode,
-          notes: notes.trim() || undefined,
-          orderIds: selected,
+          mode: values.mode,
+          notes: values.notes.trim() || undefined,
+          orderIds: values.orderIds,
         }),
       });
-      toast.success(`Wave ${created.number} created with ${selected.length} ${selected.length === 1 ? "order" : "orders"}.`);
-      setSelected([]);
-      setNotes("");
+      const count = values.orderIds.length;
+      toast.success(`Wave ${created.number} created with ${count} ${count === 1 ? "order" : "orders"}.`);
+      reset({ mode: values.mode, notes: "", orderIds: [] }, { keepDefaultValues: true });
       onOpenChange(false);
       navigate(`/outbound/waves/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create wave");
+      setError(errorText(err, "Could not create the wave."));
     } finally {
       setBusy(false);
     }
@@ -241,56 +253,83 @@ function NewWaveSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (op
       title="New wave"
       description="Pick open orders that are not on a wave yet. Release sends them to the floor."
       submitLabel={selected.length ? `Create wave (${selected.length})` : "Create wave"}
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
       wide
     >
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Mode">
-          <Select value={mode} onChange={(e) => setMode(e.target.value as "wave" | "batch")}>
-            <option value="wave">Wave (pick per order)</option>
-            <option value="batch">Batch (aggregate SKUs)</option>
-          </Select>
-        </Field>
-        <Field label="Notes">
-          <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
-        </Field>
+        <SelectField form={form} name="mode" label="Mode" options={WAVE_MODE_OPTIONS} />
+        <TextField form={form} name="notes" label="Notes" placeholder="Optional" />
       </div>
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-medium">Open orders</p>
-          {available.length > 1 ? (
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() => setSelected(allSelected ? [] : available.map((order) => order.id))}
-            >
-              {allSelected ? "Clear" : "Select all"}
-            </Button>
-          ) : null}
-        </div>
-        {openOrders.isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : available.length === 0 ? (
-          <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-            No open orders without a wave.
-          </p>
-        ) : (
-          <ul className="divide-y rounded-lg border">
-            {available.map((order) => (
-              <li key={order.id}>
-                <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted/60">
-                  <Checkbox checked={selected.includes(order.id)} onCheckedChange={() => toggle(order.id)} />
-                  <span className="font-mono font-medium">{order.number}</span>
-                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{order.customerName}</span>
-                  <RelativeTime at={order.createdAt} className="text-xs" />
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      <Form {...form}>
+        <FormField
+          control={form.control}
+          name="orderIds"
+          render={({ field }) => {
+            const ids = field.value;
+            const toggle = (orderId: string) =>
+              field.onChange(ids.includes(orderId) ? ids.filter((id) => id !== orderId) : [...ids, orderId]);
+            return (
+              <FormItem className="gap-1.5 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <p id={listLabelId} className="text-sm font-medium">
+                    Open orders
+                  </p>
+                  {available.length > 1 ? (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => field.onChange(allSelected ? [] : available.map((order) => order.id))}
+                    >
+                      {allSelected ? "Clear" : "Select all"}
+                    </Button>
+                  ) : null}
+                </div>
+                {openOrders.isLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading…</p>
+                ) : available.length === 0 ? (
+                  <EmptyState
+                    icon={ClipboardList}
+                    className="py-6"
+                    title="No open orders to wave."
+                    body="An order can join a wave while it is open and not on another wave."
+                    action={
+                      <Button size="sm" asChild>
+                        <Link to="/outbound/orders?new=1">New order</Link>
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <FormControl>
+                    <ul
+                      role="group"
+                      aria-labelledby={listLabelId}
+                      className="divide-y rounded-lg border aria-invalid:border-destructive"
+                    >
+                      {available.map((order, index) => (
+                        <li key={order.id}>
+                          <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted/60">
+                            <Checkbox
+                              ref={index === 0 ? field.ref : undefined}
+                              checked={ids.includes(order.id)}
+                              onCheckedChange={() => toggle(order.id)}
+                            />
+                            <span className="font-mono font-medium">{order.number}</span>
+                            <span className="min-w-0 flex-1 truncate text-muted-foreground">{order.customerName}</span>
+                            <RelativeTime at={order.createdAt} className="text-xs" />
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  </FormControl>
+                )}
+                <FormMessage />
+              </FormItem>
+            );
+          }}
+        />
+      </Form>
     </FormSheet>
   );
 }
@@ -311,7 +350,7 @@ function WaveDetail({ id }: { id: string }) {
   useEffect(() => {
     api<Wave>(`/api/waves/${id}`)
       .then(setWave)
-      .catch((err: Error) => setLoadError(err.message));
+      .catch((err: unknown) => setLoadError(errorText(err, "Could not load this wave.")));
   }, [id]);
 
   if (!wave) {
@@ -426,7 +465,11 @@ function WaveDetail({ id }: { id: string }) {
 
           <TabsContent value="orders">
             {orders.length === 0 ? (
-              <EmptyState icon={ClipboardList} title="No orders on this wave." />
+              <EmptyState
+                icon={ClipboardList}
+                title="No orders on this wave."
+                body="Orders join a wave when it is created and cannot be added later."
+              />
             ) : (
               <Table columns={["Order", "Customer", "Lines", "Picked", "Status"]}>
                 {orders.map((order) => {
@@ -458,7 +501,7 @@ function WaveDetail({ id }: { id: string }) {
             <TabsContent value="batch">
               {batchLines.length === 0 ? (
                 <EmptyState
-                  icon={Layers}
+                  icon={Waves}
                   title="Batch lines appear on release."
                   body="Release adds up each SKU across the orders so the picker grabs it once."
                 />

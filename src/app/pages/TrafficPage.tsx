@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, ChevronsUpDown, Radar } from "lucide-react";
-import { api, type Item, type TrafficDestination, type TrafficGrain, type TrafficHorizon, type TrafficSnapshot } from "../api";
-import { ErrorBanner } from "../components/ui";
+import { api, errorText, type Item, type TrafficDestination, type TrafficGrain, type TrafficHorizon, type TrafficSnapshot } from "../api";
+import { EmptyState, ErrorBanner } from "../components/ui";
 import { useWarehouse } from "../warehouse";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -58,7 +58,7 @@ export function TrafficPage() {
         setError(null);
         if (!frameTouched) setFrame(frameForSnapshot(next));
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load traffic");
+        if (!cancelled) setError(errorText(err, "Could not load traffic."));
       }
     }
     load();
@@ -210,8 +210,25 @@ export function TrafficPage() {
             <p className="text-xs text-cyan-200/60">Ranked by units of the filtered SKUs</p>
           </div>
           <div className="min-h-0 flex-1 overflow-auto">
-            {(data?.destinations ?? []).length === 0 ? (
-              <p className="px-4 py-6 text-sm text-cyan-200/60">No mapped shipments in this horizon.</p>
+            {!data ? null : data.destinations.length === 0 ? (
+              <EmptyState
+                icon={Radar}
+                title="No mapped shipments in this horizon."
+                body="Shipped orders land here once they have a ship-to city or state."
+                action={
+                  horizon !== "30d" ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-cyan-400/30 bg-cyan-950/40 text-cyan-100 hover:bg-cyan-900/50 hover:text-cyan-50"
+                      onClick={() => setHorizon("30d")}
+                    >
+                      Show 30 days
+                    </Button>
+                  ) : undefined
+                }
+                className="m-4 border-cyan-400/20 bg-transparent px-4 py-8 [&>div:first-child]:bg-cyan-400/10 [&>div:first-child]:text-cyan-300 [&>p:nth-of-type(2)]:text-cyan-200/60"
+              />
             ) : (
               <ul>
                 {(data?.destinations ?? []).map((row) => (

@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useWatch } from "react-hook-form";
 import { ArrowRightLeft, Hammer, Map as MapIcon, MapPin, Plus, Printer, Tags, Trash2 } from "lucide-react";
-import { api, type InventoryRow, type Location, type Me } from "../api";
+import { api, errorText, type InventoryRow, type Location, type Me } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
-import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Table, ToneBadge } from "../components/ui";
+import { Button, Card, EmptyState, ErrorBanner, PageHeader, Table, ToneBadge } from "../components/ui";
+import { NumberField, SelectField, TextField, useZodForm, type ZodFormInput, type ZodFormOutput } from "../components/form-kit";
+import { SampleDataButton } from "../components/onboarding";
+import { Term } from "../components/term";
 import {
   DetailSkeleton,
   DocumentFact,
@@ -20,6 +24,7 @@ import { useWrite } from "../use-write";
 import { toast } from "sonner";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { usePrint } from "../print/PrintProvider";
+import { FORM_LOCATION_TYPES, locationFormSchema, wholeNumber } from "@/domain/form-schemas";
 
 const types = ["receiving", "storage", "production", "shipping"];
 
@@ -204,9 +209,10 @@ function LocationList({ me }: { me: Me }) {
               void refreshApi();
               const failed = results.filter((result) => result.status === "rejected") as PromiseRejectedResult[];
               if (failed.length) {
-                toast.error(
-                  `${failed.length} could not be deleted: ${failed[0]!.reason instanceof Error ? failed[0]!.reason.message : "error"}`,
-                );
+                // The count leads; the server's own sentence (and its fix) goes underneath, unwrapped.
+                toast.error(`${failed.length} could not be deleted.`, {
+                  description: errorText(failed[0]!.reason, "Something went wrong. Try again."),
+                });
               }
               const deleted = selected.length - failed.length;
               if (deleted) toast.success(`Deleted ${deleted} ${deleted === 1 ? "location" : "locations"}.`);
@@ -344,6 +350,7 @@ function LocationList({ me }: { me: Me }) {
                 <Button size="sm" onClick={() => setCreating(true)}>
                   New location
                 </Button>
+                <SampleDataButton />
                 <Button size="sm" variant="outline" asChild>
                   <Link to="/map?edit=1">Build floor</Link>
                 </Button>
@@ -357,48 +364,80 @@ function LocationList({ me }: { me: Me }) {
   );
 }
 
+const LOCATION_TYPE_OPTIONS = FORM_LOCATION_TYPES.map((value) => ({ value, label: capitalize(value) }));
+const SLOT_ROLE_OPTIONS = [
+  { value: "none", label: "None" },
+  { value: "pick", label: "Pick face" },
+  { value: "bulk", label: "Bulk" },
+];
+
+/**
+ * POST /api/locations. Blank level keeps sending 0 as the sheet always did (`Number("")`); the
+ * server lifts anything below 1 to 1, so the bay lands on level 1 either way.
+ */
+const newLocationSchema = locationFormSchema.extend({
+  level: wholeNumber(1, {
+    blankAs: 0,
+    notWhole: "Level must be a whole number.",
+    tooSmall: "Level must be 1 or more.",
+  }),
+});
+
+type NewLocationInput = ZodFormInput<typeof newLocationSchema>;
+type NewLocationValues = ZodFormOutput<typeof newLocationSchema>;
+
+const NEW_LOCATION_DEFAULTS: NewLocationInput = {
+  code: "",
+  name: "",
+  type: "storage",
+  slotRole: "none",
+  aisle: "A",
+  rack: "01",
+  bay: "01",
+  level: "1",
+};
+
 function NewLocationSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { warehouseId } = useWarehouse();
   const { error, setError, busy, run } = useWrite();
-  const [code, setCode] = useState("");
-  const [name, setName] = useState("");
-  const [type, setType] = useState("storage");
-  const [slotRole, setSlotRole] = useState("none");
-  const [aisle, setAisle] = useState("A");
-  const [rack, setRack] = useState("01");
-  const [bay, setBay] = useState("01");
-  const [level, setLevel] = useState("1");
+  const form = useZodForm(newLocationSchema, NEW_LOCATION_DEFAULTS);
+  const type = useWatch({ control: form.control, name: "type" });
 
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
   useEffect(() => {
-    if (open) setError(null);
-  }, [open, setError]);
+    if (!open) return;
+    setError(null);
+    reset(getValues(), { keepDefaultValues: true });
+  }, [open, setError, reset, getValues]);
 
-  async function create() {
+  async function create(values: NewLocationValues) {
+    const storage = values.type === "storage";
     const created = await run(
       "Create location",
       async () => {
-        if (!warehouseId) throw new Error("Create a warehouse first");
+        if (!warehouseId) throw new Error("Create a warehouse first.");
         return api<Location>("/api/locations", {
           method: "POST",
           body: JSON.stringify({
             warehouseId,
-            code,
-            name,
-            type,
-            barcode: code,
-            slotRole: type === "storage" ? slotRole : "none",
-            aisle: type === "storage" ? aisle : undefined,
-            rack: type === "storage" ? rack : undefined,
-            bay: type === "storage" ? bay : undefined,
-            level: Number(level),
+            code: values.code,
+            name: values.name,
+            type: values.type,
+            barcode: values.code,
+            slotRole: storage ? values.slotRole : "none",
+            aisle: storage ? values.aisle : undefined,
+            rack: storage ? values.rack : undefined,
+            bay: storage ? values.bay : undefined,
+            level: values.level,
           }),
         });
       },
-      (row) => `Location ${row?.code ?? code} added.`,
+      (row) => `Location ${row?.code ?? values.code} added.`,
     );
     if (!created) return;
-    setCode("");
-    setName("");
+    // Clear the code and name for the next bay; keep type, slot, and position to speed up a run of bays.
+    reset({ ...getValues(), code: "", name: "" }, { keepDefaultValues: true });
     onOpenChange(false);
   }
 
@@ -409,55 +448,38 @@ function NewLocationSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
       title="New location"
       description="A dock, bay, or work cell. The code prints as its barcode."
       submitLabel="Add location"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Code">
-          <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="A-01-04" required autoFocus />
-        </Field>
-        <Field label="Type">
-          <Select value={type} onChange={(e) => setType(e.target.value)}>
-            {types.map((value) => (
-              <option key={value} value={value}>
-                {capitalize(value)}
-              </option>
-            ))}
-          </Select>
-        </Field>
+      <div className="grid items-start gap-3 sm:grid-cols-2">
+        <TextField form={form} name="code" label="Code" placeholder="A-01-04" autoFocus />
+        <SelectField form={form} name="type" label="Type" options={LOCATION_TYPE_OPTIONS} />
       </div>
-      <Field label="Name">
-        <Input value={name} onChange={(e) => setName(e.target.value)} required />
-      </Field>
+      <TextField form={form} name="name" label="Name" />
       {type === "storage" ? (
         <>
-          <Field label="Slot role">
-            <Select value={slotRole} onChange={(e) => setSlotRole(e.target.value)}>
-              <option value="none">None</option>
-              <option value="pick">Pick face</option>
-              <option value="bulk">Bulk</option>
-            </Select>
-          </Field>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Field label="Aisle">
-              <Input value={aisle} onChange={(e) => setAisle(e.target.value)} placeholder="A" />
-            </Field>
-            <Field label="Rack">
-              <Input value={rack} onChange={(e) => setRack(e.target.value)} placeholder="01" />
-            </Field>
-            <Field label="Bay">
-              <Input value={bay} onChange={(e) => setBay(e.target.value)} placeholder="01" />
-            </Field>
-            <Field label="Level">
-              <Input type="number" min={1} value={level} onChange={(e) => setLevel(e.target.value)} />
-            </Field>
+          <SelectField
+            form={form}
+            name="slotRole"
+            label="Slot role"
+            options={SLOT_ROLE_OPTIONS}
+            description={
+              <>
+                Pickers take stock from a <Term id="pick-face">pick face</Term>. A <Term id="bulk-bay">bulk bay</Term> holds the
+                extra that tops it up.
+              </>
+            }
+          />
+          <div className="grid grid-cols-2 items-start gap-3 sm:grid-cols-4">
+            <TextField form={form} name="aisle" label="Aisle" placeholder="A" />
+            <TextField form={form} name="rack" label="Rack" placeholder="01" />
+            <TextField form={form} name="bay" label="Bay" placeholder="01" />
+            <NumberField form={form} name="level" label="Level" min={1} />
           </div>
         </>
       ) : (
-        <Field label="Level">
-          <Input type="number" min={1} value={level} onChange={(e) => setLevel(e.target.value)} />
-        </Field>
+        <NumberField form={form} name="level" label="Level" min={1} />
       )}
     </FormSheet>
   );

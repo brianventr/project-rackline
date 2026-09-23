@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ClipboardCheck, ListChecks, Play, Plus, ScanLine } from "lucide-react";
-import { api, type CycleCount, type Item, type Location } from "../api";
+import { z } from "zod";
+import { Calculator, ClipboardCheck, Play, Plus, ScanLine } from "lucide-react";
+import { api, errorText, type CycleCount, type Item, type Location } from "../api";
 import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table } from "../components/ui";
+import { SelectField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import {
   DetailSkeleton,
   DocumentActivity,
@@ -19,6 +22,7 @@ import { useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { cn } from "@/lib/utils";
 import { COUNT_STEPS, canPostCount, isOpenCount } from "@/domain/status";
+import { requiredChoice } from "@/domain/form-schemas";
 import { allLinesEntered, countVariance, formatCountVariance, isBlindCount, isCountEntered } from "@/domain/blind-count";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
@@ -92,7 +96,12 @@ function CountList() {
       <PageHeader
         eyebrow="Stock"
         title="Cycle counts"
-        description="Blind-count a bay, then post. Scan or add a SKU that was not on the snapshot. System qty and variance stay hidden until the count is posted."
+        description={
+          <>
+            <Term id="blind-count">Blind-count</Term> a bay, then post. Scan or add a SKU that was not on the snapshot. System
+            qty and <Term id="variance">variance</Term> stay hidden until the count is posted.
+          </>
+        }
       />
       <DataTable
         id="cycle-counts"
@@ -118,9 +127,14 @@ function CountList() {
         }
         empty={
           <EmptyState
-            icon={ListChecks}
+            icon={Calculator}
             title="No counts yet."
-            body="Count a bay to check the system against the shelf. Variances post to the ledger as adjustments."
+            body={
+              <>
+                Count a bay to check the system against the shelf. Variances post to the ledger as{" "}
+                <Term id="adjustment">adjustments</Term>.
+              </>
+            }
             action={
               <Button size="sm" onClick={() => setCreating(true)}>
                 Start count
@@ -134,31 +148,42 @@ function CountList() {
   );
 }
 
+/** POST /api/cycle-counts (`src/routes/floor.ts`): the bay to count. The warehouse comes from the top bar. */
+const newCountSchema = z.object({
+  locationId: requiredChoice("Pick a bay to count."),
+});
+
 function NewCountSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
   const locations = useApiQuery<Location[]>(open ? "/api/locations" : null);
-  const [locationId, setLocationId] = useState("");
+  const form = useZodForm(newCountSchema, { locationId: "" });
   const { error, setError, busy, run } = useWrite();
 
+  // Keep the last choice between opens, but start each open without stale inline errors.
+  const { reset, getValues, setValue } = form;
   useEffect(() => {
-    if (open) setError(null);
-  }, [open, setError]);
+    if (!open) return;
+    setError(null);
+    reset(getValues(), { keepDefaultValues: true });
+  }, [open, setError, reset, getValues]);
 
+  // Preselect the first storage bay (else the first bay) once the list loads, as before.
   useEffect(() => {
     const list = locations.data ?? [];
+    const locationId = getValues("locationId");
     if (locationId && list.some((location) => location.id === locationId)) return;
     const storage = list.find((location) => location.type === "storage") ?? list[0];
-    if (storage) setLocationId(storage.id);
-  }, [locations.data, locationId]);
+    if (storage) setValue("locationId", storage.id);
+  }, [locations.data, getValues, setValue]);
 
-  async function start() {
+  async function start(values: ZodFormOutput<typeof newCountSchema>) {
     const created = await run(
       "Start count",
       () =>
         api<CycleCount>("/api/cycle-counts", {
           method: "POST",
-          body: JSON.stringify({ warehouseId, locationId }),
+          body: JSON.stringify({ warehouseId, locationId: values.locationId }),
         }),
       (count) => `Count ${count.number} started. The bay is snapshotted blind.`,
     );
@@ -167,6 +192,11 @@ function NewCountSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o
     navigate(`/stock/counts/${created.id}`);
   }
 
+  const options = (locations.data ?? []).map((location) => ({
+    value: location.id,
+    label: `${location.code} — ${location.name}`,
+  }));
+
   return (
     <FormSheet
       open={open}
@@ -174,19 +204,17 @@ function NewCountSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o
       title="Start count"
       description="Snapshots what the system thinks is in the bay. Counters see SKUs, not quantities."
       submitLabel="Start count"
-      onSubmit={start}
+      onSubmit={form.handleSubmit(start)}
       busy={busy}
       error={error ?? locations.error?.message ?? null}
     >
-      <Field label="Location">
-        <Select value={locationId} onChange={(e) => setLocationId(e.target.value)} disabled={locations.isLoading}>
-          {(locations.data ?? []).map((location) => (
-            <option key={location.id} value={location.id}>
-              {location.code} — {location.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      <SelectField
+        form={form}
+        name="locationId"
+        label="Location"
+        options={options}
+        placeholder={options.length ? undefined : locations.isLoading ? "Loading bays…" : "No bays yet"}
+      />
     </FormSheet>
   );
 }
@@ -205,7 +233,7 @@ function CountDetail({ id }: { id: string }) {
         setActive(count);
         setItems(nextItems);
       })
-      .catch((err: Error) => setLoadError(err.message));
+      .catch((err: unknown) => setLoadError(errorText(err, "Could not load this count. Try again.")));
   }, [id]);
 
   async function start() {
@@ -395,7 +423,7 @@ function CountDetail({ id }: { id: string }) {
         ) : null}
         {lines.length === 0 ? (
           <EmptyState
-            icon={ListChecks}
+            icon={Calculator}
             title="Nothing on the snapshot."
             body={editable ? "Confirm the bay is empty, or add a SKU you found." : "The bay was counted empty."}
           />

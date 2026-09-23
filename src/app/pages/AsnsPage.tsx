@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowDownToLine, ArrowRightLeft, CalendarCheck, ClipboardPaste, Package, Plus, ScanLine, Undo2 } from "lucide-react";
+import { ArrowDownToLine, ArrowRightLeft, CalendarCheck, ClipboardPaste, FileInput, Plus, ScanLine, Undo2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Asn, type AsnPackage, type Item, type Location, type Purchase } from "../api";
+import { z } from "zod";
+import { api, errorText, type Asn, type AsnPackage, type Item, type Location, type Purchase } from "../api";
 import { Button, EmptyState, ErrorBanner, Field, Input, PageHeader, StatusBadge, Table, ToneBadge, summarizeLines } from "../components/ui";
 import { BayCombobox } from "../components/BayCombobox";
 import {
@@ -19,19 +20,21 @@ import {
 import { DataTable, type BulkAction, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, LineChips, Muted, ProgressCell, ProgressRow, RelativeTime, SkuCell } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { LinesField, TextField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import { apiMutate, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { STEP_RULES } from "@/domain/step-stamps";
+import { asnFormSchema, blankLine } from "@/domain/form-schemas";
 import { ASN_STEPS, canExpectAsn, canReceiveAsn, isOpenAsn } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
 import { useWarehouse, inWarehouse } from "../warehouse";
-import { LineFields, LinesBar, RailCard, countOf, runEach, unitCount } from "./ReceiptsPage";
+import { LinesBar, RailCard, countOf, runEach, unitCount } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { ExpiryInput, parseExpiryInput } from "../components/expiry-field";
-
-type Line = { itemId: string; qty: string };
 
 export function AsnsPage() {
   const { id } = useParams();
@@ -166,7 +169,11 @@ function AsnList() {
       <PageHeader
         eyebrow="Inbound"
         title="ASNs"
-        description="Advance ship notices from vendors. Expect them, then receive onto the dock."
+        description={
+          <>
+            <Term id="asn">Advance ship notices</Term> from vendors. Expect them, then receive onto the dock.
+          </>
+        }
       />
       <DataTable
         id="asns"
@@ -203,9 +210,9 @@ function AsnList() {
         }
         empty={
           <EmptyState
-            icon={Package}
+            icon={FileInput}
             title="No ASNs yet."
-            body="An ASN is the vendor's notice of what is on the truck. Sending a purchase creates one, or add it by hand."
+            body="An ASN is the vendor's notice of what is on the truck, created when you send a purchase or added here by hand."
             action={
               <Button size="sm" onClick={() => setCreating(true)}>
                 New ASN
@@ -223,29 +230,34 @@ function NewAsnSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
-  const [vendorName, setVendorName] = useState("");
-  const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
+  const form = useZodForm(asnFormSchema, { vendorName: "", notes: "", lines: [blankLine()] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function create() {
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
+  useEffect(() => {
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  async function create(values: ZodFormOutput<typeof asnFormSchema>) {
     setError(null);
     setBusy(true);
     try {
+      // Same body as before: text as typed, blank rows already dropped, qty already a number.
       const created = await apiMutate<Asn>("/api/asns", {
         body: JSON.stringify({
           warehouseId,
-          vendorName,
-          notes,
-          lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
+          vendorName: values.vendorName,
+          notes: values.notes,
+          lines: values.lines.map((line) => ({ itemId: line.itemId, qty: line.qty })),
         }),
       });
       toast.success(`ASN ${created.number} created.`);
       onOpenChange(false);
       navigate(`/inbound/asns/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create ASN");
+      setError(errorText(err, "Could not create the ASN."));
     } finally {
       setBusy(false);
     }
@@ -258,20 +270,13 @@ function NewAsnSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
       title="New ASN"
       description="What the vendor says is on the truck. Mark it expected, then receive on the dock."
       submitLabel="Create ASN"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <Field label="Vendor">
-        <Input value={vendorName} onChange={(e) => setVendorName(e.target.value)} required placeholder="Harbor Components" autoFocus />
-      </Field>
-      <Field label="Notes">
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Trailer, PO ref, packing slip" />
-      </Field>
-      <div className="space-y-1.5">
-        <p className="text-sm font-medium">Lines</p>
-        <LineFields items={items.data ?? []} lines={lines} setLines={setLines} />
-      </div>
+      <TextField form={form} name="vendorName" label="Vendor" placeholder="Harbor Components" autoFocus />
+      <TextField form={form} name="notes" label="Notes" placeholder="Trailer, PO ref, packing slip" />
+      <LinesField form={form} name="lines" items={items.data ?? []} />
     </FormSheet>
   );
 }
@@ -572,9 +577,14 @@ function AsnDetail({ id }: { id: string }) {
           <TabsContent value="cartons" className="space-y-3">
             {!hasCartons ? (
               <EmptyState
-                icon={Package}
+                icon={FileInput}
                 title="No vendor cartons yet."
-                body="Paste the vendor's carton list to receive one box at a time. Loose receive still works without it."
+                body={
+                  <>
+                    Paste the vendor's list of <Term id="sscc">cartons</Term> to receive one box at a time, or receive loose
+                    lines without it.
+                  </>
+                }
                 action={
                   open ? (
                     <Button size="sm" variant="outline" onClick={() => setPasting(true)}>
@@ -692,6 +702,38 @@ function AsnDetail({ id }: { id: string }) {
   );
 }
 
+/**
+ * The pasted carton list. Blank text, broken JSON, and anything that is not a list of cartons are
+ * caught here, as before; the server still checks each carton's lines. An empty list is sent as is:
+ * the server turns `[]` into one carton holding every remaining line (it only refuses when nothing
+ * is left to carton).
+ */
+const pasteCartonsSchema = z.object({
+  paste: z.string().transform((value, ctx): unknown[] => {
+    if (!value.trim()) {
+      ctx.addIssue({ code: "custom", message: "Paste the vendor's carton list.", input: value });
+      return z.NEVER;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      ctx.addIssue({ code: "custom", message: "This is not valid JSON. Check the brackets, commas, and quotes.", input: value });
+      return z.NEVER;
+    }
+    const cartons = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === "object" && "cartons" in parsed
+        ? (parsed as { cartons: unknown }).cartons
+        : null;
+    if (!Array.isArray(cartons)) {
+      ctx.addIssue({ code: "custom", message: "Paste a list of cartons: [ { … }, { … } ].", input: value });
+      return z.NEVER;
+    }
+    return cartons;
+  }),
+});
+
 function PasteCartonsSheet({
   asnId,
   open,
@@ -703,30 +745,30 @@ function PasteCartonsSheet({
   onOpenChange: (open: boolean) => void;
   onAdded: (next: Asn, added: number) => void;
 }) {
-  const [paste, setPaste] = useState("");
+  const form = useZodForm(pasteCartonsSchema, { paste: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit() {
+  // Keep what was pasted between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
+  useEffect(() => {
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  async function submit(values: ZodFormOutput<typeof pasteCartonsSchema>) {
     setError(null);
     setBusy(true);
     try {
-      if (!paste.trim()) throw new Error("Paste the vendor's carton JSON first");
-      const parsed = JSON.parse(paste) as unknown;
-      const cartons = Array.isArray(parsed)
-        ? parsed
-        : parsed && typeof parsed === "object" && "cartons" in parsed
-          ? (parsed as { cartons: unknown }).cartons
-          : null;
-      if (!Array.isArray(cartons)) throw new Error("Paste a JSON array of cartons");
+      // Same body as before: the parsed list, whether it was pasted bare or as { "cartons": [...] }.
+      const cartons = values.paste;
       const next = await apiMutate<Asn>(`/api/asns/${asnId}/packages`, {
         body: JSON.stringify({ cartons }),
       });
-      setPaste("");
+      reset({ paste: "" });
       onOpenChange(false);
       onAdded(next, cartons.length);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not paste cartons");
+      setError(errorText(err, "Could not add the cartons."));
     } finally {
       setBusy(false);
     }
@@ -739,21 +781,32 @@ function PasteCartonsSheet({
       title="Paste vendor cartons"
       description="JSON boxes from the vendor, no X12. Lines may include lotCode, serials, weightGrams, and expiresOn. The floor then receives one carton at a time."
       submitLabel="Add cartons"
-      onSubmit={submit}
+      onSubmit={form.handleSubmit(submit)}
       busy={busy}
       error={error}
       wide
     >
-      <Field label="Cartons">
-        <Textarea
-          value={paste}
-          onChange={(e) => setPaste(e.target.value)}
-          rows={12}
-          className="font-mono text-xs"
-          placeholder='[{"sscc":"00012345678901234567","lines":[{"sku":"LED-BULB","qty":10,"lotCode":"LOT-2026-A"}]}]'
-          autoFocus
+      <Form {...form}>
+        <FormField
+          control={form.control}
+          name="paste"
+          render={({ field }) => (
+            <FormItem className="text-sm">
+              <FormLabel>Cartons</FormLabel>
+              <FormControl>
+                <Textarea
+                  {...field}
+                  rows={12}
+                  className="font-mono text-xs"
+                  placeholder='[{"sscc":"00012345678901234567","lines":[{"sku":"LED-BULB","qty":10,"lotCode":"LOT-2026-A"}]}]'
+                  autoFocus
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
         />
-      </Field>
+      </Form>
     </FormSheet>
   );
 }

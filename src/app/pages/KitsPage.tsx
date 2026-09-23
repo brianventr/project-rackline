@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { BookOpen, CheckCircle2, PackagePlus, Plus, ScanLine, Undo2 } from "lucide-react";
+import { BookOpen, CheckCircle2, ListTree, Plus, Puzzle, ScanLine, Undo2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Item, type KitBuild, type Location } from "../api";
-import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge } from "../components/ui";
+import { api, errorText, type Item, type KitBuild, type Location } from "../api";
+import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, StatusBadge } from "../components/ui";
 import {
   DetailSkeleton,
   DocumentActivity,
@@ -16,12 +16,15 @@ import {
 import { DataTable, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, ProgressCell, RelativeTime, SkuCell, ProgressRow } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { NumberField, SelectField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import { AsBuiltList } from "../components/as-built";
 import { KitRecipeCard } from "../components/kit-recipe";
 import { apiMutate, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { STEP_RULES } from "@/domain/step-stamps";
+import { kitFormSchema } from "@/domain/form-schemas";
 import { KIT_STEPS, canCompleteKit, canDekit } from "@/domain/status";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
@@ -99,7 +102,12 @@ function KitList() {
       <PageHeader
         eyebrow="Make"
         title="Kits"
-        description="Assemble a finished SKU from its recipe. Complete a partial qty; dekit a finished build."
+        description={
+          <>
+            Assemble a finished SKU from its <Term id="recipe">recipe</Term>. Complete a partial qty;{" "}
+            <Term id="dekit">dekit</Term> a finished build.
+          </>
+        }
       />
       <DataTable
         id="kits"
@@ -126,9 +134,13 @@ function KitList() {
         }
         empty={
           <EmptyState
-            icon={PackagePlus}
+            icon={Puzzle}
             title="No kits yet."
-            body="Release a kit to assemble a finished SKU from its recipe at the bench."
+            body={
+              <>
+                Release a <Term id="kit">kit</Term> to assemble a finished SKU from its recipe at the bench.
+              </>
+            }
             action={
               <div className="flex flex-wrap justify-center gap-2">
                 <Button size="sm" onClick={() => setCreating(true)}>
@@ -156,40 +168,53 @@ function NewKitSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
   const { warehouseId } = useWarehouse();
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
   const locations = useApiQuery<Location[]>(open ? "/api/locations" : null);
-  const [itemId, setItemId] = useState("");
-  const [qty, setQty] = useState("1");
-  const [sourceLocationId, setSourceLocationId] = useState("");
-  const [outputLocationId, setOutputLocationId] = useState("");
+  const form = useZodForm(kitFormSchema, { itemId: "", qty: "1", sourceLocationId: "", outputLocationId: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const parents = useMemo(() => (items.data ?? []).filter(isBuildable), [items.data]);
   const bays = locations.data ?? [];
+  const bayOptions = bays.map((location) => ({ value: location.id, label: `${location.code} — ${location.name}` }));
 
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues, setValue, watch } = form;
   useEffect(() => {
-    if (!itemId && parents[0]) setItemId(parents[0].id);
-  }, [parents, itemId]);
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  // Same defaults as before: the first buildable SKU, then bays by type once they load.
+  const [itemId, sourceLocationId, outputLocationId] = watch(["itemId", "sourceLocationId", "outputLocationId"]);
+  useEffect(() => {
+    if (!itemId && parents[0]) setValue("itemId", parents[0].id);
+  }, [parents, itemId, setValue]);
 
   useEffect(() => {
     if (!bays.length) return;
     const storage = bays.find((location) => location.type === "storage") ?? bays[0];
     const pick = bays.find((location) => location.slotRole === "pick") ?? storage;
-    if (!sourceLocationId && storage) setSourceLocationId(storage.id);
-    if (!outputLocationId && pick) setOutputLocationId(pick.id);
-  }, [bays, sourceLocationId, outputLocationId]);
+    if (!getValues("sourceLocationId") && storage) setValue("sourceLocationId", storage.id);
+    if (!getValues("outputLocationId") && pick) setValue("outputLocationId", pick.id);
+  }, [bays, sourceLocationId, outputLocationId, getValues, setValue]);
 
-  async function create() {
+  async function create(values: ZodFormOutput<typeof kitFormSchema>) {
     setError(null);
     setBusy(true);
     try {
       const created = await apiMutate<KitBuild>("/api/kits", {
-        body: JSON.stringify({ warehouseId, itemId, qty: Number(qty), sourceLocationId, outputLocationId }),
+        // Same body as before: qty is already a number.
+        body: JSON.stringify({
+          warehouseId,
+          itemId: values.itemId,
+          qty: values.qty,
+          sourceLocationId: values.sourceLocationId,
+          outputLocationId: values.outputLocationId,
+        }),
       });
       toast.success(`Kit ${created.number} released.`);
       onOpenChange(false);
       navigate(`/make/kits/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create kit");
+      setError(errorText(err, "Could not create the kit."));
     } finally {
       setBusy(false);
     }
@@ -202,41 +227,20 @@ function NewKitSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
       title="New kit"
       description="Pick a SKU with a recipe. Components come out of one bay and finished kits go into another."
       submitLabel="Release kit"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <Field label="Build item">
-        <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
-          <option value="">Select item</option>
-          {parents.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.sku} — {item.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Quantity">
-        <Input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
-      </Field>
-      <Field label="Consume from">
-        <Select value={sourceLocationId} onChange={(e) => setSourceLocationId(e.target.value)}>
-          {bays.map((location) => (
-            <option key={location.id} value={location.id}>
-              {location.code} — {location.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Put finished">
-        <Select value={outputLocationId} onChange={(e) => setOutputLocationId(e.target.value)}>
-          {bays.map((location) => (
-            <option key={location.id} value={location.id}>
-              {location.code} — {location.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      <SelectField
+        form={form}
+        name="itemId"
+        label="Build item"
+        placeholder="Select item"
+        options={parents.map((item) => ({ value: item.id, label: `${item.sku} — ${item.name}` }))}
+      />
+      <NumberField form={form} name="qty" label="Quantity" min={1} />
+      <SelectField form={form} name="sourceLocationId" label="Consume from" options={bayOptions} />
+      <SelectField form={form} name="outputLocationId" label="Put finished" options={bayOptions} />
     </FormSheet>
   );
 }
@@ -256,7 +260,7 @@ function KitDetail({ id }: { id: string }) {
         setKit(next);
         setThisQty(String(next.remaining ?? next.qty));
       })
-      .catch((err: Error) => setLoadError(err.message));
+      .catch((err: unknown) => setLoadError(errorText(err, "Could not load this kit.")));
   }, [id]);
 
   if (!kit) {
@@ -410,7 +414,7 @@ function KitDetail({ id }: { id: string }) {
               </Card>
             ) : (
               <EmptyState
-                icon={BookOpen}
+                icon={ListTree}
                 title="No recipe for this SKU."
                 body="Complete needs a recipe to know which components to consume."
                 action={
@@ -423,7 +427,7 @@ function KitDetail({ id }: { id: string }) {
           </TabsContent>
           {asBuilt.length ? (
             <TabsContent value="as-built">
-              <AsBuiltList title="As-built" empty="No component lots were recorded." rows={asBuilt} mode="from" />
+              <AsBuiltList title={<Term id="as-built">As-built</Term>} empty="No component lots were recorded." rows={asBuilt} mode="from" />
             </TabsContent>
           ) : null}
           <TabsContent value="activity">

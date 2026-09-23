@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowUpFromLine, Play, Plus, ScanLine } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Item, type Location, type Purchase, type VendorReturn } from "../api";
+import { api, errorText, type Item, type Location, type Purchase, type VendorReturn } from "../api";
 import { Button, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, summarizeLines } from "../components/ui";
 import {
   DetailSkeleton,
@@ -16,16 +16,23 @@ import {
 import { DataTable, type BulkAction, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, LineChips, Muted, ProgressCell, ProgressRow, RelativeTime, SkuCell } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { LinesField, SelectField, TextField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import { apiMutate, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { STEP_RULES } from "@/domain/step-stamps";
+import { blankLine, optionalText, purchaseFormSchema } from "@/domain/form-schemas";
 import { VENDOR_RETURN_STEPS, canPostVendorReturn, isOpenVendorReturn } from "@/domain/status";
 import { hasUnreturned } from "@/domain/partial-rtv";
 import { useWarehouse, inWarehouse } from "../warehouse";
-import { LineFields, LinesBar, RailCard, countOf, runEach, unitCount } from "./ReceiptsPage";
+import { LinesBar, RailCard, countOf, runEach, unitCount } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 
-type Line = { itemId: string; qty: string };
+/**
+ * POST /api/vendor-returns (`src/routes/vendor-returns.ts`): the purchase form (vendor required, each
+ * SKU once) plus an optional original purchase.
+ */
+const vendorReturnFormSchema = purchaseFormSchema.extend({ purchaseId: optionalText });
 
 export function VendorReturnsPage() {
   const { id } = useParams();
@@ -149,7 +156,11 @@ function VendorReturnList() {
       <PageHeader
         eyebrow="Inbound"
         title="Vendor returns"
-        description="RTV stock back to a vendor from a bay. Partial qty is allowed; over-return is blocked."
+        description={
+          <>
+            <Term id="rtv">RTV</Term> stock back to a vendor from a bay. Partial qty is allowed; over-return is blocked.
+          </>
+        }
       />
       <DataTable
         id="vendor-returns"
@@ -182,7 +193,7 @@ function VendorReturnList() {
           <EmptyState
             icon={ArrowUpFromLine}
             title="No vendor returns yet."
-            body="Send wrong or damaged stock back to the vendor from a bay. Tie it to the original purchase when there is one."
+            body="Send wrong or damaged stock back to the vendor from a bay, tied to the original purchase when there is one."
             action={
               <Button size="sm" onClick={() => setCreating(true)}>
                 New vendor return
@@ -201,31 +212,40 @@ function NewVendorReturnSheet({ open, onOpenChange }: { open: boolean; onOpenCha
   const { warehouseId } = useWarehouse();
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
   const purchases = useApiQuery<Purchase[]>(open ? "/api/purchases" : null);
-  const [vendorName, setVendorName] = useState("Harbor Components");
-  const [purchaseId, setPurchaseId] = useState("");
-  const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
+  const form = useZodForm(vendorReturnFormSchema, {
+    vendorName: "Harbor Components",
+    purchaseId: "",
+    notes: "",
+    lines: [blankLine()],
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function create() {
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
+  useEffect(() => {
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  async function create(values: ZodFormOutput<typeof vendorReturnFormSchema>) {
     setError(null);
     setBusy(true);
     try {
+      // Same body as before: text as typed, no purchase sent as null, blank rows dropped, qty a number.
       const created = await apiMutate<VendorReturn>("/api/vendor-returns", {
         body: JSON.stringify({
           warehouseId,
-          vendorName,
-          purchaseId: purchaseId || null,
-          notes,
-          lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
+          vendorName: values.vendorName,
+          purchaseId: values.purchaseId || null,
+          notes: values.notes,
+          lines: values.lines.map((line) => ({ itemId: line.itemId, qty: line.qty })),
         }),
       });
       toast.success(`Vendor return ${created.number} created.`);
       onOpenChange(false);
       navigate(`/inbound/vendor-returns/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create vendor return");
+      setError(errorText(err, "Could not create the vendor return."));
     } finally {
       setBusy(false);
     }
@@ -238,30 +258,23 @@ function NewVendorReturnSheet({ open, onOpenChange }: { open: boolean; onOpenCha
       title="New vendor return"
       description="Stock going back to a vendor. Pick the bay it leaves from on the next page."
       submitLabel="Create vendor return"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <Field label="Vendor">
-        <Input value={vendorName} onChange={(e) => setVendorName(e.target.value)} required placeholder="Harbor Components" autoFocus />
-      </Field>
-      <Field label="Original purchase">
-        <Select value={purchaseId} onChange={(e) => setPurchaseId(e.target.value)}>
-          <option value="">None</option>
-          {inWarehouse(purchases.data ?? [], warehouseId).map((purchase) => (
-            <option key={purchase.id} value={purchase.id}>
-              {purchase.number} · {purchase.vendorName}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Notes">
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Wrong lot, damaged carton…" />
-      </Field>
-      <div className="space-y-1.5">
-        <p className="text-sm font-medium">Lines</p>
-        <LineFields items={items.data ?? []} lines={lines} setLines={setLines} />
-      </div>
+      <TextField form={form} name="vendorName" label="Vendor" placeholder="Harbor Components" autoFocus />
+      <SelectField
+        form={form}
+        name="purchaseId"
+        label="Original purchase"
+        placeholder="None"
+        options={inWarehouse(purchases.data ?? [], warehouseId).map((purchase) => ({
+          value: purchase.id,
+          label: `${purchase.number} · ${purchase.vendorName}`,
+        }))}
+      />
+      <TextField form={form} name="notes" label="Notes" placeholder="Wrong lot, damaged carton…" />
+      <LinesField form={form} name="lines" items={items.data ?? []} />
     </FormSheet>
   );
 }

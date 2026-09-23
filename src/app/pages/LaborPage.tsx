@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Activity, Boxes, Users } from "lucide-react";
+import { Gauge } from "lucide-react";
 import { api, type LaborBoard, type LaborSkuDetail, type LaborStaffDetail } from "../api";
-import { EmptyState, ErrorBanner, PageHeader, StatStrip, Table, ToneBadge } from "../components/ui";
+import { Button, EmptyState, ErrorBanner, PageHeader, StatStrip, Table, ToneBadge } from "../components/ui";
 import { DataTable, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, Muted, PersonAvatar, RelativeTime, SkuCell } from "../components/cells";
 import { Breadcrumbs } from "../components/document";
@@ -90,6 +90,16 @@ function LaborFilters({ preset, onPreset }: { preset: Preset; onPreset: (value: 
       <ToggleGroupItem value="7d">7 days</ToggleGroupItem>
       <ToggleGroupItem value="30d">30 days</ToggleGroupItem>
     </ToggleGroup>
+  );
+}
+
+/** Empty-window shortcut: jump to the widest window, unless it is already showing. */
+function LongerWindow({ preset, onPreset }: { preset: Preset; onPreset: (value: Preset) => void }) {
+  if (preset === "30d") return null;
+  return (
+    <Button size="sm" variant="outline" onClick={() => onPreset("30d")}>
+      Show 30 days
+    </Button>
   );
 }
 
@@ -339,9 +349,10 @@ function LaborBoardPage() {
             exportName={`performance-staff-${preset}`}
             empty={
               <EmptyState
-                icon={Users}
+                icon={Gauge}
                 title="No floor work in this window."
-                body="Pick a longer window, or check back once the floor has scanned."
+                body="Pace fills in as the team receives, picks, puts away, and counts on the floor."
+                action={<LongerWindow preset={preset} onPreset={setPreset} />}
               />
             }
           />
@@ -361,7 +372,14 @@ function LaborBoardPage() {
             defaultSort={{ id: "units", desc: true }}
             search={{ placeholder: "Search SKU or name", text: (row) => `${row.sku} ${row.name}` }}
             exportName={`performance-skus-${preset}`}
-            empty={<EmptyState icon={Boxes} title="No SKUs handled in this window." />}
+            empty={
+              <EmptyState
+                icon={Gauge}
+                title="No SKUs handled in this window."
+                body="Each SKU the floor scans shows its difficulty and pace here."
+                action={<LongerWindow preset={preset} onPreset={setPreset} />}
+              />
+            }
           />
         </TabsContent>
 
@@ -490,11 +508,13 @@ function LaborStaffPage({ userId }: { userId: string }) {
         />
       ) : query.isLoading ? (
         <Skeleton className="h-14 w-full rounded-lg" />
-      ) : detail ? (
+      ) : null}
+      {detail && !detail.skus.length && !detail.recent.length ? (
         <EmptyState
-          icon={Activity}
+          icon={Gauge}
           title="No floor work in this window."
-          body="Pick a longer window to see this teammate's pace."
+          body="This teammate's pace fills in once they scan on the floor."
+          action={<LongerWindow preset={preset} onPreset={setPreset} />}
         />
       ) : null}
       {detail ? <LaborCharts daily={detail.daily} verbMix={detail.verbMix} /> : null}

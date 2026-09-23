@@ -33,6 +33,7 @@ import { statusLabel, statusText } from "@/domain/status";
 import { relativeTime } from "@/domain/relative-time";
 import { stepStamps, type StepRule, type StepStamp } from "@/domain/step-stamps";
 import { toast } from "sonner";
+import { toastError } from "../use-write";
 import { PageHeader, StatusBadge } from "./ui";
 import { type Movement } from "../api";
 import { useApiQuery } from "../query";
@@ -141,7 +142,7 @@ function useRunAction() {
       await action.onSelect();
       if (action.success) toast.success(action.success);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : `${action.label} failed`);
+      toastError(err, `${action.label} did not go through. Try again.`);
     } finally {
       setBusy(null);
     }
@@ -267,7 +268,7 @@ export function DocumentHeader({
 }: {
   eyebrow: string;
   title: string;
-  description?: string;
+  description?: ReactNode;
   /** Records without a lifecycle (items, bays) omit both; `meta` can carry a badge instead. */
   status?: string;
   steps?: readonly string[];
@@ -349,7 +350,7 @@ export function DocumentFrame({ children, rail }: { children: ReactNode; rail?: 
   );
 }
 
-export function DocumentFact({ label, children }: { label: string; children: ReactNode }) {
+export function DocumentFact({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="shrink-0 text-sm text-muted-foreground">{label}</span>

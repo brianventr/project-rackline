@@ -23,7 +23,7 @@ export function jobClaimedByOther(job: FloorJob | undefined, userId: string): jo
 }
 
 export function claimedByMessage(job: FloorJob): string {
-  return `This job is claimed by ${job.assigneeName || "another teammate"}`;
+  return `This job is claimed by ${job.assigneeName || "another teammate"}.`;
 }
 
 export function splitByClaim<T>(
