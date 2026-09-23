@@ -716,7 +716,8 @@ function OrderDetail({ id }: { id: string }) {
     })),
   }).ok;
 
-  const picking = canPickOrder(order.status) && !canStartPick(order.status) && remaining;
+  // Open orders can be picked in one step (the server reserves stock first); Start pick only reserves.
+  const picking = canPickOrder(order.status) && remaining;
   const packing = canPackOrder(order.status) && unpacked;
   const shipLabel = order.source === "shopify" ? "Ship & fulfill" : "Ship";
   const shippingOpen =
@@ -728,12 +729,14 @@ function OrderDetail({ id }: { id: string }) {
     (order.shopifySyncStatus === "failed" || packages.some((pkg) => pkg.shippedAt && !pkg.shopifyFulfillmentId));
 
   let primary: DocumentAction | null = null;
-  if (canStartPick(order.status) && remaining) primary = { label: "Start pick", icon: Play, onSelect: startPick };
-  else if (picking) primary = { label: "Pick", icon: PackageMinus, onSelect: pick, disabled: !thisPick };
+  if (picking) primary = { label: "Pick", icon: PackageMinus, onSelect: pick, disabled: !thisPick };
   else if (packing) primary = { label: "Pack", icon: PackageCheck, onSelect: pack, disabled: !thisPack };
   else if (canShipOrder(order.status)) primary = { label: shipLabel, icon: Truck, onSelect: ship };
 
   const menu: DocumentAction[] = [
+    ...(canStartPick(order.status) && remaining
+      ? [{ label: "Start pick (reserve stock)", icon: Play, onSelect: startPick }]
+      : []),
     { label: "Open on floor", icon: ScanLine, to: floorActionForOrder(order.status, order.id) },
     ...(canPickOrder(order.status) ? [{ label: "Pick list", icon: ClipboardList, to: `/outbound/orders/${order.id}/pick-list` }] : []),
     { label: "Pack slip", icon: FileText, to: `/outbound/orders/${order.id}/pack-slip` },

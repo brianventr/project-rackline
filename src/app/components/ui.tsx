@@ -172,13 +172,14 @@ export function ToneBadge({
   return (
     <span
       className={cn(
-        "inline-flex h-5 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 text-[11px] font-medium capitalize leading-none",
+        "inline-flex h-5 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 text-[11px] font-medium leading-none",
         TONE_CLASS[tone],
         className,
       )}
     >
       {dot ? <span aria-hidden className="size-1.5 rounded-full bg-current" /> : null}
-      {children}
+      {/* Sentence case without title-casing names like "West shop". */}
+      {typeof children === "string" ? children.charAt(0).toUpperCase() + children.slice(1) : children}
     </span>
   );
 }
