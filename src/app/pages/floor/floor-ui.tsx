@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ChevronLeft, ScanLine } from "lucide-react";
+import { ChevronLeft, ScanLine, type LucideIcon } from "lucide-react";
 import { useScanner } from "../../scanner/ScannerProvider";
 import { Button, Card, EmptyState, ErrorBanner, Input } from "../../components/ui";
 import type { FloorJob } from "../../api";
@@ -157,6 +157,8 @@ export function ClaimList<T extends { id?: string }>({
   title,
   empty,
   emptyBody = "Unassigned work stays on this screen.",
+  emptyIcon,
+  emptyAction,
   rows,
   userId,
   jobFor,
@@ -167,6 +169,9 @@ export function ClaimList<T extends { id?: string }>({
   title: string;
   empty: string;
   emptyBody?: string;
+  emptyIcon?: LucideIcon;
+  /** A next step when the list is empty, such as a link to another verb. */
+  emptyAction?: ReactNode;
   rows: T[];
   userId: string;
   jobFor: (row: T) => FloorJob | undefined;
@@ -214,7 +219,7 @@ export function ClaimList<T extends { id?: string }>({
   return (
     <Card className="space-y-4">
       <p className="font-medium">{title}</p>
-      {rows.length === 0 ? <EmptyState title={empty} body={emptyBody} /> : null}
+      {rows.length === 0 ? <EmptyState title={empty} body={emptyBody} icon={emptyIcon} action={emptyAction} /> : null}
       {section("Mine", mine, false)}
       {section("Unassigned", pool, false)}
       {section("Claimed by others", others, true)}

@@ -35,7 +35,8 @@ export function PageHeader({
 }: {
   eyebrow?: string;
   title: string;
-  description?: string;
+  /** A sentence on what the page is for. May hold a `<Term>`. */
+  description?: ReactNode;
   actions?: ReactNode;
 }) {
   return (
@@ -48,7 +49,10 @@ export function PageHeader({
         ) : null}
         <h1 className="text-(length:--density-title) font-semibold leading-tight tracking-tight">{title}</h1>
         {description ? (
-          <p className="mt-0.5 line-clamp-2 max-w-3xl text-(length:--density-meta) text-muted-foreground" title={description}>
+          <p
+            className="mt-0.5 line-clamp-2 max-w-3xl text-(length:--density-meta) text-muted-foreground"
+            title={typeof description === "string" ? description : undefined}
+          >
             {description}
           </p>
         ) : null}
@@ -330,7 +334,7 @@ export function EmptyState({
   className,
 }: {
   title: string;
-  body?: string;
+  body?: ReactNode;
   action?: ReactNode;
   icon?: LucideIcon;
   className?: string;
