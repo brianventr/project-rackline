@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeftRight, Forklift, LogIn, LogOut, Plus, Printer, ScanLine, ShieldAlert, Wrench } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Equipment, type EquipmentAudit, type TeamMember } from "../api";
+import { z } from "zod";
+import { api, errorText, type Equipment, type EquipmentAudit, type TeamMember } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import {
   Button,
@@ -29,6 +30,7 @@ import {
 import { DataTable, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, Muted, PersonAvatar, RelativeTime } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { SelectField, TextField, useZodForm } from "../components/form-kit";
 import { apiMutate, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -40,6 +42,7 @@ import {
   equipmentClassLabel,
   type InspectionAnswer,
 } from "@/domain/equipment";
+import { choiceOf, requiredText } from "@/domain/form-schemas";
 import { useSession } from "../session";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
@@ -135,7 +138,7 @@ function EquipmentList() {
 
   if (labels) {
     return (
-      <div>
+      <div className="space-y-(--density-gap)">
         <PageHeader
           eyebrow="Equipment labels"
           title="Print truck barcodes"
@@ -150,6 +153,27 @@ function EquipmentList() {
           }
         />
         <ErrorBanner error={equipment.error?.message ?? null} />
+        {!equipment.isLoading && !equipment.error && fleet.length === 0 ? (
+          <EmptyState
+            className="print:hidden"
+            icon={Forklift}
+            title="No equipment to label yet."
+            body="Register each forklift or pallet jack first, and its EQ: barcode prints here."
+            action={
+              me.role === "owner" ? (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setCreating(true);
+                    navigate("/equipment");
+                  }}
+                >
+                  Register equipment
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : null}
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 print:grid-cols-3">
           {fleet.map((row) => (
             <div key={row.id} className="break-inside-avoid rounded-xl border p-3">
@@ -224,29 +248,43 @@ function EquipmentList() {
   );
 }
 
+/** POST /api/equipment (`src/routes/equipment.ts`): code, name, and a known class are required. */
+const equipmentFormSchema = z.object({
+  code: requiredText("Enter a code."),
+  name: requiredText("Enter a name."),
+  class: choiceOf(EQUIPMENT_CLASSES, "Pick a class."),
+});
+type EquipmentFormValues = z.output<typeof equipmentFormSchema>;
+
+const EQUIPMENT_CLASS_OPTIONS = EQUIPMENT_CLASSES.map((value) => ({ value, label: equipmentClassLabel(value) }));
+
 function RegisterEquipmentSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
-  const [code, setCode] = useState("");
-  const [name, setName] = useState("");
-  const [equipmentClass, setEquipmentClass] = useState<(typeof EQUIPMENT_CLASSES)[number]>("sit_down");
+  const form = useZodForm(equipmentFormSchema, { code: "", name: "", class: "sit_down" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function create() {
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
+  useEffect(() => {
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  async function create(values: EquipmentFormValues) {
     setError(null);
     setBusy(true);
     try {
       const created = await apiMutate<Equipment>("/api/equipment", {
-        body: JSON.stringify({ warehouseId, code, name, class: equipmentClass }),
+        body: JSON.stringify({ warehouseId, code: values.code, name: values.name, class: values.class }),
       });
       toast.success(`${created.code} registered. Print its label next.`);
-      setCode("");
-      setName("");
+      // Clear code and name for the next truck; the class stays, as before.
+      reset({ code: "", name: "", class: values.class });
       onOpenChange(false);
       navigate(`/equipment/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not register equipment");
+      setError(errorText(err, "Could not register the equipment."));
     } finally {
       setBusy(false);
     }
@@ -259,25 +297,13 @@ function RegisterEquipmentSheet({ open, onOpenChange }: { open: boolean; onOpenC
       title="Register equipment"
       description="Each truck gets an EQ: barcode. The class sets its pre-use checklist."
       submitLabel="Register"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <Field label="Code">
-        <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="FL-01" required autoFocus />
-      </Field>
-      <Field label="Name">
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Crown sit-down" required />
-      </Field>
-      <Field label="Class">
-        <Select value={equipmentClass} onChange={(e) => setEquipmentClass(e.target.value as (typeof EQUIPMENT_CLASSES)[number])}>
-          {EQUIPMENT_CLASSES.map((value) => (
-            <option key={value} value={value}>
-              {equipmentClassLabel(value)}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      <TextField form={form} name="code" label="Code" placeholder="FL-01" autoFocus />
+      <TextField form={form} name="name" label="Name" placeholder="Crown sit-down" />
+      <SelectField form={form} name="class" label="Class" options={EQUIPMENT_CLASS_OPTIONS} />
     </FormSheet>
   );
 }
@@ -441,7 +467,7 @@ function EquipmentDetail({ id }: { id: string }) {
       const at = new Date(atLocal).getTime();
       setAudit(await api<EquipmentAudit>(`/api/equipment/audit?equipmentId=${id}&at=${at}`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not look up assignment");
+      setError(errorText(err, "Could not look up who had it."));
     }
   }
 
