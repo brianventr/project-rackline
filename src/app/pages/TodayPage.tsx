@@ -20,6 +20,7 @@ import {
   ShieldAlert,
   Truck,
   UserRound,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -45,6 +46,10 @@ import { formatPickupLabel, type PromiseBoard } from "@/domain/promise";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { RackLocator } from "../components/rack-locator/RackLocator";
+import type { Locate } from "../components/rack-locator/locate";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
 const LANES = ["inbound", "outbound", "make", "stock", "exceptions"] as const;
 type LaneId = (typeof LANES)[number];
@@ -119,6 +124,8 @@ type WorkRow = {
   createdAt?: number;
   job?: FloorJob;
   relabel?: { orderId: string; packageId?: string };
+  /** How the selected-row card finds this work's bays. Falls back to the floor job's from/to. */
+  locate?: Locate;
 };
 
 const DAY_FORMAT = new Intl.DateTimeFormat("en-US", { weekday: "short" });
@@ -143,6 +150,8 @@ export function TodayPage() {
   const [error, setError] = useState<string | null>(null);
   const [drafting, setDrafting] = useState(false);
   const [lane, setLane] = useState<LaneId>("inbound");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const wide = useMediaQuery("(min-width: 80rem)");
 
   async function write(fallback: string, run: () => Promise<unknown>, success?: string) {
     setError(null);
@@ -221,6 +230,19 @@ export function TodayPage() {
     for (const row of rows) counts[row.lane] += 1;
     return counts;
   }, [rows]);
+  const selected = laneRows.find((row) => row.id === selectedId) ?? null;
+  const toggleSelected = (id: string) => setSelectedId((current) => (current === id ? null : id));
+
+  useEffect(() => {
+    if (!selected || !wide) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [role=dialog]")) return;
+      setSelectedId(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected, wide]);
   const laneNext = garage ? GARAGE_LANE_NEXT : LANE_NEXT;
   const laneAction = (garage ? GARAGE_LANE_ACTION : LANE_ACTION)[lane];
   const trend = data?.trend ?? [];
@@ -353,7 +375,14 @@ export function TodayPage() {
         ))}
       </div>
 
-      <div className="grid min-h-0 gap-(--density-gap) xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div
+        className={cn(
+          "grid min-h-0 gap-(--density-gap) transition-[grid-template-columns] duration-300 motion-reduce:transition-none",
+          selected
+            ? "xl:grid-cols-[minmax(0,1fr)_28rem] 2xl:grid-cols-[minmax(0,1fr)_36rem]"
+            : "xl:grid-cols-[minmax(0,1fr)_22rem]",
+        )}
+      >
         <section className="min-w-0 rounded-lg border bg-card shadow-xs" aria-label="Work queue">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
             <div role="tablist" aria-label="Lane" className="flex max-w-full items-center gap-0.5 overflow-x-auto">
@@ -414,6 +443,8 @@ export function TodayPage() {
                   garage={garage}
                   owner={me.role === "owner"}
                   canStart={canStart(row.actionTo)}
+                  selected={row.id === selected?.id}
+                  onSelect={toggleSelected}
                   onAssign={assign}
                   onPin={pin}
                   onRelabel={relabelTracker}
@@ -438,7 +469,16 @@ export function TodayPage() {
           )}
         </section>
 
-        <aside className="grid content-start gap-(--density-gap) md:grid-cols-2 xl:grid-cols-1">
+        <aside className="grid min-w-0 content-start gap-(--density-gap) md:grid-cols-2 xl:grid-cols-1">
+          {selected && wide ? (
+            <SelectedCard
+              key={selected.id}
+              row={selected}
+              canStart={canStart(selected.actionTo)}
+              onRelabel={relabelTracker}
+              onClose={() => setSelectedId(null)}
+            />
+          ) : null}
           <RailCard
             title="Below reorder"
             icon={Boxes}
@@ -615,6 +655,22 @@ export function TodayPage() {
           </RailCard>
         </aside>
       </div>
+
+      <Sheet open={Boolean(selected) && !wide} onOpenChange={(open) => (open ? null : setSelectedId(null))}>
+        <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-0 sm:max-w-xl">
+          <SheetTitle className="sr-only">{selected?.title ?? "Selected work"}</SheetTitle>
+          <SheetDescription className="sr-only">Where this work sits on the racks.</SheetDescription>
+          {selected && !wide ? (
+            <SelectedCard
+              key={selected.id}
+              row={selected}
+              canStart={canStart(selected.actionTo)}
+              onRelabel={relabelTracker}
+              className="rounded-none border-0 shadow-none"
+            />
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
@@ -877,12 +933,78 @@ function MeterRow({
   );
 }
 
+/** Selected row: the document header, then where on the racks the work is (or where it is going). */
+function SelectedCard({
+  row,
+  canStart,
+  onRelabel,
+  onClose,
+  className,
+}: {
+  row: WorkRow;
+  canStart: boolean;
+  onRelabel: (row: WorkRow) => Promise<void>;
+  onClose?: () => void;
+  className?: string;
+}) {
+  const reason = row.job?.reason && row.job.reason !== DEFAULT_JOB_REASON ? row.job.reason : null;
+  const locate = useMemo(() => locateFor(row), [row]);
+  return (
+    <section
+      aria-label={`${row.queue} ${row.title}`}
+      className={cn("min-w-0 space-y-4 rounded-lg border bg-card p-4 shadow-xs", className)}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{row.queue}</p>
+          <Link to={row.to} className="mt-0.5 block truncate text-base font-semibold hover:text-primary hover:underline">
+            {row.title}
+          </Link>
+          <p className="mt-0.5 truncate text-sm text-muted-foreground">{row.meta}</p>
+        </div>
+        {onClose ? (
+          <Button size="icon" variant="ghost" className="-mt-1 -mr-2 size-8 shrink-0" aria-label="Close" onClick={onClose}>
+            <X />
+          </Button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge status={row.status} />
+        {reason ? <span className="text-xs text-muted-foreground">{reason}</span> : null}
+        {row.job?.assigneeName ? (
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <PersonAvatar name={row.job.assigneeName} className="size-5 text-[9px]" />
+            {row.job.assigneeName}
+          </span>
+        ) : null}
+        <span className="ml-auto">
+          {row.relabel ? (
+            <Button size="sm" onClick={() => void onRelabel(row)}>
+              Relabel
+            </Button>
+          ) : canStart ? (
+            <Button size="sm" asChild>
+              <Link to={row.actionTo}>
+                {row.action}
+                <ArrowRight />
+              </Link>
+            </Button>
+          ) : null}
+        </span>
+      </div>
+      <RackLocator locate={locate} />
+    </section>
+  );
+}
+
 function QueueRow({
   row,
   team,
   garage,
   owner,
   canStart,
+  selected,
+  onSelect,
   onAssign,
   onPin,
   onRelabel,
@@ -893,6 +1015,8 @@ function QueueRow({
   owner: boolean;
   /** False when the row's floor screen needs a verb this person does not have. */
   canStart: boolean;
+  selected: boolean;
+  onSelect: (id: string) => void;
   onAssign: (jobId: string, userId: string | null, name?: string) => Promise<void>;
   onPin: (jobId: string, pinned: boolean) => Promise<void>;
   onRelabel: (row: WorkRow) => Promise<void>;
@@ -902,18 +1026,37 @@ function QueueRow({
   const reason = row.job?.reason && row.job.reason !== DEFAULT_JOB_REASON ? row.job.reason : null;
   const days = row.createdAt ? ageInDays(row.createdAt) : null;
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-(--density-row) hover:bg-muted/30 sm:flex-nowrap">
+    <li
+      className={cn(
+        "relative flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-(--density-row) hover:bg-muted/30 sm:flex-nowrap",
+        selected && "bg-muted/60 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary hover:bg-muted/60",
+      )}
+      onClick={(event) => {
+        // Clicks on labels lifted above the select button (the age tooltip) still select the row.
+        const target = event.target as HTMLElement;
+        if (!event.currentTarget.contains(target) || target.closest("a, button")) return;
+        onSelect(row.id);
+      }}
+    >
+      {/* The whole row selects; links and buttons sit above it on their own layer. */}
+      <button
+        type="button"
+        aria-pressed={selected}
+        aria-label={`${selected ? "Hide" : "Show"} rack location for ${row.title}`}
+        className="absolute inset-0 cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+        onClick={() => onSelect(row.id)}
+      />
       <span
         className={cn(
-          "hidden size-8 shrink-0 items-center justify-center rounded-full sm:flex",
+          "pointer-events-none relative hidden size-8 shrink-0 items-center justify-center rounded-full sm:flex",
           row.lane === "exceptions" ? "bg-tone-warning-bg text-tone-warning" : "bg-muted text-muted-foreground",
         )}
       >
         <Icon className="size-4" />
       </span>
-      <div className="min-w-0 flex-1 basis-[calc(100%-1rem)] sm:basis-0">
+      <div className="pointer-events-none relative min-w-0 flex-1 basis-[calc(100%-1rem)] sm:basis-0">
         <div className="flex min-w-0 items-center gap-2">
-          <Link to={row.to} className="truncate font-medium hover:text-primary hover:underline">
+          <Link to={row.to} className="pointer-events-auto truncate font-medium hover:text-primary hover:underline">
             {row.title}
           </Link>
           <span className="shrink-0 rounded border px-1.5 text-[11px] text-muted-foreground">{row.queue}</span>
@@ -927,7 +1070,7 @@ function QueueRow({
       {days != null ? (
         <span
           className={cn(
-            "shrink-0 text-xs tabular-nums sm:ml-0",
+            "relative shrink-0 text-xs tabular-nums sm:ml-0",
             days >= 3 ? "font-medium text-tone-warning" : "text-muted-foreground",
           )}
           title={row.createdAt ? `Opened ${new Date(row.createdAt).toLocaleString()}` : undefined}
@@ -937,14 +1080,16 @@ function QueueRow({
       ) : null}
       <StatusBadge status={row.status} />
       {!garage && row.job ? (
-        <AssignPopover job={row.job} team={team} owner={owner} onAssign={onAssign} onPin={onPin} />
+        <span className="relative flex">
+          <AssignPopover job={row.job} team={team} owner={owner} onAssign={onAssign} onPin={onPin} />
+        </span>
       ) : null}
       {row.relabel ? (
-        <Button size="sm" variant="outline" onClick={() => void onRelabel(row)}>
+        <Button size="sm" variant="outline" className="relative" onClick={() => void onRelabel(row)}>
           Relabel
         </Button>
       ) : canStart ? (
-        <Button size="sm" variant="outline" asChild>
+        <Button size="sm" variant="outline" className="relative" asChild>
           <Link to={row.actionTo}>
             {row.action}
             <ArrowRight />
@@ -1058,6 +1203,54 @@ function floorLabelForOrder(status: string): string {
   return "Pick";
 }
 
+function moveLocate(fromId: string, toId: string, sku: string, qty: number, toVerb: string): Locate {
+  return {
+    kind: "bays",
+    items: [{ sku, qty: Math.max(0, qty) }],
+    bays: [
+      { locationId: fromId, role: "from", verb: "Take from" },
+      { locationId: toId, role: "to", verb: toVerb },
+    ],
+  };
+}
+
+function atLocate(locationId: string, verb: string, items: { sku: string; qty: number }[]): Locate {
+  return { kind: "bays", items, bays: [{ locationId, role: "at", verb }] };
+}
+
+/** Components leave the source bay; the finished SKU lands on the output bay. */
+function buildLocate(row: {
+  sku: string;
+  qty: number;
+  qtyCompleted?: number;
+  sourceLocationId: string;
+  outputLocationId: string;
+}): Locate {
+  return {
+    kind: "bays",
+    items: [{ sku: row.sku, qty: Math.max(0, row.qty - (row.qtyCompleted ?? 0)) }],
+    bays: [
+      { locationId: row.sourceLocationId, role: "from", verb: "Components from" },
+      { locationId: row.outputLocationId, role: "to", verb: "Build into" },
+    ],
+  };
+}
+
+/** Rows without paperwork of their own still point somewhere when a floor job names its bays. */
+function locateFor(row: WorkRow): Locate | null {
+  if (row.locate) return row.locate;
+  const job = row.job;
+  if (!job || (!job.fromLocationId && !job.toLocationId)) return null;
+  return {
+    kind: "bays",
+    items: [],
+    bays: [
+      { locationId: job.fromLocationId, role: "from", verb: "Take from" },
+      { locationId: job.toLocationId, role: "to", verb: "Take to" },
+    ],
+  };
+}
+
 function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
   const queues = data?.queues;
   if (!queues) return [];
@@ -1074,6 +1267,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: `/floor/receive?id=${row.id}`,
       action: "Receive",
       job: jobForRef(jobs, "receipt", row.id, "receive"),
+      locate: { kind: "receive" as const, path: `/api/receipts/${row.id}`, dockId: row.locationId },
     })),
     ...(queues.purchases ?? []).map((row) => ({
       id: row.id,
@@ -1087,6 +1281,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: `/floor/receive?purchase=${row.id}`,
       action: "Receive",
       job: jobForRef(jobs, "purchase", row.id, "receive"),
+      locate: { kind: "receive" as const, path: `/api/purchases/${row.id}`, dockId: row.locationId },
     })),
     ...(queues.putaways ?? []).map((row) => ({
       id: row.id,
@@ -1100,6 +1295,14 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: `/floor/putaway?id=${row.id}`,
       action: "Put away",
       job: jobForRef(jobs, "transfer", row.id, "putaway"),
+      locate: {
+        kind: "bays" as const,
+        path: `/api/transfers/${row.id}`,
+        bays: [
+          { locationId: row.fromLocationId, role: "from" as const, verb: "Take from" },
+          { locationId: row.toLocationId, role: "to" as const, verb: "Put away to" },
+        ],
+      },
     })),
     ...(data?.putawaySuggestions ?? []).map((row) => ({
       id: `dock-${row.fromLocationId}-${row.itemId}`,
@@ -1112,6 +1315,14 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: `/floor/putaway?from=${encodeURIComponent(row.fromBarcode)}`,
       action: "Put away",
       job: jobForSuggestion(jobs, "putawaySuggestion", row.fromLocationId, row.itemId, row.toLocationId),
+      locate: {
+        kind: "bays" as const,
+        items: [{ sku: row.sku, qty: row.qty }],
+        bays: [
+          { locationId: row.fromLocationId, role: "from" as const, verb: "Take from" },
+          { locationId: row.toLocationId, role: "to" as const, verb: "Put away to" },
+        ],
+      },
     })),
     ...(queues.asns ?? []).map((row) => ({
       id: row.id,
@@ -1124,6 +1335,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       createdAt: ageOf(row),
       actionTo: `/floor/asn?id=${row.id}`,
       action: "Receive",
+      locate: { kind: "receive" as const, path: `/api/asns/${row.id}`, dockId: row.locationId ?? null },
     })),
     ...(queues.yard ?? []).map((row) => ({
       id: row.id,
@@ -1136,6 +1348,11 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       createdAt: ageOf(row),
       actionTo: `/floor/yard?id=${row.id}`,
       action: "Yard",
+      locate: {
+        kind: "bays" as const,
+        items: [],
+        bays: [{ locationId: row.dockLocationId, role: "at" as const, verb: "Dock door" }],
+      },
     })),
     ...(queues.vendorReturns ?? []).map((row) => ({
       id: row.id,
@@ -1149,6 +1366,11 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: `/floor/rtv?id=${row.id}`,
       action: "Return",
       job: jobForRef(jobs, "vendorReturn", row.id, "rtv"),
+      locate: {
+        kind: "bays" as const,
+        path: `/api/vendor-returns/${row.id}`,
+        bays: [{ locationId: row.locationId, role: "from" as const, verb: "Return from" }],
+      },
     })),
     ...(queues.orders ?? []).map((row) => ({
       id: row.id,
@@ -1162,6 +1384,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: floorActionForOrder(row.status, row.id),
       action: floorLabelForOrder(row.status),
       job: jobForRef(jobs, "order", row.id, desiredVerb("order", row.status) ?? undefined),
+      locate: { kind: "pick" as const, path: `/api/orders/${row.id}` },
     })),
     ...(queues.waves ?? []).map((row) => ({
       id: row.id,
@@ -1187,6 +1410,11 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: `/floor/return?id=${row.id}`,
       action: "Receive",
       job: jobForRef(jobs, "rma", row.id, "return"),
+      locate: {
+        kind: "bays" as const,
+        path: `/api/returns/${row.id}`,
+        bays: [{ locationId: row.locationId, role: "to" as const, verb: "Receive into" }],
+      },
     })),
     ...(queues.workOrders ?? []).map((row) => ({
       id: row.id,
@@ -1200,6 +1428,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: `/floor/assemble?id=${row.id}`,
       action: "Assemble",
       job: jobForRef(jobs, "workOrder", row.id, "assemble"),
+      locate: buildLocate(row),
     })),
     ...(queues.kits ?? []).map((row) => ({
       id: row.id,
@@ -1213,6 +1442,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: `/floor/kit?id=${row.id}`,
       action: "Kit",
       job: jobForRef(jobs, "kit", row.id, "kit"),
+      locate: buildLocate(row),
     })),
     ...(queues.replenishments ?? []).map((row) => ({
       id: row.id,
@@ -1226,6 +1456,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: `/floor/replenish?id=${row.id}`,
       action: "Replenish",
       job: jobForRef(jobs, "replenishment", row.id, "replenish"),
+      locate: moveLocate(row.fromLocationId, row.toLocationId, row.sku, row.remaining ?? row.qty - (row.qtyMoved ?? 0), "Pick face"),
     })),
     ...(data?.replenishSuggestions ?? [])
       .filter((row) => !(queues.replenishments ?? []).some((doc) => doc.itemId === row.itemId && doc.toLocationId === row.toLocationId && doc.status !== "posted"))
@@ -1240,6 +1471,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
         actionTo: "/floor/replenish",
         action: "Replenish",
         job: jobForSuggestion(jobs, "replenishSuggestion", row.fromLocationId, row.itemId, row.toLocationId),
+        locate: moveLocate(row.fromLocationId, row.toLocationId, row.sku, row.qty, "Pick face"),
       })),
     ...(queues.holds ?? []).map((row) => ({
       id: row.id,
@@ -1253,6 +1485,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: `/floor/hold?id=${row.id}`,
       action: "Release",
       job: jobForRef(jobs, "hold", row.id, "hold"),
+      locate: atLocate(row.locationId, "On hold", row.sku ? [{ sku: row.sku, qty: 0 }] : []),
     })),
     ...(queues.counts ?? []).map((row) => ({
       id: row.id,
@@ -1266,6 +1499,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: `/floor/count?id=${row.id}`,
       action: "Count",
       job: jobForRef(jobs, "cycleCount", row.id, "count"),
+      locate: atLocate(row.locationId, "Count", []),
     })),
     ...(queues.countVariances ?? []).map((row) => ({
       id: row.id,
@@ -1277,6 +1511,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       status: "variance",
       actionTo: `/stock/counts/${row.countId}`,
       action: "Review",
+      locate: atLocate(row.locationId, "Counted", [{ sku: row.sku, qty: row.countedQty }]),
     })),
     ...(queues.expiringLots ?? []).map((row) => ({
       id: `${row.locationId}:${row.itemId}:${row.lotCode}`,
@@ -1288,6 +1523,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       status: "expiring",
       actionTo: `/stock/items/${row.itemId}`,
       action: "Open",
+      locate: atLocate(row.locationId, "Expiring lot", [{ sku: `${row.sku} ${row.lotCode}`, qty: row.qty }]),
     })),
     ...(data?.runwayThisWeek ?? []).map((row) => ({
       id: `runway-${row.itemId}`,
@@ -1299,6 +1535,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       status: "runway",
       actionTo: "/analytics/runway",
       action: "Runway",
+      locate: { kind: "onHand" as const, itemId: row.itemId, sku: row.sku },
     })),
     ...(queues.shopifyExceptions ?? []).map((row) => ({
       id: `shopify-${row.id}`,

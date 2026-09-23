@@ -1,5 +1,5 @@
 import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { GizmoHelper, GizmoViewport, Grid, Html, Line, OrbitControls, OrthographicCamera, PerspectiveCamera } from "@react-three/drei";
 import * as THREE from "three";
 import type { MapLocation, WarehouseMapInfo } from "@/app/api";
@@ -7,6 +7,7 @@ import {
   expandArea,
   expandRack,
   footprint,
+  objectForLocation,
   snap,
   worldCenter,
   type AreaSpec,
@@ -17,10 +18,13 @@ import {
 } from "@/domain/rack-builder";
 import type { PickMapMarker } from "@/domain/pick-map";
 import { cn } from "@/lib/utils";
+import { Reticle, type TargetTone } from "../rack-locator/reticle";
 import { readSceneTheme, type SceneTheme } from "./theme";
 import { cartonGeometry, PALLET_HEIGHT, PALLET_LIFT, RackFrames, RackPallets, loadFootprint } from "./rack-meshes";
 
 export type CameraMode = "top" | "orbit";
+/** A bay the current work points at: `target` gets the crosshair, `origin` is where stock comes from. */
+export type SceneTarget = { locationId: string; tone: TargetTone; label: string };
 export type Ghost =
   | { kind: "rack"; spec: RackSpec; valid: boolean; message?: string | null }
   | { kind: "area"; spec: AreaSpec; valid: boolean; message?: string | null };
@@ -36,6 +40,11 @@ type Props = {
   toId?: string | null;
   pickIds?: string[];
   pickMarkers?: PickMapMarker[];
+  targets?: SceneTarget[];
+  /** Fly the orbit camera to this bay instead of framing the whole building. */
+  focusLocationId?: string | null;
+  /** Small embeds drop the orbit gizmo and the camera status chip. */
+  compact?: boolean;
   className?: string;
   mode: "view" | "build";
   cameraMode: CameraMode;
@@ -72,10 +81,13 @@ function binColor(
   to: boolean,
   baySection: boolean,
   pick = false,
+  tone: TargetTone | null = null,
 ) {
   if (from) return theme.from;
   if (to) return theme.to;
   if (selected) return theme.selected;
+  if (tone === "target") return theme.selected;
+  if (tone === "origin") return theme.from;
   if (hovered) return theme.hover;
   if (pick) return theme.pick;
   if (baySection) return theme.bayHighlight;
@@ -95,6 +107,7 @@ function InstancedBins({
   fromId,
   toId,
   pickIds,
+  targetTones,
   highlightBay,
   ghost,
   pickable,
@@ -111,6 +124,7 @@ function InstancedBins({
   fromId?: string | null;
   toId?: string | null;
   pickIds?: ReadonlySet<string>;
+  targetTones?: ReadonlyMap<string, TargetTone>;
   highlightBay?: string | null;
   ghost?: { valid: boolean };
   pickable: boolean;
@@ -132,10 +146,11 @@ function InstancedBins({
         row.id === fromId ||
         row.id === toId ||
         Boolean(row.id && pickIds?.has(row.id)) ||
+        Boolean(row.id && targetTones?.has(row.id)) ||
         Boolean(highlightBay && row.bay === highlightBay)
       );
     });
-  }, [source, levelFilter, ghost, selectedLocationId, hoveredId, fromId, toId, pickIds, highlightBay]);
+  }, [source, levelFilter, ghost, selectedLocationId, hoveredId, fromId, toId, pickIds, targetTones, highlightBay]);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const color = useMemo(() => new THREE.Color(), []);
 
@@ -174,6 +189,7 @@ function InstancedBins({
             row.id === toId,
             Boolean(highlightBay) && row.bay === highlightBay,
             Boolean(row.id && pickIds?.has(row.id)),
+            (row.id && targetTones?.get(row.id)) || null,
           ),
         );
       }
@@ -181,7 +197,7 @@ function InstancedBins({
     });
     inst.instanceMatrix.needsUpdate = true;
     if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-  }, [rows, theme, selectedLocationId, hoveredId, fromId, toId, pickIds, highlightBay, ghost, dummy, color, explode]);
+  }, [rows, theme, selectedLocationId, hoveredId, fromId, toId, pickIds, targetTones, highlightBay, ghost, dummy, color, explode]);
 
   if (rows.length === 0) return null;
   return (
@@ -228,6 +244,7 @@ function AreaBox({
   selected,
   hovered,
   pick,
+  tone,
   pickable,
   ghost,
   onHover,
@@ -238,6 +255,7 @@ function AreaBox({
   selected: boolean;
   hovered: boolean;
   pick?: boolean;
+  tone?: TargetTone | null;
   pickable: boolean;
   ghost?: boolean;
   onHover?: (id: string | null) => void;
@@ -268,11 +286,11 @@ function AreaBox({
     >
       <boxGeometry args={[location.sizeX, Math.max(0.4, location.sizeZ * 0.45), location.sizeY]} />
       <meshStandardMaterial
-        color={binColor(location, theme, selected, hovered, false, false, false, pick)}
+        color={binColor(location, theme, selected, hovered, false, false, false, pick, tone)}
         roughness={0.7}
         metalness={0.04}
-        transparent={ghost || !selected}
-        opacity={ghost ? 0.4 : selected ? 1 : 0.92}
+        transparent={ghost || !(selected || tone)}
+        opacity={ghost ? 0.4 : selected || tone ? 1 : 0.92}
       />
     </mesh>
   );
@@ -370,6 +388,86 @@ function PickMarkers({
               <span className="max-w-[8rem] truncate font-mono">{marker.label}</span>
             </div>
           </Html>
+        );
+      })}
+    </>
+  );
+}
+
+/** Crosshair on each targeted bay, with a beam up past the top of its rack to a label you can spot from across the floor. */
+function TargetMarkers({
+  locations,
+  objects,
+  targets,
+  focusLocationId,
+  theme,
+  explode,
+  levelFilter,
+}: {
+  locations: MapLocation[];
+  objects: FloorObject[];
+  targets?: SceneTarget[];
+  focusLocationId?: string | null;
+  theme: SceneTheme;
+  explode: boolean;
+  levelFilter: "all" | number;
+}) {
+  if (!targets?.length) return null;
+  const byId = new Map(locations.map((row) => [row.id, row]));
+  return (
+    <>
+      {targets.map((target) => {
+        const loc = byId.get(target.locationId);
+        if (!loc) return null;
+        if (levelFilter !== "all" && loc.level !== levelFilter) return null;
+        const center = worldCenter(loc);
+        const lift = explodeLift(loc.level ?? 1, { levelHeight: Math.max(1, loc.sizeZ) }, explode);
+        const object = objectForLocation(objects, loc.id);
+        const rackTop =
+          object?.kind === "rack"
+            ? object.spec.levels * object.spec.levelHeight + explodeLift(object.spec.levels, object.spec, explode)
+            : loc.posZ + loc.sizeZ;
+        const binTop = loc.posZ + loc.sizeZ + lift;
+        const beamTop = Math.max(binTop + 1.1, rackTop + (target.tone === "target" ? 0.7 : 0.4));
+        const focused = target.locationId === focusLocationId;
+        const color = target.tone === "target" ? theme.selected : theme.from;
+        return (
+          <group key={`${target.locationId}:${target.tone}`}>
+            <Line
+              points={[
+                [center.x, binTop, center.z],
+                [center.x, beamTop, center.z],
+              ]}
+              color={color}
+              lineWidth={focused ? 2.6 : 1.4}
+              transparent
+              opacity={target.tone === "target" ? 0.95 : 0.7}
+            />
+            <Html
+              position={[center.x, center.y + lift, center.z]}
+              center
+              zIndexRange={[focused ? 60 : 50, 0]}
+              style={{ pointerEvents: "none" }}
+            >
+              <Reticle tone={target.tone} focused={focused} />
+            </Html>
+            <Html
+              position={[center.x, beamTop, center.z]}
+              center
+              zIndexRange={[focused ? 60 : 45, 0]}
+              style={{ pointerEvents: "none" }}
+            >
+              <div
+                className={cn(
+                  "flex items-center gap-1 rounded-full bg-background/90 px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap text-foreground shadow-sm ring-1",
+                  focused ? "ring-primary" : "ring-border",
+                )}
+              >
+                <span className="size-2 shrink-0 rounded-full" style={{ background: color }} />
+                <span className="max-w-[9rem] truncate font-mono">{target.label}</span>
+              </div>
+            </Html>
+          </group>
         );
       })}
     </>
@@ -491,6 +589,7 @@ function SceneContents(
     hoveredId: string | null;
     setHoveredId: (id: string | null) => void;
     pickIdSet?: ReadonlySet<string>;
+    targetTones?: ReadonlyMap<string, TargetTone>;
   },
 ) {
   const w = props.warehouse.mapWidth;
@@ -532,6 +631,7 @@ function SceneContents(
                 fromId={props.fromId}
                 toId={props.toId}
                 pickIds={props.pickIdSet}
+                targetTones={props.targetTones}
                 highlightBay={selected ? props.highlightBay : null}
                 pickable={pickable}
                 explode={explode}
@@ -587,6 +687,7 @@ function SceneContents(
             selected={object.id === props.selectedObjectId || loc.id === props.selectedLocationId}
             hovered={props.hoveredId === loc.id}
             pick={Boolean(props.pickIdSet?.has(loc.id))}
+            tone={props.targetTones?.get(loc.id) ?? null}
             pickable={pickable}
             onHover={props.setHoveredId}
             onPointerDown={() => {
@@ -600,6 +701,15 @@ function SceneContents(
       <PickMarkers
         locations={props.locations}
         markers={props.pickMarkers}
+        explode={explode}
+        levelFilter={levelFilter}
+      />
+      <TargetMarkers
+        locations={props.locations}
+        objects={props.objects}
+        targets={props.targets}
+        focusLocationId={props.focusLocationId}
+        theme={props.theme}
         explode={explode}
         levelFilter={levelFilter}
       />
@@ -637,11 +747,46 @@ function SceneContents(
   );
 }
 
-function CameraRig({ warehouse, cameraMode }: { warehouse: WarehouseMapInfo; cameraMode: CameraMode }) {
+/** A bay's centre plus the horizontal direction its face looks out on, so the camera can stand in the aisle. */
+type CameraFocus = { x: number; y: number; z: number; nx: number; nz: number };
+type OrbitControlsLike = { target: THREE.Vector3; update: () => void };
+
+const FLIGHT_MS = 650;
+
+function focusPose(focus: CameraFocus) {
+  // Aim a little above the bin so the crosshair sits low in frame and its beam label stays in view.
+  const target = new THREE.Vector3(focus.x, focus.y + 1.1, focus.z);
+  const along = focus.nx !== 0 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+  const position = target
+    .clone()
+    .add(new THREE.Vector3(focus.nx * 10, 4.2, focus.nz * 10))
+    .addScaledVector(along, 3.6);
+  return { target, position };
+}
+
+function CameraRig({
+  warehouse,
+  cameraMode,
+  focus,
+}: {
+  warehouse: WarehouseMapInfo;
+  cameraMode: CameraMode;
+  focus?: CameraFocus | null;
+}) {
   const { camera, invalidate } = useThree();
+  const controls = useThree((state) => state.controls) as unknown as OrbitControlsLike | null;
+  const placed = useRef(false);
+  const flight = useRef<{
+    fromPosition: THREE.Vector3;
+    fromTarget: THREE.Vector3;
+    position: THREE.Vector3;
+    target: THREE.Vector3;
+    start: number;
+  } | null>(null);
   const w = warehouse.mapWidth;
   const d = warehouse.mapDepth;
   useLayoutEffect(() => {
+    placed.current = false;
     camera.up.set(0, 1, 0);
     const cx = w / 2;
     const cz = d / 2;
@@ -655,6 +800,43 @@ function CameraRig({ warehouse, cameraMode }: { warehouse: WarehouseMapInfo; cam
     camera.updateProjectionMatrix();
     invalidate();
   }, [camera, cameraMode, w, d, invalidate]);
+
+  const fx = focus?.x;
+  const fy = focus?.y;
+  const fz = focus?.z;
+  const fnx = focus?.nx;
+  const fnz = focus?.nz;
+  useEffect(() => {
+    if (fx == null || fy == null || fz == null || fnx == null || fnz == null) return;
+    if (!controls || cameraMode !== "orbit") return;
+    const pose = focusPose({ x: fx, y: fy, z: fz, nx: fnx, nz: fnz });
+    if (!placed.current) {
+      placed.current = true;
+      flight.current = null;
+      camera.position.copy(pose.position);
+      controls.target.copy(pose.target);
+      controls.update();
+      invalidate();
+      return;
+    }
+    flight.current = {
+      fromPosition: camera.position.clone(),
+      fromTarget: controls.target.clone(),
+      ...pose,
+      start: performance.now(),
+    };
+  }, [fx, fy, fz, fnx, fnz, controls, camera, cameraMode, invalidate]);
+
+  useFrame(() => {
+    const current = flight.current;
+    if (!current || !controls) return;
+    const t = Math.min(1, (performance.now() - current.start) / FLIGHT_MS);
+    const eased = 1 - (1 - t) ** 3;
+    camera.position.lerpVectors(current.fromPosition, current.position, eased);
+    controls.target.lerpVectors(current.fromTarget, current.target, eased);
+    controls.update();
+    if (t >= 1) flight.current = null;
+  });
   return null;
 }
 
@@ -710,6 +892,26 @@ export function WarehouseScene(props: Props) {
   const d = props.warehouse.mapDepth;
   const status = props.cameraMode === "top" ? "Plan · orthographic" : "Orbit · perspective";
   const pickIdSet = useMemo(() => new Set(props.pickIds ?? []), [props.pickIds]);
+  const targetTones = useMemo(() => {
+    const tones = new Map<string, TargetTone>();
+    for (const target of props.targets ?? []) {
+      if (tones.get(target.locationId) !== "target") tones.set(target.locationId, target.tone);
+    }
+    return tones;
+  }, [props.targets]);
+  const focus = useMemo<CameraFocus | null>(() => {
+    if (!props.focusLocationId) return null;
+    const loc = props.locations.find((row) => row.id === props.focusLocationId);
+    if (!loc) return null;
+    const center = worldCenter(loc);
+    const object = objectForLocation(props.objects, loc.id);
+    if (object?.kind !== "rack") return { ...center, nx: 0.7, nz: 0.7 };
+    // Bays run along one axis; face the rack from the aisle on the building's inner side.
+    const alongX = object.spec.rotation === 90 || object.spec.rotation === 270;
+    return alongX
+      ? { ...center, nx: 0, nz: center.z < d / 2 ? 1 : -1 }
+      : { ...center, nx: center.x < w / 2 ? 1 : -1, nz: 0 };
+  }, [props.focusLocationId, props.locations, props.objects, w, d]);
   const frameClass = cn(
     "relative h-[min(74vh,820px)] w-full touch-none overflow-hidden rounded-xl border bg-bay",
     props.className,
@@ -743,7 +945,7 @@ export function WarehouseScene(props: Props) {
           ) : (
             <PerspectiveCamera makeDefault fov={42} near={0.1} far={500} />
           )}
-          <CameraRig warehouse={props.warehouse} cameraMode={props.cameraMode} />
+          <CameraRig warehouse={props.warehouse} cameraMode={props.cameraMode} focus={focus} />
           <OrbitControls
             makeDefault
             target={[w / 2, 0, d / 2]}
@@ -769,6 +971,7 @@ export function WarehouseScene(props: Props) {
             hoveredId={hoveredId}
             setHoveredId={setHoveredId}
             pickIdSet={pickIdSet}
+            targetTones={targetTones}
             onTranslateBegin={(id, x, y) => {
               dragging.current = true;
               props.onTranslateBegin?.(id, x, y);
@@ -778,18 +981,20 @@ export function WarehouseScene(props: Props) {
               props.onTranslateMove?.(x, y);
             }}
           />
-          {props.cameraMode === "orbit" ? (
+          {props.cameraMode === "orbit" && !props.compact ? (
             <GizmoHelper alignment="bottom-right" margin={[56, 56]}>
               <GizmoViewport axisColors={[theme.selected, theme.steel, theme.ghost]} labelColor={theme.dark ? "#f4f4f4" : "#222"} />
             </GizmoHelper>
           ) : null}
         </Canvas>
       </WebGLBoundary>
-      <div className="pointer-events-none absolute left-3 top-3 rounded-md bg-background/85 px-2.5 py-1.5 text-[11px] text-muted-foreground shadow-sm ring-1 ring-border backdrop-blur">
-        {status}
-        {props.cursor ? ` · ${props.cursor.x}, ${props.cursor.y}` : ""}
-        {hovered ? ` · ${hovered.code}` : ""}
-      </div>
+      {props.compact ? null : (
+        <div className="pointer-events-none absolute left-3 top-3 rounded-md bg-background/85 px-2.5 py-1.5 text-[11px] text-muted-foreground shadow-sm ring-1 ring-border backdrop-blur">
+          {status}
+          {props.cursor ? ` · ${props.cursor.x}, ${props.cursor.y}` : ""}
+          {hovered ? ` · ${hovered.code}` : ""}
+        </div>
+      )}
       {props.ghost ? (
         <div
           className={`pointer-events-none absolute bottom-3 left-1/2 max-w-[min(36rem,calc(100%-1.5rem))] -translate-x-1/2 rounded-md px-3 py-1.5 text-center text-[11px] shadow-sm ring-1 backdrop-blur ${
