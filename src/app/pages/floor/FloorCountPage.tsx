@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, type CycleCount, type Location, type ScanHit } from "../../api";
-import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
+import { Button, Card, EmptyState, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox, ClaimList, openFloorRow, type ScanReport } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { useWarehouse } from "../../warehouse";
@@ -12,6 +12,7 @@ import { jobForRef, useOpenJobs } from "../../jobs";
 
 export function FloorCountPage() {
   const me = useSession();
+  const canCount = me.role === "owner" || (me.floorVerbs ?? []).includes("count");
   const { jobs, reload: reloadJobs } = useOpenJobs("count");
   const [params] = useSearchParams();
   const { warehouseId } = useWarehouse();
@@ -45,6 +46,7 @@ export function FloorCountPage() {
   }
 
   useEffect(() => {
+    if (!canCount) return;
     load().catch((err: Error) => setError(err.message));
   }, []);
 
@@ -64,7 +66,13 @@ export function FloorCountPage() {
               method: "POST",
               body: JSON.stringify({ warehouseId, locationId: hit.location.id }),
             });
-            await api(`/api/cycle-counts/${created.id}/start`, { method: "POST" }).catch(() => undefined);
+            try {
+              await api(`/api/cycle-counts/${created.id}/start`, { method: "POST" });
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Could not start count");
+              report?.(false);
+              return;
+            }
             setActive(await api<CycleCount>(`/api/cycle-counts/${created.id}`));
             report?.(true);
             return;
@@ -127,6 +135,22 @@ export function FloorCountPage() {
 
   const lines = active?.lines ?? [];
   const ready = Boolean(active && canPostCount(active.status) && allLinesEntered(lines));
+
+  if (!canCount) {
+    return (
+      <FloorFrame title="Count" description="Scan a bay, then count what you see." error={null}>
+        <EmptyState
+          title="Counting isn't one of your floor verbs."
+          body="Ask an owner to add Count to your floor verbs on the Team page."
+          action={
+            <Link className="text-xs font-medium underline" to="/floor">
+              Back to floor
+            </Link>
+          }
+        />
+      </FloorFrame>
+    );
+  }
 
   return (
     <FloorFrame title="Count" description="Scan a bay, then count what you see. Scan a SKU that was not on the snapshot to add it. System qty stays hidden until you post." error={error}>
