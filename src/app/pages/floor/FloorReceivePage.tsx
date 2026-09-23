@@ -36,6 +36,7 @@ export function FloorReceivePage() {
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [done, setDone] = useState<string | null>(null);
 
   async function load() {
@@ -94,7 +95,9 @@ export function FloorReceivePage() {
   }
 
   useEffect(() => {
-    load().catch((err) => setError(errorText(err, "Could not load open receipts and purchase orders.")));
+    load()
+      .catch((err) => setError(errorText(err, "Could not load open receipts and purchase orders.")))
+      .finally(() => setLoaded(true));
   }, []);
 
   const onScan = useCallback((raw: string, report?: ScanReport) => {
@@ -211,6 +214,7 @@ export function FloorReceivePage() {
       {!activeReceipt && !activePurchase ? (
         <div className="grid gap-4 md:grid-cols-2">
           <ClaimList
+            loading={!loaded}
             title="Open receipts"
             empty="No open receipts."
             emptyBody="Receipts the office expects show here until every line is on the dock."
@@ -240,6 +244,7 @@ export function FloorReceivePage() {
             )}
           />
           <ClaimList
+            loading={!loaded}
             title="Purchase orders"
             empty="No open purchase orders."
             emptyBody="Purchase orders sent to a vendor show here until every line is received."

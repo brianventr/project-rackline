@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Check, CheckCircle2, ListChecks, Loader2, MapPin, Minus, MoreHorizontal, Plus, Printer, SkipForward, Undo2, XCircle } from "lucide-react";
-import { api, type Location, type Order, type OrderLine, type ScanHit } from "../../api";
+import { api, errorText, type Location, type Order, type OrderLine, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
@@ -84,6 +84,7 @@ export function FloorPickPage() {
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   // Guided mode: one stop (line at a bay) per screen.
   const [mode, setModeState] = useState<PickMode>(initialPickMode);
@@ -162,7 +163,9 @@ export function FloorPickPage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load()
+      .catch((err) => setError(errorText(err, "Could not load open orders.")))
+      .finally(() => setLoaded(true));
   }, []);
 
   /** Move the guided walk to stop `at` and mark what the scan confirmed. */
@@ -457,6 +460,7 @@ export function FloorPickPage() {
       <FloorScanBox label={scanLabel} placeholder={scanPlaceholder} onScan={onScan} />
       {!active ? (
         <ClaimList
+          loading={!loaded}
           title="Open orders"
           empty="Nothing to pick."
           rows={orders}

@@ -23,6 +23,7 @@ export function FloorReplenishPage() {
   const [lotCode, setLotCode] = useState("");
   const [serials, setSerials] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [done, setDone] = useState<string | null>(null);
 
   function applyDoc(doc: Replenishment) {
@@ -47,7 +48,9 @@ export function FloorReplenishPage() {
   }
 
   useEffect(() => {
-    load().catch((err) => setError(errorText(err, "Could not load replenishments.")));
+    load()
+      .catch((err) => setError(errorText(err, "Could not load replenishments.")))
+      .finally(() => setLoaded(true));
   }, [warehouseId]);
 
   const onScan = useCallback((raw: string, report?: ScanReport) => {
@@ -126,6 +129,7 @@ export function FloorReplenishPage() {
       {!active ? (
         <div className="grid gap-4 md:grid-cols-2">
           <ClaimList
+            loading={!loaded}
             title="Open replenishments"
             empty="Nothing queued."
             emptyBody="Replenishments queued in the office or from a suggestion wait here until they are moved."
@@ -144,6 +148,7 @@ export function FloorReplenishPage() {
             )}
           />
           <ClaimList
+            loading={!loaded}
             title="Suggested now"
             empty="Pick faces are at min."
             emptyBody="A pick face that drops below its pick min shows here with a bulk bay to pull from."

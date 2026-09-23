@@ -3,6 +3,7 @@ import {
   forwardRef,
   isValidElement,
   useId,
+  type ComponentProps,
   type FormEvent,
   type InputHTMLAttributes,
   type ReactElement,
@@ -63,8 +64,12 @@ export function PageHeader({
 }
 
 /** A padded surface. `className` lands on the card itself, so both layout (`col-span-2`) and spacing (`space-y-3`) work. */
-export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <UiCard className={cn("block gap-0 p-(--density-gap)", className)}>{children}</UiCard>;
+export function Card({ children, className = "", ...props }: ComponentProps<"div">) {
+  return (
+    <UiCard {...props} className={cn("block gap-0 p-(--density-gap)", className)}>
+      {children}
+    </UiCard>
+  );
 }
 
 export function Button({

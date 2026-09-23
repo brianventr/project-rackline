@@ -27,6 +27,7 @@ export function FloorRtvPage() {
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [done, setDone] = useState<string | null>(null);
 
   function openRtv(rtv: VendorReturn) {
@@ -68,7 +69,9 @@ export function FloorRtvPage() {
   }
 
   useEffect(() => {
-    load().catch((err) => setError(errorText(err, "Could not load open vendor returns.")));
+    load()
+      .catch((err) => setError(errorText(err, "Could not load open vendor returns.")))
+      .finally(() => setLoaded(true));
   }, []);
 
   const onScan = useCallback((raw: string, report?: ScanReport) => {
@@ -136,6 +139,7 @@ export function FloorRtvPage() {
       <DoneBanner>{done}</DoneBanner>
       {!active ? (
         <ClaimList
+          loading={!loaded}
           title="Open vendor returns"
           empty="Nothing to ship back."
           emptyBody="Vendor returns booked in the office show here until every line has left its bay."

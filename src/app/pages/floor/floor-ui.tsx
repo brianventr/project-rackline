@@ -7,6 +7,7 @@ import type { FloorJob } from "../../api";
 import { claimedByMessage, jobClaimedByOther, splitByClaim } from "../../jobs";
 import { jobReasonText } from "@/domain/floor-usage";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export type ScanReport = (accepted: boolean) => void;
 
@@ -117,7 +118,8 @@ export function FloorFrame({
   children,
 }: {
   title: string;
-  description: string;
+  /** One line on what this screen is for. May hold a `<Term>`. */
+  description: ReactNode;
   error: string | null;
   children: ReactNode;
 }) {
@@ -139,7 +141,10 @@ export function FloorFrame({
         <div className="min-w-0 pt-1">
           <h1 className="text-2xl font-semibold leading-tight tracking-tight">{title}</h1>
           {description ? (
-            <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground" title={description}>
+            <p
+              className="mt-0.5 line-clamp-2 text-sm text-muted-foreground"
+              title={typeof description === "string" ? description : undefined}
+            >
               {description}
             </p>
           ) : null}
@@ -159,6 +164,7 @@ export function ClaimList<T extends { id?: string }>({
   emptyBody = "Unassigned work stays on this screen.",
   emptyIcon,
   emptyAction,
+  loading = false,
   rows,
   userId,
   jobFor,
@@ -168,10 +174,12 @@ export function ClaimList<T extends { id?: string }>({
 }: {
   title: string;
   empty: string;
-  emptyBody?: string;
+  emptyBody?: ReactNode;
   emptyIcon?: LucideIcon;
   /** A next step when the list is empty, such as a link to another verb. */
   emptyAction?: ReactNode;
+  /** True until the first load settles, so the empty state does not flash before rows arrive. */
+  loading?: boolean;
   rows: T[];
   userId: string;
   jobFor: (row: T) => FloorJob | undefined;
@@ -219,7 +227,16 @@ export function ClaimList<T extends { id?: string }>({
   return (
     <Card className="space-y-4">
       <p className="font-medium">{title}</p>
-      {rows.length === 0 ? <EmptyState title={empty} body={emptyBody} icon={emptyIcon} action={emptyAction} /> : null}
+      {rows.length === 0 ? (
+        loading ? (
+          <div role="status" aria-label="Loading" className="space-y-2">
+            <Skeleton className="h-11 w-full motion-reduce:animate-none" />
+            <Skeleton className="h-11 w-full motion-reduce:animate-none" />
+          </div>
+        ) : (
+          <EmptyState title={empty} body={emptyBody} icon={emptyIcon} action={emptyAction} />
+        )
+      ) : null}
       {section("Mine", mine, false)}
       {section("Unassigned", pool, false)}
       {section("Claimed by others", others, true)}

@@ -18,6 +18,7 @@ export function FloorTransferPage() {
   const [active, setActive] = useState<Transfer | null>(null);
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   function applyTicket(transfer: Transfer) {
     setActive(transfer);
@@ -49,7 +50,9 @@ export function FloorTransferPage() {
   }
 
   useEffect(() => {
-    load().catch((err) => setError(errorText(err, "Could not load open putaway tickets.")));
+    load()
+      .catch((err) => setError(errorText(err, "Could not load open putaway tickets.")))
+      .finally(() => setLoaded(true));
   }, []);
 
   const onScan = useCallback(
@@ -132,6 +135,7 @@ export function FloorTransferPage() {
       <FloorScanBox label="Scan putaway ticket or SKU" placeholder="XFR-DEMO1 or SHADE" onScan={onScan} />
       {!active ? (
         <ClaimList
+          loading={!loaded}
           title="Open putaway tickets"
           empty="No open putaway tickets."
           emptyBody="Putaway tickets from the office show here until every unit has left the from-bay."

@@ -41,6 +41,7 @@ export function FloorReturnPage() {
   const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [dispositions, setDispositions] = useState<Record<string, ReturnDisposition>>({});
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [postedDispositions, setPostedDispositions] = useState<string[]>([]);
 
@@ -87,7 +88,9 @@ export function FloorReturnPage() {
   }
 
   useEffect(() => {
-    load().catch((err) => setError(errorText(err, "Could not load open returns.")));
+    load()
+      .catch((err) => setError(errorText(err, "Could not load open returns.")))
+      .finally(() => setLoaded(true));
   }, []);
 
   const onScan = useCallback((raw: string, report?: ScanReport) => {
@@ -185,6 +188,7 @@ export function FloorReturnPage() {
       </DoneBanner>
       {!active ? (
         <ClaimList
+          loading={!loaded}
           title="Open returns"
           empty="Nothing to receive back."
           emptyBody="Customer returns booked in the office show here until every line is back in a bay."
