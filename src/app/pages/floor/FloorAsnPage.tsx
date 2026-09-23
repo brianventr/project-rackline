@@ -16,8 +16,8 @@ import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 
 const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
-/** BayCombobox takes no className, so size its input to 44px from here. */
-const bayPicker = "[&_[role=combobox]]:h-11 [&_[role=combobox]]:text-base";
+/** BayCombobox takes no className, so size its input like the other floor inputs (44px, 16px text on phones). */
+const bayPicker = "[&_[role=combobox]]:h-11 [&_[role=combobox]]:text-base md:[&_[role=combobox]]:text-sm";
 
 function matchAsn(asns: Asn[], raw: string): Asn | undefined {
   const needle = raw.trim().toUpperCase().replace(/^ASN[:\-]/, "");

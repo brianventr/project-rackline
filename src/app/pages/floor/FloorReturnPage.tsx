@@ -23,8 +23,8 @@ import {
 
 const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
-/** BayCombobox takes no className, so size its input to 44px from here. */
-const bayPicker = "[&_[role=combobox]]:h-11 [&_[role=combobox]]:text-base";
+/** BayCombobox takes no className, so size its input like the other floor inputs (44px, 16px text on phones). */
+const bayPicker = "[&_[role=combobox]]:h-11 [&_[role=combobox]]:text-base md:[&_[role=combobox]]:text-sm";
 
 export function FloorReturnPage() {
   const me = useSession();
@@ -247,7 +247,7 @@ export function FloorReturnPage() {
                 </div>
                 {line.remaining > 0 ? (
                   // DispositionSelect takes no className or label, so the wrapping label names and sizes it.
-                  <label className="block [&_select]:h-11 [&_select]:text-base">
+                  <label className="block [&_select]:h-11 [&_select]:text-base md:[&_select]:text-sm">
                     <span className="sr-only">{line.sku} disposition</span>
                     <DispositionSelect
                       value={dispositions[line.itemId] ?? "restock"}
@@ -310,9 +310,11 @@ export function FloorReturnPage() {
               ) : null}
             </div>
           )}
-          <Link className={textLink} to="/outbound/returns">
-            Office returns
-          </Link>
+          <div>
+            <Link className={textLink} to="/outbound/returns">
+              Office returns
+            </Link>
+          </div>
         </Card>
       )}
     </FloorFrame>
