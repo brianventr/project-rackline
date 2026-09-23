@@ -7,6 +7,7 @@ import {
   Radar,
   ScanLine,
   Store,
+  Clock,
   Warehouse,
 } from "lucide-react";
 import { motion } from "motion/react";
@@ -32,6 +33,11 @@ const features = [
     title: "Shopify to pick ticket",
     body: "Checkouts land as Rackline orders. After the floor ships, fulfillment posts back to Shopify — or stays in demo mode.",
     icon: Store,
+  },
+  {
+    title: "A promise, not a stock number",
+    body: "Open orders and a new checkout get a leave-by on the carrier pickup, from the shelf, the queue ahead, and dated inbound. The quote does not reserve inventory.",
+    icon: Clock,
   },
   {
     title: "Garage Mode",

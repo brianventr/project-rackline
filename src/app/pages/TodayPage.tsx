@@ -11,6 +11,7 @@ import { desiredVerb } from "@/domain/jobs";
 import { jobForRef, jobForSuggestion } from "../jobs";
 import { cn } from "@/lib/utils";
 import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
+import { formatPickupLabel, type PromiseBoard } from "@/domain/promise";
 
 const LANES = ["inbound", "outbound", "make", "stock", "exceptions"] as const;
 type LaneId = (typeof LANES)[number];
@@ -59,6 +60,7 @@ export function TodayPage() {
   const garage = isGarageMode(me.organization.operatingMode);
   const navigate = useNavigate();
   const [data, setData] = useState<Dashboard | null>(null);
+  const [promise, setPromise] = useState<PromiseBoard | null>(null);
   const [jobs, setJobs] = useState<FloorJob[]>([]);
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -68,12 +70,16 @@ export function TodayPage() {
 
   async function load() {
     const query = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : "";
-    const [nextDashboard, nextJobs, nextTeam] = await Promise.all([
+    const [nextDashboard, nextJobs, nextTeam, nextPromise] = await Promise.all([
       api<Dashboard>(`/api/dashboard${query}`),
       api<FloorJob[]>(`/api/jobs${query}${query ? "&" : "?"}open=1`),
       api<TeamMember[]>("/api/team"),
+      warehouseId
+        ? api<PromiseBoard>(`/api/analytics/promises?warehouseId=${encodeURIComponent(warehouseId)}`)
+        : Promise.resolve(null),
     ]);
     setData(nextDashboard);
+    setPromise(nextPromise);
     setJobs(nextJobs);
     setTeam(nextTeam);
   }
@@ -183,6 +189,7 @@ export function TodayPage() {
     { label: "Out of service", value: data?.outOfService ?? "—", to: "/equipment", tone: "bad" as const },
     { label: "Certs due", value: data?.expiringCerts ?? "—", to: "/setup/team", tone: "warn" as const },
     { label: "Runs out", value: data?.runwayThisWeek?.length ?? "—", to: "/analytics/runway", tone: "warn" as const },
+    { label: "This pickup", value: promise ? promise.kpis.leavesToday : "—", to: "/analytics/promise", tone: "ok" as const },
   ].filter((item) => !garage || garageAllowsPath(item.to));
 
   return (
@@ -359,6 +366,30 @@ export function TodayPage() {
               title: row.sku,
               meta: `${row.onHand}/${row.reorderPoint}${row.suggestedQty ? ` · +${row.suggestedQty}` : ""}${row.coveredByOpenPo ? " · open PO" : ""}`,
             }))}
+          />
+          <InspectorList
+            title="Promise"
+            empty="Every open order leaves on the next pickup."
+            action={
+              <Link className="font-semibold hover:underline" to="/analytics/promise">
+                Promise
+              </Link>
+            }
+            rows={(promise?.orders ?? [])
+              .filter((row) => row.code !== "leaves_today")
+              .map((row) => ({
+                id: row.orderId,
+                to: `/outbound/orders/${row.orderId}`,
+                title: row.number,
+                meta:
+                  row.code === "short"
+                    ? "Short"
+                    : row.waitingOn
+                      ? row.waitingOn
+                      : row.promisedAt
+                        ? formatPickupLabel(row.promisedAt, promise?.timeZone ?? "UTC")
+                        : "—",
+              }))}
           />
           <InspectorList
             title="Runs out this week"
