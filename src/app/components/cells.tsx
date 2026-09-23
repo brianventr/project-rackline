@@ -32,7 +32,7 @@ export function LineChips({
       {shown.map((line, index) => (
         <span
           key={`${line.sku}:${index}`}
-          className="inline-flex items-center gap-1 rounded-md border bg-muted/50 px-1.5 py-px font-mono text-[11px] leading-4"
+          className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border bg-muted/50 px-1.5 py-px font-mono text-[11px] leading-4"
         >
           {line.sku}
           <span className="text-muted-foreground">×{line.qty}</span>

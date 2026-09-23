@@ -1,13 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { api, type Item, type Purchase, type RunwayBoard, type RunwayDraftLine, type RunwayRow, type RunwayStatus, type RunwayWindow } from "../api";
-import { Button, ErrorBanner, Input, PageHeader, Table } from "../components/ui";
+import { FilePlus2, Hourglass } from "lucide-react";
+import {
+  api,
+  type Item,
+  type Purchase,
+  type RunwayBoard,
+  type RunwayDraftLine,
+  type RunwayRow,
+  type RunwayStatus,
+  type RunwayWindow,
+} from "../api";
+import { Button, EmptyState, ErrorBanner, Input, PageHeader, ToneBadge } from "../components/ui";
+import { DataTable, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
+import { Muted, SkuCell } from "../components/cells";
+import { useApiQuery } from "../query";
+import { useWrite } from "../use-write";
 import { useWarehouse } from "../warehouse";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { isRunwayMultiplier, type RunwayMultiplier } from "@/domain/runway";
+import { isRunwayMultiplier, RUNWAY_STATUSES, type RunwayMultiplier } from "@/domain/runway";
+import { statusTone, type StatusTone } from "@/domain/status";
 
 type RunwaySnapshot = RunwayBoard & { draftLines: RunwayDraftLine[] };
 
@@ -21,6 +35,11 @@ const STATUS_LABEL: Record<RunwayStatus, string> = {
   healthy: "Healthy",
   idle: "Idle",
 };
+
+/** Same colours as StatusBadge; "order this week" is not in the shared map yet, so it reads amber here. */
+function runwayTone(status: RunwayStatus): StatusTone {
+  return status === "order_soon" ? "warning" : statusTone(status);
+}
 
 function runwayQuery(warehouseId: string, window: RunwayWindow, multiplier: number) {
   const params = new URLSearchParams();
@@ -46,35 +65,156 @@ function formatWhen(at: number | null) {
   return new Date(at).toISOString().slice(0, 10);
 }
 
-function statusVariant(status: RunwayStatus): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "out" || status === "order_now") return "destructive";
-  if (status === "healthy" || status === "covered") return "default";
-  return "secondary";
+function mono(value: string | number) {
+  return <span className="font-mono">{value}</span>;
 }
+
+const RUNWAY_TABS: TabDef<RunwayRow>[] = [
+  { id: "all", label: "All", match: () => true },
+  {
+    id: "order",
+    label: "Needs order",
+    match: (row) => row.status === "out" || row.status === "order_now" || row.status === "order_soon",
+  },
+  { id: "covered", label: "Inbound covers", match: (row) => row.status === "covered" },
+  { id: "idle", label: "Idle", match: (row) => row.status === "idle" },
+];
+
+const RUNWAY_FACETS: FacetDef<RunwayRow>[] = [
+  { id: "status", label: "Status", value: (row) => row.status, format: (value) => STATUS_LABEL[value as RunwayStatus] ?? value },
+  { id: "vendor", label: "Vendor", value: (row) => row.lastVendorName },
+];
+
+const RUNWAY_COLUMNS: DataColumn<RunwayRow>[] = [
+  {
+    id: "sku",
+    header: "SKU",
+    sortValue: (row) => row.sku,
+    csv: (row) => row.sku,
+    cell: (row) => <SkuCell sku={row.sku} name={row.name} to={`/stock/items/${row.itemId}`} />,
+  },
+  { id: "name", header: "Name", defaultHidden: true, sortValue: (row) => row.name, cell: (row) => row.name },
+  {
+    id: "onHand",
+    header: "On hand",
+    align: "right",
+    defaultHidden: true,
+    sortValue: (row) => row.onHand,
+    cell: (row) => mono(row.onHand),
+  },
+  { id: "sellable", header: "Sellable", align: "right", sortValue: (row) => row.sellable, cell: (row) => mono(row.sellable) },
+  {
+    id: "observed",
+    header: "Observed",
+    align: "right",
+    sortValue: (row) => row.observedRate,
+    csv: (row) => formatRate(row.observedRate),
+    cell: (row) => mono(formatRate(row.observedRate)),
+  },
+  {
+    id: "baseline",
+    header: "Baseline",
+    align: "right",
+    sortValue: (row) => row.baselineRate,
+    csv: (row) => (row.baselineRate != null ? formatRate(row.baselineRate) : "auto"),
+    cell: (row) => (row.baselineRate != null ? mono(formatRate(row.baselineRate)) : <Muted>auto</Muted>),
+  },
+  {
+    id: "burn",
+    header: "Burn",
+    align: "right",
+    sortValue: (row) => row.burnRate,
+    csv: (row) => formatRate(row.burnRate),
+    cell: (row) => mono(formatRate(row.burnRate)),
+  },
+  {
+    id: "inbound",
+    header: "Inbound",
+    align: "right",
+    sortValue: (row) => row.inboundQty,
+    csv: (row) => (row.inboundQty ? `${row.inboundQty}${row.inboundAt ? ` ${formatWhen(row.inboundAt)}` : ""}` : ""),
+    cell: (row) =>
+      row.inboundQty ? (
+        <span className="flex flex-col items-end">
+          {mono(row.inboundQty)}
+          {row.inboundAt ? (
+            <span className="font-mono text-[11px] text-muted-foreground">{formatWhen(row.inboundAt)}</span>
+          ) : null}
+        </span>
+      ) : (
+        <Muted>—</Muted>
+      ),
+  },
+  {
+    id: "days",
+    header: "Days",
+    align: "right",
+    sortValue: (row) => (row.status === "idle" ? null : (row.daysOfCover ?? Number.MAX_SAFE_INTEGER)),
+    csv: (row) => formatDays(row),
+    cell: (row) => mono(formatDays(row)),
+  },
+  {
+    id: "stockout",
+    header: "Stockout",
+    sortValue: (row) => row.stockoutAt,
+    csv: (row) => formatWhen(row.stockoutAt),
+    cell: (row) => mono(formatWhen(row.stockoutAt)),
+  },
+  {
+    id: "orderBy",
+    header: "Order by",
+    sortValue: (row) => row.orderByAt,
+    csv: (row) => formatWhen(row.orderByAt),
+    cell: (row) => mono(formatWhen(row.orderByAt)),
+  },
+  {
+    id: "suggested",
+    header: "Suggested",
+    align: "right",
+    defaultHidden: true,
+    sortValue: (row) => row.suggestedQty,
+    cell: (row) => mono(row.suggestedQty),
+  },
+  {
+    id: "vendor",
+    header: "Last vendor",
+    defaultHidden: true,
+    sortValue: (row) => row.lastVendorName,
+    cell: (row) => row.lastVendorName ?? <Muted>—</Muted>,
+  },
+  {
+    id: "status",
+    header: "Status",
+    sortValue: (row) => RUNWAY_STATUSES.indexOf(row.status),
+    csv: (row) => `${STATUS_LABEL[row.status]}${row.coveredByOpenPo ? " (open PO)" : ""}`,
+    cell: (row) => (
+      <span className="flex flex-wrap items-center gap-1.5">
+        <ToneBadge tone={runwayTone(row.status)}>{STATUS_LABEL[row.status]}</ToneBadge>
+        {row.coveredByOpenPo ? <span className="text-xs text-muted-foreground">open PO</span> : null}
+      </span>
+    ),
+  },
+];
 
 export function RunwayPage() {
   const { warehouseId } = useWarehouse();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [params] = useSearchParams();
   const [window, setWindow] = useState<RunwayWindow>("30d");
   const [multiplier, setMultiplier] = useState<RunwayMultiplier>(1);
-  const [board, setBoard] = useState<RunwaySnapshot | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [baselineDraft, setBaselineDraft] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [drafting, setDrafting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const baseline = useWrite();
+  const draft = useWrite();
 
-  async function load() {
-    const next = await api<RunwaySnapshot>(`/api/analytics/runway${runwayQuery(warehouseId, window, multiplier)}`);
-    setBoard(next);
-    setSelectedId((current) => current && next.rows.some((row) => row.itemId === current) ? current : next.rows[0]?.itemId ?? null);
-  }
-
-  useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
-  }, [warehouseId, window, multiplier]);
-
-  const selected = board?.rows.find((row) => row.itemId === selectedId) ?? null;
+  // Keep the last board on screen while a new window or multiplier loads.
+  const query = useApiQuery<RunwaySnapshot>(`/api/analytics/runway${runwayQuery(warehouseId, window, multiplier)}`, {
+    placeholderData: (previous) => previous,
+  });
+  const board = query.data ?? null;
+  const rows = board?.rows ?? [];
+  const pickedId = params.get("sku");
+  const selected = rows.find((row) => row.itemId === pickedId) ?? rows[0] ?? null;
 
   useEffect(() => {
     if (!selected) {
@@ -94,47 +234,51 @@ export function RunwayPage() {
     [board],
   );
 
+  /** Clicking a row charts that SKU. The pick lives in the URL next to the table's own filters. */
+  function selectHref(row: RunwayRow) {
+    const next = new URLSearchParams(location.search);
+    next.set("sku", row.itemId);
+    return `${location.pathname}?${next.toString()}`;
+  }
+
   async function saveBaseline() {
     if (!selected) return;
-    setError(null);
-    setSaving(true);
-    try {
-      await api<Item>(`/api/items/${selected.itemId}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          baselineShipRate: baselineDraft.trim() === "" ? null : Number(baselineDraft),
+    const cleared = baselineDraft.trim() === "";
+    await baseline.run(
+      "Save baseline",
+      () =>
+        api<Item>(`/api/items/${selected.itemId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            baselineShipRate: cleared ? null : Number(baselineDraft),
+          }),
         }),
-      });
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save baseline");
-    } finally {
-      setSaving(false);
-    }
+      cleared
+        ? `Baseline cleared for ${selected.sku}. Burn follows observed ships.`
+        : `Baseline for ${selected.sku} set to ${baselineDraft}/day.`,
+    );
   }
 
   async function draftPo() {
     if (!warehouseId) {
-      setError("Select a warehouse before drafting a PO");
+      draft.setError("Select a warehouse before drafting a PO");
       return;
     }
-    setError(null);
-    setDrafting(true);
-    try {
-      const created = await api<Purchase>("/api/purchases/from-runway", {
-        method: "POST",
-        body: JSON.stringify({ warehouseId }),
-      });
-      navigate(`/inbound/purchases/${created.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not draft PO");
-    } finally {
-      setDrafting(false);
-    }
+    const lines = board?.draftLines.length ?? 0;
+    const created = await draft.run(
+      "Draft PO",
+      () =>
+        api<Purchase>("/api/purchases/from-runway", {
+          method: "POST",
+          body: JSON.stringify({ warehouseId }),
+        }),
+      (po) => `Drafted ${po.number} with ${lines} ${lines === 1 ? "line" : "lines"}. Review it before you send it.`,
+    );
+    if (created) navigate(`/inbound/purchases/${created.id}`);
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-(--density-gap)">
       <PageHeader
         eyebrow="Analytics"
         title="Runway"
@@ -149,6 +293,7 @@ export function RunwayPage() {
               }}
               variant="outline"
               size="sm"
+              aria-label="History window"
             >
               <ToggleGroupItem value="7d">7 days</ToggleGroupItem>
               <ToggleGroupItem value="30d">30 days</ToggleGroupItem>
@@ -163,6 +308,7 @@ export function RunwayPage() {
               }}
               variant="outline"
               size="sm"
+              aria-label="Demand multiplier"
             >
               <ToggleGroupItem value="0.5">0.5×</ToggleGroupItem>
               <ToggleGroupItem value="1">1×</ToggleGroupItem>
@@ -170,16 +316,18 @@ export function RunwayPage() {
               <ToggleGroupItem value="2">2×</ToggleGroupItem>
             </ToggleGroup>
             <Button
-              variant="secondary"
-              disabled={drafting || !(board?.draftLines.length)}
+              size="sm"
+              disabled={draft.busy || !board?.draftLines.length}
+              title={board && !board.draftLines.length ? "Nothing needs ordering right now." : undefined}
               onClick={() => void draftPo()}
             >
-              {drafting ? "Drafting…" : "Draft PO"}
+              <FilePlus2 className="size-4" />
+              {draft.busy ? "Drafting…" : board?.draftLines.length ? `Draft PO (${board.draftLines.length})` : "Draft PO"}
             </Button>
           </div>
         }
       />
-      <ErrorBanner error={error} />
+      <ErrorBanner error={query.error?.message ?? draft.error ?? baseline.error} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {tiles.map((tile) => (
           <Card key={tile.label} className="from-primary/5 to-card bg-gradient-to-t shadow-xs">
@@ -191,11 +339,12 @@ export function RunwayPage() {
         ))}
       </div>
       {selected ? (
-        <Card>
-          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <Card className="px-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <p className="text-sm font-medium">
+              <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
                 <span className="font-mono">{selected.sku}</span> {selected.name}
+                <ToneBadge tone={runwayTone(selected.status)}>{STATUS_LABEL[selected.status]}</ToneBadge>
               </p>
               <p className="text-sm text-muted-foreground">
                 Burn {formatRate(selected.burnRate)}/day
@@ -204,7 +353,13 @@ export function RunwayPage() {
                 {selected.inboundQty ? ` · inbound ${selected.inboundQty}` : ""}
               </p>
             </div>
-            <div className="flex items-end gap-2">
+            <form
+              className="flex items-end gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveBaseline();
+              }}
+            >
               <label className="grid gap-1 text-xs text-muted-foreground">
                 Baseline / day
                 <Input
@@ -217,10 +372,10 @@ export function RunwayPage() {
                   placeholder="auto"
                 />
               </label>
-              <Button variant="secondary" disabled={saving} onClick={() => void saveBaseline()}>
-                {saving ? "Saving…" : "Save"}
+              <Button type="submit" size="sm" variant="outline" disabled={baseline.busy}>
+                {baseline.busy ? "Saving…" : "Save"}
               </Button>
-            </div>
+            </form>
           </div>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
@@ -237,52 +392,31 @@ export function RunwayPage() {
           </div>
         </Card>
       ) : null}
-      <Table
-        columns={[
-          "SKU",
-          "Sellable",
-          "Observed",
-          "Baseline",
-          "Burn",
-          "Inbound",
-          "Days",
-          "Stockout",
-          "Order by",
-          "Status",
-        ]}
-      >
-        {(board?.rows ?? []).map((row) => (
-          <tr
-            key={row.itemId}
-            className={row.itemId === selectedId ? "cursor-pointer bg-muted/40" : "cursor-pointer"}
-            onClick={() => setSelectedId(row.itemId)}
-          >
-            <td className="px-4 py-3 font-mono">
-              <Link className="hover:underline" to={`/stock/items/${row.itemId}`} onClick={(event) => event.stopPropagation()}>
-                {row.sku}
-              </Link>
-              <span className="ml-2 text-muted-foreground">{row.name}</span>
-            </td>
-            <td className="px-4 py-3 font-mono tabular-nums">{row.sellable}</td>
-            <td className="px-4 py-3 font-mono tabular-nums">{formatRate(row.observedRate)}</td>
-            <td className="px-4 py-3 font-mono tabular-nums">{row.baselineRate != null ? formatRate(row.baselineRate) : "auto"}</td>
-            <td className="px-4 py-3 font-mono tabular-nums">{formatRate(row.burnRate)}</td>
-            <td className="px-4 py-3 font-mono tabular-nums">
-              {row.inboundQty ? `${row.inboundQty}${row.inboundAt ? ` · ${formatWhen(row.inboundAt)}` : ""}` : "—"}
-            </td>
-            <td className="px-4 py-3 font-mono tabular-nums">{formatDays(row)}</td>
-            <td className="px-4 py-3 font-mono tabular-nums">{formatWhen(row.stockoutAt)}</td>
-            <td className="px-4 py-3 font-mono tabular-nums">{formatWhen(row.orderByAt)}</td>
-            <td className="px-4 py-3">
-              <Badge variant={statusVariant(row.status)}>{STATUS_LABEL[row.status]}</Badge>
-              {row.coveredByOpenPo ? <span className="ml-2 text-xs text-muted-foreground">open PO</span> : null}
-            </td>
-          </tr>
-        ))}
-      </Table>
-      {board && board.rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No SKUs in this warehouse yet.</p>
-      ) : null}
+      <DataTable
+        id="runway"
+        data={board?.rows}
+        loading={query.isLoading}
+        columns={RUNWAY_COLUMNS}
+        getRowId={(row) => row.itemId}
+        rowHref={selectHref}
+        rowClassName={(row) => (row.itemId === selected?.itemId ? "bg-primary/5" : undefined)}
+        tabs={RUNWAY_TABS}
+        defaultTab="all"
+        facets={RUNWAY_FACETS}
+        defaultSort={{ id: "status", desc: false }}
+        search={{
+          placeholder: "Search SKU, name, vendor",
+          text: (row) => [row.sku, row.name, row.lastVendorName].filter(Boolean).join(" "),
+        }}
+        exportName={`runway-${window}`}
+        empty={
+          <EmptyState
+            icon={Hourglass}
+            title="No SKUs in this warehouse yet."
+            body="Add items and ship a few orders, and runway fills in from their burn rate."
+          />
+        }
+      />
     </div>
   );
 }

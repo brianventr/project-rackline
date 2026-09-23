@@ -326,7 +326,8 @@ export function DataTable<T extends object>({
   }
 
   function exportCsv() {
-    const shown = columns.filter((column) => table.getColumn(column.id)?.getIsVisible() !== false);
+    // Headerless columns hold row actions, not data.
+    const shown = columns.filter((column) => column.header && table.getColumn(column.id)?.getIsVisible() !== false);
     const sorted = table.getPrePaginatedRowModel().rows.map((row) => row.original);
     const text = toCsv(
       shown.map((column) => column.header),

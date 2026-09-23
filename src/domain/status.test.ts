@@ -151,6 +151,15 @@ describe("statusTone", () => {
     expect(statusTone(statusLabel("at_dock"))).toBe("progress");
   });
 
+  it("covers every runway status", () => {
+    expect(statusTone("out")).toBe("danger");
+    expect(statusTone("order_now")).toBe("warning");
+    expect(statusTone("order_soon")).toBe("warning");
+    expect(statusTone("watch")).toBe("info");
+    expect(statusTone("covered")).toBe("success");
+    expect(statusTone("idle")).toBe("neutral");
+  });
+
   it("falls back to neutral for unknown or empty values", () => {
     expect(statusTone("something_new")).toBe("neutral");
     expect(statusTone(null)).toBe("neutral");
