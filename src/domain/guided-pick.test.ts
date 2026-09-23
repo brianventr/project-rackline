@@ -143,6 +143,51 @@ describe("pickStops", () => {
     expect(stops.map((stop) => `${stop.locationCode}:${stop.qty}`)).toEqual(["A-01-02:1"]);
   });
 
+  it("asks the suggested bay for no more than it holds and sends the rest to no bay", () => {
+    // Unstarted order, 4 CORD wanted, the best bay holds 3: the first screen must not ask for 4 there.
+    const stops = pickStops(
+      [line({ id: "l1", sku: "CORD", qty: 4, remaining: 4, suggestedLocation: { ...at("a0101", "A-01-01"), qty: 3 } })],
+      locations,
+    );
+    expect(stops.map((stop) => `${stop.locationCode}:${stop.qty}`)).toEqual(["A-01-01:3", "null:1"]);
+  });
+
+  it("uses the whole line at the suggested bay when it holds enough", () => {
+    const stops = pickStops(
+      [line({ id: "l1", sku: "CORD", qty: 4, remaining: 4, suggestedLocation: { ...at("a0101", "A-01-01"), qty: 9 } })],
+      locations,
+    );
+    expect(stops.map((stop) => `${stop.locationCode}:${stop.qty}`)).toEqual(["A-01-01:4"]);
+  });
+
+  it("sends everything to no bay when the suggested bay has nothing to give", () => {
+    for (const qty of [0, -2]) {
+      const stops = pickStops(
+        [line({ id: "l1", sku: "CORD", qty: 2, remaining: 2, suggestedLocation: { ...at("a0101", "A-01-01"), qty } })],
+        locations,
+      );
+      expect(stops.map((stop) => `${stop.locationCode}:${stop.qty}`)).toEqual(["null:2"]);
+    }
+  });
+
+  it("counts this order's own reservation at the suggested bay against what that bay can give", () => {
+    // The API's qty is stock less OTHER orders' reservations, so the 1 reserved here is inside the 2.
+    const stops = pickStops(
+      [
+        line({
+          id: "l1",
+          sku: "LAMP",
+          qty: 4,
+          remaining: 4,
+          suggestedLocation: { ...at("b0101", "B-01-01"), qty: 2 },
+          allocations: [{ ...at("b0101", "B-01-01"), qty: 1 }],
+        }),
+      ],
+      locations,
+    );
+    expect(stops.map((stop) => `${stop.locationCode}:${stop.qty}`)).toEqual(["B-01-01:2", "null:2"]);
+  });
+
   it("puts lines with no bay last, in line order", () => {
     const stops = pickStops(
       [
@@ -267,6 +312,13 @@ describe("stop navigation", () => {
     expect(stopIndex(stops, "l2@a0102")).toBe(1);
     expect(stopIndex(stops, "gone@x")).toBe(0);
     expect(stopIndex(stops, null)).toBe(0);
+  });
+
+  it("stays on the same line when its stop moved to another bay", () => {
+    // Starting the pick re-plans SHADE from its suggested bay onto the bay it was reserved at.
+    expect(stopIndex(stops, "l2@b0101")).toBe(1);
+    expect(stopIndex(stops, "l3@a0101")).toBe(2);
+    expect(stopIndex(stops, "l2")).toBe(0);
   });
 
   it("skips forward and wraps so skipped stops come round again", () => {

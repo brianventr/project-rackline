@@ -244,7 +244,7 @@ export function FloorPackPage() {
 
   return (
     <FloorFrame title="Pack" description="Scan the tote, pack remaining qty into BOX-1 / BOX-2, drop a mispacked box, print a pack slip." error={error}>
-      <FloorScanBox label="Scan order or SKU" placeholder="ORD-… or LAMP" onScan={onScan} />
+      <FloorScanBox label="Scan order or SKU" placeholder="ORD-… or LAMP" onScan={onScan} ready={loaded} />
       {!active ? (
         loaded ? (
           <ClaimList

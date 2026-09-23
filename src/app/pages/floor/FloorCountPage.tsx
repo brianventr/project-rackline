@@ -41,10 +41,11 @@ export function FloorCountPage() {
     setBaysLoaded(true);
     const storage = nextLocations.find((row) => row.type === "storage") ?? nextLocations[0];
     if (storage) setLocationId(storage.id);
+    // Jobs load before the screen counts as loaded, so a waiting scan sees who has claimed what.
+    const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
       const match = await api<CycleCount>(`/api/cycle-counts/${wanted}`);
-      const nextJobs = await reloadJobs();
       openFloorRow(match, me.user.id, jobForRef(nextJobs, "cycleCount", match.id, "count"), setActive, setError);
     }
     const locationWanted = params.get("location");
@@ -142,7 +143,7 @@ export function FloorCountPage() {
 
   return (
     <FloorFrame title="Count" description="Scan a bay, then count what you see. Scan a SKU that was not on the snapshot to add it. System qty stays hidden until you post." error={error}>
-      <FloorScanBox label="Scan bay or found SKU" placeholder="A-01-01 or LAMP" onScan={onScan} />
+      <FloorScanBox label="Scan bay or found SKU" placeholder="A-01-01 or LAMP" onScan={onScan} ready={loaded} />
       {!active ? (
         loaded && baysLoaded && locations.length === 0 ? (
           <EmptyState

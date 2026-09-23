@@ -47,10 +47,11 @@ export function FloorHoldPage() {
     if (match) setLocationId(match.id);
     const itemWanted = params.get("item");
     if (itemWanted) setItemId(itemWanted);
+    // Jobs load before the screen counts as loaded, so a waiting scan sees who has claimed what.
+    const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
       const match = await api<Hold>(`/api/holds/${wanted}`);
-      const nextJobs = await reloadJobs();
       openFloorRow(match, me.user.id, jobForRef(nextJobs, "hold", match.id, "hold"), setActive, setError);
     }
   }
@@ -134,7 +135,7 @@ export function FloorHoldPage() {
       description="Scan a bay to lock it. Scan a SKU to lock only that item. Pick, replenish, kit, and move skip held stock."
       error={error}
     >
-      <FloorScanBox label="Scan bay, SKU, or hold" placeholder="A-01-02 or LED-BULB" onScan={onScan} />
+      <FloorScanBox label="Scan bay, SKU, or hold" placeholder="A-01-02 or LED-BULB" onScan={onScan} ready={loaded} />
       {active ? (
         <Card className="space-y-4">
           <div className="flex items-center justify-between gap-3">

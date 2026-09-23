@@ -79,10 +79,11 @@ export function FloorReturnPage() {
     setLocations(nextLocations);
     const dock = nextLocations.find((row) => row.type === "receiving") ?? nextLocations[0];
     if (dock) setLocationId(dock.id);
+    // Jobs load before the screen counts as loaded, so a waiting scan sees who has claimed what.
+    const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
       const match = await api<Rma>(`/api/returns/${wanted}`);
-      const nextJobs = await reloadJobs();
       openFloorRow(match, me.user.id, jobForRef(nextJobs, "rma", match.id, "return"), openRma, setError);
     }
   }
@@ -166,7 +167,7 @@ export function FloorReturnPage() {
 
   return (
     <FloorFrame title="Return" description="Scan an RMA, scan the bay, restock, scrap, or hold." error={error}>
-      <FloorScanBox label="Scan return or bay" placeholder="RMA-DEMO1 or RECV" onScan={onScan} />
+      <FloorScanBox label="Scan return or bay" placeholder="RMA-DEMO1 or RECV" onScan={onScan} ready={loaded} />
       <DoneBanner>
         {done ? (
           <>

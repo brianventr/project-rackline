@@ -208,7 +208,7 @@ export function FloorShipPage() {
 
   return (
     <FloorFrame title="Ship" description="Scan a packing or packed order, ship one labeled carton, or short-ship once a carton has left." error={error}>
-      <FloorScanBox label="Scan packing or packed order" placeholder="ORD-…" onScan={onScan} />
+      <FloorScanBox label="Scan packing or packed order" placeholder="ORD-…" onScan={onScan} ready={loaded} />
       <DoneBanner>{done}</DoneBanner>
       {!active ? (
         loaded ? (

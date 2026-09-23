@@ -44,10 +44,17 @@ export function FloorScanBox({
   label,
   placeholder,
   onScan,
+  ready = true,
 }: {
   label: string;
   placeholder: string;
   onScan: (raw: string, report?: ScanReport) => void;
+  /**
+   * False while the screen is still loading its lists and open jobs. A scan that arrives before
+   * then (including one made on the launcher before this screen opened) waits and is handled once
+   * `ready` turns true, so claim checks see who holds each job.
+   */
+  ready?: boolean;
 }) {
   const scanner = useScanner();
   const { flash, report } = useScanFlash();
@@ -60,12 +67,18 @@ export function FloorScanBox({
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
     const scan = scanner.lastScan;
     if (!scan || scan.at === handledAt.current) return;
     handledAt.current = scan.at;
     setValue(scan.raw);
+    // Select what was scanned, so the next scan into this field replaces it instead of appending.
+    // (No cleanup: handling the scan often re-renders with a new onScan, which must not cancel this.)
+    window.requestAnimationFrame(() => {
+      if (inputRef.current && document.activeElement === inputRef.current) inputRef.current.select();
+    });
     onScan(scan.raw, report);
-  }, [scanner.lastScan, onScan, report]);
+  }, [scanner.lastScan, onScan, report, ready]);
 
   function submit(event: FormEvent) {
     event.preventDefault();

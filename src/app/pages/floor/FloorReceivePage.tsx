@@ -197,7 +197,7 @@ export function FloorReceivePage() {
 
   return (
     <FloorFrame title="Receive" description="Scan a receipt or purchase order, scan the dock, post it into the bay." error={error}>
-      <FloorScanBox label="Scan receipt, PO, or bay" placeholder="PO-DEMO1, RCP-DEMO1, or RECV" onScan={onScan} />
+      <FloorScanBox label="Scan receipt, PO, or bay" placeholder="PO-DEMO1, RCP-DEMO1, or RECV" onScan={onScan} ready={loaded} />
       <DoneBanner>
         {done ? (
           <>

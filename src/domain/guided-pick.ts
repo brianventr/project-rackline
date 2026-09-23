@@ -19,7 +19,8 @@ export type GuidedPickLine = {
   trackLot?: boolean | null;
   trackSerial?: boolean | null;
   catchWeight?: boolean | null;
-  suggestedLocation?: { locationId: string; locationCode: string } | null;
+  /** `qty` is what the bay can give this order (the API sends it); missing reads as "enough". */
+  suggestedLocation?: { locationId: string; locationCode: string; qty?: number | null } | null;
   allocations?: { locationId: string; locationCode: string; qty: number }[] | null;
 };
 
@@ -55,7 +56,9 @@ type Grab = { locationId: string; locationCode: string; qty: number };
 /**
  * Where each remaining unit of a line should come from. Reserved bays first (capped at what is
  * left, so a stale reservation never asks for more than the order needs); whatever the
- * reservations do not cover goes to the suggested pick face, or to "no bay" when there is none.
+ * reservations do not cover goes to the suggested pick face, up to what that bay can give, and the
+ * rest to "no bay". An unstarted order has no reservations, so without that cap a 4-unit line
+ * would send the picker to a bay holding 3 and the pick would bounce.
  */
 function lineGrabs(line: GuidedPickLine, remaining: number): { grabs: Grab[]; unlocated: number } {
   const grabs: Grab[] = [];
@@ -67,15 +70,29 @@ function lineGrabs(line: GuidedPickLine, remaining: number): { grabs: Grab[]; un
     grabs.push({ locationId: row.locationId, locationCode: row.locationCode, qty: take });
     left -= take;
   }
-  if (left > 0 && line.suggestedLocation?.locationId) {
-    grabs.push({
-      locationId: line.suggestedLocation.locationId,
-      locationCode: line.suggestedLocation.locationCode,
-      qty: left,
-    });
-    left = 0;
+  const suggested = line.suggestedLocation;
+  if (left > 0 && suggested?.locationId) {
+    const take = Math.min(left, suggestedRoom(suggested, grabs));
+    if (take > 0) {
+      grabs.push({ locationId: suggested.locationId, locationCode: suggested.locationCode, qty: take });
+      left -= take;
+    }
   }
   return { grabs, unlocated: left };
+}
+
+/**
+ * Units the suggested bay can still give this line. The API's `qty` is the bay's stock less other
+ * orders' reservations, so this order's own reservation at that bay is inside it and is taken off
+ * here. No `qty` (an older payload) keeps the old behaviour: the bay covers the rest.
+ */
+function suggestedRoom(suggested: NonNullable<GuidedPickLine["suggestedLocation"]>, grabs: Grab[]): number {
+  const qty = suggested.qty;
+  if (typeof qty !== "number" || !Number.isFinite(qty)) return Number.POSITIVE_INFINITY;
+  const reservedHere = grabs
+    .filter((grab) => grab.locationId === suggested.locationId)
+    .reduce((sum, grab) => sum + grab.qty, 0);
+  return Math.max(0, Math.floor(qty) - reservedHere);
 }
 
 function asStop(line: GuidedPickLine, qty: number, locationId: string | null, locationCode: string | null): PickStop {
@@ -157,11 +174,19 @@ export function stopKey(stop: Pick<PickStop, "lineId" | "locationId">): string {
   return `${stop.lineId}@${stop.locationId ?? "-"}`;
 }
 
-/** Index of the stop with `key`, or 0 (the first stop in the walk) when it is gone or unset. */
+/**
+ * Index of the stop with `key`. When that stop is gone but its line still has one (starting the
+ * pick re-plans a line onto its reserved bays), the line's first stop, so the picker stays on the
+ * SKU they were looking at. Otherwise 0, the first stop in the walk.
+ */
 export function stopIndex(stops: PickStop[], key: string | null | undefined): number {
   if (!key) return 0;
   const at = stops.findIndex((stop) => stopKey(stop) === key);
-  return at < 0 ? 0 : at;
+  if (at >= 0) return at;
+  const split = key.lastIndexOf("@");
+  const lineId = split > 0 ? key.slice(0, split) : null;
+  const sameLine = lineId ? stops.findIndex((stop) => stop.lineId === lineId) : -1;
+  return sameLine < 0 ? 0 : sameLine;
 }
 
 /** Key of the stop after `key`, wrapping to the start so skipped stops come round again. */

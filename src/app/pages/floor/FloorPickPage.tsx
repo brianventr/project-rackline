@@ -314,6 +314,8 @@ export function FloorPickPage() {
     if (qty < 1) return;
     const after = qty >= stop.qty ? nextStopKey(stops, key) : key;
     const bayCode = locationCode(locations, bayId) ?? stop.locationCode ?? "";
+    // Pin this stop first: starting the pick re-plans the stops, and a failed post should stay here.
+    setCursor(key);
     setError(null);
     setNotice(null);
     setBusy(true);
@@ -457,7 +459,7 @@ export function FloorPickPage() {
       }
       error={error}
     >
-      <FloorScanBox label={scanLabel} placeholder={scanPlaceholder} onScan={onScan} />
+      <FloorScanBox label={scanLabel} placeholder={scanPlaceholder} onScan={onScan} ready={loaded} />
       {!active ? (
         <ClaimList
           loading={!loaded}

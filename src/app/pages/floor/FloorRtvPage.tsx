@@ -60,10 +60,11 @@ export function FloorRtvPage() {
       nextLocations.find((row) => row.type === "storage") ??
       nextLocations[0];
     if (from && !locationId) setLocationId(from.id);
+    // Jobs load before the screen counts as loaded, so a waiting scan sees who has claimed what.
+    const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
       const match = await api<VendorReturn>(`/api/vendor-returns/${wanted}`);
-      const nextJobs = await reloadJobs();
       openFloorRow(match, me.user.id, jobForRef(nextJobs, "vendorReturn", match.id, "rtv"), openRtv, setError);
     }
   }
@@ -135,7 +136,7 @@ export function FloorRtvPage() {
 
   return (
     <FloorFrame title="Vendor return" description="Scan an RTV, scan the bay, ship remaining qty back to the vendor." error={error}>
-      <FloorScanBox label="Scan vendor return or bay" placeholder="RTV-DEMO1 or A-01-01" onScan={onScan} />
+      <FloorScanBox label="Scan vendor return or bay" placeholder="RTV-DEMO1 or A-01-01" onScan={onScan} ready={loaded} />
       <DoneBanner>{done}</DoneBanner>
       {!active ? (
         <ClaimList

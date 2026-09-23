@@ -98,7 +98,7 @@ export function FloorAssemblePage() {
 
   return (
     <FloorFrame title="Assemble" description="Scan the work order, confirm the bins, complete remaining qty." error={error}>
-      <FloorScanBox label="Scan work order" placeholder="WO-DEMO1" onScan={onScan} />
+      <FloorScanBox label="Scan work order" placeholder="WO-DEMO1" onScan={onScan} ready={loaded} />
       <DoneBanner>{done}</DoneBanner>
       {!active ? (
         loaded ? (

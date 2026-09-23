@@ -124,7 +124,7 @@ export function FloorReplenishPage() {
 
   return (
     <FloorFrame title="Replenish" description="Pull remaining qty from bulk onto a pick face that's below pick min." error={error}>
-      <FloorScanBox label="Scan replenishment" placeholder="RPL-…" onScan={onScan} />
+      <FloorScanBox label="Scan replenishment" placeholder="RPL-…" onScan={onScan} ready={loaded} />
       <DoneBanner>{done}</DoneBanner>
       {!active ? (
         <div className="grid gap-4 md:grid-cols-2">

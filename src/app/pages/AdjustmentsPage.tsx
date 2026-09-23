@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import { z } from "zod";
 import { SlidersHorizontal } from "lucide-react";
 import { api, errorText, type Item, type Location } from "../api";
-import { Button, Card, EmptyState, ErrorBanner, PageHeader } from "../components/ui";
+import { Button, Card, EmptyState } from "../components/ui";
 import { SelectField, TextField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { FloorFrame } from "./floor/floor-ui";
 import { requiredChoice, requiredText } from "@/domain/form-schemas";
 
 /**
@@ -77,13 +78,11 @@ export function AdjustmentsPage() {
   const missing = loaded && (items.length === 0 || locations.length === 0);
 
   return (
-    <div className="flex flex-col gap-(--density-gap)">
-      <PageHeader
-        eyebrow="Floor"
-        title="Adjust"
-        description="Signed quantity change with a reason. Negative qty cannot drive a bay below zero."
-      />
-      <ErrorBanner error={error} />
+    <FloorFrame
+      title="Adjust"
+      description="Signed quantity change with a reason. Negative qty cannot drive a bay below zero."
+      error={error}
+    >
       {ok ? <p className="text-sm text-ok">{ok}</p> : null}
       {missing ? (
         <EmptyState
@@ -103,7 +102,11 @@ export function AdjustmentsPage() {
         />
       ) : (
         <Card className="max-w-xl">
-          <form className="space-y-3" onSubmit={form.handleSubmit(submit)}>
+          {/* Floor fields are 44px tall with 16px text, like the other floor screens. */}
+          <form
+            className="space-y-3 [&_input]:h-11 [&_input]:text-base [&_select]:h-11 [&_select]:text-base"
+            onSubmit={form.handleSubmit(submit)}
+          >
             <SelectField
               form={form}
               name="itemId"
@@ -131,6 +134,6 @@ export function AdjustmentsPage() {
           </form>
         </Card>
       )}
-    </div>
+    </FloorFrame>
   );
 }

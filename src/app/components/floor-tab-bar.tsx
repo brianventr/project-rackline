@@ -2,7 +2,10 @@ import type { ComponentType, MouseEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ClipboardList, ListChecks, ScanLine, Search } from "lucide-react";
 import { useScanner } from "@/app/scanner/ScannerProvider";
+import { focusScanCapture } from "@/app/scanner/scan-capture";
 import { cn } from "@/lib/utils";
+
+export { focusScanCapture };
 
 /** Anchors on the floor launcher the bar jumps to. */
 export const FLOOR_ANCHORS = { next: "next", mine: "mine" } as const;
@@ -25,17 +28,6 @@ export function scrollToFloorAnchor(id: string): boolean {
   const el = document.getElementById(id);
   if (!el) return false;
   el.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" });
-  return true;
-}
-
-/** Focus the page's scan field. Returns false when the page has none. */
-export function focusScanCapture(): boolean {
-  if (typeof document === "undefined") return false;
-  const input = document.querySelector<HTMLInputElement>("input[data-scan-capture], [data-scan-capture] input");
-  if (!input) return false;
-  input.focus();
-  input.select?.();
-  input.scrollIntoView({ block: "center", behavior: reducedMotion() ? "auto" : "smooth" });
   return true;
 }
 
@@ -73,9 +65,11 @@ export function FloorTabBar() {
 
   if (!isFloorPath(location.pathname)) return null;
   const active = activeTab(location.pathname, location.hash, scanner.cameraOpen);
+  // Only a camera that can open: none on the device, or access denied, goes to the scan field.
+  const camera = scanner.cameraSupported && !scanner.cameraBlocked;
 
   function onScan() {
-    if (scanner.cameraSupported) {
+    if (camera) {
       scanner.openCamera();
       return;
     }
@@ -147,7 +141,7 @@ export function FloorTabBar() {
                 <button
                   type="button"
                   onClick={onScan}
-                  aria-label={scanner.cameraSupported ? "Scan with the camera" : "Scan"}
+                  aria-label={camera ? "Scan with the camera" : "Scan"}
                   className={itemClass(on)}
                 >
                   {indicator}

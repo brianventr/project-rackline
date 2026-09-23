@@ -109,7 +109,7 @@ export function FloorKitPage() {
 
   return (
     <FloorFrame title="Kit" description="Complete remaining qty from the recipe, or dekit a finished build." error={error}>
-      <FloorScanBox label="Scan kit" placeholder="KIT-DEMO1" onScan={onScan} />
+      <FloorScanBox label="Scan kit" placeholder="KIT-DEMO1" onScan={onScan} ready={loaded} />
       <DoneBanner>{done}</DoneBanner>
       {!active ? (
         loaded ? (

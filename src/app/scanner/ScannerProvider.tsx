@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 import { accumulateHidKey, type HidBufferState } from "@/domain/hid-buffer";
 import {
   defaultScanPrefs,
@@ -8,6 +9,8 @@ import {
   type ScanFeedbackPrefs,
 } from "@/domain/floor-usage";
 import { cn } from "@/lib/utils";
+import { cameraFailureCopy, cameraFailureKind, cameraListed } from "./camera";
+import { focusScanCapture } from "./scan-capture";
 
 export type ScanSource = "hid" | "camera" | "typed";
 
@@ -43,7 +46,10 @@ type ScannerContextValue = {
   openCamera: () => void;
   closeCamera: () => void;
   cameraOpen: boolean;
+  /** The browser can open a camera and this device has not said it has none. */
   cameraSupported: boolean;
+  /** Camera access is denied for this site, so opening it would only fail. */
+  cameraBlocked: boolean;
   prefs: ScanPrefs;
   setPrefs: (next: Partial<ScanPrefs>) => void;
 };
@@ -103,6 +109,9 @@ function playTone(ok: boolean, enabled: boolean) {
 export function ScannerProvider({ children }: { children: ReactNode }) {
   const [lastScan, setLastScan] = useState<ScanEvent | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
+  // null until the device list says whether a camera exists.
+  const [cameraFound, setCameraFound] = useState<boolean | null>(null);
+  const [cameraBlocked, setCameraBlocked] = useState(false);
   const [prefs, setPrefsState] = useState<ScanPrefs>(() =>
     typeof window === "undefined" ? defaultPrefs() : loadPrefs(),
   );
@@ -204,6 +213,45 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [emitScan]);
 
+  // Learn whether this device has a camera and whether this site may use it, so Scan does not
+  // open a viewfinder that can only fail. Unknown answers keep the camera on offer.
+  useEffect(() => {
+    const media = typeof navigator === "undefined" ? undefined : navigator.mediaDevices;
+    if (!media?.getUserMedia) return;
+    let cancelled = false;
+    const listDevices = () => {
+      if (typeof media.enumerateDevices !== "function") return;
+      media
+        .enumerateDevices()
+        .then((devices) => {
+          if (!cancelled) setCameraFound(cameraListed(devices));
+        })
+        .catch(() => undefined);
+    };
+    listDevices();
+    media.addEventListener?.("devicechange", listDevices);
+
+    let permission: PermissionStatus | null = null;
+    const readPermission = () => {
+      if (permission && !cancelled) setCameraBlocked(permission.state === "denied");
+    };
+    navigator.permissions
+      ?.query({ name: "camera" as PermissionName })
+      .then((status) => {
+        if (cancelled) return;
+        permission = status;
+        readPermission();
+        status.addEventListener?.("change", readPermission);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      media.removeEventListener?.("devicechange", listDevices);
+      permission?.removeEventListener?.("change", readPermission);
+    };
+  }, []);
+
   const onCameraScan = useCallback(
     (raw: string) => {
       emitScan(raw, "camera");
@@ -211,6 +259,16 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     },
     [emitScan],
   );
+
+  /** The camera would not start: close the sheet, hand over to the scan field, and say why in plain words. */
+  const onCameraFail = useCallback((err: unknown) => {
+    const kind = cameraFailureKind(err);
+    setCameraOpen(false);
+    if (kind === "missing") setCameraFound(false);
+    if (kind === "blocked") setCameraBlocked(true);
+    const copy = cameraFailureCopy(kind, focusScanCapture());
+    toast.error(copy.message, { description: copy.hint });
+  }, []);
 
   const value = useMemo<ScannerContextValue>(
     () => ({
@@ -223,17 +281,32 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       openCamera: () => setCameraOpen(true),
       closeCamera: () => setCameraOpen(false),
       cameraOpen,
-      cameraSupported: cameraHardwareAvailable(),
+      cameraSupported: cameraHardwareAvailable() && cameraFound !== false,
+      cameraBlocked,
       prefs,
       setPrefs,
     }),
-    [lastScan, emitScan, emitScanResult, emitScanError, subscribe, subscribeFeedback, cameraOpen, prefs, setPrefs],
+    [
+      lastScan,
+      emitScan,
+      emitScanResult,
+      emitScanError,
+      subscribe,
+      subscribeFeedback,
+      cameraOpen,
+      cameraFound,
+      cameraBlocked,
+      prefs,
+      setPrefs,
+    ],
   );
 
   return (
     <ScannerContext.Provider value={value}>
       {children}
-      {cameraOpen ? <CameraOverlay onClose={() => setCameraOpen(false)} onScan={onCameraScan} /> : null}
+      {cameraOpen ? (
+        <CameraOverlay onClose={() => setCameraOpen(false)} onScan={onCameraScan} onFail={onCameraFail} />
+      ) : null}
       <ScanFeedbackOverlay subscribe={subscribeFeedback} enabled={prefs.flash} />
     </ScannerContext.Provider>
   );
@@ -332,14 +405,24 @@ async function decodeWithZxing(video: HTMLVideoElement): Promise<string | null> 
   }
 }
 
-function CameraOverlay({ onClose, onScan }: { onClose: () => void; onScan: (raw: string) => void }) {
+function CameraOverlay({
+  onClose,
+  onScan,
+  onFail,
+}: {
+  onClose: () => void;
+  onScan: (raw: string) => void;
+  /** The camera would not start. The provider closes the sheet and explains. */
+  onFail: (err: unknown) => void;
+}) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [engine, setEngine] = useState<"detector" | "zxing" | null>(null);
   const onScanRef = useRef(onScan);
   const onCloseRef = useRef(onClose);
+  const onFailRef = useRef(onFail);
   onScanRef.current = onScan;
   onCloseRef.current = onClose;
+  onFailRef.current = onFail;
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -355,6 +438,11 @@ function CameraOverlay({ onClose, onScan }: { onClose: () => void; onScan: (raw:
           video: { facingMode: { ideal: "environment" } },
           audio: false,
         });
+      } catch (err) {
+        if (!closed) onFailRef.current(err);
+        return;
+      }
+      try {
         if (!video || closed) {
           stream.getTracks().forEach((track) => track.stop());
           return;
@@ -404,8 +492,9 @@ function CameraOverlay({ onClose, onScan }: { onClose: () => void; onScan: (raw:
           }, 250);
         };
         void poll();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not open the camera");
+      } catch {
+        // The stream opened but would not play: not a missing or blocked camera.
+        if (!closed) onFailRef.current(null);
       }
     }
 
@@ -434,17 +523,13 @@ function CameraOverlay({ onClose, onScan }: { onClose: () => void; onScan: (raw:
           <video ref={videoRef} className="aspect-[4/3] w-full object-cover" playsInline muted />
           <div className="pointer-events-none absolute inset-8 rounded-xl border-2 border-amber/80" />
         </div>
-        {error ? (
-          <p className="px-4 py-3 text-sm text-bad">{error}</p>
-        ) : (
-          <p className="px-4 py-3 text-sm text-muted-foreground">
-            {engine === "zxing"
-              ? "Using ZXing camera decode. USB and Bluetooth guns also work from any screen."
-              : barcodeDetectorAvailable()
-                ? "USB and Bluetooth gun scanners also work from any screen — just scan."
-                : "Camera decode via ZXing. USB and Bluetooth guns also work from any screen."}
-          </p>
-        )}
+        <p className="px-4 py-3 text-sm text-muted-foreground">
+          {engine === "zxing"
+            ? "Using ZXing camera decode. USB and Bluetooth guns also work from any screen."
+            : barcodeDetectorAvailable()
+              ? "USB and Bluetooth gun scanners also work from any screen — just scan."
+              : "Camera decode via ZXing. USB and Bluetooth guns also work from any screen."}
+        </p>
       </div>
     </div>
   );

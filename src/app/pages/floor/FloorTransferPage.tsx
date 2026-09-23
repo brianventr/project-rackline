@@ -132,7 +132,7 @@ export function FloorTransferPage() {
       description="Scan the ticket, move remaining qty from the from-bay onto the to-bay."
       error={error}
     >
-      <FloorScanBox label="Scan putaway ticket or SKU" placeholder="XFR-DEMO1 or SHADE" onScan={onScan} />
+      <FloorScanBox label="Scan putaway ticket or SKU" placeholder="XFR-DEMO1 or SHADE" onScan={onScan} ready={loaded} />
       {!active ? (
         <ClaimList
           loading={!loaded}
