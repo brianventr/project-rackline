@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { statusText, statusTone, type StatusTone } from "@/domain/status";
+import { splitErrorText } from "../api";
 
 export function PageHeader({
   eyebrow,
@@ -283,15 +284,24 @@ export function StatStrip({
   );
 }
 
+/** Shows a failure. When the text came from an `ApiError` with a fix, the fix gets its own line. */
 export function ErrorBanner({ error }: { error: string | null }) {
   if (!error) return null;
+  const { message, hint } = splitErrorText(error);
   return (
     <div
       role="alert"
       className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-tone-danger-bg px-3 py-2 text-sm text-tone-danger"
     >
-      <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-      <span className="min-w-0">{error}</span>
+      <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+      {hint ? (
+        <span className="min-w-0">
+          <span className="block font-medium">{message}</span>
+          <span className="block">{hint}</span>
+        </span>
+      ) : (
+        <span className="min-w-0">{error}</span>
+      )}
     </div>
   );
 }
