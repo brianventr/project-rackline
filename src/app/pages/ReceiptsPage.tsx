@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowDownToLine, Play, Plus, ScanLine, X } from "lucide-react";
+import { ArrowDownToLine, Inbox, Play, Plus, ScanLine, X } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Item, type Location, type Receipt } from "../api";
+import { api, errorText, type Item, type Location, type Receipt } from "../api";
 import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, summarizeLines } from "../components/ui";
 import { Button as IconButton } from "@/components/ui/button";
 import { BayCombobox } from "../components/BayCombobox";
@@ -18,9 +18,12 @@ import {
 import { DataTable, type BulkAction, type DataColumn, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, LineChips, Muted, ProgressCell, ProgressRow, RelativeTime, SkuCell } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { LinesField, TextField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { STEP_RULES } from "@/domain/step-stamps";
+import { blankLine, receiptFormSchema } from "@/domain/form-schemas";
 import { RECEIPT_STEPS, canReceive, isOpenReceipt } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
 import { useWarehouse, inWarehouse } from "../warehouse";
@@ -62,8 +65,10 @@ export async function runEach<T>(
   void refreshApi();
   const errors = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
   if (errors.length) {
-    const reason = errors[0]!.reason instanceof Error ? errors[0]!.reason.message : "error";
-    toast.error(`${errors.length} ${messages.failed}: ${reason}`);
+    // The count leads; the server's own sentence (and its fix) goes underneath, unwrapped.
+    toast.error(`${errors.length} ${messages.failed}.`, {
+      description: errorText(errors[0]!.reason, "Something went wrong. Try again."),
+    });
   }
   const ok = rows.length - errors.length;
   if (ok) toast.success(messages.done(ok));
@@ -184,7 +189,11 @@ function ReceiptList() {
       <PageHeader
         eyebrow="Inbound"
         title="Receipts"
-        description="Create the inbound document here. Receive it on the dock, including partials."
+        description={
+          <>
+            Create the inbound document here. Receive it on the <Term id="dock">dock</Term>, including partials.
+          </>
+        }
       />
       <DataTable
         id="receipts"
@@ -211,9 +220,13 @@ function ReceiptList() {
         }
         empty={
           <EmptyState
-            icon={ArrowDownToLine}
+            icon={Inbox}
             title="No receipts yet."
-            body="A receipt lists the stock you expect at the dock. Receive it here or on the floor, partials included."
+            body={
+              <>
+                A <Term id="receipt">receipt</Term> lists the stock you expect at the dock, ready to receive here or on the floor.
+              </>
+            }
             action={
               <Button size="sm" onClick={() => setCreating(true)}>
                 New receipt
@@ -231,27 +244,33 @@ function NewReceiptSheet({ open, onOpenChange }: { open: boolean; onOpenChange: 
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
-  const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
+  const form = useZodForm(receiptFormSchema, { notes: "", lines: [blankLine()] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function create() {
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
+  useEffect(() => {
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  async function create(values: ZodFormOutput<typeof receiptFormSchema>) {
     setError(null);
     setBusy(true);
     try {
+      // Same body as before: notes as typed, blank rows already dropped, qty already a number.
       const created = await apiMutate<Receipt>("/api/receipts", {
         body: JSON.stringify({
           warehouseId,
-          notes,
-          lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
+          notes: values.notes,
+          lines: values.lines.map((line) => ({ itemId: line.itemId, qty: line.qty })),
         }),
       });
       toast.success(`Receipt ${created.number} created.`);
       onOpenChange(false);
       navigate(`/inbound/receipts/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create receipt");
+      setError(errorText(err, "Could not create the receipt."));
     } finally {
       setBusy(false);
     }
@@ -264,17 +283,12 @@ function NewReceiptSheet({ open, onOpenChange }: { open: boolean; onOpenChange: 
       title="New receipt"
       description="List what is coming in. Receive it once it is on the dock."
       submitLabel="Create receipt"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <Field label="Reference">
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="PO or vendor reference" autoFocus />
-      </Field>
-      <div className="space-y-1.5">
-        <p className="text-sm font-medium">Lines</p>
-        <LineFields items={items.data ?? []} lines={lines} setLines={setLines} />
-      </div>
+      <TextField form={form} name="notes" label="Reference" placeholder="PO or vendor reference" autoFocus />
+      <LinesField form={form} name="lines" items={items.data ?? []} />
     </FormSheet>
   );
 }

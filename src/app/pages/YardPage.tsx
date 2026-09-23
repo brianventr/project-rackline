@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowDownToLine, DoorOpen, LogIn, LogOut, Plus, ScanLine, Truck } from "lucide-react";
+import { ArrowDownToLine, Container, DoorOpen, LogIn, LogOut, Plus, ScanLine } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Asn, type Location, type Purchase, type YardVisit } from "../api";
-import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge } from "../components/ui";
+import { api, errorText, type Asn, type Location, type Purchase, type YardVisit } from "../api";
+import { Button, Card, EmptyState, ErrorBanner, Field, PageHeader, Select, StatusBadge } from "../components/ui";
 import {
   DetailSkeleton,
   DocumentActivity,
@@ -16,8 +16,11 @@ import {
 import { DataTable, type BulkAction, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, Muted, RelativeTime } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { TextField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import { apiMutate, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
+import { yardVisitFormSchema } from "@/domain/form-schemas";
 import { YARD_STEPS, canAssignDock, canCheckInYard, canCheckOutYard, isOpenAsn, isOpenYard } from "@/domain/status";
 import { canReceiveLinkedAsn } from "@/domain/yard";
 import { useWarehouse, inWarehouse } from "../warehouse";
@@ -138,7 +141,12 @@ function YardList() {
       <PageHeader
         eyebrow="Inbound"
         title="Yard"
-        description="Carrier visits: check in at the gate, assign a dock, check out when clear."
+        description={
+          <>
+            <Term id="yard-visit">Carrier visits</Term>: check in at the gate, assign a <Term id="dock">dock</Term>, check
+            out when clear.
+          </>
+        }
       />
       <DataTable
         id="yard"
@@ -166,7 +174,7 @@ function YardList() {
         }
         empty={
           <EmptyState
-            icon={Truck}
+            icon={Container}
             title="No yard visits yet."
             body="Log a carrier before the truck arrives, then check it in at the gate and send it to a dock."
             action={
@@ -185,29 +193,33 @@ function YardList() {
 function NewVisitSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
-  const [carrierName, setCarrierName] = useState("");
-  const [trailerNumber, setTrailerNumber] = useState("");
-  const [notes, setNotes] = useState("");
+  const form = useZodForm(yardVisitFormSchema, { carrierName: "", trailerNumber: "", notes: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function create() {
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
+  useEffect(() => {
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  async function create(values: ZodFormOutput<typeof yardVisitFormSchema>) {
     setError(null);
     setBusy(true);
     try {
       const created = await apiMutate<YardVisit>("/api/yard", {
         body: JSON.stringify({
           warehouseId,
-          carrierName,
-          trailerNumber: trailerNumber.trim() || undefined,
-          notes: notes.trim() || undefined,
+          carrierName: values.carrierName,
+          trailerNumber: values.trailerNumber.trim() || undefined,
+          notes: values.notes.trim() || undefined,
         }),
       });
       toast.success(`Visit ${created.number} created.`);
       onOpenChange(false);
       navigate(`/inbound/yard/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create visit");
+      setError(errorText(err, "Could not create the visit."));
     } finally {
       setBusy(false);
     }
@@ -220,19 +232,13 @@ function NewVisitSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o
       title="New yard visit"
       description="A truck you expect at the gate. Check it in when it arrives."
       submitLabel="Create visit"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <Field label="Carrier">
-        <Input value={carrierName} onChange={(e) => setCarrierName(e.target.value)} required placeholder="Swift Freight" autoFocus />
-      </Field>
-      <Field label="Trailer">
-        <Input value={trailerNumber} onChange={(e) => setTrailerNumber(e.target.value)} placeholder="TRL-…" />
-      </Field>
-      <Field label="Notes">
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
-      </Field>
+      <TextField form={form} name="carrierName" label="Carrier" placeholder="Swift Freight" autoFocus />
+      <TextField form={form} name="trailerNumber" label="Trailer" placeholder="TRL-…" />
+      <TextField form={form} name="notes" label="Notes" />
     </FormSheet>
   );
 }
@@ -420,7 +426,7 @@ function YardDetail({ id }: { id: string }) {
           </Card>
         ) : canCheckInYard(visit.status) ? (
           <EmptyState
-            icon={Truck}
+            icon={Container}
             title="Expected at the gate."
             body="Check the trailer in when it arrives, then send it to a dock."
           />
