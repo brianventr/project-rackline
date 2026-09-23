@@ -28,9 +28,15 @@ const ConfirmContext = createContext<Confirm | null>(null);
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [options, setOptions] = useState<ConfirmOptions | null>(null);
   const resolver = useRef<((value: boolean) => void) | null>(null);
+  /** What had focus when the dialog opened. There is no dialog trigger, so Radix cannot return focus by itself. */
+  const returnFocus = useRef<HTMLElement | null>(null);
 
   const confirm = useCallback<Confirm>((next) => {
     resolver.current?.(false);
+    if (!resolver.current) {
+      const active = document.activeElement;
+      returnFocus.current = active instanceof HTMLElement && active !== document.body ? active : null;
+    }
     setOptions(next);
     return new Promise<boolean>((resolve) => {
       resolver.current = resolve;
@@ -47,7 +53,16 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     <ConfirmContext.Provider value={confirm}>
       {children}
       <AlertDialog open={!!options} onOpenChange={(open) => (open ? null : settle(false))}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const target = returnFocus.current;
+            returnFocus.current = null;
+            // Only when focus would otherwise fall to the page body: the caller may have moved it on purpose.
+            const active = document.activeElement;
+            if (target?.isConnected && (!active || active === document.body)) target.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>{options?.title}</AlertDialogTitle>
             {options?.body ? (

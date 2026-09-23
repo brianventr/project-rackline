@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -57,7 +57,7 @@ import { refreshApi } from "@/app/query";
 import { reopenOnboarding } from "@/app/onboarding";
 import { GETTING_STARTED_HASH } from "@/app/components/onboarding";
 import { StatusBadge } from "@/app/components/ui";
-import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
+import { garageAllowsPath, isGarageMode, pathOnly } from "@/domain/operating-mode";
 import {
   glossaryPaletteSlot,
   glossaryPathFor,
@@ -174,6 +174,7 @@ export function CommandPalette({
   onShowShortcuts: () => void;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const me = useSession();
   const garage = isGarageMode(me.organization.operatingMode);
   const warehouse = useWarehouse();
@@ -330,7 +331,10 @@ export function CommandPalette({
       : searchGlossary(query)
           .filter((entry) => question || glossaryScore(entry, query) >= GLOSSARY_MIN_SCORE)
           .slice(0, question ? 6 : 3);
-  const definitionPath = definition ? glossaryPathFor(definition, { role: me.role, garage }) : null;
+  const definitionTarget = definition ? glossaryPathFor(definition, { role: me.role, garage }) : null;
+  // Already on the page that explains it: offer Close rather than an "Open" that goes nowhere.
+  const definitionHere = definitionTarget !== null && pathOnly(definitionTarget) === pathOnly(location.pathname);
+  const definitionPath = definitionHere ? null : definitionTarget;
   const definitionPage = definitionPath
     ? (destinations.find((item) => item.url === definitionPath)?.title ?? EXTRA_PAGE_TITLES[definitionPath] ?? null)
     : null;
@@ -504,6 +508,8 @@ export function CommandPalette({
                   {definitionPage ? `Open ${definitionPage}` : "Open page"}
                   <ArrowRight />
                 </Button>
+              ) : definitionHere ? (
+                <Button onClick={() => setDefinition(null)}>Close</Button>
               ) : null}
             </DialogFooter>
           </DialogContent>

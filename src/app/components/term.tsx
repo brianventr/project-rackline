@@ -8,13 +8,13 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { useSession } from "@/app/session";
 import type { Me } from "@/app/api";
 import { glossaryEntry, glossaryPathFor, type GlossaryEntry } from "@/domain/glossary";
-import { isGarageMode } from "@/domain/operating-mode";
+import { isGarageMode, pathOnly } from "@/domain/operating-mode";
 import { cn } from "@/lib/utils";
 
 const HOVER_OPEN_MS = 150;
@@ -30,11 +30,17 @@ function useOptionalSession(): Me | null {
   }
 }
 
-/** The page behind "Learn more", or null when there is none this person can open. */
+/**
+ * The page behind "Learn more", or null when there is none this person can open, or when they are
+ * already on it (the link would only close the card).
+ */
 export function useGlossaryPath(entry: GlossaryEntry | undefined): string | null {
   const me = useOptionalSession();
+  const { pathname } = useLocation();
   if (!entry || !me) return null;
-  return glossaryPathFor(entry, { role: me.role, garage: isGarageMode(me.organization.operatingMode) });
+  const path = glossaryPathFor(entry, { role: me.role, garage: isGarageMode(me.organization.operatingMode) });
+  if (!path || pathOnly(path) === pathOnly(pathname)) return null;
+  return path;
 }
 
 /**

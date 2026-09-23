@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import type { FieldErrors } from "react-hook-form";
+import { useForm, type FieldErrors } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { api, ApiError, authClient, errorText } from "../api";
 import { Button, ErrorBanner } from "../components/ui";
-import { TextField, useZodForm, type ZodFormInput, type ZodFormOutput } from "../components/form-kit";
+import { TextField, type ZodFormInput, type ZodFormOutput } from "../components/form-kit";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/logo";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -75,7 +76,16 @@ const FIELD_ORDER = ["name", "organizationName", "email", "password"] as const;
 export function AuthPage({ mode: initialMode = "login" }: { mode?: AuthMode }) {
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const schema = useMemo(() => authFormSchema(mode), [mode]);
-  const form = useZodForm(schema, { name: "", organizationName: "", email: "", password: "" });
+  // useZodForm's settings, except the form does not move focus itself on a failed submit: it would
+  // pick the first field it ever registered (Email, when the page opened on Sign in), undoing
+  // focusFirstProblem below.
+  const form = useForm<AuthFormInput, unknown, AuthFormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: { name: "", organizationName: "", email: "", password: "" },
+    mode: "onTouched",
+    reValidateMode: "onChange",
+    shouldFocusError: false,
+  });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resetSent, setResetSent] = useState(false);
@@ -123,8 +133,7 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: AuthMode }) {
     }
   }
 
-  /** Focus the top field with a message. (The form's own pick follows the order fields first appeared,
-   * so after switching to Create org it would land on Email instead of Your name.) */
+  /** Focus the top field with a message, in the order the fields sit on the card. */
   function focusFirstProblem(errors: FieldErrors<AuthFormInput>) {
     const first = FIELD_ORDER.find((name) => errors[name]);
     if (first) form.setFocus(first);

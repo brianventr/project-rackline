@@ -284,10 +284,10 @@ export function RunwayPage() {
         eyebrow="Analytics"
         title="Runway"
         description={
+          // Short enough that every Term sits in the two lines the header shows on a phone.
           <>
-            Live days until a SKU runs out at its baseline shipping rate. Cover is{" "}
-            <Term id="sellable">sellable qty</Term> (on-hand − held − remaining to pick), plus dated{" "}
-            <Term id="asn">ASN</Term>/PO inbound, minus <Term id="recipe">BOM</Term> burn from finished goods.
+            Days each SKU lasts: <Term id="sellable">sellable qty</Term> plus dated <Term id="asn">ASN</Term>/PO
+            inbound, minus <Term id="recipe">BOM</Term> burn, at its baseline ship rate.
           </>
         }
         actions={

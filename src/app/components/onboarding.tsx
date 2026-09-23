@@ -14,6 +14,7 @@ import {
   useOnboarding,
   useOnboardingDismissed,
   useOnboardingReopened,
+  type OnboardingStepId,
   type OnboardingStepView,
   type SampleDataResult,
 } from "../onboarding";
@@ -27,6 +28,27 @@ function prefersReducedMotion(): boolean {
   } catch {
     return false;
   }
+}
+
+/** Focus fell to the page body (the control that had it was removed or disabled). */
+function focusIsLost(): boolean {
+  const active = document.activeElement;
+  return !active || active === document.body || !active.isConnected;
+}
+
+/**
+ * Hand keyboard focus to the page's main heading (focusable for this once), so a keyboard or screen-reader
+ * user keeps their place when the control they pressed goes away.
+ */
+function focusPageHeading(from?: Element | null) {
+  const heading =
+    from?.closest("main")?.querySelector<HTMLElement>("h1") ?? document.querySelector<HTMLElement>("main h1");
+  if (!heading) return;
+  if (!heading.hasAttribute("tabindex")) {
+    heading.setAttribute("tabindex", "-1");
+    heading.addEventListener("blur", () => heading.removeAttribute("tabindex"), { once: true });
+  }
+  heading.focus();
 }
 
 /** A thin progress ring. Content in `children` sits in the middle. */
@@ -100,6 +122,10 @@ export function SampleDataButton({
   size?: "default" | "sm" | "lg" | "xs";
   className?: string;
   children?: ReactNode;
+  /**
+   * Runs after a successful load. The button goes away once the org has data; without `onLoaded` it hands
+   * keyboard focus to the page heading, so callers that pass it choose where focus goes.
+   */
   onLoaded?: (result: SampleDataResult) => void;
 }) {
   const me = useSession();
@@ -107,6 +133,7 @@ export function SampleDataButton({
   const onboarding = useOnboarding();
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   if (me.role !== "owner" || !onboarding.sampleAvailable || !warehouseId) return null;
 
@@ -132,20 +159,37 @@ export function SampleDataButton({
       cancelLabel: "Not now",
     });
     if (!ok) return;
+    const main = buttonRef.current?.closest("main") ?? null;
     setBusy(true);
     try {
       const result = await loadSampleData(warehouseId);
       toast.success(`Loaded ${result.items.length} sample SKUs and ${result.locations.length} bays. Next, receive some stock.`);
-      onLoaded?.(result);
+      if (onLoaded) onLoaded(result);
+      else
+        window.requestAnimationFrame(() => {
+          if (focusIsLost()) focusPageHeading(main);
+        });
     } catch (err) {
       toast.error(err instanceof Error && err.message ? err.message : "Could not load sample data.");
+      // The button was disabled while it worked, which drops focus; give it back.
+      window.requestAnimationFrame(() => {
+        if (focusIsLost()) buttonRef.current?.focus();
+      });
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Button type="button" variant={variant} size={size} className={className} disabled={busy} onClick={() => void load()}>
+    <Button
+      ref={buttonRef}
+      type="button"
+      variant={variant}
+      size={size}
+      className={className}
+      disabled={busy}
+      onClick={() => void load()}
+    >
       {busy ? <Loader2 className="animate-spin" /> : <PackageOpen />}
       {children}
     </Button>
@@ -165,6 +209,11 @@ export function OnboardingChecklist({ className }: { className?: string }) {
   const reopened = useOnboardingReopened();
   const location = useLocation();
   const ref = useRef<HTMLElement>(null);
+  /**
+   * Skip, "Show them", and a sample load each remove the control that was pressed. This finds where keyboard
+   * focus goes next once the checklist has re-rendered (null while the old control is still there).
+   */
+  const pendingFocus = useRef<((section: HTMLElement) => HTMLElement | null) | null>(null);
   const visible = owner && !!onboarding.data && !dismissed && (onboarding.incomplete || reopened);
 
   useEffect(() => {
@@ -175,6 +224,28 @@ export function OnboardingChecklist({ className }: { className?: string }) {
     node.focus({ preventScroll: true });
   }, [visible, location.hash, location.key]);
 
+  function flushFocus() {
+    const find = pendingFocus.current;
+    const section = ref.current;
+    if (!find || !section) return;
+    if (!focusIsLost() && !section.contains(document.activeElement)) {
+      // They have moved on; leave focus where it is.
+      pendingFocus.current = null;
+      return;
+    }
+    const target = find(section);
+    if (!target) return;
+    pendingFocus.current = null;
+    target.focus();
+  }
+
+  useEffect(flushFocus);
+
+  function focusWhenReady(find: (section: HTMLElement) => HTMLElement | null) {
+    pendingFocus.current = find;
+    window.requestAnimationFrame(flushFocus);
+  }
+
   if (!visible) return null;
 
   const { progress, steps, next } = onboarding;
@@ -184,12 +255,36 @@ export function OnboardingChecklist({ className }: { className?: string }) {
   const titleId = "getting-started-title";
 
   function hide() {
+    // The whole card goes away; keep keyboard users on the page rather than at the top of the document.
+    focusPageHeading(ref.current);
     setDismissed(true);
     toast(
       progress.complete
         ? "Checklist hidden. Search Getting started in the command palette to bring it back."
         : "Checklist hidden. Open it again from Getting started in the sidebar.",
     );
+  }
+
+  /** Skip an optional step, then land on the next optional step's button (or "Show it" when none is left). */
+  function skipStep(id: OnboardingStepId) {
+    const before = [...(ref.current?.querySelectorAll<HTMLElement>("[data-optional-cta]") ?? [])];
+    const at = Math.max(0, before.findIndex((node) => node.dataset.optionalCta === id));
+    focusWhenReady((section) => {
+      if (section.querySelector(`[data-optional-cta="${id}"]`)) return null;
+      const left = [...section.querySelectorAll<HTMLElement>("[data-optional-cta]")];
+      return left[Math.min(at, left.length - 1)] ?? section.querySelector<HTMLElement>("[data-show-skipped]") ?? section;
+    });
+    onboarding.skip(id);
+  }
+
+  /** Bring skipped steps back, then land on the first of them. */
+  function showSkipped() {
+    const first = skipped[0]?.id;
+    focusWhenReady((section) => {
+      if (section.querySelector("[data-show-skipped]")) return null;
+      return (first && section.querySelector<HTMLElement>(`[data-optional-cta="${first}"]`)) || section;
+    });
+    onboarding.unskipAll();
   }
 
   return (
@@ -232,12 +327,20 @@ export function OnboardingChecklist({ className }: { className?: string }) {
       </div>
 
       {onboarding.sampleAvailable ? (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b bg-muted/40 px-4 py-3">
+        <div data-sample-row className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b bg-muted/40 px-4 py-3">
           <p className="min-w-0 flex-1 basis-64 text-sm text-muted-foreground">
             <span className="font-medium text-foreground">Just looking around?</span> Load a sample candle, its three
             parts, and five bays, then practice receiving and shipping before your real stock goes in.
           </p>
-          <SampleDataButton />
+          <SampleDataButton
+            onLoaded={() =>
+              focusWhenReady((section) =>
+                section.querySelector("[data-sample-row]")
+                  ? null
+                  : (section.querySelector<HTMLElement>("[data-next-step]") ?? section),
+              )
+            }
+          />
         </div>
       ) : null}
 
@@ -262,7 +365,7 @@ export function OnboardingChecklist({ className }: { className?: string }) {
                     next={next === step.id}
                     owner={owner}
                     garage={garage}
-                    onSkip={() => onboarding.skip(step.id)}
+                    onSkip={() => skipStep(step.id)}
                   />
                 ))}
               </ul>
@@ -272,7 +375,8 @@ export function OnboardingChecklist({ className }: { className?: string }) {
                 Skipped: {skipped.map((step) => step.title).join(", ")}.{" "}
                 <button
                   type="button"
-                  onClick={onboarding.unskipAll}
+                  data-show-skipped
+                  onClick={showSkipped}
                   className="rounded-sm font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
                 >
                   Show {skipped.length === 1 ? "it" : "them"}
@@ -335,7 +439,11 @@ function StepRow({
             </Button>
           ) : null}
           <Button asChild size="sm" variant={next ? "default" : "outline"}>
-            <Link to={step.path}>
+            <Link
+              to={step.path}
+              data-optional-cta={step.optional ? step.id : undefined}
+              data-next-step={next ? "" : undefined}
+            >
               {step.cta}
               {next ? <ArrowRight /> : null}
             </Link>

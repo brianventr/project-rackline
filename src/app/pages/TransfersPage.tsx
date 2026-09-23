@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowRight, ArrowRightLeft, Play, Plus, ScanLine, Send } from "lucide-react";
 import { toast } from "sonner";
@@ -296,6 +296,17 @@ function NewPutawaySheet({ open, onOpenChange }: { open: boolean; onOpenChange: 
   useEffect(() => {
     if (open) reset(getValues(), { keepDefaultValues: true });
   }, [open, reset, getValues]);
+
+  // The "different bay" message sits on To, so re-check To when From changes (once it has been
+  // checked), or the message stays after From is fixed.
+  const fromLocationId = form.watch("fromLocationId");
+  const submitted = form.formState.isSubmitted;
+  const submittedRef = useRef(submitted);
+  submittedRef.current = submitted;
+  const { trigger, getFieldState } = form;
+  useEffect(() => {
+    if (submittedRef.current || getFieldState("toLocationId").invalid) void trigger("toLocationId");
+  }, [fromLocationId, trigger, getFieldState]);
 
   async function create(values: ZodFormOutput<typeof putawayFormSchema>) {
     setError(null);

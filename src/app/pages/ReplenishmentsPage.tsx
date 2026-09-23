@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
 import { ArrowDownToLine, ArrowRight, Play, Plus, ScanLine, Zap } from "lucide-react";
@@ -274,6 +274,17 @@ function NewReplenishmentSheet({
     setError(null);
     reset(getValues(), { keepDefaultValues: true });
   }, [open, setError, reset, getValues]);
+
+  // The "different bay" message sits on To, so re-check To when From changes (once it has been
+  // checked), or the message stays after From is fixed.
+  const fromLocationId = form.watch("fromLocationId");
+  const submitted = form.formState.isSubmitted;
+  const submittedRef = useRef(submitted);
+  submittedRef.current = submitted;
+  const { trigger, getFieldState } = form;
+  useEffect(() => {
+    if (submittedRef.current || getFieldState("toLocationId").invalid) void trigger("toLocationId");
+  }, [fromLocationId, trigger, getFieldState]);
 
   // Prefill once, from the first suggestion when there is one, else bulk → pick.
   useEffect(() => {

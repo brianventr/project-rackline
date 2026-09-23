@@ -26,7 +26,9 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { statusText, statusTone, type StatusTone } from "@/domain/status";
+import { glossaryEntry } from "@/domain/glossary";
 import { splitErrorText } from "../api";
+import { Term } from "./term";
 
 export function PageHeader({
   eyebrow,
@@ -50,9 +52,11 @@ export function PageHeader({
         ) : null}
         <h1 className="text-(length:--density-title) font-semibold leading-tight tracking-tight">{title}</h1>
         {description ? (
+          // Phones show the whole sentence (a clipped glossary word could not be tapped); wider screens clamp to
+          // two lines and keep the full text in the tooltip.
           <p
-            className="mt-0.5 line-clamp-2 max-w-3xl text-(length:--density-meta) text-muted-foreground"
-            title={typeof description === "string" ? description : undefined}
+            className="mt-0.5 max-w-3xl text-(length:--density-meta) text-muted-foreground sm:line-clamp-2"
+            title={nodeText(description).replace(/\s+/g, " ").trim() || undefined}
           >
             {description}
           </p>
@@ -61,6 +65,20 @@ export function PageHeader({
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   );
+}
+
+/** The plain text of a small ReactNode (strings, fragments, `<Term>`s), for a `title` tooltip. */
+function nodeText(node: ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number" || typeof node === "bigint") return String(node);
+  if (Array.isArray(node)) return node.map(nodeText).join("");
+  if (isValidElement<{ id?: string; children?: ReactNode }>(node)) {
+    const { id, children } = node.props;
+    // `<Term id="atp" />` shows the glossary word.
+    if (node.type === Term && children == null && id) return glossaryEntry(id)?.term ?? id;
+    return nodeText(children);
+  }
+  return "";
 }
 
 /** A padded surface. `className` lands on the card itself, so both layout (`col-span-2`) and spacing (`space-y-3`) work. */

@@ -35,7 +35,7 @@ import { refreshApi, useApiQuery } from "../query";
 import { statusLabel } from "@/domain/status";
 import { formatCountVariance } from "@/domain/blind-count";
 import { formatExpiresOn } from "@/domain/expiry";
-import { desiredVerb } from "@/domain/jobs";
+import { desiredVerb, isFloorVerb, type FloorVerb } from "@/domain/jobs";
 import { DEFAULT_JOB_REASON } from "@/domain/job-rank";
 import { ageInDays, relativeTime } from "@/domain/relative-time";
 import { jobForRef, jobForSuggestion } from "../jobs";
@@ -82,6 +82,12 @@ const GARAGE_LANE_NEXT: Record<LaneId, string> = {
 };
 
 type LaneAction = { label: string; to: string } | null;
+
+/** The verb a floor link needs: every verb screen lives at /floor/<verb> (Lookup, ASN, Wave… need none). */
+function floorVerbFor(to: string): FloorVerb | null {
+  const segment = /^\/floor\/([a-z]+)/.exec(to)?.[1];
+  return segment && isFloorVerb(segment) ? segment : null;
+}
 
 /** What an empty lane offers next. Links only; each page keeps its own create button and gating. */
 const LANE_ACTION: Record<LaneId, LaneAction> = {
@@ -221,6 +227,12 @@ export function TodayPage() {
   const loading = dashboard.isLoading;
 
   const allow = (to: string) => !garage || garageAllowsPath(to);
+  // Start buttons also follow the person's floor verbs, as the floor launcher's tiles do.
+  const floorVerbs = me.floorVerbs ?? [];
+  const canStart = (to: string) => {
+    const verb = floorVerbFor(to);
+    return allow(to) && (!verb || me.role === "owner" || floorVerbs.includes(verb));
+  };
   const exceptions = laneCounts.exceptions + (data?.countVariances ?? 0) + (data?.openHolds ?? 0);
 
   const headline: HeadlineProps[] = [
@@ -401,6 +413,7 @@ export function TodayPage() {
                   team={team}
                   garage={garage}
                   owner={me.role === "owner"}
+                  canStart={canStart(row.actionTo)}
                   onAssign={assign}
                   onPin={pin}
                   onRelabel={relabelTracker}
@@ -414,7 +427,7 @@ export function TodayPage() {
                 title={`Nothing in ${LANE_LABEL[lane].toLowerCase()} right now.`}
                 body={laneNext[lane]}
                 action={
-                  laneAction && allow(laneAction.to) ? (
+                  laneAction && canStart(laneAction.to) ? (
                     <Button size="sm" variant="outline" asChild>
                       <Link to={laneAction.to}>{laneAction.label}</Link>
                     </Button>
@@ -869,6 +882,7 @@ function QueueRow({
   team,
   garage,
   owner,
+  canStart,
   onAssign,
   onPin,
   onRelabel,
@@ -877,6 +891,8 @@ function QueueRow({
   team: TeamMember[];
   garage: boolean;
   owner: boolean;
+  /** False when the row's floor screen needs a verb this person does not have. */
+  canStart: boolean;
   onAssign: (jobId: string, userId: string | null, name?: string) => Promise<void>;
   onPin: (jobId: string, pinned: boolean) => Promise<void>;
   onRelabel: (row: WorkRow) => Promise<void>;
@@ -927,14 +943,14 @@ function QueueRow({
         <Button size="sm" variant="outline" onClick={() => void onRelabel(row)}>
           Relabel
         </Button>
-      ) : (
+      ) : canStart ? (
         <Button size="sm" variant="outline" asChild>
           <Link to={row.actionTo}>
             {row.action}
             <ArrowRight />
           </Link>
         </Button>
-      )}
+      ) : null}
     </li>
   );
 }
