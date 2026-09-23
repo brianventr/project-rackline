@@ -358,6 +358,10 @@ describe("explainError — no code", () => {
       message: "That was not found.",
       hint: "It may have been deleted. Refresh and try again.",
     });
+    expect(explainError(404, { error: "SKU not found" }, "x")).toMatchObject({
+      message: "No SKU matches that.",
+      hint: "Check the SKU and try again.",
+    });
     expect(explainError(404, { error: "Carton not found" }, "x")).toMatchObject({
       message: "Carton not found.",
       hint: "It may have been deleted. Refresh and try again.",
@@ -383,6 +387,10 @@ describe("explainError — no code", () => {
 
   it("409 duplicates and stale state get a fix", () => {
     expect(explainError(409, { error: "SKU or barcode already exists" }, "x").hint).toBe("Use a different SKU or barcode.");
+    expect(explainError(409, { error: "A BOM already exists for this item" }, "x")).toMatchObject({
+      message: "A recipe already exists for this SKU.",
+      hint: "Open it from Recipes to change it.",
+    });
     expect(explainError(409, { error: "Barcode already exists" }, "x").hint).toBe("Use a different code or barcode.");
     expect(explainError(409, { error: "Transfer already posted" }, "x")).toMatchObject({
       message: "Transfer already posted.",

@@ -44,7 +44,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Table as UiTable, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toastError } from "../../use-write";
 import { EmptyState, ErrorBanner, SkeletonRows, TABLE_FRAME } from "../ui";
 import { useConfirm, type ConfirmOptions } from "../confirm";
 import {
@@ -319,7 +319,7 @@ export function DataTable<T extends object>({
       await action.run(targets);
       setRowSelection({});
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : `${action.label} failed`);
+      toastError(err, `${action.label} did not go through. Try again.`);
     } finally {
       setBusy(null);
     }

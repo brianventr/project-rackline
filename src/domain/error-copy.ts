@@ -574,6 +574,9 @@ function byStatus(ctx: Ctx): Copy {
     if (/matches that barcode$/i.test(text)) {
       return { message: asSentence(text), hint: "Check the label and scan again, or type the code." };
     }
+    if (/^sku not found$/i.test(text)) {
+      return { message: "No SKU matches that.", hint: "Check the SKU and try again." };
+    }
     if (/not found$/i.test(text)) {
       return { message: asSentence(text), hint: "It may have been deleted. Refresh and try again." };
     }
@@ -602,6 +605,9 @@ function byStatus(ctx: Ctx): Copy {
   if (integer) return { message: `${fieldLabel(integer[1]!)} must be a whole number.`, hint: null };
   if (/^invalid json$/i.test(text)) {
     return { message: "Rackline could not read that request.", hint: "Refresh the page and try again." };
+  }
+  if (/^a bom already exists for this item$/i.test(text)) {
+    return { message: "A recipe already exists for this SKU.", hint: "Open it from Recipes to change it." };
   }
   if (/already exists/i.test(text)) {
     return {
