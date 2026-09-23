@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { and, eq, gte, inArray, or } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
-import { badRequest } from "../lib/http";
+import { badRequest, notFound } from "../lib/http";
 import {
   buildTrafficSnapshot,
   horizonLookbackMs,
@@ -11,6 +11,8 @@ import {
 } from "../domain/traffic";
 import { isRunwayMultiplier, isRunwayWindow } from "../domain/runway";
 import { loadRunway } from "../db/runway";
+import { loadPromiseFacts } from "../db/promise";
+import { askPromise, parseCutoff, parsePromiseQty, parsePromiseSku, planPromises } from "../domain/promise";
 
 export const analyticsRoute = new Hono<AppEnv>();
 
@@ -130,4 +132,52 @@ analyticsRoute.get("/analytics/runway", async (c) => {
     multiplier: multiplierRaw,
   });
   return c.json({ ...queue.board, draftLines: queue.draftLines });
+});
+
+function readCutoff(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  try {
+    return parseCutoff(raw);
+  } catch (err) {
+    badRequest(err instanceof Error ? err.message : "Cutoff must be HH:MM");
+  }
+}
+
+analyticsRoute.get("/analytics/promises/ask", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const warehouseId = c.req.query("warehouseId");
+  if (!warehouseId) badRequest("warehouseId is required");
+  let sku: string;
+  let qty: number;
+  try {
+    sku = parsePromiseSku(c.req.query("sku"));
+    qty = parsePromiseQty(c.req.query("qty"));
+  } catch (err) {
+    badRequest(err instanceof Error ? err.message : "Invalid promise");
+  }
+  const cutoffMinutes = readCutoff(c.req.query("cutoff"));
+  const facts = await loadPromiseFacts(db, organizationId, warehouseId, { cutoffMinutes });
+  const item = facts.items.find((row) => row.sku.toLowerCase() === sku.toLowerCase());
+  if (!item) notFound("SKU not found");
+  const plan = planPromises(facts.input);
+  return c.json(
+    askPromise(
+      plan,
+      { itemId: item.itemId, sku: item.sku, name: item.name, qty },
+      facts.input.now,
+      facts.input.timeZone,
+      facts.input.pacePerHour ?? null,
+    ),
+  );
+});
+
+analyticsRoute.get("/analytics/promises", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const warehouseId = c.req.query("warehouseId");
+  if (!warehouseId) badRequest("warehouseId is required");
+  const cutoffMinutes = readCutoff(c.req.query("cutoff"));
+  const facts = await loadPromiseFacts(db, organizationId, warehouseId, { cutoffMinutes });
+  return c.json(planPromises(facts.input).board);
 });

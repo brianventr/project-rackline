@@ -32,6 +32,7 @@ import {
   Activity,
   Plug,
   Hourglass,
+  Clock,
   type LucideIcon,
 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -65,6 +66,7 @@ const GARAGE_ICONS: Record<string, LucideIcon> = {
   "/stock": Boxes,
   "/stock/items": Package,
   "/analytics/runway": Hourglass,
+  "/analytics/promise": Clock,
   "/setup/shopify": Plug,
   "/setup/carriers": Truck,
   "/setup/team": Users,
@@ -99,6 +101,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
       items: [
         { title: "Traffic", url: "/analytics/traffic", icon: Radar },
         { title: "Runway", url: "/analytics/runway", icon: Hourglass },
+        { title: "Promise", url: "/analytics/promise", icon: Clock },
       ],
     },
     {
