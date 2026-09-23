@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { api, type Dashboard, type FloorJob, type Purchase, type TeamMember } from "../api";
 import { EmptyState, ErrorBanner, PageHeader, StatusBadge, ToneBadge } from "../components/ui";
 import { PersonAvatar } from "../components/cells";
+import { OnboardingChecklist } from "../components/onboarding";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
 import { useDashboard } from "../dashboard";
@@ -304,6 +305,8 @@ export function TodayPage() {
           <MoreMetrics stats={moreStats} />
         </div>
       </div>
+
+      {me.role === "owner" ? <OnboardingChecklist /> : null}
 
       <ErrorBanner error={error ?? dashboard.error?.message ?? null} />
 

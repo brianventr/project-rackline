@@ -19,6 +19,7 @@ import { homePath } from "@/app/warehouse";
 import { useDashboard } from "@/app/dashboard";
 import { navForSession } from "@/app/navigation";
 import { isGarageMode } from "@/domain/operating-mode";
+import { OnboardingProgress } from "@/app/components/onboarding";
 
 export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
   const me = useSession();
@@ -59,6 +60,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
         ))}
       </SidebarContent>
       <SidebarFooter>
+        <OnboardingProgress />
         <NavUser
           user={{
             name: me.user.name,
