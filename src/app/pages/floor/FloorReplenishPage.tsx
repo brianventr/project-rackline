@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, type ReplenishSuggestion, type Replenishment, type ScanHit } from "../../api";
-import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
-import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
+import { ArrowDownToLine } from "lucide-react";
+import { api, errorText, type ReplenishSuggestion, type Replenishment, type ScanHit } from "../../api";
+import { Button, Card, DoneBanner, Field, Input, StatusBadge } from "../../components/ui";
+import { Term } from "../../components/term";
+import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { canPostReplenishment } from "@/domain/status";
 import { remainingToReplenish } from "@/domain/partial-replenish";
 import { useWarehouse } from "../../warehouse";
@@ -45,22 +47,27 @@ export function FloorReplenishPage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err) => setError(errorText(err, "Could not load replenishments.")));
   }, [warehouseId]);
 
-  const onScan = useCallback((raw: string) => {
+  const onScan = useCallback((raw: string, report?: ScanReport) => {
     setError(null);
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
-      .then((hit) => {
+      .then(async (hit) => {
         if (hit.kind === "replenishment") {
-          void api<Replenishment>(`/api/replenishments/${hit.replenishment.id}`).then((doc) =>
+          const doc = await api<Replenishment>(`/api/replenishments/${hit.replenishment.id}`);
+          report?.(
             openFloorRow(doc, me.user.id, jobForRef(jobs, "replenishment", doc.id, "replenish"), applyDoc, setError),
           );
           return;
         }
         setError("Scan a replenishment document, or pick a suggestion.");
+        report?.(false);
       })
-      .catch((err: Error) => setError(err.message));
+      .catch((err) => {
+        setError(errorText(err, "That barcode did not scan. Try again."));
+        report?.(false);
+      });
   }, [jobs, me.user.id]);
 
   async function queueSuggestion(row: ReplenishSuggestion) {
@@ -83,7 +90,7 @@ export function FloorReplenishPage() {
       });
       applyDoc(created);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not queue");
+      setError(errorText(err, "Could not queue the replenishment."));
     }
   }
 
@@ -106,7 +113,7 @@ export function FloorReplenishPage() {
       setDone(`${posted.number} moved ${thisQty} ${posted.sku} ${posted.fromCode} → ${posted.toCode}.`);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Post failed");
+      setError(errorText(err, "Could not post the move."));
     }
   }
 
@@ -115,12 +122,14 @@ export function FloorReplenishPage() {
   return (
     <FloorFrame title="Replenish" description="Pull remaining qty from bulk onto a pick face that's below pick min." error={error}>
       <FloorScanBox label="Scan replenishment" placeholder="RPL-…" onScan={onScan} />
-      {done ? <p className="text-sm text-emerald-700">{done}</p> : null}
+      <DoneBanner>{done}</DoneBanner>
       {!active ? (
         <div className="grid gap-4 md:grid-cols-2">
           <ClaimList
             title="Open replenishments"
             empty="Nothing queued."
+            emptyBody="Replenishments queued in the office, or from a suggestion, show here until they are moved."
+            emptyIcon={ArrowDownToLine}
             rows={docs}
             userId={me.user.id}
             jobFor={(row) => jobForRef(jobs, "replenishment", row.id, "replenish")}
@@ -137,6 +146,8 @@ export function FloorReplenishPage() {
           <ClaimList
             title="Suggested now"
             empty="Pick faces are at min."
+            emptyBody="A pick face that drops below its pick min shows here with a bulk bay to pull from."
+            emptyIcon={ArrowDownToLine}
             rows={suggestions.map((row) => ({ ...row, id: `${row.itemId}:${row.toLocationId}` }))}
             userId={me.user.id}
             jobFor={(row) => jobForSuggestion(jobs, "replenishSuggestion", row.fromLocationId, row.itemId, row.toLocationId)}
@@ -153,33 +164,58 @@ export function FloorReplenishPage() {
         </div>
       ) : (
         <Card className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <h2 className="text-xl font-semibold">{active.number}</h2>
             <StatusBadge status={active.status} />
           </div>
           <p>
             {active.sku} · moved {active.qtyMoved ?? 0}/{active.qty}
           </p>
-          <p className="font-mono text-sm">
-            {active.fromCode} → {active.toCode}
+          <p className="text-sm">
+            <span className="font-mono">
+              {active.fromCode} → {active.toCode}
+            </span>
+            <span className="text-muted-foreground">
+              {" "}
+              · <Term id="bulk-bay">bulk</Term> to <Term id="pick-face">pick face</Term>
+            </span>
           </p>
           {canPostReplenishment(active.status) && remaining > 0 ? (
             <>
               <Field label={`This move (remaining ${remaining})`}>
-                <Input type="number" min={1} max={remaining} value={thisQty} onChange={(e) => setThisQty(e.target.value)} />
+                <Input
+                  className="h-11 text-base"
+                  type="number"
+                  min={1}
+                  max={remaining}
+                  value={thisQty}
+                  onChange={(e) => setThisQty(e.target.value)}
+                />
               </Field>
               {active.trackLot ? (
-                <Input placeholder="Lot (FIFO if blank)" value={lotCode} onChange={(e) => setLotCode(e.target.value)} />
+                <Input
+                  className="h-11 text-base"
+                  aria-label="Lot code"
+                  placeholder="Lot (FIFO if blank)"
+                  value={lotCode}
+                  onChange={(e) => setLotCode(e.target.value)}
+                />
               ) : null}
               {active.trackSerial ? (
-                <Input placeholder="Serials" value={serials} onChange={(e) => setSerials(e.target.value)} />
+                <Input className="h-11 text-base" aria-label="Serials" placeholder="Serials" value={serials} onChange={(e) => setSerials(e.target.value)} />
               ) : null}
-              <Button onClick={() => void post()}>Move remaining</Button>
+              <Button className="h-14 w-full text-lg sm:w-auto" onClick={() => void post()}>
+                Move remaining
+              </Button>
             </>
           ) : (
             <p>Already posted.</p>
           )}
-          <button className="text-sm underline" onClick={() => setActive(null)}>
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            onClick={() => setActive(null)}
+          >
             Back to list
           </button>
         </Card>

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type ScanHit, type Transfer } from "../../api";
+import { Repeat } from "lucide-react";
+import { api, errorText, type ScanHit, type Transfer } from "../../api";
 import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
-import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
+import { Term } from "../../components/term";
+import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { canPostTransfer } from "@/domain/status";
 import { hasUnmoved } from "@/domain/partial-transfer";
 import { useSession } from "../../session";
@@ -47,16 +49,17 @@ export function FloorTransferPage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err) => setError(errorText(err, "Could not load open putaway tickets.")));
   }, []);
 
   const onScan = useCallback(
-    (raw: string) => {
+    (raw: string, report?: ScanReport) => {
       setError(null);
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
-        .then((hit) => {
+        .then(async (hit) => {
           if (hit.kind === "transfer") {
-            void api<Transfer>(`/api/transfers/${hit.transfer.id}`).then((ticket) =>
+            const ticket = await api<Transfer>(`/api/transfers/${hit.transfer.id}`);
+            report?.(
               openFloorRow(ticket, me.user.id, jobForRef(jobs, "transfer", ticket.id, "putaway"), applyTicket, setError),
             );
             return;
@@ -65,14 +68,20 @@ export function FloorTransferPage() {
             const line = (active.lines ?? []).find((row) => row.itemId === hit.item.id || row.sku === hit.item.sku);
             if (!line) {
               setError(`${hit.item.sku} is not on this putaway ticket.`);
+              report?.(false);
               return;
             }
             setQtys((current) => ({ ...current, [line.id]: String(line.remaining ?? 0) }));
+            report?.(true);
             return;
           }
           setError("Scan a putaway ticket, then scan a SKU to fill remaining qty.");
+          report?.(false);
         })
-        .catch((err: Error) => setError(err.message));
+        .catch((err) => {
+          setError(errorText(err, "That barcode did not scan. Try again."));
+          report?.(false);
+        });
     },
     [active, jobs, me.user.id],
   );
@@ -98,7 +107,7 @@ export function FloorTransferPage() {
       applyTicket(posted);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Putaway failed");
+      setError(errorText(err, "Could not post the putaway."));
     }
   }
 
@@ -125,12 +134,21 @@ export function FloorTransferPage() {
         <ClaimList
           title="Open putaway tickets"
           empty="No open putaway tickets."
+          emptyBody="Putaway tickets from the office show here until every unit has left the from-bay."
+          emptyIcon={Repeat}
+          emptyAction={
+            <Button variant="secondary" className="h-11" asChild>
+              <Link to="/floor/putaway?scan=1">Scan a bay instead</Link>
+            </Button>
+          }
           rows={tickets}
           userId={me.user.id}
           jobFor={(row) => jobForRef(jobs, "transfer", row.id, "putaway")}
           onOpen={(row) =>
             openFloorRow(row, me.user.id, jobForRef(jobs, "transfer", row.id, "putaway"), (ticket) => {
-              void api<Transfer>(`/api/transfers/${ticket.id}`).then(applyTicket);
+              api<Transfer>(`/api/transfers/${ticket.id}`)
+                .then(applyTicket)
+                .catch((err) => setError(errorText(err, "Could not open that putaway ticket.")));
             }, setError)
           }
           render={(row) => (
@@ -140,19 +158,29 @@ export function FloorTransferPage() {
             </>
           )}
           footer={
-            <Link className="inline-block font-medium underline" to="/floor/putaway?scan=1">
-              Scan a bay instead
-            </Link>
+            tickets.length ? (
+              <Link
+                className="inline-flex min-h-11 items-center rounded-sm font-medium underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                to="/floor/putaway?scan=1"
+              >
+                Scan a bay instead
+              </Link>
+            ) : null
           }
         />
       ) : (
         <Card className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <h2 className="text-xl font-semibold">{active.number}</h2>
             <StatusBadge status={active.status} />
           </div>
-          <p className="font-mono text-sm">
-            {active.fromCode} → {active.toCode}
+          <p className="text-sm">
+            <span className="text-muted-foreground">
+              <Term id="putaway">Putaway</Term> ticket ·{" "}
+            </span>
+            <span className="font-mono">
+              {active.fromCode} → {active.toCode}
+            </span>
           </p>
           <ul className="space-y-3 text-sm">
             {(active.lines ?? []).map((line) => (
@@ -166,6 +194,7 @@ export function FloorTransferPage() {
                 {(line.remaining ?? 0) > 0 ? (
                   <Field label={`This move (remaining ${line.remaining})`}>
                     <Input
+                      className="h-11 text-base"
                       type="number"
                       min={0}
                       max={line.remaining}
@@ -180,12 +209,12 @@ export function FloorTransferPage() {
             ))}
           </ul>
           {canPostTransfer(active.status) && remaining ? (
-            <Button disabled={!thisMove} onClick={() => void post()}>
+            <Button className="h-14 w-full text-lg sm:w-auto" disabled={!thisMove} onClick={() => void post()}>
               Move remaining
             </Button>
           ) : (
             <Link
-              className="font-medium underline"
+              className="inline-flex min-h-11 items-center rounded-sm font-medium underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
               to={`/floor/putaway?from=${encodeURIComponent(active.fromBarcode || active.fromCode || "")}`}
             >
               Scan-move leftover
