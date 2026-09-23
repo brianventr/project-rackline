@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { api, type OperatorCertification, type TeamMember } from "../../api";
 import { Button, EmptyState, Field, Input, PageHeader, Select, ToneBadge } from "../../components/ui";
 import { DataTable, type DataColumn, type FacetDef } from "../../components/data-table/DataTable";
-import { Muted, PersonAvatar } from "../../components/cells";
+import { Muted, PersonAvatar, RelativeTime } from "../../components/cells";
 import { ActionButton } from "../../components/document";
 import { FormSheet } from "../../components/form-sheet";
 import { apiMutate, useApiQuery } from "../../query";
@@ -14,16 +14,37 @@ import { FLOOR_VERBS, VERB_LABELS, type FloorVerb } from "@/domain/jobs";
 import { EQUIPMENT_CLASSES, equipmentClassLabel, isCertExpired, isCertExpiring } from "@/domain/equipment";
 import { formatExpiresOn } from "@/domain/expiry";
 import { inviteOwnerMessage, type InviteKind } from "@/domain/auth-mail";
+import { teamStatusLabel, teamStatusTone, type TeamMemberStatus } from "@/domain/team-status";
 
 type EquipmentClass = (typeof EQUIPMENT_CLASSES)[number];
+
+/**
+ * A `GET /api/team` row: the member plus when they last used Rackline. Declared here rather than
+ * in `api.ts`, which another track owns this wave. `status` is "invited" until the server has a
+ * record of them using it (a stored session, a stock move, or a recent change).
+ */
+type TeamRow = TeamMember & { lastActiveAt: number | null; status: TeamMemberStatus };
 
 function roleLabel(role: string): string {
   return role === "owner" ? "Owner" : role === "operator" ? "Operator" : role;
 }
 
-const MEMBER_FACETS: FacetDef<TeamMember>[] = [{ id: "role", label: "Role", value: (member) => member.role, format: roleLabel }];
+/** Anything short of recorded activity reads as invited. */
+function memberStatus(member: TeamRow): TeamMemberStatus {
+  return member.status === "active" ? "active" : "invited";
+}
 
-const MEMBER_COLUMNS: DataColumn<TeamMember>[] = [
+const MEMBER_FACETS: FacetDef<TeamRow>[] = [
+  { id: "role", label: "Role", value: (member) => member.role, format: roleLabel },
+  {
+    id: "status",
+    label: "Status",
+    value: (member) => memberStatus(member),
+    format: (value) => teamStatusLabel(value === "active" ? "active" : "invited"),
+  },
+];
+
+const MEMBER_COLUMNS: DataColumn<TeamRow>[] = [
   {
     id: "name",
     header: "Teammate",
@@ -55,6 +76,39 @@ const MEMBER_COLUMNS: DataColumn<TeamMember>[] = [
         {roleLabel(member.role)}
       </ToneBadge>
     ),
+  },
+  {
+    id: "status",
+    header: "Status",
+    // Most recently active first when sorted descending; people with no activity on record sort last.
+    sortValue: (member) => member.lastActiveAt ?? null,
+    csv: (member) => teamStatusLabel(memberStatus(member)),
+    cell: (member) => {
+      const status = memberStatus(member);
+      return (
+        <span className="flex flex-col items-start gap-1">
+          <ToneBadge tone={teamStatusTone(status)}>{teamStatusLabel(status)}</ToneBadge>
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
+            {status === "active" && member.lastActiveAt ? (
+              <>
+                Last active <RelativeTime at={member.lastActiveAt} />
+              </>
+            ) : (
+              // Sign-out deletes the session, so a quick look that changed nothing leaves no trace.
+              "No activity on record"
+            )}
+          </span>
+        </span>
+      );
+    },
+  },
+  {
+    id: "lastActive",
+    header: "Last active",
+    defaultHidden: true,
+    sortValue: (member) => member.lastActiveAt ?? null,
+    csv: (member) => (member.lastActiveAt ? new Date(member.lastActiveAt).toISOString() : ""),
+    cell: (member) => <RelativeTime at={member.lastActiveAt} />,
   },
   {
     id: "verbs",
@@ -114,7 +168,7 @@ const CERT_COLUMNS: DataColumn<CertRow>[] = [
 ];
 
 export function TeamPage() {
-  const members = useApiQuery<TeamMember[]>("/api/team");
+  const members = useApiQuery<TeamRow[]>("/api/team");
   const certs = useApiQuery<OperatorCertification[]>("/api/certifications");
   const [inviting, setInviting] = useState(false);
   const [certifying, setCertifying] = useState(false);

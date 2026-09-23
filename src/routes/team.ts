@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, not, sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, HttpError, notFound } from "../lib/http";
@@ -19,6 +19,7 @@ import {
   resolveInvitePassword,
   TeamInviteError,
 } from "../domain/auth-mail";
+import { latestActivity, SIGNUP_SESSION_WINDOW_MS, teamMemberStatus } from "../domain/team-status";
 
 export const teamRoute = new Hono<AppEnv>();
 
@@ -29,26 +30,71 @@ function inviteHttp(err: unknown): never {
   throw err;
 }
 
+/**
+ * Mirrors `isSignupSession`: the agentless session better-auth opens when the server signs
+ * someone up (an invite, the demo seed). Nobody holds that cookie, so it is not a sign-in.
+ */
+const signupSession = sql`(trim(coalesce(${schema.session.userAgent}, '')) = '' and ${schema.session.createdAt} - ${schema.user.createdAt} < ${SIGNUP_SESSION_WINDOW_MS})`;
+
+/**
+ * How many of the org's newest audited writes to read for "last active". Bounded because
+ * audit_events has no actor index: an unbounded per-person max would scan the whole log.
+ */
+const RECENT_WRITES_WINDOW = 2_000;
+
 teamRoute.get("/team", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const rows = await db
-    .select({
-      id: schema.memberships.id,
-      role: schema.memberships.role,
-      floorVerbs: schema.memberships.floorVerbs,
-      userId: schema.user.id,
-      name: schema.user.name,
-      email: schema.user.email,
-    })
-    .from(schema.memberships)
-    .innerJoin(schema.user, eq(schema.user.id, schema.memberships.userId))
-    .where(eq(schema.memberships.organizationId, organizationId));
+  // Sign-out deletes the session row, so sessions alone forget anyone who signed out. Two
+  // records that outlive it also count: stock moves this person made here (indexed, all time)
+  // and their audited writes among the org's newest RECENT_WRITES_WINDOW.
+  const recentWrites = db
+    .select({ actorUserId: schema.auditEvents.actorUserId, createdAt: schema.auditEvents.createdAt })
+    .from(schema.auditEvents)
+    .where(eq(schema.auditEvents.organizationId, organizationId))
+    .orderBy(desc(schema.auditEvents.createdAt))
+    .limit(RECENT_WRITES_WINDOW)
+    .as("recent_writes");
+  const movements = schema.inventoryMovements;
+  const [rows, writes] = await Promise.all([
+    // One grouped read: each member with their latest real session and latest stock move.
+    db
+      .select({
+        id: schema.memberships.id,
+        role: schema.memberships.role,
+        floorVerbs: schema.memberships.floorVerbs,
+        userId: schema.user.id,
+        name: schema.user.name,
+        email: schema.user.email,
+        sessionAt: sql<number | null>`max(${schema.session.updatedAt})`,
+        movedAt: sql<number | null>`(select max(${movements.createdAt}) from ${movements} where ${movements.organizationId} = ${organizationId} and ${movements.createdBy} = ${schema.memberships.userId})`,
+      })
+      .from(schema.memberships)
+      .innerJoin(schema.user, eq(schema.user.id, schema.memberships.userId))
+      .leftJoin(schema.session, and(eq(schema.session.userId, schema.memberships.userId), not(signupSession)))
+      .where(eq(schema.memberships.organizationId, organizationId))
+      .groupBy(schema.memberships.id),
+    db
+      .select({ userId: recentWrites.actorUserId, at: sql<number | null>`max(${recentWrites.createdAt})` })
+      .from(recentWrites)
+      .groupBy(recentWrites.actorUserId),
+  ]);
+  const wroteAt = new Map<string, number | null>();
+  for (const row of writes) if (row.userId) wroteAt.set(row.userId, row.at);
   return c.json(
-    rows.map((row) => ({
-      ...row,
-      floorVerbs: parseFloorVerbs(row.floorVerbs, row.role),
-    })),
+    rows.map((row) => {
+      const lastActiveAt = latestActivity([row.sessionAt, row.movedAt, wroteAt.get(row.userId)]);
+      return {
+        id: row.id,
+        role: row.role,
+        floorVerbs: parseFloorVerbs(row.floorVerbs, row.role),
+        userId: row.userId,
+        name: row.name,
+        email: row.email,
+        lastActiveAt,
+        status: teamMemberStatus(lastActiveAt),
+      };
+    }),
   );
 });
 
@@ -150,7 +196,8 @@ teamRoute.post("/team", async (c) => {
     .where(and(eq(schema.memberships.organizationId, organizationId), eq(schema.memberships.userId, userId)))
     .limit(1);
 
-  return c.json({ ...row, invite }, 201);
+  // A fresh invite has not signed in yet, whatever session sign-up opened on the server.
+  return c.json({ ...row, lastActiveAt: null, status: teamMemberStatus(null), invite }, 201);
 });
 
 teamRoute.patch("/team/:userId", async (c) => {
