@@ -18,6 +18,7 @@ const textLink =
 
 export function FloorCountPage() {
   const me = useSession();
+  const canCount = me.role === "owner" || (me.floorVerbs ?? []).includes("count");
   const { jobs, reload: reloadJobs } = useOpenJobs("count");
   const [params] = useSearchParams();
   const { warehouseId } = useWarehouse();
@@ -56,6 +57,7 @@ export function FloorCountPage() {
   }
 
   useEffect(() => {
+    if (!canCount) return;
     load()
       .catch((err) => setError(errorText(err, "Could not load open counts.")))
       .finally(() => setLoaded(true));
@@ -77,7 +79,13 @@ export function FloorCountPage() {
               method: "POST",
               body: JSON.stringify({ warehouseId, locationId: hit.location.id }),
             });
-            await api(`/api/cycle-counts/${created.id}/start`, { method: "POST" }).catch(() => undefined);
+            try {
+              await api(`/api/cycle-counts/${created.id}/start`, { method: "POST" });
+            } catch (err) {
+              setError(errorText(err, "Could not start the count."));
+              report?.(false);
+              return;
+            }
             setActive(await api<CycleCount>(`/api/cycle-counts/${created.id}`));
             report?.(true);
             return;
@@ -140,6 +148,23 @@ export function FloorCountPage() {
 
   const lines = active?.lines ?? [];
   const ready = Boolean(active && canPostCount(active.status) && allLinesEntered(lines));
+
+  if (!canCount) {
+    return (
+      <FloorFrame title="Count" description="Scan a bay, then count what you see." error={null}>
+        <EmptyState
+          icon={Calculator}
+          title="Counting isn't one of your floor verbs."
+          body="Ask an owner to add Count to your floor verbs on the Team page."
+          action={
+            <Button variant="secondary" className="h-11" asChild>
+              <Link to="/floor">Back to floor</Link>
+            </Button>
+          }
+        />
+      </FloorFrame>
+    );
+  }
 
   return (
     <FloorFrame title="Count" description="Scan a bay, then count what you see. Scan a SKU that was not on the snapshot to add it. System qty stays hidden until you post." error={error}>
