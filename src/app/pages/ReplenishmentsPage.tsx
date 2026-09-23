@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { z } from "zod";
 import { ArrowDownToLine, ArrowRight, Play, Plus, ScanLine, Zap } from "lucide-react";
-import { api, type Item, type Location, type ReplenishSuggestion, type Replenishment } from "../api";
-import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge } from "../components/ui";
+import { api, errorText, type Item, type Location, type ReplenishSuggestion, type Replenishment } from "../api";
+import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, StatusBadge } from "../components/ui";
+import { NumberField, SelectField, useZodForm, type ZodFormInput, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import {
   ActionButton,
   DetailSkeleton,
@@ -21,6 +24,7 @@ import { useWrite } from "../use-write";
 import { STEP_RULES } from "@/domain/step-stamps";
 import { REPLENISH_STEPS, canPostReplenishment, isOpenReplenishment } from "@/domain/status";
 import { remainingToReplenish } from "@/domain/partial-replenish";
+import { qtySchema, requiredChoice } from "@/domain/form-schemas";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
 export function ReplenishmentsPage() {
@@ -129,7 +133,12 @@ function ReplenishmentList() {
       <PageHeader
         eyebrow="Stock"
         title="Replenish"
-        description="Move remaining qty from bulk into a pick face when it drops below pick min. Distinct from dock putaway."
+        description={
+          <>
+            Move remaining qty from bulk into a <Term id="pick-face">pick face</Term> when it drops below{" "}
+            <Term id="pick-min">pick min</Term>. Distinct from dock putaway.
+          </>
+        }
       />
       <ErrorBanner error={error ?? suggestions.error?.message ?? null} />
       {suggested.length ? (
@@ -218,6 +227,29 @@ function ReplenishmentList() {
   );
 }
 
+/** POST /api/replenishments (`src/routes/replenishments.ts`). */
+const newReplenishmentSchema = z
+  .object({
+    itemId: requiredChoice("Pick a SKU."),
+    qty: qtySchema,
+    fromLocationId: requiredChoice("Pick the bulk bay to take from."),
+    toLocationId: requiredChoice("Pick the pick face to fill."),
+  })
+  // Server: "From and to locations must differ". `when` lets this show even while another field (qty) is wrong.
+  .refine((value) => !value.fromLocationId || value.fromLocationId !== value.toLocationId, {
+    message: "Pick a different bay than the one you take from.",
+    path: ["toLocationId"],
+    when: (payload) => {
+      const value = payload.value as { fromLocationId?: unknown; toLocationId?: unknown } | undefined;
+      return typeof value?.fromLocationId === "string" && typeof value?.toLocationId === "string";
+    },
+  });
+
+type NewReplenishmentInput = ZodFormInput<typeof newReplenishmentSchema>;
+type NewReplenishmentValues = ZodFormOutput<typeof newReplenishmentSchema>;
+
+const NEW_REPLENISHMENT_DEFAULTS: NewReplenishmentInput = { itemId: "", qty: "1", fromLocationId: "", toLocationId: "" };
+
 function NewReplenishmentSheet({
   open,
   onOpenChange,
@@ -231,44 +263,51 @@ function NewReplenishmentSheet({
   const { warehouseId } = useWarehouse();
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
   const locations = useApiQuery<Location[]>(open ? "/api/locations" : null);
-  const [itemId, setItemId] = useState("");
-  const [qty, setQty] = useState("1");
-  const [fromLocationId, setFromLocationId] = useState("");
-  const [toLocationId, setToLocationId] = useState("");
+  const form = useZodForm(newReplenishmentSchema, NEW_REPLENISHMENT_DEFAULTS);
   const [seeded, setSeeded] = useState(false);
   const { error, setError, busy, run } = useWrite();
 
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues, setValue } = form;
   useEffect(() => {
-    if (open) setError(null);
-  }, [open, setError]);
+    if (!open) return;
+    setError(null);
+    reset(getValues(), { keepDefaultValues: true });
+  }, [open, setError, reset, getValues]);
 
   // Prefill once, from the first suggestion when there is one, else bulk → pick.
   useEffect(() => {
     if (seeded || !open) return;
     if (suggestion) {
-      setItemId(suggestion.itemId);
-      setQty(String(suggestion.qty));
-      setFromLocationId(suggestion.fromLocationId);
-      setToLocationId(suggestion.toLocationId);
+      setValue("itemId", suggestion.itemId);
+      setValue("qty", String(suggestion.qty));
+      setValue("fromLocationId", suggestion.fromLocationId);
+      setValue("toLocationId", suggestion.toLocationId);
       setSeeded(true);
       return;
     }
     if (!items.data || !locations.data) return;
-    if (items.data[0]) setItemId(items.data[0].id);
+    if (items.data[0]) setValue("itemId", items.data[0].id);
     const bulk = locations.data.find((row) => row.slotRole === "bulk") ?? locations.data[0];
     const pick = locations.data.find((row) => row.slotRole === "pick") ?? locations.data[1];
-    if (bulk) setFromLocationId(bulk.id);
-    if (pick) setToLocationId(pick.id);
+    if (bulk) setValue("fromLocationId", bulk.id);
+    if (pick) setValue("toLocationId", pick.id);
     setSeeded(true);
-  }, [open, seeded, suggestion, items.data, locations.data]);
+  }, [open, seeded, suggestion, items.data, locations.data, setValue]);
 
-  async function create() {
+  async function create(values: NewReplenishmentValues) {
     const created = await run(
       "Create replenishment",
       () =>
         api<Replenishment>("/api/replenishments", {
           method: "POST",
-          body: JSON.stringify({ warehouseId, itemId, qty: Number(qty), fromLocationId, toLocationId }),
+          body: JSON.stringify({
+            warehouseId,
+            itemId: values.itemId,
+            qty: values.qty,
+            fromLocationId: values.fromLocationId,
+            toLocationId: values.toLocationId,
+          }),
         }),
       (doc) => `Replenishment ${doc.number} created.`,
     );
@@ -277,11 +316,10 @@ function NewReplenishmentSheet({
     navigate(`/stock/replenish/${created.id}`);
   }
 
-  const locationOptions = (locations.data ?? []).map((location) => (
-    <option key={location.id} value={location.id}>
-      {slotLabel(location)}
-    </option>
-  ));
+  const itemOptions = (items.data ?? []).map((item) => ({ value: item.id, label: `${item.sku} — ${item.name}` }));
+  const locationOptions = (locations.data ?? []).map((location) => ({ value: location.id, label: slotLabel(location) }));
+  // A blank choice stays visible (a single bay leaves "To" empty), so the select never shows a bay it does not hold.
+  const bayPlaceholder = locationOptions.length ? "Pick a bay" : locations.isLoading ? "Loading bays…" : "No bays yet";
 
   return (
     <FormSheet
@@ -290,33 +328,21 @@ function NewReplenishmentSheet({
       title="New replenishment"
       description="Top up a pick face from bulk. The floor sees it in Replenish until it is posted."
       submitLabel="Create replenishment"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error ?? items.error?.message ?? locations.error?.message ?? null}
     >
-      <Field label="Item">
-        <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
-          {(items.data ?? []).map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.sku} — {item.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Qty">
-        <Input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
-      </Field>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="From bulk">
-          <Select value={fromLocationId} onChange={(e) => setFromLocationId(e.target.value)}>
-            {locationOptions}
-          </Select>
-        </Field>
-        <Field label="To pick face">
-          <Select value={toLocationId} onChange={(e) => setToLocationId(e.target.value)}>
-            {locationOptions}
-          </Select>
-        </Field>
+      <SelectField
+        form={form}
+        name="itemId"
+        label="Item"
+        options={itemOptions}
+        placeholder={itemOptions.length ? undefined : items.isLoading ? "Loading SKUs…" : "No SKUs yet"}
+      />
+      <NumberField form={form} name="qty" label="Qty" min={1} />
+      <div className="grid items-start gap-3 sm:grid-cols-2">
+        <SelectField form={form} name="fromLocationId" label="From bulk" options={locationOptions} placeholder={bayPlaceholder} />
+        <SelectField form={form} name="toLocationId" label="To pick face" options={locationOptions} placeholder={bayPlaceholder} />
       </div>
     </FormSheet>
   );
@@ -334,7 +360,7 @@ function ReplenishmentDetail({ id }: { id: string }) {
         setDoc(next);
         setThisQty(String(remainingOf(next)));
       })
-      .catch((err: Error) => setLoadError(err.message));
+      .catch((err: unknown) => setLoadError(errorText(err, "Could not load this replenishment. Try again.")));
   }, [id]);
 
   async function start() {

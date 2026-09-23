@@ -1,86 +1,141 @@
 import { useEffect, useState } from "react";
-import { api, type Item, type Location } from "../api";
-import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, onSubmit } from "../components/ui";
+import { Link } from "react-router-dom";
+import { z } from "zod";
+import { SlidersHorizontal } from "lucide-react";
+import { api, errorText, type Item, type Location } from "../api";
+import { Button, Card, EmptyState, ErrorBanner, PageHeader } from "../components/ui";
+import { SelectField, TextField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
+import { requiredChoice, requiredText } from "@/domain/form-schemas";
+
+/**
+ * POST /api/adjustments (`src/routes/adjustments.ts`, `planAdjust`): a whole, non-zero qty (minus takes
+ * stock out) and a reason. Whether the bay holds enough to take out is left to the server.
+ */
+const adjustmentSchema = z.object({
+  itemId: requiredChoice("Pick a SKU."),
+  locationId: requiredChoice("Pick a bay."),
+  qtyDelta: z.union([z.string(), z.number()]).transform((value, ctx): number => {
+    const text = String(value).trim();
+    const n = Number(text);
+    if (!text) {
+      ctx.addIssue({ code: "custom", message: "Enter a qty, like 2 or -2.", input: value });
+      return z.NEVER;
+    }
+    if (!Number.isInteger(n)) {
+      ctx.addIssue({ code: "custom", message: "Qty must be a whole number.", input: value });
+      return z.NEVER;
+    }
+    if (n === 0) {
+      ctx.addIssue({ code: "custom", message: "Qty cannot be 0.", input: value });
+      return z.NEVER;
+    }
+    return n;
+  }),
+  reason: requiredText("Enter a reason."),
+});
 
 export function AdjustmentsPage() {
   const [items, setItems] = useState<Item[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
-  const [itemId, setItemId] = useState("");
-  const [locationId, setLocationId] = useState("");
-  const [qtyDelta, setQtyDelta] = useState("1");
-  const [reason, setReason] = useState("");
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const form = useZodForm(adjustmentSchema, { itemId: "", locationId: "", qtyDelta: "1", reason: "" });
+  const { reset, getValues } = form;
 
   useEffect(() => {
     Promise.all([api<Item[]>("/api/items"), api<Location[]>("/api/locations")])
       .then(([nextItems, nextLocations]) => {
         setItems(nextItems);
         setLocations(nextLocations);
-        if (nextItems[0]) setItemId(nextItems[0].id);
-        if (nextLocations[0]) setLocationId(nextLocations[0].id);
+        reset({ ...getValues(), itemId: nextItems[0]?.id ?? "", locationId: nextLocations[0]?.id ?? "" });
+        setLoaded(true);
       })
-      .catch((err: Error) => setError(err.message));
-  }, []);
+      .catch((err: unknown) => setError(errorText(err, "Could not load SKUs and bays. Try again.")));
+  }, [reset, getValues]);
 
-  async function submit() {
+  async function submit(values: ZodFormOutput<typeof adjustmentSchema>) {
     setError(null);
     setOk(null);
     try {
       await api("/api/adjustments", {
         method: "POST",
         body: JSON.stringify({
-          itemId,
-          locationId,
-          qtyDelta: Number(qtyDelta),
-          reason,
+          itemId: values.itemId,
+          locationId: values.locationId,
+          qtyDelta: values.qtyDelta,
+          reason: values.reason,
         }),
       });
-      setReason("");
+      reset({ ...getValues(), reason: "" });
       setOk("Adjustment posted to the ledger.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Adjustment failed");
+      setError(errorText(err, "Could not post the adjustment. Try again."));
     }
   }
 
+  const missing = loaded && (items.length === 0 || locations.length === 0);
+
   return (
-    <div>
+    <div className="flex flex-col gap-(--density-gap)">
       <PageHeader
         eyebrow="Floor"
         title="Adjust"
-        description="Signed quantity change with a reason. Negative qty cannot drive a bin below zero."
+        description={
+          <>
+            <Term id="adjustment">Signed quantity change</Term> with a reason. Negative qty cannot drive a bay below zero.
+          </>
+        }
       />
       <ErrorBanner error={error} />
-      {ok ? <p className="mb-4 text-sm text-ok">{ok}</p> : null}
-      <Card className="max-w-xl">
-        <form className="space-y-3" onSubmit={onSubmit(submit)}>
-          <Field label="Item">
-            <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
-              {items.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.sku} — {item.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Location">
-            <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-              {locations.map((location) => (
-                <option key={location.id} value={location.id}>
-                  {location.code} — {location.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Qty delta">
-            <Input type="number" value={qtyDelta} onChange={(e) => setQtyDelta(e.target.value)} required />
-          </Field>
-          <Field label="Reason">
-            <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Cycle count variance" required />
-          </Field>
-          <Button type="submit">Post adjustment</Button>
-        </form>
-      </Card>
+      {ok ? <p className="text-sm text-ok">{ok}</p> : null}
+      {missing ? (
+        <EmptyState
+          className="max-w-xl"
+          icon={SlidersHorizontal}
+          title={items.length === 0 ? "No items yet." : "No locations yet."}
+          body={
+            items.length === 0
+              ? "An adjustment changes one SKU in one bay. Add the SKU first, then correct its qty here."
+              : "An adjustment changes one SKU in one bay. Add the bay first, then correct its qty here."
+          }
+          action={
+            <Button size="sm" asChild>
+              {items.length === 0 ? <Link to="/stock/items">Go to items</Link> : <Link to="/stock/locations">Go to locations</Link>}
+            </Button>
+          }
+        />
+      ) : (
+        <Card className="max-w-xl">
+          <form className="space-y-3" onSubmit={form.handleSubmit(submit)}>
+            <SelectField
+              form={form}
+              name="itemId"
+              label="Item"
+              options={items.map((item) => ({ value: item.id, label: `${item.sku} — ${item.name}` }))}
+            />
+            <SelectField
+              form={form}
+              name="locationId"
+              label="Location"
+              options={locations.map((location) => ({ value: location.id, label: `${location.code} — ${location.name}` }))}
+            />
+            {/* A plain number input, not NumberField: its numeric keypad has no minus key on phones. */}
+            <TextField
+              form={form}
+              name="qtyDelta"
+              label="Qty delta"
+              type="number"
+              description="Use a minus sign to take stock out, like -2."
+            />
+            <TextField form={form} name="reason" label="Reason" placeholder="Cycle count variance" />
+            <Button type="submit" className="h-14 w-full text-lg sm:w-auto" disabled={form.formState.isSubmitting}>
+              Post adjustment
+            </Button>
+          </form>
+        </Card>
+      )}
     </div>
   );
 }
