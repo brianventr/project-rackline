@@ -138,6 +138,7 @@ export function LabelsSetupPage() {
   const [addingPrinter, setAddingPrinter] = useState(false);
   const [addingStation, setAddingStation] = useState(false);
   const [view, setView] = useState("printers");
+  const canVibrate = typeof navigator !== "undefined" && typeof navigator.vibrate === "function";
 
   useEffect(() => {
     printerCtx
@@ -303,7 +304,7 @@ export function LabelsSetupPage() {
           <Card>
             <div className="space-y-3">
               <SectionHeading title="This workstation" description={`Saved in this browser. ${printerCtx.statusLabel}`} />
-              <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
+              <div className="grid gap-3 sm:grid-cols-2 sm:items-start">
                 <Field label="Station">
                   <Select
                     value={printerCtx.stationId ?? ""}
@@ -324,10 +325,25 @@ export function LabelsSetupPage() {
                     ))}
                   </Select>
                 </Field>
-                <label className="flex h-8 items-center gap-2 text-sm">
-                  <Switch checked={scanner.prefs.beep} onCheckedChange={(value) => scanner.setPrefs({ beep: value })} />
-                  Beep on scan
-                </label>
+                <fieldset className="space-y-1">
+                  <legend className="sr-only">Scan feedback</legend>
+                  <label className="flex min-h-8 items-center gap-2 text-sm">
+                    <Switch checked={scanner.prefs.beep} onCheckedChange={(value) => scanner.setPrefs({ beep: value })} />
+                    Beep on scan
+                  </label>
+                  <label className="flex min-h-8 items-center gap-2 text-sm">
+                    <Switch
+                      checked={scanner.prefs.vibrate}
+                      onCheckedChange={(value) => scanner.setPrefs({ vibrate: value })}
+                    />
+                    Vibrate on scan
+                    {canVibrate ? null : <span className="text-xs text-muted-foreground">Not on this device</span>}
+                  </label>
+                  <label className="flex min-h-8 items-center gap-2 text-sm">
+                    <Switch checked={scanner.prefs.flash} onCheckedChange={(value) => scanner.setPrefs({ flash: value })} />
+                    Flash the screen on scan
+                  </label>
+                </fieldset>
               </div>
             </div>
           </Card>

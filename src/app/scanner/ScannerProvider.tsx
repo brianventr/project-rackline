@@ -1,5 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { accumulateHidKey, type HidBufferState } from "@/domain/hid-buffer";
+import {
+  defaultScanPrefs,
+  parseScanPrefs,
+  scanResultTone,
+  scanVibration,
+  type ScanFeedbackPrefs,
+} from "@/domain/floor-usage";
+import { cn } from "@/lib/utils";
 
 export type ScanSource = "hid" | "camera" | "typed";
 
@@ -9,18 +17,29 @@ export type ScanEvent = {
   at: number;
 };
 
-export type ScanPrefs = {
-  beep: boolean;
-  preferCamera: boolean;
+/** `vibrate` and `flash` answer each scan result on top of the beep. All three default on. */
+export type ScanPrefs = ScanFeedbackPrefs;
+
+/** One accept/reject answer, published after a page checks a scan. */
+export type ScanFeedback = {
+  id: number;
+  accepted: boolean;
+  at: number;
 };
 
 type ScanHandler = (event: ScanEvent) => void;
+type FeedbackHandler = (feedback: ScanFeedback) => void;
 
 type ScannerContextValue = {
   lastScan: ScanEvent | null;
   emitScan: (raw: string, source: ScanSource) => void;
+  /** Answer a scan: tone, buzz, and a screen flash, each per the prefs. */
+  emitScanResult: (accepted: boolean) => void;
+  /** Same as `emitScanResult(false)`. */
   emitScanError: () => void;
   subscribe: (handler: ScanHandler) => () => void;
+  /** Listen for accept/reject answers (the overlay uses this). */
+  subscribeFeedback: (handler: FeedbackHandler) => () => void;
   openCamera: () => void;
   closeCamera: () => void;
   cameraOpen: boolean;
@@ -34,20 +53,23 @@ const PREFS_KEY = "rackline.scanPrefs";
 const CAMERA_DEBOUNCE_MS = 800;
 
 function defaultPrefs(): ScanPrefs {
-  return { beep: true, preferCamera: false };
+  return defaultScanPrefs();
 }
 
 function loadPrefs(): ScanPrefs {
   try {
-    const raw = localStorage.getItem(PREFS_KEY);
-    if (!raw) return defaultPrefs();
-    const parsed = JSON.parse(raw) as Partial<ScanPrefs>;
-    return {
-      beep: parsed.beep !== false,
-      preferCamera: Boolean(parsed.preferCamera),
-    };
+    return parseScanPrefs(localStorage.getItem(PREFS_KEY));
   } catch {
     return defaultPrefs();
+  }
+}
+
+function vibrate(accepted: boolean, enabled: boolean) {
+  if (!enabled || typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
+  try {
+    navigator.vibrate(scanVibration(accepted));
+  } catch {
+    // Vibration is optional; some browsers throw without a user gesture.
   }
 }
 
@@ -86,6 +108,9 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
   );
   const hid = useRef<HidBufferState>({ buffer: "", lastKeyAt: 0 });
   const listeners = useRef(new Set<ScanHandler>());
+  const feedbackListeners = useRef(new Set<FeedbackHandler>());
+  const feedbackSeq = useRef(0);
+  const lastHeardAt = useRef<number | null>(null);
   const prefsRef = useRef(prefs);
   prefsRef.current = prefs;
   const lastCamera = useRef<{ raw: string; at: number } | null>(null);
@@ -106,19 +131,38 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
         lastCamera.current = { raw: value, at: now };
       }
       playTone(true, prefsRef.current.beep);
+      lastHeardAt.current = Date.now();
       publish({ raw: value, source, at: Date.now() });
     },
     [publish],
   );
 
-  const emitScanError = useCallback(() => {
-    playTone(false, prefsRef.current.beep);
+  const emitScanResult = useCallback((accepted: boolean) => {
+    const now = Date.now();
+    const current = prefsRef.current;
+    const tone = scanResultTone(accepted, lastHeardAt.current, now);
+    if (tone) playTone(tone === "ok", current.beep);
+    vibrate(accepted, current.vibrate);
+    feedbackSeq.current += 1;
+    const feedback: ScanFeedback = { id: feedbackSeq.current, accepted, at: now };
+    for (const handler of feedbackListeners.current) handler(feedback);
   }, []);
+
+  const emitScanError = useCallback(() => {
+    emitScanResult(false);
+  }, [emitScanResult]);
 
   const subscribe = useCallback((handler: ScanHandler) => {
     listeners.current.add(handler);
     return () => {
       listeners.current.delete(handler);
+    };
+  }, []);
+
+  const subscribeFeedback = useCallback((handler: FeedbackHandler) => {
+    feedbackListeners.current.add(handler);
+    return () => {
+      feedbackListeners.current.delete(handler);
     };
   }, []);
 
@@ -172,8 +216,10 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     () => ({
       lastScan,
       emitScan,
+      emitScanResult,
       emitScanError,
       subscribe,
+      subscribeFeedback,
       openCamera: () => setCameraOpen(true),
       closeCamera: () => setCameraOpen(false),
       cameraOpen,
@@ -181,13 +227,14 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       prefs,
       setPrefs,
     }),
-    [lastScan, emitScan, emitScanError, subscribe, cameraOpen, prefs, setPrefs],
+    [lastScan, emitScan, emitScanResult, emitScanError, subscribe, subscribeFeedback, cameraOpen, prefs, setPrefs],
   );
 
   return (
     <ScannerContext.Provider value={value}>
       {children}
       {cameraOpen ? <CameraOverlay onClose={() => setCameraOpen(false)} onScan={onCameraScan} /> : null}
+      <ScanFeedbackOverlay subscribe={subscribeFeedback} enabled={prefs.flash} />
     </ScannerContext.Provider>
   );
 }
@@ -196,6 +243,78 @@ export function useScanner() {
   const ctx = useContext(ScannerContext);
   if (!ctx) throw new Error("useScanner must be used within ScannerProvider");
   return ctx;
+}
+
+const FLASH_MS = 250;
+const PULSE_MS = 450;
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+}
+
+/**
+ * Full-screen answer to a scan: a quick translucent green or red wash. Under reduced motion it
+ * is a still coloured border instead. Never takes pointer input and is hidden from assistive tech;
+ * the page's own banner carries the words.
+ */
+export function ScanFeedbackOverlay({
+  subscribe,
+  enabled,
+}: {
+  subscribe: (handler: FeedbackHandler) => () => void;
+  enabled: boolean;
+}) {
+  const [feedback, setFeedback] = useState<{ id: number; accepted: boolean; reduced: boolean } | null>(null);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+  const washRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(
+    () =>
+      subscribe((next) => {
+        if (!enabledRef.current) return;
+        setFeedback({ id: next.id, accepted: next.accepted, reduced: prefersReducedMotion() });
+      }),
+    [subscribe],
+  );
+
+  useEffect(() => {
+    if (!feedback) return;
+    const el = washRef.current;
+    let animation: Animation | null = null;
+    if (el && !feedback.reduced && typeof el.animate === "function") {
+      try {
+        animation = el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: FLASH_MS, easing: "ease-out", fill: "forwards" });
+      } catch {
+        animation = null;
+      }
+    }
+    const timer = window.setTimeout(() => setFeedback(null), feedback.reduced ? PULSE_MS : FLASH_MS + 20);
+    return () => {
+      window.clearTimeout(timer);
+      animation?.cancel();
+    };
+  }, [feedback]);
+
+  if (!feedback) return null;
+  return (
+    <div
+      key={feedback.id}
+      ref={washRef}
+      aria-hidden="true"
+      data-scan-feedback={feedback.accepted ? "ok" : "bad"}
+      className={cn(
+        "pointer-events-none fixed inset-0 z-[100] print:hidden",
+        feedback.reduced
+          ? feedback.accepted
+            ? "border-[6px] border-ok"
+            : "border-[6px] border-bad"
+          : feedback.accepted
+            ? "bg-ok/25"
+            : "bg-bad/30",
+      )}
+    />
+  );
 }
 
 type Detector = {
