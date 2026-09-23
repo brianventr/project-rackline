@@ -368,6 +368,8 @@ export type InventoryRow = {
   locationId: string;
   locationCode: string;
   locationName: string;
+  locationType?: string;
+  updatedAt?: number;
   warehouseId?: string;
 };
 
@@ -858,6 +860,9 @@ export type Dashboard = {
     lastVendorName: string | null;
   }[];
   recent: { id: string; type: string; qty: number; createdAt: number; sku: string }[];
+  /** Units per local day for the last 7 days, oldest first. */
+  trend?: { start: number; received: number; picked: number; shipped: number; built: number; shippedOrders: number }[];
+  timeZone?: string;
   hotBays: { locationId: string; locationCode: string; locationName: string; units: number }[];
   replenishSuggestions?: ReplenishSuggestion[];
   putawaySuggestions?: PutawaySuggestion[];
@@ -979,6 +984,7 @@ export type CycleCount = {
   id: string;
   number: string;
   status: string;
+  createdAt?: number;
   locationId: string;
   locationCode?: string;
   locationBarcode?: string;
@@ -1019,6 +1025,8 @@ export type Movement = {
   id: string;
   type: string;
   qty: number;
+  refType?: string;
+  refId?: string;
   sku: string;
   itemName: string;
   reason: string | null;

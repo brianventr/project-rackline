@@ -1,9 +1,38 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type Item, type Location, type Order, type Rma } from "../api";
-import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
+import { ArrowDownToLine, Play, Plus, ScanLine, Undo2 } from "lucide-react";
+import { toast } from "sonner";
+import { api, type Item, type Location, type Order, type Rma, type RmaLine } from "../api";
+import {
+  Button,
+  Card,
+  EmptyState,
+  ErrorBanner,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+  StatusBadge,
+  Table,
+  summarizeLines,
+} from "../components/ui";
 import { BayCombobox } from "../components/BayCombobox";
-import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
+import {
+  DetailSkeleton,
+  DocumentActivity,
+  DocumentFact,
+  DocumentFrame,
+  DocumentHeader,
+  DocumentRail,
+  type DocumentAction,
+} from "../components/document";
+import { DataTable, type DataColumn, type TabDef } from "../components/data-table/DataTable";
+import { DocLink, LineChips, Muted, ProgressCell, RelativeTime, SkuCell, ProgressRow } from "../components/cells";
+import { FormSheet } from "../components/form-sheet";
+import { apiMutate, useApiQuery } from "../query";
+import { useWrite } from "../use-write";
+import { cn } from "@/lib/utils";
+import { STEP_RULES } from "@/domain/step-stamps";
 import { RETURN_STEPS, canReceiveReturn } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
 import { useWarehouse, inWarehouse } from "../warehouse";
@@ -11,7 +40,7 @@ import { LineFields } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { ExpiryInput, parseExpiryInput } from "../components/expiry-field";
 import { DispositionSelect } from "../components/disposition-field";
-import { parseDisposition, type ReturnDisposition } from "@/domain/return-disposition";
+import { dispositionLabel, parseDisposition, type ReturnDisposition } from "@/domain/return-disposition";
 
 type Line = { itemId: string; qty: string };
 
@@ -21,39 +50,164 @@ export function ReturnsPage() {
   return <ReturnList />;
 }
 
+function rmaUnits(rma: Rma) {
+  const lines = rma.lines ?? [];
+  return {
+    expected: lines.reduce((sum, line) => sum + line.qtyExpected, 0),
+    received: lines.reduce((sum, line) => sum + line.qtyReceived, 0),
+  };
+}
+
+const RETURN_TABS: TabDef<Rma>[] = [
+  { id: "open", label: "To receive", match: (rma) => canReceiveReturn(rma.status) },
+  { id: "received", label: "Received", match: (rma) => rma.status === "received" },
+  { id: "all", label: "All", match: () => true },
+];
+
+const RETURN_COLUMNS: DataColumn<Rma>[] = [
+  {
+    id: "number",
+    header: "Return",
+    sortValue: (rma) => rma.number,
+    cell: (rma) => <DocLink to={`/outbound/returns/${rma.id}`}>{rma.number}</DocLink>,
+  },
+  {
+    id: "customer",
+    header: "Customer",
+    sortValue: (rma) => rma.customerName,
+    cell: (rma) => (
+      <span className="flex flex-col">
+        <span className="font-medium">{rma.customerName}</span>
+        {rma.notes ? <span className="line-clamp-1 text-xs text-muted-foreground">{rma.notes}</span> : null}
+      </span>
+    ),
+  },
+  {
+    id: "order",
+    header: "Order",
+    sortValue: (rma) => rma.orderNumber ?? "",
+    cell: (rma) =>
+      rma.orderId ? (
+        <DocLink to={`/outbound/orders/${rma.orderId}`} className="font-normal">
+          {rma.orderNumber || "Order"}
+        </DocLink>
+      ) : (
+        <Muted>—</Muted>
+      ),
+  },
+  {
+    id: "lines",
+    header: "Lines",
+    csv: (rma) =>
+      summarizeLines((rma.lines ?? []).map((line) => ({ sku: line.sku, itemName: line.itemName, qty: line.qtyExpected }))),
+    cell: (rma) => <LineChips lines={(rma.lines ?? []).map((line) => ({ sku: line.sku, qty: line.qtyExpected }))} />,
+  },
+  {
+    id: "received",
+    header: "Received",
+    sortValue: (rma) => {
+      const units = rmaUnits(rma);
+      return units.expected ? units.received / units.expected : 0;
+    },
+    csv: (rma) => {
+      const units = rmaUnits(rma);
+      return `${units.received}/${units.expected}`;
+    },
+    cell: (rma) => {
+      const units = rmaUnits(rma);
+      return <ProgressCell done={units.received} total={units.expected} />;
+    },
+  },
+  {
+    id: "created",
+    header: "Created",
+    sortValue: (rma) => rma.createdAt,
+    csv: (rma) => new Date(rma.createdAt).toISOString(),
+    cell: (rma) => <RelativeTime at={rma.createdAt} />,
+  },
+  {
+    id: "status",
+    header: "Status",
+    sortValue: (rma) => RETURN_STEPS.indexOf(rma.status as (typeof RETURN_STEPS)[number]),
+    csv: (rma) => rma.status,
+    cell: (rma) => <StatusBadge status={rma.status} />,
+  },
+];
+
 function ReturnList() {
+  const { warehouseId } = useWarehouse();
+  const returns = useApiQuery<Rma[]>("/api/returns");
+  const [creating, setCreating] = useState(false);
+
+  const rows = useMemo(() => inWarehouse(returns.data ?? [], warehouseId), [returns.data, warehouseId]);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
+      <PageHeader
+        eyebrow="Outbound"
+        title="Returns"
+        description="Customer RMAs. Receive back into a bay as restock, scrap, or hold."
+      />
+      <DataTable
+        id="returns"
+        data={rows}
+        loading={returns.isLoading}
+        error={returns.error?.message}
+        columns={RETURN_COLUMNS}
+        getRowId={(rma) => rma.id}
+        rowHref={(rma) => `/outbound/returns/${rma.id}`}
+        tabs={RETURN_TABS}
+        defaultTab="open"
+        defaultSort={{ id: "created", desc: true }}
+        search={{
+          placeholder: "Search return, customer, order, SKU",
+          text: (rma) =>
+            [rma.number, rma.customerName, rma.orderNumber, rma.notes, ...(rma.lines ?? []).map((line) => line.sku)]
+              .filter(Boolean)
+              .join(" "),
+        }}
+        exportName="returns"
+        toolbar={
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus className="size-4" />
+            New return
+          </Button>
+        }
+        empty={
+          <EmptyState
+            icon={Undo2}
+            title="No returns yet."
+            body="Open an RMA when a customer sends goods back, then receive them as restock, scrap, or hold."
+            action={
+              <Button size="sm" onClick={() => setCreating(true)}>
+                New return
+              </Button>
+            }
+          />
+        }
+      />
+      <NewReturnSheet open={creating} onOpenChange={setCreating} />
+    </div>
+  );
+}
+
+function NewReturnSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
-  const [returns, setReturns] = useState<Rma[]>([]);
-  const [items, setItems] = useState<Item[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const items = useApiQuery<Item[]>(open ? "/api/items" : null);
+  const orders = useApiQuery<Order[]>(open ? "/api/orders" : null);
   const [customerName, setCustomerName] = useState("");
   const [orderId, setOrderId] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
-  const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  async function load() {
-    const [nextReturns, nextItems, nextOrders] = await Promise.all([
-      api<Rma[]>("/api/returns"),
-      api<Item[]>("/api/items"),
-      api<Order[]>("/api/orders"),
-    ]);
-    setReturns(nextReturns);
-    setItems(nextItems);
-    setOrders(nextOrders);
-  }
-
-  useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
-  }, []);
 
   async function create() {
     setError(null);
+    setBusy(true);
     try {
-      const created = await api<Rma>("/api/returns", {
-        method: "POST",
+      const created = await apiMutate<Rma>("/api/returns", {
         body: JSON.stringify({
           warehouseId,
           customerName,
@@ -62,80 +216,80 @@ function ReturnList() {
           lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
         }),
       });
+      toast.success(`Return ${created.number} opened.`);
+      onOpenChange(false);
       navigate(`/outbound/returns/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create return");
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Outbound"
-        title="Returns"
-        description="Customer RMAs. Receive back into a bay as restock, scrap, or hold."
-        actions={<Button onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New return"}</Button>}
-      />
-      <ErrorBanner error={error} />
-      {creating ? (
-        <Card className="mb-3">
-          <form className="space-y-4" onSubmit={onSubmit(create)}>
-            <Field label="Customer">
-              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
-            </Field>
-            <Field label="Original order">
-              <Select value={orderId} onChange={(e) => setOrderId(e.target.value)}>
-                <option value="">None</option>
-                {inWarehouse(orders, warehouseId).map((order) => (
-                  <option key={order.id} value={order.id}>
-                    {order.number} · {order.customerName}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Notes">
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Wrong color, damaged carton…" />
-            </Field>
-            <LineFields items={items} lines={lines} setLines={setLines} />
-            <Button type="submit">Create return</Button>
-          </form>
-        </Card>
-      ) : null}
-      <Table columns={["Number", "Customer", "Order", "Status", "Lines"]}>
-        {inWarehouse(returns, warehouseId).map((rma) => (
-          <tr key={rma.id}>
-            <td className="px-2.5 py-1.5 font-mono">
-              <Link className="hover:underline" to={`/outbound/returns/${rma.id}`}>
-                {rma.number}
-              </Link>
-            </td>
-            <td className="px-2.5 py-1.5">{rma.customerName}</td>
-            <td className="px-2.5 py-1.5 font-mono">
-              {rma.orderId ? (
-                <Link className="hover:underline" to={`/outbound/orders/${rma.orderId}`}>
-                  {rma.orderNumber || "Order"}
-                </Link>
-              ) : (
-                "—"
-              )}
-            </td>
-            <td className="px-2.5 py-1.5">
-              <StatusBadge status={rma.status} />
-            </td>
-            <td className="px-2.5 py-1.5 text-sm">
-              {summarizeLines(
-                (rma.lines ?? []).map((line) => ({ sku: line.sku, itemName: line.itemName, qty: line.qtyExpected })),
-              )}
-            </td>
-          </tr>
-        ))}
-      </Table>
-    </div>
+    <FormSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New return"
+      description="What the customer is sending back. Receive it on the record when the box arrives."
+      submitLabel="Create return"
+      onSubmit={create}
+      busy={busy}
+      error={error}
+    >
+      <Field label="Customer">
+        <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required autoFocus />
+      </Field>
+      <Field label="Original order">
+        <Select value={orderId} onChange={(e) => setOrderId(e.target.value)}>
+          <option value="">None</option>
+          {inWarehouse(orders.data ?? [], warehouseId).map((order) => (
+            <option key={order.id} value={order.id}>
+              {order.number} · {order.customerName}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Notes">
+        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Wrong color, damaged carton…" />
+      </Field>
+      <div className="space-y-1.5">
+        <p className="text-sm font-medium">Lines</p>
+        <LineFields items={items.data ?? []} lines={lines} setLines={setLines} />
+      </div>
+    </FormSheet>
   );
 }
 
+function dispositionDefaults(rma: Rma): Record<string, ReturnDisposition> {
+  return Object.fromEntries(
+    (rma.lines ?? []).map((line) => {
+      try {
+        return [line.itemId, parseDisposition(line.disposition)];
+      } catch {
+        return [line.itemId, "restock" as const];
+      }
+    }),
+  );
+}
+
+function qtyDefaults(rma: Rma): Record<string, string> {
+  return Object.fromEntries((rma.lines ?? []).map((line) => [line.itemId, String(line.remaining)]));
+}
+
+function receivedMessage(lines: { qty: number; disposition: ReturnDisposition }[], bay: string | undefined): string {
+  const total = lines.reduce((sum, line) => sum + line.qty, 0);
+  const count = (kind: ReturnDisposition) =>
+    lines.filter((line) => line.disposition === kind).reduce((sum, line) => sum + line.qty, 0);
+  const parts = [
+    count("restock") ? `${count("restock")} back in ${bay ?? "the bay"}` : null,
+    count("hold") ? `${count("hold")} on QC hold` : null,
+    count("scrap") ? `${count("scrap")} scrapped` : null,
+  ].filter(Boolean);
+  return `Received ${total} ${total === 1 ? "unit" : "units"}: ${parts.join(", ")}.`;
+}
+
 function ReturnDetail({ id }: { id: string }) {
-  const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
   const [rma, setRma] = useState<Rma | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -145,7 +299,8 @@ function ReturnDetail({ id }: { id: string }) {
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [dispositions, setDispositions] = useState<Record<string, ReturnDisposition>>({});
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const { error, run } = useWrite();
 
   async function load() {
     const [next, nextLocations] = await Promise.all([api<Rma>(`/api/returns/${id}`), api<Location[]>("/api/locations")]);
@@ -153,185 +308,272 @@ function ReturnDetail({ id }: { id: string }) {
     setLocations(nextLocations);
     const dock = nextLocations.find((row) => row.type === "receiving") ?? nextLocations[0];
     if (dock) setLocationId(next.locationId || dock.id);
-    setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
-    setDispositions(
-      Object.fromEntries(
-        (next.lines ?? []).map((line) => {
-          try {
-            return [line.itemId, parseDisposition(line.disposition)];
-          } catch {
-            return [line.itemId, "restock" as const];
-          }
-        }),
-      ),
-    );
+    setQtys(qtyDefaults(next));
+    setDispositions(dispositionDefaults(next));
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err: Error) => setLoadError(err.message));
   }, [id]);
 
-  async function start() {
-    setError(null);
-    try {
-      setRma(await api<Rma>(`/api/returns/${id}/start`, { method: "POST" }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start receiving");
-    }
+  if (!rma) {
+    return loadError ? <ErrorBanner error={loadError} /> : <DetailSkeleton />;
   }
 
-  async function receive() {
-    if (!rma) return;
-    setError(null);
-    try {
-      const lines = (rma.lines ?? [])
-        .map((line) => ({
-          itemId: line.itemId,
-          qty: Number(qtys[line.itemId] || 0),
-          serials: serials[line.itemId] || undefined,
-          weightGrams: parseWeightGrams(weights[line.itemId]),
-          expiresOn: parseExpiryInput(expiries[line.itemId]),
-          disposition: dispositions[line.itemId] ?? "restock",
-        }))
-        .filter((line) => line.qty > 0);
-      const next = await api<Rma>(`/api/returns/${id}/receive`, {
-        method: "POST",
-        body: JSON.stringify({ locationId, lines }),
-      });
-      setRma(next);
-      setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
-      setDispositions(
-        Object.fromEntries(
-          (next.lines ?? []).map((line) => {
-            try {
-              return [line.itemId, parseDisposition(line.disposition)];
-            } catch {
-              return [line.itemId, "restock" as const];
-            }
-          }),
-        ),
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not receive return");
-    }
-  }
-
-  if (!rma) return <ErrorBanner error={error} />;
+  const current = rma;
+  const lines = current.lines ?? [];
   const remaining = hasRemaining(
-    (rma.lines ?? []).map((line) => ({
+    lines.map((line) => ({
       itemId: line.itemId,
       qtyExpected: line.qtyExpected,
       qtyReceived: line.qtyReceived,
     })),
   );
+  const receivable = canReceiveReturn(current.status) && remaining;
+  const bayCode = (locationIdToFind: string | null | undefined) =>
+    locationIdToFind ? locations.find((row) => row.id === locationIdToFind)?.code : undefined;
+  const thisReceive = lines.reduce((sum, line) => sum + (line.remaining > 0 ? Number(qtys[line.itemId] || 0) : 0), 0);
+  const tracksAnything = lines.some(
+    (line) => line.remaining > 0 && (line.trackSerial || line.catchWeight || line.trackExpiry),
+  );
+  const units = rmaUnits(current);
+
+  async function start() {
+    const next = await run(
+      "Start receiving",
+      () => api<Rma>(`/api/returns/${id}/start`, { method: "POST" }),
+      `${current.number} is receiving.`,
+    );
+    if (next) setRma(next);
+  }
+
+  async function receive() {
+    const received = lines
+      .map((line) => ({
+        itemId: line.itemId,
+        qty: Number(qtys[line.itemId] || 0),
+        serials: serials[line.itemId] || undefined,
+        weightGrams: parseWeightGrams(weights[line.itemId]),
+        expiresOn: parseExpiryInput(expiries[line.itemId]),
+        disposition: dispositions[line.itemId] ?? "restock",
+      }))
+      .filter((line) => line.qty > 0);
+    const bay = bayCode(locationId);
+    const next = await run(
+      "Receive",
+      () =>
+        api<Rma>(`/api/returns/${id}/receive`, {
+          method: "POST",
+          body: JSON.stringify({ locationId, lines: received }),
+        }),
+      () => receivedMessage(received, bay),
+    );
+    if (next) {
+      setRma(next);
+      setQtys(qtyDefaults(next));
+      setDispositions(dispositionDefaults(next));
+    }
+  }
+
+  const primary: DocumentAction | null = receivable
+    ? { label: "Receive", icon: ArrowDownToLine, onSelect: receive, disabled: thisReceive <= 0 || !locationId }
+    : null;
+
+  const menu: DocumentAction[] = [
+    ...(current.status === "open" ? [{ label: "Start receiving", icon: Play, onSelect: start }] : []),
+    ...(receivable ? [{ label: "Open on floor", icon: ScanLine, to: `/floor/return?id=${current.id}` }] : []),
+  ];
+
+  const lineColumns = [
+    "Item",
+    "Expected",
+    "Received",
+    ...(receivable ? ["This receive"] : []),
+    "Disposition",
+    ...(receivable && tracksAnything ? ["Serial / weight / expiry"] : []),
+  ];
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-(--density-gap)">
       <DocumentHeader
         eyebrow="Outbound"
-        title={rma.number}
-        description={`${rma.customerName}${rma.notes ? ` · ${rma.notes}` : ""}`}
-        status={rma.status}
+        list={{ label: "Returns", to: "/outbound/returns" }}
+        title={current.number}
+        description={`${current.customerName}${current.notes ? ` · ${current.notes}` : ""}`}
+        status={current.status}
         steps={RETURN_STEPS}
-        actions={
-          <>
-            <Button variant="ghost" onClick={() => navigate("/outbound/returns")}>
-              All returns
-            </Button>
-            {rma.status === "open" ? <Button onClick={() => void start()}>Start receiving</Button> : null}
-            {canReceiveReturn(rma.status) && remaining ? <Button onClick={() => void receive()}>Receive</Button> : null}
-            {canReceiveReturn(rma.status) && remaining ? (
-              <Button variant="secondary">
-                <Link to={`/floor/return?id=${rma.id}`}>Floor</Link>
-              </Button>
-            ) : null}
-          </>
-        }
+        refId={current.id}
+        stampRules={STEP_RULES.rma}
+        primary={primary}
+        menu={menu}
       />
       <ErrorBanner error={error} />
       <DocumentFrame
         rail={
           <DocumentRail>
-            <Card className="space-y-3">
-              {rma.orderId ? (
-                <p className="text-sm">
-                  Against{" "}
-                  <Link className="underline" to={`/outbound/orders/${rma.orderId}`}>
-                    {rma.orderNumber || "order"}
-                  </Link>
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">No original order linked.</p>
-              )}
-              <Field label="Receive into">
-                <BayCombobox
-                  locations={locations}
-                  warehouseId={rma.warehouseId || warehouseId}
-                  value={locationId}
-                  onChange={setLocationId}
-                  onCreated={(location) => setLocations((current) => [...current, location])}
-                />
-              </Field>
+            <Card>
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Units</p>
+                <ProgressRow label="Received" done={units.received} total={units.expected} />
+              </div>
             </Card>
-            <DocumentActivity refId={rma.id} refreshKey={`${rma.status}:${(rma.lines ?? []).map((line) => line.qtyReceived).join(",")}`} />
+            <Card>
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Return</p>
+                <div className="text-sm">
+                  <p className="font-medium">{current.customerName}</p>
+                  {current.notes ? <p className="mt-1 text-muted-foreground">{current.notes}</p> : null}
+                </div>
+                <DocumentFact label="Original order">
+                  {current.orderId ? (
+                    <Link className="underline" to={`/outbound/orders/${current.orderId}`}>
+                      {current.orderNumber || "Order"}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">None linked</span>
+                  )}
+                </DocumentFact>
+                {!receivable && current.locationId ? (
+                  <DocumentFact label="Received into">
+                    <span className="font-mono">{bayCode(current.locationId) ?? "—"}</span>
+                  </DocumentFact>
+                ) : null}
+                <DocumentFact label="Created">
+                  <RelativeTime at={current.createdAt} />
+                </DocumentFact>
+              </div>
+            </Card>
           </DocumentRail>
         }
       >
-        <Table columns={["SKU", "Item", "Expected", "Received", "This receive", "Disposition", "Serials"]}>
-          {(rma.lines ?? []).map((line) => (
-            <tr key={line.id}>
-              <td className="px-2.5 py-1.5 font-mono">{line.sku}</td>
-              <td className="px-2.5 py-1.5">{line.itemName}</td>
-              <td className="px-2.5 py-1.5 font-mono">{line.qtyExpected}</td>
-              <td className="px-2.5 py-1.5 font-mono">{line.qtyReceived}</td>
-              <td className="px-2.5 py-1.5">
-                {line.remaining > 0 ? (
-                  <Input
-                    type="number"
-                    min={0}
-                    max={line.remaining}
-                    value={qtys[line.itemId] ?? "0"}
-                    onChange={(e) => setQtys((current) => ({ ...current, [line.itemId]: e.target.value }))}
-                  />
-                ) : (
-                  <span className="text-muted-foreground">Done</span>
-                )}
-              </td>
-              <td className="px-2.5 py-1.5">
-                {line.remaining > 0 ? (
-                  <DispositionSelect
-                    value={dispositions[line.itemId] ?? "restock"}
-                    onChange={(value) => setDispositions((current) => ({ ...current, [line.itemId]: value }))}
-                  />
-                ) : (
-                  <span className="text-muted-foreground capitalize">{line.disposition || "restock"}</span>
-                )}
-              </td>
-              <td className="px-2.5 py-1.5">
-                {line.trackSerial ? (
-                  <Input
-                    placeholder="Serials"
-                    value={serials[line.itemId] ?? ""}
-                    onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
-                  />
-                ) : null}
-                <CatchWeightInput
-                  className="mt-1"
-                  show={line.catchWeight}
-                  value={weights[line.itemId] ?? ""}
-                  onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
+        {receivable ? (
+          <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-3 shadow-xs">
+            <div className="min-w-48 flex-1">
+              <Field label="Receive into">
+                <BayCombobox
+                  locations={locations}
+                  warehouseId={current.warehouseId || warehouseId}
+                  value={locationId}
+                  onChange={setLocationId}
+                  onCreated={(location) => setLocations((rows) => [...rows, location])}
                 />
-                <ExpiryInput
-                  className="mt-1"
-                  show={line.trackExpiry}
-                  value={expiries[line.itemId] ?? ""}
-                  onChange={(value) => setExpiries((current) => ({ ...current, [line.itemId]: value }))}
-                />
-              </td>
-            </tr>
+              </Field>
+            </div>
+            <p className="max-w-sm text-xs text-muted-foreground">
+              Restock puts units back in stock in this bay. Hold receives them under a QC hold. Scrap receives them and writes them off.
+            </p>
+          </div>
+        ) : null}
+        <Table columns={lineColumns}>
+          {lines.map((line) => (
+            <ReturnLineRow
+              key={line.id}
+              line={line}
+              receivable={receivable}
+              tracksAnything={tracksAnything}
+              qty={qtys[line.itemId] ?? "0"}
+              onQty={(value) => setQtys((rows) => ({ ...rows, [line.itemId]: value }))}
+              disposition={dispositions[line.itemId] ?? "restock"}
+              onDisposition={(value) => setDispositions((rows) => ({ ...rows, [line.itemId]: value }))}
+              serial={serials[line.itemId] ?? ""}
+              onSerial={(value) => setSerials((rows) => ({ ...rows, [line.itemId]: value }))}
+              weight={weights[line.itemId] ?? ""}
+              onWeight={(value) => setWeights((rows) => ({ ...rows, [line.itemId]: value }))}
+              expiry={expiries[line.itemId] ?? ""}
+              onExpiry={(value) => setExpiries((rows) => ({ ...rows, [line.itemId]: value }))}
+            />
           ))}
         </Table>
+        <DocumentActivity
+          refId={current.id}
+          refreshKey={`${current.status}:${lines.map((line) => line.qtyReceived).join(",")}`}
+        />
       </DocumentFrame>
     </div>
   );
 }
+
+function ReturnLineRow({
+  line,
+  receivable,
+  tracksAnything,
+  qty,
+  onQty,
+  disposition,
+  onDisposition,
+  serial,
+  onSerial,
+  weight,
+  onWeight,
+  expiry,
+  onExpiry,
+}: {
+  line: RmaLine;
+  receivable: boolean;
+  tracksAnything: boolean;
+  qty: string;
+  onQty: (value: string) => void;
+  disposition: ReturnDisposition;
+  onDisposition: (value: ReturnDisposition) => void;
+  serial: string;
+  onSerial: (value: string) => void;
+  weight: string;
+  onWeight: (value: string) => void;
+  expiry: string;
+  onExpiry: (value: string) => void;
+}) {
+  const open = receivable && line.remaining > 0;
+  return (
+    <tr>
+      <td>
+        <SkuCell sku={line.sku} name={line.itemName} to={`/stock/items/${line.itemId}`} />
+      </td>
+      <td className="font-mono tabular-nums">{line.qtyExpected}</td>
+      <td>
+        <ProgressCell done={line.qtyReceived} total={line.qtyExpected} />
+      </td>
+      {receivable ? (
+        <td>
+          {open ? (
+            <Input
+              type="number"
+              min={0}
+              max={line.remaining}
+              className="w-20"
+              aria-label={`Receive qty for ${line.sku}`}
+              value={qty}
+              onChange={(e) => onQty(e.target.value)}
+            />
+          ) : (
+            <span className="text-muted-foreground">Done</span>
+          )}
+        </td>
+      ) : null}
+      <td>
+        {open ? (
+          <div className="w-32">
+            <DispositionSelect value={disposition} onChange={onDisposition} />
+          </div>
+        ) : (
+          <span className={cn(line.disposition === "scrap" && "text-tone-danger", line.disposition === "hold" && "text-tone-warning")}>
+            {dispositionLabel(line.disposition || "restock")}
+          </span>
+        )}
+      </td>
+      {receivable && tracksAnything ? (
+        <td className="space-y-1">
+          {open && line.trackSerial ? (
+            <Input placeholder="Serials" aria-label={`Serials for ${line.sku}`} value={serial} onChange={(e) => onSerial(e.target.value)} />
+          ) : null}
+          {open ? (
+            <>
+              <CatchWeightInput show={line.catchWeight} value={weight} onChange={onWeight} />
+              <ExpiryInput show={line.trackExpiry} value={expiry} onChange={onExpiry} />
+            </>
+          ) : null}
+        </td>
+      ) : null}
+    </tr>
+  );
+}
+

@@ -50,6 +50,9 @@ function hoursBetween(later: number, earlier: number): number {
   return Math.max(0, (later - earlier) / 3_600_000);
 }
 
+/** The reason every job gets when nothing more specific applies. The UI hides it as noise. */
+export const DEFAULT_JOB_REASON = "Oldest open work";
+
 export function jobReason(job: RankInput, now: number): string {
   if (job.pinned) return "Pinned";
   if (job.starved) return "Pick face is starving open picks";
@@ -60,7 +63,7 @@ export function jobReason(job: RankInput, now: number): string {
   if (job.dockDwellMs >= 2 * 3_600_000) return "Waiting on the dock";
   if (job.dueAt != null && job.dueAt <= now) return "Due now";
   if (job.shopify) return "Shopify order";
-  return "Oldest open work";
+  return DEFAULT_JOB_REASON;
 }
 
 export function scoreJob(job: RankInput, ctx: RankContext): number {

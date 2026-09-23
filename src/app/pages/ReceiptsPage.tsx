@@ -1,10 +1,27 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ArrowDownToLine, Play, Plus, ScanLine, X } from "lucide-react";
+import { toast } from "sonner";
 import { api, type Item, type Location, type Receipt } from "../api";
-import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
+import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, summarizeLines } from "../components/ui";
+import { Button as IconButton } from "@/components/ui/button";
 import { BayCombobox } from "../components/BayCombobox";
-import { DocumentFrame, DocumentHeader, DocumentRail, DocumentActivity } from "../components/document";
-import { RECEIPT_STEPS, canReceive } from "@/domain/status";
+import {
+  DetailSkeleton,
+  DocumentActivity,
+  DocumentFact,
+  DocumentFrame,
+  DocumentHeader,
+  DocumentRail,
+  type DocumentAction,
+} from "../components/document";
+import { DataTable, type BulkAction, type DataColumn, type TabDef } from "../components/data-table/DataTable";
+import { DocLink, LineChips, Muted, ProgressCell, ProgressRow, RelativeTime, SkuCell } from "../components/cells";
+import { FormSheet } from "../components/form-sheet";
+import { apiMutate, refreshApi, useApiQuery } from "../query";
+import { useWrite } from "../use-write";
+import { STEP_RULES } from "@/domain/step-stamps";
+import { RECEIPT_STEPS, canReceive, isOpenReceipt } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
@@ -18,85 +35,255 @@ export function ReceiptsPage() {
   return <ReceiptList />;
 }
 
+/* ------------------------------------------------------------------------------------------------
+ * Small helpers shared by the inbound pages (Receipts, ASNs, Purchases, Putaway, Vendor returns, Yard).
+ * ---------------------------------------------------------------------------------------------- */
+
+/** `1 unit`, `4 units`. */
+export function unitCount(count: number): string {
+  return `${count} ${count === 1 ? "unit" : "units"}`;
+}
+
+/** `1 receipt`, `3 receipts`. */
+export function countOf(count: number, noun: string, plural = `${noun}s`): string {
+  return `${count} ${count === 1 ? noun : plural}`;
+}
+
+/**
+ * Bulk action body: run one write per selected row, refresh, then toast how many went through
+ * and the first failure reason.
+ */
+export async function runEach<T>(
+  rows: T[],
+  write: (row: T) => Promise<unknown>,
+  messages: { done: (count: number) => string; failed: string },
+) {
+  const results = await Promise.allSettled(rows.map((row) => write(row)));
+  void refreshApi();
+  const errors = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (errors.length) {
+    const reason = errors[0]!.reason instanceof Error ? errors[0]!.reason.message : "error";
+    toast.error(`${errors.length} ${messages.failed}: ${reason}`);
+  }
+  const ok = rows.length - errors.length;
+  if (ok) toast.success(messages.done(ok));
+}
+
+/** Rail card: optional title, then spaced rows (units, facts, fields). */
+export function RailCard({ title, children }: { title?: string; children: ReactNode }) {
+  return (
+    <Card className="space-y-3">
+      {title ? <p className="text-sm font-medium">{title}</p> : null}
+      {children}
+    </Card>
+  );
+}
+
+/** The bar above a lines table that holds the one bay choice for the write (Receive into, Ship from). */
+export function LinesBar({ children, hint }: { children: ReactNode; hint?: string }) {
+  return (
+    <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-3 shadow-xs">
+      <div className="min-w-48 flex-1">{children}</div>
+      {hint ? <p className="max-w-sm text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * List
+ * ---------------------------------------------------------------------------------------------- */
+
+function receiptUnits(receipt: Receipt) {
+  const lines = receipt.lines ?? [];
+  return {
+    expected: lines.reduce((sum, line) => sum + line.qty, 0),
+    received: lines.reduce((sum, line) => sum + (line.qtyReceived ?? 0), 0),
+  };
+}
+
+const RECEIPT_TABS: TabDef<Receipt>[] = [
+  { id: "open", label: "Open", match: (receipt) => isOpenReceipt(receipt.status) },
+  { id: "draft", label: "Draft", match: (receipt) => receipt.status === "draft" },
+  { id: "receiving", label: "Receiving", match: (receipt) => receipt.status === "receiving" },
+  { id: "received", label: "Received", match: (receipt) => receipt.status === "received" },
+  { id: "all", label: "All", match: () => true },
+];
+
+const RECEIPT_COLUMNS: DataColumn<Receipt>[] = [
+  {
+    id: "number",
+    header: "Receipt",
+    sortValue: (receipt) => receipt.number,
+    cell: (receipt) => <DocLink to={`/inbound/receipts/${receipt.id}`}>{receipt.number}</DocLink>,
+  },
+  {
+    id: "notes",
+    header: "Reference",
+    sortValue: (receipt) => receipt.notes,
+    cell: (receipt) => (receipt.notes ? <span className="line-clamp-1">{receipt.notes}</span> : <Muted>—</Muted>),
+  },
+  {
+    id: "lines",
+    header: "Lines",
+    csv: (receipt) => summarizeLines(receipt.lines),
+    cell: (receipt) => <LineChips lines={receipt.lines} />,
+  },
+  {
+    id: "received",
+    header: "Received",
+    sortValue: (receipt) => {
+      const units = receiptUnits(receipt);
+      return units.expected ? units.received / units.expected : 0;
+    },
+    csv: (receipt) => {
+      const units = receiptUnits(receipt);
+      return `${units.received}/${units.expected}`;
+    },
+    cell: (receipt) => {
+      const units = receiptUnits(receipt);
+      return <ProgressCell done={units.received} total={units.expected} />;
+    },
+  },
+  {
+    id: "created",
+    header: "Created",
+    sortValue: (receipt) => receipt.createdAt,
+    csv: (receipt) => new Date(receipt.createdAt).toISOString(),
+    cell: (receipt) => <RelativeTime at={receipt.createdAt} />,
+  },
+  {
+    id: "status",
+    header: "Status",
+    sortValue: (receipt) => RECEIPT_STEPS.indexOf(receipt.status as (typeof RECEIPT_STEPS)[number]),
+    csv: (receipt) => receipt.status,
+    cell: (receipt) => <StatusBadge status={receipt.status} />,
+  },
+];
+
+const RECEIPT_BULK: BulkAction<Receipt>[] = [
+  {
+    label: "Start receiving",
+    icon: Play,
+    when: (selected) => selected.every((receipt) => receipt.status === "draft"),
+    run: (selected) =>
+      runEach(selected, (receipt) => api(`/api/receipts/${receipt.id}/start`, { method: "POST" }), {
+        done: (count) => `Started receiving on ${countOf(count, "receipt")}.`,
+        failed: "could not start",
+      }),
+  },
+];
+
 function ReceiptList() {
+  const { warehouseId } = useWarehouse();
+  const receipts = useApiQuery<Receipt[]>("/api/receipts");
+  const [creating, setCreating] = useState(false);
+  const rows = useMemo(() => inWarehouse(receipts.data ?? [], warehouseId), [receipts.data, warehouseId]);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
+      <PageHeader
+        eyebrow="Inbound"
+        title="Receipts"
+        description="Create the inbound document here. Receive it on the dock, including partials."
+      />
+      <DataTable
+        id="receipts"
+        data={rows}
+        loading={receipts.isLoading}
+        error={receipts.error?.message}
+        columns={RECEIPT_COLUMNS}
+        getRowId={(receipt) => receipt.id}
+        rowHref={(receipt) => `/inbound/receipts/${receipt.id}`}
+        tabs={RECEIPT_TABS}
+        defaultTab="open"
+        defaultSort={{ id: "created", desc: true }}
+        search={{
+          placeholder: "Search receipt, reference, SKU",
+          text: (receipt) => [receipt.number, receipt.notes, ...(receipt.lines ?? []).map((line) => line.sku)].filter(Boolean).join(" "),
+        }}
+        bulkActions={RECEIPT_BULK}
+        exportName="receipts"
+        toolbar={
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus className="size-4" />
+            New receipt
+          </Button>
+        }
+        empty={
+          <EmptyState
+            icon={ArrowDownToLine}
+            title="No receipts yet."
+            body="A receipt lists the stock you expect at the dock. Receive it here or on the floor, partials included."
+            action={
+              <Button size="sm" onClick={() => setCreating(true)}>
+                New receipt
+              </Button>
+            }
+          />
+        }
+      />
+      <NewReceiptSheet open={creating} onOpenChange={setCreating} />
+    </div>
+  );
+}
+
+function NewReceiptSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
-  const [receipts, setReceipts] = useState<Receipt[]>([]);
-  const [items, setItems] = useState<Item[]>([]);
+  const items = useApiQuery<Item[]>(open ? "/api/items" : null);
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
-  const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  async function load() {
-    const [nextReceipts, nextItems] = await Promise.all([api<Receipt[]>("/api/receipts"), api<Item[]>("/api/items")]);
-    setReceipts(nextReceipts);
-    setItems(nextItems);
-  }
-
-  useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
-  }, []);
 
   async function create() {
     setError(null);
+    setBusy(true);
     try {
-      const created = await api<Receipt>("/api/receipts", {
-        method: "POST",
+      const created = await apiMutate<Receipt>("/api/receipts", {
         body: JSON.stringify({
           warehouseId,
           notes,
           lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
         }),
       });
+      toast.success(`Receipt ${created.number} created.`);
+      onOpenChange(false);
       navigate(`/inbound/receipts/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create receipt");
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <PageHeader
-        eyebrow="Inbound"
-        title="Receipts"
-        description="Create the inbound document here. Receive it on the dock, including partials."
-        actions={<Button size="xs" onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New receipt"}</Button>}
-      />
-      <ErrorBanner error={error} />
-      {creating ? (
-        <Card className="mb-3">
-          <form className="space-y-4" onSubmit={onSubmit(create)}>
-            <Field label="Notes">
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="PO or vendor reference" />
-            </Field>
-            <LineFields items={items} lines={lines} setLines={setLines} />
-            <Button type="submit">Create receipt</Button>
-          </form>
-        </Card>
-      ) : null}
-      <Table columns={["Number", "Status", "Lines", "Notes"]}>
-        {inWarehouse(receipts, warehouseId).map((receipt) => (
-          <tr key={receipt.id}>
-            <td className="px-2.5 py-1.5 font-mono">
-              <Link className="hover:underline" to={`/inbound/receipts/${receipt.id}`}>
-                {receipt.number}
-              </Link>
-            </td>
-            <td className="px-2.5 py-1.5">
-              <StatusBadge status={receipt.status} />
-            </td>
-            <td className="px-2.5 py-1.5 text-sm">{summarizeLines(receipt.lines)}</td>
-            <td className="px-2.5 py-1.5 text-muted-foreground">{receipt.notes || "—"}</td>
-          </tr>
-        ))}
-      </Table>
-    </div>
+    <FormSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New receipt"
+      description="List what is coming in. Receive it once it is on the dock."
+      submitLabel="Create receipt"
+      onSubmit={create}
+      busy={busy}
+      error={error}
+    >
+      <Field label="Reference">
+        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="PO or vendor reference" autoFocus />
+      </Field>
+      <div className="space-y-1.5">
+        <p className="text-sm font-medium">Lines</p>
+        <LineFields items={items.data ?? []} lines={lines} setLines={setLines} />
+      </div>
+    </FormSheet>
   );
 }
 
+/* ------------------------------------------------------------------------------------------------
+ * Record
+ * ---------------------------------------------------------------------------------------------- */
+
 function ReceiptDetail({ id }: { id: string }) {
-  const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -106,7 +293,7 @@ function ReceiptDetail({ id }: { id: string }) {
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
+  const { error, setError, run } = useWrite();
 
   async function load() {
     const [next, nextLocations] = await Promise.all([
@@ -125,139 +312,186 @@ function ReceiptDetail({ id }: { id: string }) {
   }, [id]);
 
   async function start() {
-    setError(null);
-    try {
-      setReceipt(await api<Receipt>(`/api/receipts/${id}/start`, { method: "POST" }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start receiving");
-    }
+    const next = await run("Start receiving", () => api<Receipt>(`/api/receipts/${id}/start`, { method: "POST" }), "Receiving started.");
+    if (next) setReceipt(next);
   }
 
   async function receive() {
     if (!receipt) return;
-    setError(null);
-    try {
-      const lines = (receipt.lines ?? [])
-        .map((line) => ({
-          itemId: line.itemId,
-          qty: Number(qtys[line.itemId] || 0),
-          lotCode: lots[line.itemId] || undefined,
-          serials: serials[line.itemId] || undefined,
-          weightGrams: parseWeightGrams(weights[line.itemId]),
-          expiresOn: parseExpiryInput(expiries[line.itemId]),
-        }))
-        .filter((line) => line.qty > 0);
-      const next = await api<Receipt>(`/api/receipts/${id}/receive`, {
-        method: "POST",
-        body: JSON.stringify({ locationId, lines }),
-      });
+    const lines = (receipt.lines ?? [])
+      .map((line) => ({
+        itemId: line.itemId,
+        qty: Number(qtys[line.itemId] || 0),
+        lotCode: lots[line.itemId] || undefined,
+        serials: serials[line.itemId] || undefined,
+        weightGrams: parseWeightGrams(weights[line.itemId]),
+        expiresOn: parseExpiryInput(expiries[line.itemId]),
+      }))
+      .filter((line) => line.qty > 0);
+    const total = lines.reduce((sum, line) => sum + line.qty, 0);
+    const bay = locations.find((row) => row.id === locationId)?.code;
+    const next = await run(
+      "Receive",
+      () =>
+        api<Receipt>(`/api/receipts/${id}/receive`, {
+          method: "POST",
+          body: JSON.stringify({ locationId, lines }),
+        }),
+      `Received ${unitCount(total)}${bay ? ` into ${bay}` : ""}.`,
+    );
+    if (next) {
       setReceipt(next);
       setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not receive");
     }
   }
 
-  if (!receipt) return <ErrorBanner error={error} />;
+  if (!receipt) return error ? <ErrorBanner error={error} /> : <DetailSkeleton />;
+
+  const lines = receipt.lines ?? [];
   const remaining = hasRemaining(
-    (receipt.lines ?? []).map((line) => ({
+    lines.map((line) => ({
       itemId: line.itemId,
       qtyExpected: line.qty,
       qtyReceived: line.qtyReceived,
     })),
   );
+  // Drafts take quantities too: Receive works in one click, Start receiving is optional (in the menu).
+  const capturing = canReceive(receipt.status) && remaining;
+  const thisReceive = Object.values(qtys).some((value) => Number(value) > 0);
+  const tracksAnything = lines.some((line) => line.trackLot || line.trackSerial || line.catchWeight || line.trackExpiry);
+  const units = receiptUnits(receipt);
+  const dock = locations.find((row) => row.id === (receipt.locationId || locationId));
+
+  const primary: DocumentAction | null = capturing
+    ? { label: "Receive", icon: ArrowDownToLine, onSelect: receive, disabled: !thisReceive }
+    : null;
+
+  const menu: DocumentAction[] = [
+    ...(receipt.status === "draft" ? [{ label: "Start receiving", icon: Play, onSelect: start }] : []),
+    ...(capturing ? [{ label: "Open on floor", icon: ScanLine, to: `/floor/receive?id=${receipt.id}` }] : []),
+  ];
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-(--density-gap)">
       <DocumentHeader
         eyebrow="Inbound"
+        list={{ label: "Receipts", to: "/inbound/receipts" }}
         title={receipt.number}
         description={receipt.notes || "Inbound receipt"}
         status={receipt.status}
         steps={RECEIPT_STEPS}
-        actions={
-          <>
-            <Button variant="ghost" onClick={() => navigate("/inbound/receipts")}>
-              All receipts
-            </Button>
-            {receipt.status === "draft" ? <Button onClick={() => void start()}>Start receiving</Button> : null}
-            {canReceive(receipt.status) && remaining ? <Button onClick={() => void receive()}>Receive</Button> : null}
-            {canReceive(receipt.status) && remaining ? (
-              <Button variant="secondary">
-                <Link to={`/floor/receive?id=${receipt.id}`}>Floor</Link>
-              </Button>
-            ) : null}
-          </>
-        }
+        refId={receipt.id}
+        stampRules={STEP_RULES.receipt}
+        primary={primary}
+        menu={menu}
       />
       <ErrorBanner error={error} />
       <DocumentFrame
         rail={
           <DocumentRail>
-            <Card>
-              <Field label="Receive into">
-                <BayCombobox
-                  locations={locations}
-                  warehouseId={receipt.warehouseId || warehouseId}
-                  value={locationId}
-                  onChange={setLocationId}
-                  onCreated={(location) => setLocations((current) => [...current, location])}
-                />
-              </Field>
-            </Card>
-            <DocumentActivity refId={receipt.id} refreshKey={`${receipt.status}:${(receipt.lines ?? []).map((line) => line.qtyReceived).join(",")}`} />
+            <RailCard>
+              <ProgressRow label="Received" done={units.received} total={units.expected} />
+              <DocumentFact label="Lines">{lines.length}</DocumentFact>
+              {!capturing && dock ? (
+                <DocumentFact label="Dock">
+                  <span className="font-mono">{dock.code}</span>
+                </DocumentFact>
+              ) : null}
+              <DocumentFact label="Created">
+                <RelativeTime at={receipt.createdAt} />
+              </DocumentFact>
+            </RailCard>
+            <DocumentActivity
+              refId={receipt.id}
+              refreshKey={`${receipt.status}:${lines.map((line) => line.qtyReceived).join(",")}`}
+            />
           </DocumentRail>
         }
       >
-        <Table columns={["SKU", "Item", "Expected", "Received", "This receive", "Lot / serial"]}>
-          {(receipt.lines ?? []).map((line) => (
+        {capturing ? (
+          <LinesBar hint="Defaults to the receiving dock. Type a bay code to find another, or add one.">
+            <Field label="Receive into">
+              <BayCombobox
+                locations={locations}
+                warehouseId={receipt.warehouseId || warehouseId}
+                value={locationId}
+                onChange={setLocationId}
+                onCreated={(location) => setLocations((current) => [...current, location])}
+              />
+            </Field>
+          </LinesBar>
+        ) : null}
+        <Table
+          columns={[
+            "Item",
+            "Expected",
+            "Received",
+            ...(capturing ? ["This receive"] : []),
+            ...(capturing && tracksAnything ? ["Lot / serial"] : []),
+          ]}
+        >
+          {lines.map((line) => (
             <tr key={line.id}>
-              <td className="px-2.5 py-1.5 font-mono">{line.sku}</td>
-              <td className="px-2.5 py-1.5">{line.itemName}</td>
-              <td className="px-2.5 py-1.5 font-mono">{line.qty}</td>
-              <td className="px-2.5 py-1.5 font-mono">{line.qtyReceived}</td>
-              <td className="px-2.5 py-1.5">
-                {line.remaining > 0 ? (
-                  <Input
-                    type="number"
-                    min={0}
-                    max={line.remaining}
-                    value={qtys[line.itemId] ?? "0"}
-                    onChange={(e) => setQtys((current) => ({ ...current, [line.itemId]: e.target.value }))}
-                  />
-                ) : (
-                  <span className="text-muted-foreground">Done</span>
-                )}
+              <td>
+                <SkuCell sku={line.sku} name={line.itemName} imageUrl={line.imageUrl} to={`/stock/items/${line.itemId}`} />
               </td>
-              <td className="px-2.5 py-1.5">
-                {line.trackLot ? (
-                  <Input
-                    placeholder="Lot"
-                    value={lots[line.itemId] ?? ""}
-                    onChange={(e) => setLots((current) => ({ ...current, [line.itemId]: e.target.value }))}
-                  />
-                ) : null}
-                {line.trackSerial ? (
-                  <Input
-                    className="mt-1"
-                    placeholder="Serials"
-                    value={serials[line.itemId] ?? ""}
-                    onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
-                  />
-                ) : null}
-                <CatchWeightInput
-                  className="mt-1"
-                  show={line.catchWeight}
-                  value={weights[line.itemId] ?? ""}
-                  onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
-                />
-                <ExpiryInput
-                  className="mt-1"
-                  show={line.trackExpiry}
-                  value={expiries[line.itemId] ?? ""}
-                  onChange={(value) => setExpiries((current) => ({ ...current, [line.itemId]: value }))}
-                />
+              <td className="font-mono tabular-nums">{line.qty}</td>
+              <td>
+                <ProgressCell done={line.qtyReceived} total={line.qty} />
               </td>
+              {capturing ? (
+                <td>
+                  {line.remaining > 0 ? (
+                    <Input
+                      type="number"
+                      min={0}
+                      max={line.remaining}
+                      className="w-20"
+                      aria-label={`Receive qty for ${line.sku}`}
+                      value={qtys[line.itemId] ?? "0"}
+                      onChange={(e) => setQtys((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                    />
+                  ) : (
+                    <Muted>Done</Muted>
+                  )}
+                </td>
+              ) : null}
+              {capturing && tracksAnything ? (
+                <td className="space-y-1">
+                  {line.remaining > 0 ? (
+                    <>
+                      {line.trackLot ? (
+                        <Input
+                          placeholder="Lot"
+                          aria-label={`Lot for ${line.sku}`}
+                          value={lots[line.itemId] ?? ""}
+                          onChange={(e) => setLots((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                        />
+                      ) : null}
+                      {line.trackSerial ? (
+                        <Input
+                          placeholder="Serials"
+                          aria-label={`Serials for ${line.sku}`}
+                          value={serials[line.itemId] ?? ""}
+                          onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                        />
+                      ) : null}
+                      <CatchWeightInput
+                        show={line.catchWeight}
+                        value={weights[line.itemId] ?? ""}
+                        onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
+                      />
+                      <ExpiryInput
+                        show={line.trackExpiry}
+                        value={expiries[line.itemId] ?? ""}
+                        onChange={(value) => setExpiries((current) => ({ ...current, [line.itemId]: value }))}
+                      />
+                    </>
+                  ) : (
+                    <Muted>—</Muted>
+                  )}
+                </td>
+              ) : null}
             </tr>
           ))}
         </Table>
@@ -265,6 +499,10 @@ function ReceiptDetail({ id }: { id: string }) {
     </div>
   );
 }
+
+/* ------------------------------------------------------------------------------------------------
+ * Line editor for create sheets (also used by Orders, ASNs, Purchases, Putaway, Returns, RTVs).
+ * ---------------------------------------------------------------------------------------------- */
 
 export function LineFields({
   items,
@@ -275,14 +513,18 @@ export function LineFields({
   lines: Line[];
   setLines: (updater: (current: Line[]) => Line[]) => void;
 }) {
+  const update = (index: number, patch: Partial<Line>) =>
+    setLines((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   return (
     <div className="space-y-2">
+      <div className="grid grid-cols-[minmax(0,1fr)_5rem_1.75rem] gap-2 text-xs text-muted-foreground">
+        <span>SKU</span>
+        <span>Qty</span>
+        <span />
+      </div>
       {lines.map((line, index) => (
-        <div key={index} className="grid gap-2 md:grid-cols-[1fr_120px]">
-          <Select
-            value={line.itemId}
-            onChange={(e) => setLines((current) => current.map((row, i) => (i === index ? { ...row, itemId: e.target.value } : row)))}
-          >
+        <div key={index} className="grid grid-cols-[minmax(0,1fr)_5rem_1.75rem] items-center gap-2">
+          <Select aria-label={`Line ${index + 1} SKU`} value={line.itemId} onChange={(e) => update(index, { itemId: e.target.value })}>
             <option value="">Select SKU</option>
             {items.map((item) => (
               <option key={item.id} value={item.id}>
@@ -293,12 +535,24 @@ export function LineFields({
           <Input
             type="number"
             min={1}
+            aria-label={`Line ${index + 1} qty`}
             value={line.qty}
-            onChange={(e) => setLines((current) => current.map((row, i) => (i === index ? { ...row, qty: e.target.value } : row)))}
+            onChange={(e) => update(index, { qty: e.target.value })}
           />
+          <IconButton
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Remove line ${index + 1}`}
+            disabled={lines.length === 1}
+            onClick={() => setLines((current) => current.filter((_, i) => i !== index))}
+          >
+            <X />
+          </IconButton>
         </div>
       ))}
-      <Button variant="ghost" onClick={() => setLines((current) => [...current, { itemId: "", qty: "1" }])}>
+      <Button size="sm" variant="outline" onClick={() => setLines((current) => [...current, { itemId: "", qty: "1" }])}>
+        <Plus className="size-4" />
         Add line
       </Button>
     </div>

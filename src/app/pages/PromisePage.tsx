@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Clock, PackageCheck, Truck, TriangleAlert, type LucideIcon } from "lucide-react";
 import { api } from "../api";
-import { Button, ErrorBanner, Input, PageHeader, Table } from "../components/ui";
+import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, ToneBadge, toneClass } from "../components/ui";
+import { DataTable, type DataColumn, type TabDef } from "../components/data-table/DataTable";
+import { DocLink } from "../components/cells";
+import { useApiQuery } from "../query";
 import { useWarehouse } from "../warehouse";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { statusText, type StatusTone } from "@/domain/status";
 import {
   formatPickupLabel,
   nextPickup,
@@ -21,19 +23,83 @@ const CODE_LABEL: Record<PromiseCode, string> = {
   short: "Can't promise",
 };
 
-const FILTERS: { id: "all" | PromiseCode; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "leaves_today", label: "This pickup" },
-  { id: "next_pickup", label: "Later" },
-  { id: "inbound", label: "Inbound" },
-  { id: "short", label: "Can't promise" },
+const PROMISE_TABS: TabDef<PromiseOrder>[] = [
+  { id: "all", label: "All", match: () => true },
+  { id: "leaves_today", label: "This pickup", match: (order) => order.code === "leaves_today" },
+  { id: "next_pickup", label: "Later", match: (order) => order.code === "next_pickup" },
+  { id: "inbound", label: "Inbound", match: (order) => order.code === "inbound" },
+  { id: "short", label: "Can't promise", match: (order) => order.code === "short" },
 ];
 
-function codeVariant(code: PromiseCode): "default" | "secondary" | "destructive" | "outline" {
-  if (code === "short") return "destructive";
-  if (code === "leaves_today") return "default";
-  if (code === "inbound") return "outline";
-  return "secondary";
+const CODE_TONE: Record<PromiseCode, StatusTone> = {
+  leaves_today: "success",
+  next_pickup: "info",
+  inbound: "progress",
+  short: "danger",
+};
+
+const CODE_RANK: Record<PromiseCode, number> = { leaves_today: 0, next_pickup: 1, inbound: 2, short: 3 };
+
+function PromiseBadge({ code }: { code: PromiseCode }) {
+  return <ToneBadge tone={CODE_TONE[code]}>{CODE_LABEL[code]}</ToneBadge>;
+}
+
+function promiseColumns(timeZone: string): DataColumn<PromiseOrder>[] {
+  return [
+    {
+      id: "number",
+      header: "Order",
+      sortValue: (order) => order.number,
+      cell: (order) => (
+        <span className="flex flex-col">
+          <DocLink to={`/outbound/orders/${order.orderId}`}>{order.number}</DocLink>
+          <span className="text-[11px] text-muted-foreground">{statusText(order.status)}</span>
+        </span>
+      ),
+    },
+    { id: "customer", header: "Customer", sortValue: (order) => order.customerName, cell: (order) => order.customerName },
+    {
+      id: "units",
+      header: "Units",
+      align: "right",
+      sortValue: (order) => order.units,
+      cell: (order) => (
+        <span className="flex flex-col items-end">
+          <span className="font-mono">{order.units}</span>
+          {order.unitsAhead > 0 ? <span className="text-[11px] text-muted-foreground">behind {order.unitsAhead}</span> : null}
+        </span>
+      ),
+    },
+    {
+      id: "leaves",
+      header: "Leaves",
+      sortValue: (order) => order.promisedAt ?? Number.MAX_SAFE_INTEGER,
+      csv: (order) => (order.promisedAt != null ? formatPickupLabel(order.promisedAt, timeZone) : CODE_LABEL[order.code]),
+      cell: (order) => (
+        <span className="flex flex-col items-start gap-1">
+          <PromiseBadge code={order.code} />
+          <span className="text-[11px] text-muted-foreground">
+            {order.promisedAt != null ? formatPickupLabel(order.promisedAt, timeZone) : "—"}
+          </span>
+          {order.split ? <span className="text-[11px] text-muted-foreground">Some lines could leave sooner.</span> : null}
+        </span>
+      ),
+    },
+    {
+      id: "code",
+      header: "Lane",
+      defaultHidden: true,
+      sortValue: (order) => CODE_RANK[order.code],
+      csv: (order) => CODE_LABEL[order.code],
+      cell: (order) => <PromiseBadge code={order.code} />,
+    },
+    {
+      id: "why",
+      header: "Why",
+      csv: (order) => order.reason,
+      cell: (order) => <span className="block max-w-md whitespace-normal text-muted-foreground">{order.reason}</span>,
+    },
+  ];
 }
 
 function formatRemain(ms: number): string {
@@ -57,8 +123,11 @@ function formatZoneClock(now: number, timeZone: string): string {
 
 export function PromisePage() {
   const { warehouseId } = useWarehouse();
-  const [board, setBoard] = useState<PromiseBoard | null>(null);
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("all");
+  const boardQuery = useApiQuery<PromiseBoard>(
+    warehouseId ? `/api/analytics/promises?warehouseId=${encodeURIComponent(warehouseId)}` : null,
+    { refetchInterval: 60_000 },
+  );
+  const board = boardQuery.data ?? null;
   const [sku, setSku] = useState("");
   const [qty, setQty] = useState("1");
   const [ask, setAsk] = useState<PromiseAsk | null>(null);
@@ -72,21 +141,12 @@ export function PromisePage() {
   }, []);
 
   useEffect(() => {
-    if (!warehouseId) return;
     setError(null);
     setAsk(null);
-    api<PromiseBoard>(`/api/analytics/promises?warehouseId=${encodeURIComponent(warehouseId)}`)
-      .then(setBoard)
-      .catch((err: Error) => setError(err.message));
   }, [warehouseId]);
 
-  const rows = useMemo(() => {
-    const orders = board?.orders ?? [];
-    if (filter === "all") return orders;
-    return orders.filter((order) => order.code === filter);
-  }, [board, filter]);
-
   const pickupAt = board ? nextPickup(now, board.timeZone, board.cutoffMinutes) : null;
+  const columns = promiseColumns(board?.timeZone ?? "UTC");
 
   async function askSku() {
     if (!warehouseId) return;
@@ -108,22 +168,22 @@ export function PromisePage() {
     }
   }
 
-  const tiles = [
-    { label: "This pickup", value: board ? board.kpis.leavesToday : "—" },
-    { label: "Later pickup", value: board ? board.kpis.nextPickup : "—" },
-    { label: "Waiting on inbound", value: board ? board.kpis.inbound : "—" },
-    { label: "Can't promise", value: board ? board.kpis.short : "—" },
+  const tiles: { label: string; value: number | undefined; icon: LucideIcon; tone: StatusTone }[] = [
+    { label: "This pickup", value: board?.kpis.leavesToday, icon: PackageCheck, tone: "success" },
+    { label: "Later pickup", value: board?.kpis.nextPickup, icon: Clock, tone: "info" },
+    { label: "Waiting on inbound", value: board?.kpis.inbound, icon: Truck, tone: "progress" },
+    { label: "Can't promise", value: board?.kpis.short, icon: TriangleAlert, tone: "danger" },
   ];
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
         eyebrow="Analytics"
         title="Promise"
         description="When an open order leaves on the carrier pickup. The same answer a checkout or a buying agent can read."
         actions={
           board && pickupAt != null ? (
-            <div className="text-right">
+            <div className="rounded-lg border bg-card px-3 py-2 text-right shadow-xs">
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{board.timeZone.replaceAll("_", " ")}</p>
               <p className="font-mono text-lg tabular-nums leading-none">{formatZoneClock(now, board.timeZone)}</p>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -133,7 +193,7 @@ export function PromisePage() {
           ) : null
         }
       />
-      <ErrorBanner error={error} />
+      <ErrorBanner error={error ?? boardQuery.error?.message ?? null} />
       {board ? (
         <p className="max-w-3xl text-sm text-muted-foreground">
           {board.notice}{" "}
@@ -143,68 +203,64 @@ export function PromisePage() {
           Inbound counts {board.inboundSlackHours} hours after it lands. Pickup is {board.cutoffLabel} local.
         </p>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {tiles.map((tile) => (
-          <Card key={tile.label} className="from-primary/5 to-card bg-gradient-to-t shadow-xs">
-            <CardHeader>
-              <CardDescription>{tile.label}</CardDescription>
-              <CardTitle className="text-3xl tabular-nums">{tile.value}</CardTitle>
-            </CardHeader>
-          </Card>
+          <div key={tile.label} className="rounded-lg border bg-card p-4 shadow-xs">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm font-medium text-muted-foreground">{tile.label}</p>
+              <span className={`flex size-7 items-center justify-center rounded-md ${toneClass(tile.tone)}`}>
+                <tile.icon className="size-4" />
+              </span>
+            </div>
+            <p className="mt-1 text-3xl font-semibold tracking-tight">{tile.value ?? "—"}</p>
+          </div>
         ))}
       </div>
-      <Card>
+      <Card className="space-y-4">
+        <div>
+          <p className="text-sm font-medium">Ask about a SKU</p>
+          <p className="text-sm text-muted-foreground">A new order sits behind the open pick queue. Nothing is reserved.</p>
+        </div>
         <form
-          className="flex flex-wrap items-end gap-2"
+          className="flex flex-wrap items-end gap-3"
           onSubmit={(event) => {
             event.preventDefault();
             void askSku();
           }}
         >
-          <label className="grid gap-1 text-xs text-muted-foreground">
-            SKU
-            <Input value={sku} onChange={(event) => setSku(event.target.value)} placeholder="LAMP" className="w-40 font-mono" />
-          </label>
-          <label className="grid gap-1 text-xs text-muted-foreground">
-            Qty
-            <Input
-              value={qty}
-              onChange={(event) => setQty(event.target.value)}
-              inputMode="numeric"
-              className="w-24"
-            />
-          </label>
+          <div className="w-40">
+            <Field label="SKU">
+              <Input value={sku} onChange={(event) => setSku(event.target.value)} placeholder="LAMP" className="font-mono" />
+            </Field>
+          </div>
+          <div className="w-24">
+            <Field label="Qty">
+              <Input value={qty} onChange={(event) => setQty(event.target.value)} inputMode="numeric" />
+            </Field>
+          </div>
           <Button type="submit" disabled={asking || !sku.trim()}>
             {asking ? "Asking…" : "Ask"}
           </Button>
-          <p className="pb-2 text-xs text-muted-foreground">A new order sits behind the open pick queue. Nothing is reserved.</p>
         </form>
         {ask ? <AskResult ask={ask} /> : null}
       </Card>
-      <div className="flex flex-wrap gap-1.5">
-        {FILTERS.map((entry) => (
-          <Button
-            key={entry.id}
-            type="button"
-            size="xs"
-            variant={filter === entry.id ? "primary" : "secondary"}
-            onClick={() => setFilter(entry.id)}
-          >
-            {entry.label}
-          </Button>
-        ))}
-      </div>
-      <Table columns={["Order", "Customer", "Units", "Leaves", "Why"]}>
-        {rows.length ? (
-          rows.map((order) => <OrderRow key={order.orderId} order={order} timeZone={board?.timeZone ?? "UTC"} />)
-        ) : (
-          <tr>
-            <td colSpan={5} className="py-6 text-center text-muted-foreground">
-              {board ? "Nothing in this lane." : "Loading the floor…"}
-            </td>
-          </tr>
-        )}
-      </Table>
+      <DataTable
+        id="promise"
+        data={board?.orders}
+        loading={boardQuery.isLoading}
+        columns={columns}
+        getRowId={(order) => order.orderId}
+        rowHref={(order) => `/outbound/orders/${order.orderId}`}
+        tabs={PROMISE_TABS}
+        defaultTab="all"
+        defaultSort={{ id: "leaves", desc: false }}
+        search={{
+          placeholder: "Search order, customer, SKU",
+          text: (order) => [order.number, order.customerName, order.slowSku, order.waitingOn].filter(Boolean).join(" "),
+        }}
+        exportName="promise"
+        empty={<EmptyState icon={Clock} title="No open orders to promise." body="Orders show up here once they are open for picking." />}
+      />
     </div>
   );
 }
@@ -218,7 +274,7 @@ function AskResult({ ask }: { ask: PromiseAsk }) {
         <p className="font-mono text-sm">
           {ask.sku} <span className="text-muted-foreground">× {ask.qty}</span>
         </p>
-        <Badge variant={codeVariant(ask.code)}>{CODE_LABEL[ask.code]}</Badge>
+        <PromiseBadge code={ask.code} />
       </div>
       <p className="mt-1 text-2xl font-semibold tracking-tight">{when}</p>
       <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{ask.reason}</p>
@@ -226,30 +282,5 @@ function AskResult({ ask }: { ask: PromiseAsk }) {
         <p className="mt-1 text-xs text-muted-foreground">{ask.unitsAhead} units are already in front of this qty.</p>
       ) : null}
     </div>
-  );
-}
-
-function OrderRow({ order, timeZone }: { order: PromiseOrder; timeZone: string }) {
-  const when = order.promisedAt != null ? formatPickupLabel(order.promisedAt, timeZone) : "—";
-  return (
-    <tr>
-      <td>
-        <Link className="font-mono font-medium hover:underline" to={`/outbound/orders/${order.orderId}`}>
-          {order.number}
-        </Link>
-        <p className="text-[11px] text-muted-foreground">{order.status}</p>
-      </td>
-      <td>{order.customerName}</td>
-      <td className="tabular-nums">
-        {order.units}
-        {order.unitsAhead > 0 ? <p className="text-[11px] text-muted-foreground">behind {order.unitsAhead}</p> : null}
-      </td>
-      <td>
-        <Badge variant={codeVariant(order.code)}>{CODE_LABEL[order.code]}</Badge>
-        <p className="mt-1 text-[11px] text-muted-foreground">{when}</p>
-        {order.split ? <p className="text-[11px] text-muted-foreground">Some lines could leave sooner.</p> : null}
-      </td>
-      <td className="max-w-md text-muted-foreground">{order.reason}</td>
-    </tr>
   );
 }

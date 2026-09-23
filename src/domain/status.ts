@@ -205,10 +205,100 @@ export function isOpenYard(status: string): boolean {
   return status === "expected" || status === "checked_in" || status === "at_dock";
 }
 
+/** Sentence case for display: "In progress", "Checked in", "Order now". */
+export function statusText(status: string): string {
+  const label = statusLabel(status);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 export function statusLabel(status: string): string {
   if (status === "in_progress") return "In progress";
   if (status === "checked_in") return "Checked in";
   if (status === "at_dock") return "At dock";
   if (status === "checked_out") return "Checked out";
   return status.replaceAll("_", " ");
+}
+
+export const STATUS_TONES = ["neutral", "info", "progress", "success", "warning", "danger"] as const;
+export type StatusTone = (typeof STATUS_TONES)[number];
+
+const TONE_BY_STATUS: Record<string, StatusTone> = {
+  draft: "neutral",
+  none: "neutral",
+  closed: "neutral",
+  idle: "neutral",
+  skipped: "neutral",
+  dekitted: "neutral",
+  voided: "neutral",
+  inbound: "neutral",
+  checked_out: "neutral",
+  clear: "neutral",
+  open: "info",
+  expected: "info",
+  ordered: "info",
+  suggested: "info",
+  sent: "info",
+  released: "info",
+  connected: "info",
+  default: "info",
+  demo: "info",
+  available: "info",
+  active: "info",
+  at_gate: "info",
+  pre_transit: "info",
+  picking: "progress",
+  picked: "progress",
+  packing: "progress",
+  packed: "progress",
+  receiving: "progress",
+  counting: "progress",
+  in_progress: "progress",
+  returning: "progress",
+  checked_in: "progress",
+  at_dock: "progress",
+  dock: "progress",
+  claimed: "progress",
+  working: "progress",
+  purchased: "progress",
+  in_transit: "progress",
+  in_flight: "progress",
+  shipped: "success",
+  received: "success",
+  completed: "success",
+  posted: "success",
+  returned: "success",
+  delivered: "success",
+  arrived: "success",
+  arrived_estimate: "success",
+  synced: "success",
+  ok: "success",
+  done: "success",
+  fulfilled: "success",
+  paid: "success",
+  healthy: "success",
+  covered: "success",
+  on_hand: "success",
+  variance: "warning",
+  exception: "warning",
+  expiring: "warning",
+  order_now: "warning",
+  order_soon: "warning",
+  watch: "info",
+  thin: "info",
+  runway: "warning",
+  cancelled: "danger",
+  failed: "danger",
+  failure: "danger",
+  error: "danger",
+  expired: "danger",
+  out: "danger",
+  out_of_service: "danger",
+  return_to_sender: "danger",
+};
+
+/** Colour family for a document, label, tracker, or sync status. Unknown values stay neutral. */
+export function statusTone(status: string | null | undefined): StatusTone {
+  if (!status) return "neutral";
+  const key = status.trim().toLowerCase().replaceAll(" ", "_");
+  return TONE_BY_STATUS[key] ?? "neutral";
 }

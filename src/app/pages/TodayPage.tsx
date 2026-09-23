@@ -1,17 +1,48 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import NumberFlow from "@number-flow/react";
+import {
+  AlertTriangle,
+  ArrowDownToLine,
+  ArrowRight,
+  Boxes,
+  ChevronDown,
+  Clock,
+  Factory,
+  Hourglass,
+  LayoutGrid,
+  Loader2,
+  Pin,
+  PinOff,
+  RefreshCw,
+  Repeat,
+  Send,
+  ShieldAlert,
+  Truck,
+  UserRound,
+  type LucideIcon,
+} from "lucide-react";
+import { toast } from "sonner";
 import { api, type Dashboard, type FloorJob, type Purchase, type TeamMember } from "../api";
-import { EmptyState, ErrorBanner, PageHeader, Select, StatStrip, StatusBadge } from "../components/ui";
+import { EmptyState, ErrorBanner, PageHeader, StatusBadge, ToneBadge } from "../components/ui";
+import { PersonAvatar } from "../components/cells";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
+import { useDashboard } from "../dashboard";
+import { refreshApi, useApiQuery } from "../query";
 import { statusLabel } from "@/domain/status";
 import { formatCountVariance } from "@/domain/blind-count";
 import { formatExpiresOn } from "@/domain/expiry";
 import { desiredVerb } from "@/domain/jobs";
+import { DEFAULT_JOB_REASON } from "@/domain/job-rank";
+import { ageInDays, relativeTime } from "@/domain/relative-time";
 import { jobForRef, jobForSuggestion } from "../jobs";
 import { cn } from "@/lib/utils";
 import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 import { formatPickupLabel, type PromiseBoard } from "@/domain/promise";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const LANES = ["inbound", "outbound", "make", "stock", "exceptions"] as const;
 type LaneId = (typeof LANES)[number];
@@ -22,6 +53,14 @@ const LANE_LABEL: Record<LaneId, string> = {
   make: "Make",
   stock: "Stock",
   exceptions: "Exceptions",
+};
+
+const LANE_ICON: Record<LaneId, LucideIcon> = {
+  inbound: ArrowDownToLine,
+  outbound: Send,
+  make: Factory,
+  stock: Boxes,
+  exceptions: AlertTriangle,
 };
 
 const LANE_NEXT: Record<LaneId, string> = {
@@ -50,77 +89,71 @@ type WorkRow = {
   status: string;
   actionTo: string;
   action: string;
+  createdAt?: number;
   job?: FloorJob;
   relabel?: { orderId: string; packageId?: string };
 };
+
+const DAY_FORMAT = new Intl.DateTimeFormat("en-US", { weekday: "short" });
 
 export function TodayPage() {
   const { warehouseId } = useWarehouse();
   const me = useSession();
   const garage = isGarageMode(me.organization.operatingMode);
   const navigate = useNavigate();
-  const [data, setData] = useState<Dashboard | null>(null);
-  const [promise, setPromise] = useState<PromiseBoard | null>(null);
-  const [jobs, setJobs] = useState<FloorJob[]>([]);
-  const [team, setTeam] = useState<TeamMember[]>([]);
+  const query = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : "";
+  const dashboard = useDashboard();
+  const jobsQuery = useApiQuery<FloorJob[]>(`/api/jobs${query}${query ? "&" : "?"}open=1`, { refetchInterval: 60_000 });
+  const teamQuery = useApiQuery<TeamMember[]>("/api/team");
+  const promiseQuery = useApiQuery<PromiseBoard>(
+    warehouseId ? `/api/analytics/promises?warehouseId=${encodeURIComponent(warehouseId)}` : null,
+    { refetchInterval: 60_000 },
+  );
+  const promise = promiseQuery.data ?? null;
+  const data = dashboard.data ?? null;
+  const jobs = jobsQuery.data ?? EMPTY_JOBS;
+  const team = teamQuery.data ?? EMPTY_TEAM;
   const [error, setError] = useState<string | null>(null);
   const [drafting, setDrafting] = useState(false);
   const [lane, setLane] = useState<LaneId>("inbound");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  async function load() {
-    const query = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : "";
-    const [nextDashboard, nextJobs, nextTeam, nextPromise] = await Promise.all([
-      api<Dashboard>(`/api/dashboard${query}`),
-      api<FloorJob[]>(`/api/jobs${query}${query ? "&" : "?"}open=1`),
-      api<TeamMember[]>("/api/team"),
-      warehouseId
-        ? api<PromiseBoard>(`/api/analytics/promises?warehouseId=${encodeURIComponent(warehouseId)}`)
-        : Promise.resolve(null),
-    ]);
-    setData(nextDashboard);
-    setPromise(nextPromise);
-    setJobs(nextJobs);
-    setTeam(nextTeam);
-  }
-
-  useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
-  }, [warehouseId]);
-
-  async function assign(jobId: string, userId: string | null) {
+  async function write(label: string, run: () => Promise<unknown>, success?: string) {
     setError(null);
     try {
-      await api(`/api/jobs/${jobId}/assign`, { method: "POST", body: JSON.stringify({ userId }) });
-      await load();
+      await run();
+      await refreshApi();
+      if (success) toast.success(success);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not assign");
+      setError(err instanceof Error ? err.message : `Could not ${label}`);
     }
   }
 
-  async function pin(jobId: string, pinned: boolean) {
-    setError(null);
-    try {
-      await api(`/api/jobs/${jobId}/pin`, { method: "POST", body: JSON.stringify({ pinned }) });
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not pin");
-    }
-  }
+  const assign = (jobId: string, userId: string | null, name?: string) =>
+    write(
+      "assign",
+      () => api(`/api/jobs/${jobId}/assign`, { method: "POST", body: JSON.stringify({ userId }) }),
+      userId ? `Assigned to ${name ?? "teammate"}.` : "Left unassigned. The next scan claims it.",
+    );
 
-  async function relabelTracker(row: WorkRow) {
-    if (!row.relabel) return;
-    setError(null);
-    try {
-      const path = row.relabel.packageId
-        ? `/api/orders/${row.relabel.orderId}/packages/${row.relabel.packageId}/relabel`
-        : `/api/orders/${row.relabel.orderId}/relabel`;
-      await api(path, { method: "POST" });
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not relabel");
-    }
-  }
+  const pin = (jobId: string, pinned: boolean) =>
+    write(
+      "pin",
+      () => api(`/api/jobs/${jobId}/pin`, { method: "POST", body: JSON.stringify({ pinned }) }),
+      pinned ? "Pinned to the top of the floor queue." : "Unpinned.",
+    );
+
+  const relabelTracker = (row: WorkRow) =>
+    write(
+      "relabel",
+      () => {
+        if (!row.relabel) return Promise.resolve();
+        const path = row.relabel.packageId
+          ? `/api/orders/${row.relabel.orderId}/packages/${row.relabel.packageId}/relabel`
+          : `/api/orders/${row.relabel.orderId}/relabel`;
+        return api(path, { method: "POST" });
+      },
+      "Replacement label bought.",
+    );
 
   async function draftReorderPo() {
     if (!warehouseId) {
@@ -134,6 +167,8 @@ export function TodayPage() {
         method: "POST",
         body: JSON.stringify({ warehouseId }),
       });
+      toast.success(`Drafted ${created.number}.`);
+      void refreshApi();
       navigate(`/inbound/purchases/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not draft PO");
@@ -151,7 +186,7 @@ export function TodayPage() {
     () =>
       rows
         .filter((row) => row.lane === lane)
-        .sort((a, b) => (b.job?.score ?? -1) - (a.job?.score ?? -1)),
+        .sort((a, b) => (b.job?.score ?? -1) - (a.job?.score ?? -1) || (a.createdAt ?? 0) - (b.createdAt ?? 0)),
     [rows, lane],
   );
   const laneCounts = useMemo(() => {
@@ -159,312 +194,745 @@ export function TodayPage() {
     for (const row of rows) counts[row.lane] += 1;
     return counts;
   }, [rows]);
-
-  const selected = laneRows.find((row) => row.id === selectedId) ?? laneRows[0] ?? null;
   const laneNext = garage ? GARAGE_LANE_NEXT : LANE_NEXT;
+  const trend = data?.trend ?? [];
+  const loading = dashboard.isLoading;
 
-  useEffect(() => {
-    if (!laneRows.length) {
-      setSelectedId(null);
-      return;
-    }
-    if (!laneRows.some((row) => row.id === selectedId)) {
-      setSelectedId(laneRows[0].id);
-    }
-  }, [lane, laneRows, selectedId]);
+  const allow = (to: string) => !garage || garageAllowsPath(to);
+  const exceptions = laneCounts.exceptions + (data?.countVariances ?? 0) + (data?.openHolds ?? 0);
 
-  const stats = [
-    { label: "To receive", value: data ? data.openReceipts + data.openPurchases + (garage ? 0 : (data.openAsns ?? 0)) : "—", to: "/inbound/purchases" },
-    { label: "Yard", value: data?.openYard ?? "—", to: "/inbound/yard" },
-    { label: "Vendor RTV", value: data?.openVendorReturns ?? "—", to: "/inbound/vendor-returns" },
-    { label: "To put away", value: data ? data.openTransfers + (data.putawayDue ?? 0) : "—", to: "/floor/putaway" },
-    { label: "To fulfill", value: data?.openOrders ?? "—", to: "/outbound/orders" },
-    { label: "Waves", value: data?.openWaves ?? "—", to: "/outbound/waves" },
-    { label: "To replenish", value: data ? (data.replenishDue ?? 0) + (data.openReplenishments ?? 0) : "—", to: "/stock/replenish" },
-    { label: "Count variance", value: data?.countVariances ?? "—", to: "/stock/counts", tone: "warn" as const },
-    { label: "On hold", value: data?.openHolds ?? "—", to: "/stock/holds", tone: "bad" as const },
-    { label: "Allocated", value: data?.allocatedUnits ?? "—", to: "/outbound/orders" },
-    { label: "Expiring", value: data?.expiringLots ?? "—", to: "/stock", tone: "warn" as const },
-    { label: "Checked out", value: data?.openCheckouts ?? "—", to: "/equipment" },
-    { label: "Out of service", value: data?.outOfService ?? "—", to: "/equipment", tone: "bad" as const },
-    { label: "Certs due", value: data?.expiringCerts ?? "—", to: "/setup/team", tone: "warn" as const },
-    { label: "Runs out", value: data?.runwayThisWeek?.length ?? "—", to: "/analytics/runway", tone: "warn" as const },
-    { label: "This pickup", value: promise ? promise.kpis.leavesToday : "—", to: "/analytics/promise", tone: "ok" as const },
-  ].filter((item) => !garage || garageAllowsPath(item.to));
+  const headline: HeadlineProps[] = [
+    {
+      label: "To receive",
+      value: data ? data.openReceipts + data.openPurchases + (garage ? 0 : (data.openAsns ?? 0)) : null,
+      to: "/inbound/purchases",
+      icon: ArrowDownToLine,
+      trend: trend.map((day) => day.received),
+      trendUnit: "units received",
+      days: trend.map((day) => day.start),
+    },
+    {
+      label: "To put away",
+      value: data ? data.openTransfers + (data.putawayDue ?? 0) : null,
+      to: "/floor/putaway",
+      icon: Repeat,
+      note: data?.putawayDue ? `${data.putawayDue} waiting on the dock` : "Dock is clear",
+    },
+    {
+      label: "To fulfill",
+      value: data?.openOrders ?? null,
+      to: "/outbound/orders",
+      icon: Truck,
+      trend: trend.map((day) => day.shipped),
+      trendUnit: "units shipped",
+      days: trend.map((day) => day.start),
+    },
+    ...(data && (data.openWorkOrders || data.openKits || trend.some((day) => day.built))
+      ? [
+          {
+            label: "To make",
+            value: data.openWorkOrders + (data.openKits ?? 0),
+            to: "/make/work-orders",
+            icon: Factory,
+            trend: trend.map((day) => day.built),
+            trendUnit: "units built",
+            days: trend.map((day) => day.start),
+          },
+        ]
+      : []),
+    {
+      label: "Needs attention",
+      value: data ? exceptions : null,
+      to: "/today",
+      onClick: () => setLane("exceptions"),
+      icon: ShieldAlert,
+      tone: exceptions > 0 ? ("warning" as const) : ("default" as const),
+      note:
+        data && exceptions
+          ? [
+              laneCounts.exceptions ? `${laneCounts.exceptions} exceptions` : null,
+              data.countVariances ? `${data.countVariances} variances` : null,
+              data.openHolds ? `${data.openHolds} on hold` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : "Nothing flagged",
+    },
+  ].filter((item) => allow(item.to));
+
+  const moreStats = [
+    { label: "Yard", value: data?.openYard, to: "/inbound/yard" },
+    { label: "Vendor RTV", value: data?.openVendorReturns, to: "/inbound/vendor-returns" },
+    { label: "Waves", value: data?.openWaves, to: "/outbound/waves" },
+    { label: "To replenish", value: data ? (data.replenishDue ?? 0) + (data.openReplenishments ?? 0) : undefined, to: "/stock/replenish" },
+    { label: "Count variance", value: data?.countVariances, to: "/stock/counts" },
+    { label: "On hold", value: data?.openHolds, to: "/stock/holds" },
+    { label: "Allocated units", value: data?.allocatedUnits, to: "/outbound/orders" },
+    { label: "Expiring lots", value: data?.expiringLots, to: "/stock" },
+    { label: "Checked out", value: data?.openCheckouts, to: "/equipment" },
+    { label: "Out of service", value: data?.outOfService, to: "/equipment" },
+    { label: "Certs due", value: data?.expiringCerts, to: "/setup/team" },
+    { label: "Runs out this week", value: data?.runwayThisWeek?.length, to: "/analytics/runway" },
+    { label: "This pickup", value: promise?.kpis.leavesToday, to: "/analytics/promise" },
+    { label: "On hand units", value: data?.onHandUnits, to: "/stock" },
+    { label: "SKUs", value: data?.skuCount, to: "/stock/items" },
+  ].filter((item) => allow(item.to));
 
   return (
-    <div className="-mx-3 -my-2 flex h-[calc(100dvh-var(--header-height))] min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b px-3 py-1.5">
+    <div className="flex flex-col gap-(--density-gap)">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <PageHeader
-          eyebrow={garage ? "Garage Mode" : "Office"}
-          title="Today"
+          eyebrow={garage ? "Garage Mode" : new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" }).format(new Date())}
+          title={greeting(me.user.name)}
           description={
             garage
               ? "Founder bench for today: receive, make, pick, and ship."
-              : "Dispatch board: assign floor jobs, or leave them unassigned so the next scan claims them."
+              : "Assign floor jobs, or leave them unassigned so the next scan claims them."
           }
         />
-        <ErrorBanner error={error} />
-      </div>
-      <StatStrip items={stats} />
-      <div className="flex min-h-0 flex-1">
-        <nav className="flex w-36 shrink-0 flex-col border-r bg-card text-xs">
-          {LANES.map((id) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setLane(id)}
-              className={cn(
-                "flex items-center justify-between px-3 py-1.5 text-left hover:bg-muted/70",
-                lane === id && "bg-muted font-medium",
-              )}
-            >
-              <span>{LANE_LABEL[id]}</span>
-              <span className="tabular-nums text-muted-foreground">{laneCounts[id]}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="min-h-0 min-w-0 flex-1 overflow-auto">
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 z-10 bg-background">
-              <tr className="border-b text-left text-[11px] text-muted-foreground">
-                <th className="px-2.5 py-1.5 font-medium">Queue</th>
-                <th className="px-2.5 py-1.5 font-medium">Document</th>
-                <th className="px-2.5 py-1.5 font-medium">Status</th>
-                <th className="px-2.5 py-1.5 font-medium">Bay / reason</th>
-                {garage ? null : <th className="px-2.5 py-1.5 font-medium">Assignee</th>}
-                <th className="px-2.5 py-1.5 font-medium">Act</th>
-              </tr>
-            </thead>
-            <tbody>
-              {laneRows.length ? (
-                laneRows.map((row) => {
-                  const active = selected?.id === row.id;
-                  return (
-                    <tr
-                      key={row.id}
-                      className={cn("cursor-pointer border-b hover:bg-muted/50", active && "bg-muted")}
-                      onClick={() => setSelectedId(row.id)}
-                    >
-                      <td className="px-2.5 py-1.5 text-muted-foreground">{row.queue}</td>
-                      <td className="px-2.5 py-1.5">
-                        <Link className="font-medium hover:underline" to={row.to} onClick={(event) => event.stopPropagation()}>
-                          {row.title}
-                        </Link>
-                        <p className="text-[11px] text-muted-foreground">{row.meta}</p>
-                      </td>
-                      <td className="px-2.5 py-1.5">
-                        <StatusBadge status={statusLabel(row.status)} />
-                      </td>
-                      <td className="px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
-                        {bayFor(row.job) || row.job?.reason || "—"}
-                      </td>
-                      {garage ? null : (
-                      <td className="px-2.5 py-1.5" onClick={(event) => event.stopPropagation()}>
-                        {row.job ? (
-                          <div className="flex items-center gap-1.5">
-                            <Select
-                              className="h-7 w-32 text-xs"
-                              value={row.job.assigneeId ?? ""}
-                              onChange={(e) => assign(row.job!.id, e.target.value || null)}
-                            >
-                              <option value="">Unassigned</option>
-                              {team.map((member) => (
-                                <option key={member.userId} value={member.userId}>
-                                  {member.name}
-                                </option>
-                              ))}
-                            </Select>
-                            {me.role === "owner" ? (
-                              <button
-                                type="button"
-                                className="text-[11px] font-semibold hover:underline"
-                                onClick={() => pin(row.job!.id, !row.job!.pinned)}
-                              >
-                                {row.job.pinned ? "Unpin" : "Pin"}
-                              </button>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      )}
-                      <td className="px-2.5 py-1.5">
-                        {row.relabel ? (
-                          <button
-                            type="button"
-                            className="font-semibold hover:underline"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void relabelTracker(row);
-                            }}
-                          >
-                            Relabel
-                          </button>
-                        ) : (
-                          <Link className="font-semibold hover:underline" to={row.actionTo} onClick={(event) => event.stopPropagation()}>
-                            {row.action}
-                          </Link>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td className="px-2.5 py-4" colSpan={garage ? 5 : 6}>
-                    <EmptyState
-                      title={`Nothing in ${LANE_LABEL[lane].toLowerCase()} right now.`}
-                      body={laneNext[lane]}
-                    />
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="flex items-center gap-2">
+          <UpdatedAgo at={dashboard.dataUpdatedAt} />
+          <Button
+            size="sm"
+            variant="outline"
+            aria-label="Refresh"
+            disabled={dashboard.isFetching}
+            onClick={() => void refreshApi()}
+          >
+            <RefreshCw className={cn(dashboard.isFetching && "animate-spin")} />
+          </Button>
+          <MoreMetrics stats={moreStats} />
         </div>
-        <aside className="hidden w-72 shrink-0 overflow-auto border-l bg-card text-xs xl:block">
-          {selected ? (
-            <div className="border-b px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{selected.queue}</p>
-              <Link className="mt-0.5 block font-semibold hover:underline" to={selected.to}>
-                {selected.title}
-              </Link>
-              <p className="mt-0.5 text-muted-foreground">{selected.meta}</p>
-              {selected.job?.reason ? <p className="mt-1 text-muted-foreground">{selected.job.reason}</p> : null}
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <StatusBadge status={statusLabel(selected.status)} />
-                {selected.relabel ? (
-                  <button type="button" className="font-semibold hover:underline" onClick={() => void relabelTracker(selected)}>
-                    Relabel
+      </div>
+
+      <ErrorBanner error={error ?? dashboard.error?.message ?? null} />
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5 [&>*:last-child:nth-child(odd)]:col-span-2 lg:[&>*:last-child:nth-child(odd)]:col-span-1">
+        {headline.map((item) => (
+          <HeadlineCard key={item.label} {...item} loading={loading} />
+        ))}
+      </div>
+
+      <div className="grid min-h-0 gap-(--density-gap) xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <section className="min-w-0 rounded-lg border bg-card shadow-xs" aria-label="Work queue">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
+            <div role="tablist" aria-label="Lane" className="flex max-w-full items-center gap-0.5 overflow-x-auto">
+              {LANES.map((id) => {
+                const Icon = LANE_ICON[id];
+                const active = lane === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setLane(id)}
+                    className={cn(
+                      "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground",
+                      active && "bg-muted text-foreground",
+                    )}
+                  >
+                    <Icon className="size-4" />
+                    {LANE_LABEL[id]}
+                    <span
+                      className={cn(
+                        "min-w-5 rounded-full px-1.5 text-center text-[11px] tabular-nums",
+                        active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                        id === "exceptions" && laneCounts.exceptions > 0 && !active && "bg-tone-warning-bg text-tone-warning",
+                      )}
+                    >
+                      {laneCounts[id]}
+                    </span>
                   </button>
-                ) : (
-                  <Link className="font-semibold hover:underline" to={selected.actionTo}>
-                    {selected.action}
-                  </Link>
-                )}
-              </div>
+                );
+              })}
             </div>
-          ) : null}
-          <InspectorList
+            <Link to="/floor" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+              Open the floor →
+            </Link>
+          </div>
+          {loading ? (
+            <ul className="divide-y">
+              {Array.from({ length: 5 }, (_, index) => (
+                <li key={index} className="flex items-center gap-3 px-4 py-3">
+                  <Skeleton className="size-8 rounded-full" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-3 w-64" />
+                  </div>
+                  <Skeleton className="h-7 w-20" />
+                </li>
+              ))}
+            </ul>
+          ) : laneRows.length ? (
+            <ul className="divide-y">
+              {laneRows.map((row) => (
+                <QueueRow
+                  key={row.id}
+                  row={row}
+                  team={team}
+                  garage={garage}
+                  owner={me.role === "owner"}
+                  onAssign={assign}
+                  onPin={pin}
+                  onRelabel={relabelTracker}
+                />
+              ))}
+            </ul>
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                icon={LANE_ICON[lane]}
+                title={`Nothing in ${LANE_LABEL[lane].toLowerCase()} right now.`}
+                body={laneNext[lane]}
+              />
+            </div>
+          )}
+        </section>
+
+        <aside className="grid content-start gap-(--density-gap) md:grid-cols-2 xl:grid-cols-1">
+          <RailCard
             title="Below reorder"
-            empty="No SKUs at reorder."
+            icon={Boxes}
             action={
-              <button
-                type="button"
-                className="font-semibold hover:underline disabled:opacity-50"
+              <Button
+                size="sm"
+                variant="outline"
                 disabled={drafting || !data?.lowStock.length}
                 onClick={() => void draftReorderPo()}
               >
-                {drafting ? "Drafting…" : "Draft PO"}
-              </button>
+                {drafting ? <Loader2 className="animate-spin" /> : null}
+                Draft PO
+              </Button>
             }
-            rows={(data?.lowStock ?? []).map((row) => ({
-              id: row.itemId,
-              to: `/stock/items/${row.itemId}`,
-              title: row.sku,
-              meta: `${row.onHand}/${row.reorderPoint}${row.suggestedQty ? ` · +${row.suggestedQty}` : ""}${row.coveredByOpenPo ? " · open PO" : ""}`,
-            }))}
-          />
-          <InspectorList
-            title="Promise"
-            empty="Every open order leaves on the next pickup."
-            action={
-              <Link className="font-semibold hover:underline" to="/analytics/promise">
-                Promise
-              </Link>
-            }
-            rows={(promise?.orders ?? [])
-              .filter((row) => row.code !== "leaves_today")
-              .map((row) => ({
-                id: row.orderId,
-                to: `/outbound/orders/${row.orderId}`,
-                title: row.number,
-                meta:
-                  row.code === "short"
-                    ? "Short"
-                    : row.waitingOn
-                      ? row.waitingOn
-                      : row.promisedAt
-                        ? formatPickupLabel(row.promisedAt, promise?.timeZone ?? "UTC")
-                        : "—",
-              }))}
-          />
-          <InspectorList
+            empty="No SKUs at reorder."
+            loading={loading}
+          >
+            {(data?.lowStock ?? []).slice(0, 6).map((row) => (
+              <MeterRow
+                key={row.itemId}
+                to={`/stock/items/${row.itemId}`}
+                label={row.sku}
+                value={`${row.onHand} / ${row.reorderPoint}`}
+                fraction={row.reorderPoint > 0 ? row.onHand / row.reorderPoint : 0}
+                tone={row.onHand <= 0 ? "danger" : "warning"}
+                note={row.coveredByOpenPo ? "Open PO" : row.suggestedQty ? `Order ${row.suggestedQty}` : undefined}
+              />
+            ))}
+          </RailCard>
+          {allow("/analytics/promise") ? (
+            <RailCard
+              title="Promise"
+              icon={Clock}
+              action={
+                <Link className="text-sm font-medium text-muted-foreground hover:text-foreground" to="/analytics/promise">
+                  Promise →
+                </Link>
+              }
+              empty="Every open order leaves on the next pickup."
+              loading={promiseQuery.isLoading}
+            >
+              {(promise?.orders ?? [])
+                .filter((row) => row.code !== "leaves_today")
+                .slice(0, 6)
+                .map((row) => (
+                  <Link
+                    key={row.orderId}
+                    to={`/outbound/orders/${row.orderId}`}
+                    className="flex items-center justify-between gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted/60"
+                  >
+                    <span className="min-w-0 truncate">
+                      <span className="font-mono">{row.number}</span>{" "}
+                      <span className="text-muted-foreground">{row.customerName}</span>
+                    </span>
+                    {row.code === "short" ? (
+                      <ToneBadge tone="danger">Short</ToneBadge>
+                    ) : (
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {row.waitingOn
+                          ? row.waitingOn
+                          : row.promisedAt
+                            ? formatPickupLabel(row.promisedAt, promise?.timeZone ?? "UTC")
+                            : "—"}
+                      </span>
+                    )}
+                  </Link>
+                ))}
+            </RailCard>
+          ) : null}
+          <RailCard
             title="Runs out this week"
-            empty="No SKUs run out in 7 days."
+            icon={Hourglass}
             action={
-              <Link className="font-semibold hover:underline" to="/analytics/runway">
-                Runway
+              <Link className="text-sm font-medium text-muted-foreground hover:text-foreground" to="/analytics/runway">
+                Runway →
               </Link>
             }
-            rows={(data?.runwayThisWeek ?? []).map((row) => ({
-              id: row.itemId,
-              to: `/stock/items/${row.itemId}`,
-              title: row.sku,
-              meta: `${row.daysOfCover != null ? `${row.daysOfCover.toFixed(1)}d` : "out"}${row.suggestedQty ? ` · +${row.suggestedQty}` : ""}${row.coveredByOpenPo ? " · open PO" : ""}`,
-            }))}
-          />
-          <InspectorList
-            title="Hot bays"
-            empty="No occupied bays."
-            rows={(data?.hotBays ?? []).map((row) => ({
-              id: row.locationId,
-              to: `/map?location=${row.locationId}`,
-              title: row.locationCode,
-              meta: String(row.units),
-            }))}
-          />
-          <InspectorList
-            title="Recent movements"
-            empty="No ledger activity."
-            rows={(data?.recent ?? []).map((row) => ({
-              id: row.id,
-              to: "/stock/ledger",
-              title: row.sku,
-              meta: `${row.type} · ${row.qty}`,
-            }))}
-          />
+            empty="No SKUs run out in 7 days."
+            loading={loading}
+          >
+            {(data?.runwayThisWeek ?? []).slice(0, 6).map((row) => (
+              <MeterRow
+                key={row.itemId}
+                to={`/stock/items/${row.itemId}`}
+                label={row.sku}
+                value={row.daysOfCover != null ? `${row.daysOfCover.toFixed(1)} days` : "Out"}
+                fraction={row.daysOfCover != null ? row.daysOfCover / 7 : 0}
+                tone={row.daysOfCover == null || row.daysOfCover < 2 ? "danger" : "warning"}
+                note={row.coveredByOpenPo ? "Open PO" : row.suggestedQty ? `Order ${row.suggestedQty}` : undefined}
+              />
+            ))}
+          </RailCard>
+          {garage ? null : (
+            <RailCard
+              title="Busiest bays"
+              icon={LayoutGrid}
+              action={
+                <Link className="text-sm font-medium text-muted-foreground hover:text-foreground" to="/map">
+                  Map →
+                </Link>
+              }
+              empty="No occupied bays."
+              loading={loading}
+            >
+              {(data?.hotBays ?? []).map((row) => (
+                <MeterRow
+                  key={row.locationId}
+                  to={`/map?location=${row.locationId}`}
+                  label={row.locationCode}
+                  value={`${row.units} units`}
+                  fraction={row.units / Math.max(1, ...(data?.hotBays ?? []).map((bay) => bay.units))}
+                  tone="info"
+                />
+              ))}
+            </RailCard>
+          )}
+          <RailCard title="Recent activity" icon={Repeat} empty="No ledger activity yet." loading={loading}>
+            {(data?.recent ?? []).slice(0, 6).map((row) => (
+              <Link
+                key={row.id}
+                to="/stock/ledger"
+                className="flex items-center justify-between gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted/60"
+              >
+                <span className="min-w-0 truncate">
+                  <span className="capitalize text-muted-foreground">{statusLabel(row.type)}</span>{" "}
+                  <span className="font-mono">{Math.abs(row.qty)}</span> × <span className="font-mono">{row.sku}</span>
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(row.createdAt)}</span>
+              </Link>
+            ))}
+          </RailCard>
         </aside>
       </div>
     </div>
   );
 }
 
-function InspectorList({
+const EMPTY_JOBS: FloorJob[] = [];
+const EMPTY_TEAM: TeamMember[] = [];
+
+function greeting(name: string): string {
+  const hour = new Date().getHours();
+  const first = name.split(/\s+/)[0] || "there";
+  if (hour < 12) return `Good morning, ${first}`;
+  if (hour < 18) return `Good afternoon, ${first}`;
+  return `Good evening, ${first}`;
+}
+
+function UpdatedAgo({ at }: { at: number }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => tick((value) => value + 1), 5_000);
+    return () => window.clearInterval(id);
+  }, []);
+  if (!at) return null;
+  const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
+  return (
+    <span className="hidden text-xs text-muted-foreground sm:inline" aria-live="polite">
+      Updated {seconds < 5 ? "just now" : seconds < 60 ? `${seconds}s ago` : relativeTime(at)}
+    </span>
+  );
+}
+
+type HeadlineProps = {
+  label: string;
+  value: number | null;
+  to: string;
+  icon: LucideIcon;
+  onClick?: () => void;
+  tone?: "default" | "warning";
+  trend?: number[];
+  trendUnit?: string;
+  days?: number[];
+  note?: string;
+  loading?: boolean;
+};
+
+/** Stat tile: label, value, and either a 7-day sparkline (today in the accent) or a one-line note. */
+function HeadlineCard({ label, value, to, icon: Icon, onClick, tone, trend, trendUnit, days, note, loading }: HeadlineProps) {
+  const [hover, setHover] = useState<number | null>(null);
+  const hasTrend = !!trend?.length;
+  const today = hasTrend ? trend![trend!.length - 1]! : 0;
+  const average = hasTrend ? trend!.reduce((sum, n) => sum + n, 0) / trend!.length : 0;
+  const caption =
+    hover != null && hasTrend && days
+      ? `${DAY_FORMAT.format(new Date(days[hover]!))} · ${trend![hover]} ${trendUnit}`
+      : hasTrend
+        ? `${today} today · ${average < 10 ? average.toFixed(1) : Math.round(average)}/day avg`
+        : note;
+  const body = (
+    <>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium text-muted-foreground">{label}</p>
+        <span
+          className={cn(
+            "flex size-7 items-center justify-center rounded-md",
+            tone === "warning" ? "bg-tone-warning-bg text-tone-warning" : "bg-muted text-muted-foreground",
+          )}
+        >
+          <Icon className="size-4" />
+        </span>
+      </div>
+      <div className="mt-1 flex items-end justify-between gap-3">
+        <div className="text-3xl leading-none font-semibold tracking-tight">
+          {loading || value == null ? <Skeleton className="h-8 w-12" /> : <NumberFlow value={value} />}
+        </div>
+        {hasTrend ? <Sparkbars values={trend!} days={days ?? []} unit={trendUnit ?? ""} onHover={setHover} /> : null}
+      </div>
+      <p className="mt-2 min-h-4 truncate text-xs text-muted-foreground">{loading ? " " : caption}</p>
+    </>
+  );
+  const className =
+    "block rounded-lg border bg-card p-4 text-left shadow-xs transition-colors hover:border-primary/40 focus-visible:outline-2 focus-visible:outline-ring";
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={className}>
+        {body}
+      </button>
+    );
+  }
+  return (
+    <Link to={to} className={className}>
+      {body}
+    </Link>
+  );
+}
+
+/** Seven thin daily bars: muted history, today in the accent. Hovering a column names its day and value. */
+function Sparkbars({
+  values,
+  days,
+  unit,
+  onHover,
+}: {
+  values: number[];
+  days: number[];
+  unit: string;
+  onHover: (index: number | null) => void;
+}) {
+  const max = Math.max(1, ...values);
+  const barWidth = 6;
+  const gap = 2;
+  const height = 32;
+  const width = values.length * (barWidth + gap) - gap;
+  const summary = values.map((value, index) => `${days[index] ? DAY_FORMAT.format(new Date(days[index]!)) : ""} ${value}`).join(", ");
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label={`Last 7 days, ${unit}: ${summary}`}
+      className="shrink-0 overflow-visible"
+      onMouseLeave={() => onHover(null)}
+    >
+      {values.map((value, index) => {
+        const h = value > 0 ? Math.max(3, (value / max) * height) : 2;
+        const x = index * (barWidth + gap);
+        const last = index === values.length - 1;
+        return (
+          <g key={index} onMouseEnter={() => onHover(index)}>
+            <rect x={x - gap / 2} y={0} width={barWidth + gap} height={height} fill="transparent" />
+            <rect
+              x={x}
+              y={height - h}
+              width={barWidth}
+              height={h}
+              rx={2}
+              className={last ? "fill-primary" : value > 0 ? "fill-muted-foreground/35" : "fill-muted-foreground/15"}
+            />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function MoreMetrics({ stats }: { stats: { label: string; value: number | undefined; to: string }[] }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="outline">
+          More metrics
+          <ChevronDown />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-2">
+        <div className="grid grid-cols-2 gap-1">
+          {stats.map((stat) => (
+            <Link key={stat.label} to={stat.to} className="rounded-md px-2 py-1.5 hover:bg-muted">
+              <p className="text-xs text-muted-foreground">{stat.label}</p>
+              <p className="text-lg font-semibold">{stat.value ?? "—"}</p>
+            </Link>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function RailCard({
   title,
-  empty,
+  icon: Icon,
   action,
-  rows,
+  empty,
+  loading,
+  children,
 }: {
   title: string;
+  icon: ComponentType<{ className?: string }>;
+  action?: React.ReactNode;
   empty: string;
-  action?: ReactNode;
-  rows: { id: string; to: string; title: string; meta: string }[];
+  loading?: boolean;
+  children: React.ReactNode;
 }) {
+  const items = Array.isArray(children) ? children.filter(Boolean) : children ? [children] : [];
   return (
-    <section className="border-b px-3 py-2 last:border-b-0">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+    <section className="rounded-lg border bg-card p-4 shadow-xs">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-sm font-medium">
+          <Icon className="size-4 text-muted-foreground" />
+          {title}
+        </h2>
         {action}
       </div>
-      {rows.length ? (
-        <ul className="space-y-0.5">
-          {rows.slice(0, 8).map((row) => (
-            <li key={row.id} className="flex items-center justify-between gap-2">
-              <Link className="truncate font-mono hover:underline" to={row.to}>
-                {row.title}
-              </Link>
-              <span className="shrink-0 tabular-nums text-muted-foreground">{row.meta}</span>
-            </li>
-          ))}
-        </ul>
+      {loading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+      ) : items.length ? (
+        <div className="space-y-2">{children}</div>
       ) : (
-        <p className="text-muted-foreground">{empty}</p>
+        <p className="text-sm text-muted-foreground">{empty}</p>
       )}
     </section>
   );
+}
+
+const METER_FILL: Record<"info" | "warning" | "danger", string> = {
+  info: "bg-tone-info",
+  warning: "bg-tone-warning",
+  danger: "bg-tone-danger",
+};
+const METER_TRACK: Record<"info" | "warning" | "danger", string> = {
+  info: "bg-tone-info-bg",
+  warning: "bg-tone-warning-bg",
+  danger: "bg-tone-danger-bg",
+};
+
+/** Label + value with a meter whose track is a lighter step of its own fill, so the state reads across the bar. */
+function MeterRow({
+  to,
+  label,
+  value,
+  fraction,
+  tone,
+  note,
+}: {
+  to: string;
+  label: string;
+  value: string;
+  fraction: number;
+  tone: "info" | "warning" | "danger";
+  note?: string;
+}) {
+  const pct = Math.max(0, Math.min(100, Math.round(fraction * 100)));
+  return (
+    <Link to={to} className="block rounded-md px-1 py-0.5 hover:bg-muted/60">
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <span className="truncate font-mono">{label}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {note ? <span className="mr-1.5">{note} ·</span> : null}
+          <span className="tabular-nums text-foreground">{value}</span>
+        </span>
+      </div>
+      <div className={cn("mt-1 h-1.5 overflow-hidden rounded-full", METER_TRACK[tone])}>
+        <div className={cn("h-full rounded-full", METER_FILL[tone])} style={{ width: `${Math.max(pct, 3)}%` }} />
+      </div>
+    </Link>
+  );
+}
+
+function QueueRow({
+  row,
+  team,
+  garage,
+  owner,
+  onAssign,
+  onPin,
+  onRelabel,
+}: {
+  row: WorkRow;
+  team: TeamMember[];
+  garage: boolean;
+  owner: boolean;
+  onAssign: (jobId: string, userId: string | null, name?: string) => Promise<void>;
+  onPin: (jobId: string, pinned: boolean) => Promise<void>;
+  onRelabel: (row: WorkRow) => Promise<void>;
+}) {
+  const Icon = LANE_ICON[row.lane];
+  const bay = bayFor(row.job);
+  const reason = row.job?.reason && row.job.reason !== DEFAULT_JOB_REASON ? row.job.reason : null;
+  const days = row.createdAt ? ageInDays(row.createdAt) : null;
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-(--density-row) hover:bg-muted/30 sm:flex-nowrap">
+      <span
+        className={cn(
+          "hidden size-8 shrink-0 items-center justify-center rounded-full sm:flex",
+          row.lane === "exceptions" ? "bg-tone-warning-bg text-tone-warning" : "bg-muted text-muted-foreground",
+        )}
+      >
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1 basis-[calc(100%-1rem)] sm:basis-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <Link to={row.to} className="truncate font-medium hover:text-primary hover:underline">
+            {row.title}
+          </Link>
+          <span className="shrink-0 rounded border px-1.5 text-[11px] text-muted-foreground">{row.queue}</span>
+          {row.job?.pinned ? <Pin className="size-3.5 shrink-0 text-primary" aria-label="Pinned" /> : null}
+        </div>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          {[row.meta, bay && !sameRoute(row.meta, bay) ? bay : null].filter(Boolean).join(" · ")}
+          {reason ? <span className="ml-1 font-medium text-foreground/80">· {reason}</span> : null}
+        </p>
+      </div>
+      {days != null ? (
+        <span
+          className={cn(
+            "shrink-0 text-xs tabular-nums sm:ml-0",
+            days >= 3 ? "font-medium text-tone-warning" : "text-muted-foreground",
+          )}
+          title={row.createdAt ? `Opened ${new Date(row.createdAt).toLocaleString()}` : undefined}
+        >
+          {days === 0 ? "Today" : `${days}d old`}
+        </span>
+      ) : null}
+      <StatusBadge status={row.status} />
+      {!garage && row.job ? (
+        <AssignPopover job={row.job} team={team} owner={owner} onAssign={onAssign} onPin={onPin} />
+      ) : null}
+      {row.relabel ? (
+        <Button size="sm" variant="outline" onClick={() => void onRelabel(row)}>
+          Relabel
+        </Button>
+      ) : (
+        <Button size="sm" variant="outline" asChild>
+          <Link to={row.actionTo}>
+            {row.action}
+            <ArrowRight />
+          </Link>
+        </Button>
+      )}
+    </li>
+  );
+}
+
+function AssignPopover({
+  job,
+  team,
+  owner,
+  onAssign,
+  onPin,
+}: {
+  job: FloorJob;
+  team: TeamMember[];
+  owner: boolean;
+  onAssign: (jobId: string, userId: string | null, name?: string) => Promise<void>;
+  onPin: (jobId: string, pinned: boolean) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="shrink-0 rounded-full focus-visible:outline-2 focus-visible:outline-ring"
+          aria-label={job.assigneeName ? `Assigned to ${job.assigneeName}. Change` : "Unassigned. Assign"}
+        >
+          <PersonAvatar name={job.assigneeName} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-56 p-1">
+        <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Assign</p>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+          onClick={() => {
+            setOpen(false);
+            void onAssign(job.id, null);
+          }}
+        >
+          <UserRound className="size-4 text-muted-foreground" />
+          Unassigned
+          {!job.assigneeId ? <span className="ml-auto text-xs text-muted-foreground">current</span> : null}
+        </button>
+        {team.map((member) => (
+          <button
+            key={member.userId}
+            type="button"
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+            onClick={() => {
+              setOpen(false);
+              void onAssign(job.id, member.userId, member.name);
+            }}
+          >
+            <PersonAvatar name={member.name} className="size-5 text-[9px]" />
+            <span className="truncate">{member.name}</span>
+            {job.assigneeId === member.userId ? <span className="ml-auto text-xs text-muted-foreground">current</span> : null}
+          </button>
+        ))}
+        {owner ? (
+          <>
+            <div className="my-1 h-px bg-border" />
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+              onClick={() => {
+                setOpen(false);
+                void onPin(job.id, !job.pinned);
+              }}
+            >
+              {job.pinned ? <PinOff className="size-4 text-muted-foreground" /> : <Pin className="size-4 text-muted-foreground" />}
+              {job.pinned ? "Unpin" : "Pin to top of queue"}
+            </button>
+          </>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** "A-01-01 → A-02-02" already in the row text should not be repeated as the job's bay route. */
+function sameRoute(meta: string, bay: string): boolean {
+  const squash = (text: string) => text.replace(/\s+/g, "").toLowerCase();
+  return squash(meta).includes(squash(bay));
+}
+
+function ageOf(row: unknown): number | undefined {
+  const at = (row as { createdAt?: unknown }).createdAt;
+  return typeof at === "number" ? at : undefined;
 }
 
 function bayFor(job?: FloorJob) {
@@ -496,6 +964,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.number,
       meta: row.notes || "Receive onto the dock",
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/receive?id=${row.id}`,
       action: "Receive",
       job: jobForRef(jobs, "receipt", row.id, "receive"),
@@ -508,6 +977,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.number,
       meta: row.vendorName,
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/receive?purchase=${row.id}`,
       action: "Receive",
       job: jobForRef(jobs, "purchase", row.id, "receive"),
@@ -520,6 +990,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.number,
       meta: `${row.fromCode ?? "from"} → ${row.toCode ?? "to"}`,
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/putaway?id=${row.id}`,
       action: "Put away",
       job: jobForRef(jobs, "transfer", row.id, "putaway"),
@@ -544,6 +1015,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.number,
       meta: row.vendorName,
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/asn?id=${row.id}`,
       action: "Receive",
     })),
@@ -555,6 +1027,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.number,
       meta: `${row.carrierName}${row.trailerNumber ? ` · ${row.trailerNumber}` : ""}`,
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/yard?id=${row.id}`,
       action: "Yard",
     })),
@@ -566,6 +1039,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.number,
       meta: row.vendorName,
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/rtv?id=${row.id}`,
       action: "Return",
       job: jobForRef(jobs, "vendorReturn", row.id, "rtv"),
@@ -578,6 +1052,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: `${row.number} · ${row.customerName}`,
       meta: row.source === "shopify" ? "Shopify" : "Floor order",
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: floorActionForOrder(row.status, row.id),
       action: floorLabelForOrder(row.status),
       job: jobForRef(jobs, "order", row.id, desiredVerb("order", row.status) ?? undefined),
@@ -590,6 +1065,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.number,
       meta: `${row.mode} · ${row.orderCount ?? 0} orders`,
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/wave?id=${row.id}`,
       action: "Wave",
     })),
@@ -601,6 +1077,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.number,
       meta: row.customerName,
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/return?id=${row.id}`,
       action: "Receive",
       job: jobForRef(jobs, "rma", row.id, "return"),
@@ -613,6 +1090,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.number,
       meta: `${row.sku} × ${row.qtyCompleted ?? 0}/${row.qty}`,
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/assemble?id=${row.id}`,
       action: "Assemble",
       job: jobForRef(jobs, "workOrder", row.id, "assemble"),
@@ -625,6 +1103,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.number,
       meta: `${row.sku} × ${row.qtyCompleted ?? 0}/${row.qty}`,
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/kit?id=${row.id}`,
       action: "Kit",
       job: jobForRef(jobs, "kit", row.id, "kit"),
@@ -637,6 +1116,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.number,
       meta: `${row.sku} ${row.qtyMoved ?? 0}/${row.qty} · ${row.fromCode ?? "bulk"} → ${row.toCode ?? "pick"}`,
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/replenish?id=${row.id}`,
       action: "Replenish",
       job: jobForRef(jobs, "replenishment", row.id, "replenish"),
@@ -663,6 +1143,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.number,
       meta: `${row.sku ? `${row.sku}${row.lotCode ? ` ${row.lotCode}` : ""} @ ` : ""}${row.locationCode || "bay"} · ${row.reason}`,
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/hold?id=${row.id}`,
       action: "Release",
       job: jobForRef(jobs, "hold", row.id, "hold"),
@@ -675,6 +1156,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.number,
       meta: row.locationCode || "Bay count",
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/count?id=${row.id}`,
       action: "Count",
       job: jobForRef(jobs, "cycleCount", row.id, "count"),
@@ -743,6 +1225,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.equipmentCode,
       meta: `${row.operatorName}${row.shift ? ` · ${row.shift}` : ""}${row.taskNumber || row.refType ? ` · ${row.taskNumber || row.refType}` : ""}`,
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/floor/checkout?id=${row.equipmentId}`,
       action: "Check in",
     })),
@@ -754,6 +1237,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       title: row.code,
       meta: row.name,
       status: row.status,
+      createdAt: ageOf(row),
       actionTo: `/equipment/${row.id}`,
       action: "Open",
     })),

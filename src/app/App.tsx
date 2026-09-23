@@ -49,6 +49,7 @@ import { ClientsPage } from "./pages/setup/ClientsPage";
 import { ZonesPage } from "./pages/setup/ZonesPage";
 import { BillingPage } from "./pages/setup/BillingPage";
 import { EdiPage } from "./pages/setup/EdiPage";
+import { SettingsLayout } from "./pages/setup/SettingsLayout";
 import { ReplenishmentsPage } from "./pages/ReplenishmentsPage";
 import { KitsPage } from "./pages/KitsPage";
 import { WavesPage } from "./pages/WavesPage";
@@ -215,95 +216,26 @@ export function App() {
         <Route path="/outbound/returns" element={<ReturnsPage />} />
         <Route path="/outbound/returns/:id" element={<ReturnsPage />} />
         <Route
-          path="/setup/integrations"
+          path="/setup"
           element={
             <OwnerOnly>
-              <IntegrationsPage />
+              <SettingsLayout />
             </OwnerOnly>
           }
-        />
-        <Route
-          path="/setup/shopify"
-          element={
-            me ? (
-              <OwnerOnly>
-                <ShopifyPage me={me} />
-              </OwnerOnly>
-            ) : null
-          }
-        />
-        <Route
-          path="/setup/carriers"
-          element={
-            <OwnerOnly>
-              <CarriersPage />
-            </OwnerOnly>
-          }
-        />
-        <Route
-          path="/setup/warehouse"
-          element={
-            <OwnerOnly>
-              <WarehouseSetupPage />
-            </OwnerOnly>
-          }
-        />
-        <Route
-          path="/setup/clients"
-          element={
-            <OwnerOnly>
-              <ClientsPage />
-            </OwnerOnly>
-          }
-        />
-        <Route
-          path="/setup/zones"
-          element={
-            <OwnerOnly>
-              <ZonesPage />
-            </OwnerOnly>
-          }
-        />
-        <Route
-          path="/setup/team"
-          element={
-            <OwnerOnly>
-              <TeamPage />
-            </OwnerOnly>
-          }
-        />
-        <Route
-          path="/setup/audit"
-          element={
-            <OwnerOnly>
-              <AuditPage />
-            </OwnerOnly>
-          }
-        />
-        <Route
-          path="/setup/labels"
-          element={
-            <OwnerOnly>
-              <LabelsSetupPage />
-            </OwnerOnly>
-          }
-        />
-        <Route
-          path="/setup/billing"
-          element={
-            <OwnerOnly>
-              <BillingPage />
-            </OwnerOnly>
-          }
-        />
-        <Route
-          path="/setup/edi"
-          element={
-            <OwnerOnly>
-              <EdiPage />
-            </OwnerOnly>
-          }
-        />
+        >
+          <Route index element={null} />
+          <Route path="integrations" element={<IntegrationsPage />} />
+          <Route path="shopify" element={me ? <ShopifyPage me={me} /> : null} />
+          <Route path="carriers" element={<CarriersPage />} />
+          <Route path="warehouse" element={<WarehouseSetupPage />} />
+          <Route path="clients" element={<ClientsPage />} />
+          <Route path="zones" element={<ZonesPage />} />
+          <Route path="team" element={<TeamPage />} />
+          <Route path="audit" element={<AuditPage />} />
+          <Route path="labels" element={<LabelsSetupPage />} />
+          <Route path="billing" element={<BillingPage />} />
+          <Route path="edi" element={<EdiPage />} />
+        </Route>
         <Route path="/items" element={<Navigate to="/stock/items" replace />} />
         <Route path="/locations" element={<Navigate to="/stock/locations" replace />} />
         <Route path="/inventory" element={<Navigate to="/stock" replace />} />

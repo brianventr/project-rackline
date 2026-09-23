@@ -23,6 +23,7 @@ import { loadDocumentNumber } from "../db/equipment";
 import { originColumns, resolveOrigin } from "../domain/geo";
 import { loadReorderQueue } from "../db/reorder";
 import { loadRunwayThisWeek } from "../db/runway";
+import { dailyTrend } from "../domain/trends";
 import { mediaItemKey, normalizeImageUrl } from "../domain/media";
 import { deleteManagedMedia, putMediaFile, readUploadedFile } from "../lib/media-store";
 
@@ -1334,6 +1335,52 @@ catalogRoute.get("/dashboard", async (c) => {
     .orderBy(desc(schema.inventoryMovements.createdAt))
     .limit(8);
 
+  const trendWarehouse = await db
+    .select({ timeZone: schema.warehouses.timeZone })
+    .from(schema.warehouses)
+    .where(
+      and(
+        eq(schema.warehouses.organizationId, organizationId),
+        warehouseId ? eq(schema.warehouses.id, warehouseId) : undefined,
+      ),
+    )
+    .limit(1);
+  const trendZone = trendWarehouse[0]?.timeZone || "UTC";
+  const trendNow = Date.now();
+  const trendFromLoc = alias(schema.locations, "trend_from");
+  const trendToLoc = alias(schema.locations, "trend_to");
+  const trendRows = await db
+    .select({
+      type: schema.inventoryMovements.type,
+      qty: schema.inventoryMovements.qty,
+      createdAt: schema.inventoryMovements.createdAt,
+      refId: schema.inventoryMovements.refId,
+      refType: schema.inventoryMovements.refType,
+      fromWarehouseId: trendFromLoc.warehouseId,
+      toWarehouseId: trendToLoc.warehouseId,
+    })
+    .from(schema.inventoryMovements)
+    .leftJoin(trendFromLoc, eq(trendFromLoc.id, schema.inventoryMovements.fromLocationId))
+    .leftJoin(trendToLoc, eq(trendToLoc.id, schema.inventoryMovements.toLocationId))
+    .where(
+      and(
+        eq(schema.inventoryMovements.organizationId, organizationId),
+        gt(schema.inventoryMovements.createdAt, trendNow - 8 * 24 * 60 * 60 * 1000),
+        inArray(schema.inventoryMovements.type, ["receive", "pick", "ship", "wo_produce", "kit_produce"]),
+      ),
+    )
+    .orderBy(desc(schema.inventoryMovements.createdAt))
+    .limit(20000);
+  const trend = dailyTrend(
+    trendRows.filter(
+      (row) =>
+        row.refType !== "seed" &&
+        (!warehouseId || row.fromWarehouseId === warehouseId || row.toWarehouseId === warehouseId || (!row.fromWarehouseId && !row.toWarehouseId)),
+    ),
+    trendNow,
+    trendZone,
+  );
+
   const hotBays = await db
     .select({
       locationId: schema.locations.id,
@@ -1423,6 +1470,8 @@ catalogRoute.get("/dashboard", async (c) => {
     lowStock,
     runwayThisWeek,
     recent,
+    trend,
+    timeZone: trendZone,
     hotBays: hotBays.map((row) => ({ ...row, units: Number(row.units) })),
     queues: {
       receipts: openReceiptRows,

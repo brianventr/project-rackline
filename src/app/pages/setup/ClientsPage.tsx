@@ -1,132 +1,157 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Building2, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, type Client } from "../../api";
-import { Button, Card, ErrorBanner, Field, Input, PageHeader, Table, onSubmit } from "../../components/ui";
+import { Button, EmptyState, Field, Input, PageHeader } from "../../components/ui";
+import { DataTable, type DataColumn } from "../../components/data-table/DataTable";
+import { RelativeTime } from "../../components/cells";
+import { ActionMenu } from "../../components/document";
+import { FormSheet } from "../../components/form-sheet";
+import { apiMutate, useApiQuery } from "../../query";
+import { useWrite } from "../../use-write";
+
+const CLIENT_COLUMNS: DataColumn<Client>[] = [
+  {
+    id: "code",
+    header: "Code",
+    sortValue: (client) => client.code,
+    cell: (client) => <span className="font-mono font-medium">{client.code}</span>,
+  },
+  {
+    id: "name",
+    header: "Name",
+    sortValue: (client) => client.name,
+    cell: (client) => client.name,
+  },
+  {
+    id: "created",
+    header: "Added",
+    sortValue: (client) => client.createdAt,
+    csv: (client) => new Date(client.createdAt).toISOString(),
+    cell: (client) => <RelativeTime at={client.createdAt} />,
+  },
+];
+
+type SheetState = { mode: "new" } | { mode: "edit"; client: Client } | null;
 
 export function ClientsPage() {
-  const [clients, setClients] = useState<Client[]>([]);
+  const clients = useApiQuery<Client[]>("/api/clients");
+  const [sheet, setSheet] = useState<SheetState>(null);
+
+  const columns = useMemo<DataColumn<Client>[]>(
+    () => [
+      ...CLIENT_COLUMNS,
+      {
+        id: "actions",
+        header: "",
+        hideable: false,
+        align: "right",
+        className: "w-px",
+        cell: (client) => (
+          <ActionMenu
+            label={`${client.code} actions`}
+            actions={[
+              { label: "Edit", icon: Pencil, onSelect: () => setSheet({ mode: "edit", client }) },
+              {
+                label: "Delete client",
+                icon: Trash2,
+                tone: "danger",
+                onSelect: () => apiMutate(`/api/clients/${client.id}`, { method: "DELETE" }),
+                success: `Client ${client.code} deleted.`,
+                confirm: {
+                  title: `Delete client ${client.code}?`,
+                  body: "Its per-client stock balances are deleted. Waves, ASNs, and invoices keep their history without the client code. This cannot be undone.",
+                  confirmLabel: "Delete client",
+                  cancelLabel: "Keep client",
+                  tone: "danger",
+                },
+              },
+            ]}
+          />
+        ),
+      },
+    ],
+    [],
+  );
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
+      <PageHeader eyebrow="Setup" title="Clients" description="3PL / multi-client codes for waves, ASNs, and orders." />
+      <DataTable
+        id="clients"
+        data={clients.data}
+        loading={clients.isLoading}
+        error={clients.error?.message}
+        columns={columns}
+        getRowId={(client) => client.id}
+        defaultSort={{ id: "code", desc: false }}
+        search={{ placeholder: "Search code or name", text: (client) => `${client.code} ${client.name}` }}
+        toolbar={
+          <Button size="sm" onClick={() => setSheet({ mode: "new" })}>
+            <Plus className="size-4" />
+            New client
+          </Button>
+        }
+        empty={
+          <EmptyState
+            icon={Building2}
+            title="No clients yet."
+            body="Add a code for each 3PL customer so waves, ASNs, and invoices can be tagged to them."
+            action={
+              <Button size="sm" onClick={() => setSheet({ mode: "new" })}>
+                New client
+              </Button>
+            }
+          />
+        }
+      />
+      <ClientSheet state={sheet} onClose={() => setSheet(null)} />
+    </div>
+  );
+}
+
+function ClientSheet({ state, onClose }: { state: SheetState; onClose: () => void }) {
+  const editing = state?.mode === "edit" ? state.client : null;
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editCode, setEditCode] = useState("");
-  const [editName, setEditName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  async function load() {
-    setClients(await api<Client[]>("/api/clients"));
-  }
+  const write = useWrite();
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
-  }, []);
+    if (!state) return;
+    setCode(editing?.code ?? "");
+    setName(editing?.name ?? "");
+    write.setError(null);
+  }, [state]);
 
-  async function create() {
-    setError(null);
-    try {
-      await api<Client>("/api/clients", {
-        method: "POST",
-        body: JSON.stringify({ code, name }),
-      });
-      setCode("");
-      setName("");
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create client");
-    }
-  }
-
-  async function save(id: string) {
-    setError(null);
-    try {
-      await api<Client>(`/api/clients/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ code: editCode, name: editName }),
-      });
-      setEditingId(null);
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update client");
-    }
-  }
-
-  async function remove(id: string) {
-    setError(null);
-    try {
-      await api(`/api/clients/${id}`, { method: "DELETE" });
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not delete client");
-    }
+  async function submit() {
+    const saved = await write.run(
+      editing ? "Save client" : "Add client",
+      () =>
+        api<Client>(editing ? `/api/clients/${editing.id}` : "/api/clients", {
+          method: editing ? "PATCH" : "POST",
+          body: JSON.stringify({ code, name }),
+        }),
+      (row) => `Client ${row?.code ?? code.toUpperCase()} ${editing ? "saved" : "added"}.`,
+    );
+    if (saved) onClose();
   }
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Setup"
-        title="Clients"
-        description="3PL / multi-client codes for waves, ASNs, and orders."
-      />
-      <ErrorBanner error={error} />
-      <Card className="mb-3">
-        <form className="grid gap-3 md:grid-cols-3" onSubmit={onSubmit(create)}>
-          <Field label="Code">
-            <Input value={code} onChange={(e) => setCode(e.target.value)} required placeholder="ACME" />
-          </Field>
-          <Field label="Name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Acme Corp" />
-          </Field>
-          <div className="flex items-end">
-            <Button type="submit">Add client</Button>
-          </div>
-        </form>
-      </Card>
-      <Table columns={["Code", "Name", ""]}>
-        {clients.map((client) => (
-          <tr key={client.id}>
-            <td className="px-2.5 py-1.5 font-mono">
-              {editingId === client.id ? (
-                <Input value={editCode} onChange={(e) => setEditCode(e.target.value)} />
-              ) : (
-                client.code
-              )}
-            </td>
-            <td className="px-2.5 py-1.5">
-              {editingId === client.id ? (
-                <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
-              ) : (
-                client.name
-              )}
-            </td>
-            <td className="px-2.5 py-1.5">
-              <div className="flex gap-2">
-                {editingId === client.id ? (
-                  <>
-                    <Button onClick={() => void save(client.id)}>Save</Button>
-                    <Button variant="ghost" onClick={() => setEditingId(null)}>
-                      Cancel
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        setEditingId(client.id);
-                        setEditCode(client.code);
-                        setEditName(client.name);
-                      }}
-                    >
-                      Edit
-                    </Button>
-                    <Button variant="ghost" onClick={() => void remove(client.id)}>
-                      Delete
-                    </Button>
-                  </>
-                )}
-              </div>
-            </td>
-          </tr>
-        ))}
-      </Table>
-    </div>
+    <FormSheet
+      open={!!state}
+      onOpenChange={(open) => (open ? null : onClose())}
+      title={editing ? `Edit ${editing.code}` : "New client"}
+      description="The code prints on waves, ASNs, and invoices. Keep it short."
+      submitLabel={editing ? "Save client" : "Add client"}
+      onSubmit={submit}
+      busy={write.busy}
+      error={write.error}
+    >
+      <Field label="Code">
+        <Input value={code} onChange={(e) => setCode(e.target.value)} required placeholder="ACME" autoFocus />
+      </Field>
+      <Field label="Name">
+        <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Acme Corp" />
+      </Field>
+    </FormSheet>
   );
 }

@@ -26,6 +26,8 @@ import {
   isOpenPurchase,
   normalizeOrderStatus,
   statusLabel,
+  statusText,
+  statusTone,
 } from "./status";
 
 describe("order status", () => {
@@ -126,5 +128,50 @@ describe("order status", () => {
     expect(canCheckInEquipment("open")).toBe(true);
     expect(canReturnEquipmentToService("out_of_service")).toBe(true);
     expect(statusLabel("checked_in")).toBe("Checked in");
+  });
+});
+
+describe("statusTone", () => {
+  it("reads finished work as success, not as the brand accent", () => {
+    expect(statusTone("shipped")).toBe("success");
+    expect(statusTone("received")).toBe("success");
+    expect(statusTone("posted")).toBe("success");
+  });
+
+  it("separates waiting, moving, and broken work", () => {
+    expect(statusTone("draft")).toBe("neutral");
+    expect(statusTone("open")).toBe("info");
+    expect(statusTone("picking")).toBe("progress");
+    expect(statusTone("exception")).toBe("warning");
+    expect(statusTone("cancelled")).toBe("danger");
+  });
+
+  it("accepts labels as well as raw values", () => {
+    expect(statusTone("In progress")).toBe("progress");
+    expect(statusTone(statusLabel("at_dock"))).toBe("progress");
+  });
+
+  it("covers every runway status", () => {
+    expect(statusTone("out")).toBe("danger");
+    expect(statusTone("order_now")).toBe("warning");
+    expect(statusTone("order_soon")).toBe("warning");
+    expect(statusTone("watch")).toBe("info");
+    expect(statusTone("covered")).toBe("success");
+    expect(statusTone("idle")).toBe("neutral");
+  });
+
+  it("falls back to neutral for unknown or empty values", () => {
+    expect(statusTone("something_new")).toBe("neutral");
+    expect(statusTone(null)).toBe("neutral");
+    expect(statusTone("")).toBe("neutral");
+  });
+});
+
+describe("statusText", () => {
+  it("sentence-cases labels", () => {
+    expect(statusText("in_progress")).toBe("In progress");
+    expect(statusText("checked_in")).toBe("Checked in");
+    expect(statusText("order_now")).toBe("Order now");
+    expect(statusText("shipped")).toBe("Shipped");
   });
 });

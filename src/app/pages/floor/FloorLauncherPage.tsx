@@ -28,6 +28,7 @@ import { MyDayCard } from "../LaborPage";
 import { useWarehouse } from "../../warehouse";
 import { api, type FloorJob } from "../../api";
 import { VERB_LABELS, type FloorVerb, isFloorVerb } from "@/domain/jobs";
+import { DEFAULT_JOB_REASON } from "@/domain/job-rank";
 import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 
 const verbs: { to: string; title: string; body: string; verb?: FloorVerb; icon: ComponentType<{ className?: string }> }[] = [
@@ -123,7 +124,9 @@ export function FloorLauncherPage() {
                 {next.qty != null ? ` · ${next.qty}` : ""}
               </span>
             </p>
-            <p className="truncate text-xs text-muted-foreground">{next.reason || next.title || "Open work"}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {(next.reason !== DEFAULT_JOB_REASON && next.reason) || next.title || "Open work"}
+            </p>
           </div>
           <ScanLine className="size-4 shrink-0 text-primary" />
         </button>
@@ -149,7 +152,9 @@ export function FloorLauncherPage() {
                     <span className="font-medium">{isFloorVerb(job.verb) ? VERB_LABELS[job.verb] : job.verb}</span>{" "}
                     <span className="font-mono">{job.number}</span>
                   </span>
-                  <span className="truncate text-xs text-muted-foreground">{job.reason || job.title || "Assigned to you"}</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {(job.reason !== DEFAULT_JOB_REASON && job.reason) || job.title || "Assigned to you"}
+                  </span>
                 </Link>
               </li>
             ))}

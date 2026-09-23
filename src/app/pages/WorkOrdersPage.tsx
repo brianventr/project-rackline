@@ -1,10 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { BookOpen, CheckCircle2, Hammer, Play, Plus, ScanLine } from "lucide-react";
+import { toast } from "sonner";
 import { api, type Item, type Location, type WorkOrder } from "../api";
-import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit } from "../components/ui";
-import { DocumentHeader, DocumentActivity } from "../components/document";
+import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge } from "../components/ui";
+import {
+  DetailSkeleton,
+  DocumentActivity,
+  DocumentFact,
+  DocumentFrame,
+  DocumentHeader,
+  DocumentRail,
+  type DocumentAction,
+} from "../components/document";
+import { DataTable, type BulkAction, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
+import { DocLink, ProgressCell, RelativeTime, SkuCell, ProgressRow } from "../components/cells";
+import { FormSheet } from "../components/form-sheet";
 import { AsBuiltList } from "../components/as-built";
 import { KitRecipeCard } from "../components/kit-recipe";
+import { apiMutate, refreshApi, useApiQuery } from "../query";
+import { useWrite } from "../use-write";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { STEP_RULES } from "@/domain/step-stamps";
 import { WORK_ORDER_STEPS, canCompleteWorkOrder } from "@/domain/status";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
@@ -14,132 +31,243 @@ export function WorkOrdersPage() {
   return <WorkOrderList />;
 }
 
+const WORK_ORDER_TABS: TabDef<WorkOrder>[] = [
+  { id: "open", label: "Open", match: (order) => canCompleteWorkOrder(order.status) },
+  { id: "draft", label: "Draft", match: (order) => order.status === "draft" },
+  { id: "in_progress", label: "In progress", match: (order) => order.status === "in_progress" },
+  { id: "completed", label: "Completed", match: (order) => order.status === "completed" },
+  { id: "all", label: "All", match: () => true },
+];
+
+const WORK_ORDER_FACETS: FacetDef<WorkOrder>[] = [{ id: "item", label: "Item", value: (order) => order.sku }];
+
+const WORK_ORDER_COLUMNS: DataColumn<WorkOrder>[] = [
+  {
+    id: "number",
+    header: "Work order",
+    sortValue: (order) => order.number,
+    cell: (order) => <DocLink to={`/make/work-orders/${order.id}`}>{order.number}</DocLink>,
+  },
+  {
+    id: "item",
+    header: "Item",
+    sortValue: (order) => order.sku,
+    csv: (order) => `${order.sku} — ${order.itemName}`,
+    cell: (order) => <SkuCell sku={order.sku} name={order.itemName} imageUrl={order.imageUrl} />,
+  },
+  {
+    id: "completed",
+    header: "Completed",
+    sortValue: (order) => (order.qty ? (order.qtyCompleted ?? 0) / order.qty : 0),
+    csv: (order) => `${order.qtyCompleted ?? 0}/${order.qty}`,
+    cell: (order) => <ProgressCell done={order.qtyCompleted ?? 0} total={order.qty} />,
+  },
+  {
+    id: "qty",
+    header: "Qty",
+    align: "right",
+    defaultHidden: true,
+    sortValue: (order) => order.qty,
+    cell: (order) => <span className="font-mono">{order.qty}</span>,
+  },
+  {
+    id: "created",
+    header: "Created",
+    sortValue: (order) => order.createdAt,
+    csv: (order) => new Date(order.createdAt).toISOString(),
+    cell: (order) => <RelativeTime at={order.createdAt} />,
+  },
+  {
+    id: "status",
+    header: "Status",
+    sortValue: (order) => WORK_ORDER_STEPS.indexOf(order.status as (typeof WORK_ORDER_STEPS)[number]),
+    csv: (order) => order.status,
+    cell: (order) => <StatusBadge status={order.status} />,
+  },
+];
+
 function WorkOrderList() {
-  const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
-  const [orders, setOrders] = useState<WorkOrder[]>([]);
-  const [items, setItems] = useState<Item[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [itemId, setItemId] = useState("");
-  const [qty, setQty] = useState("1");
-  const [sourceLocationId, setSourceLocationId] = useState("");
-  const [outputLocationId, setOutputLocationId] = useState("");
+  const orders = useApiQuery<WorkOrder[]>("/api/work-orders");
   const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  async function load() {
-    const [nextOrders, nextItems, nextLocations] = await Promise.all([
-      api<WorkOrder[]>("/api/work-orders"),
-      api<Item[]>("/api/items"),
-      api<Location[]>("/api/locations"),
-    ]);
-    setOrders(nextOrders);
-    setItems(nextItems);
-    setLocations(nextLocations);
-    const finished = nextItems.find((item) => item.type === "finished" || item.type === "wip");
-    if (finished) setItemId(finished.id);
-    const storage = nextLocations.find((location) => location.type === "storage") ?? nextLocations[0];
-    const prod = nextLocations.find((location) => location.type === "production") ?? nextLocations[0];
-    if (storage) setSourceLocationId(storage.id);
-    if (prod) setOutputLocationId(prod.id);
-  }
+  const rows = useMemo(() => inWarehouse(orders.data ?? [], warehouseId), [orders.data, warehouseId]);
 
-  useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
-  }, []);
-
-  async function create() {
-    setError(null);
-    try {
-      const created = await api<WorkOrder>("/api/work-orders", {
-        method: "POST",
-        body: JSON.stringify({ warehouseId, itemId, qty: Number(qty), sourceLocationId, outputLocationId }),
-      });
-      navigate(`/make/work-orders/${created.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create work order");
-    }
-  }
-
-  const parents = items.filter((item) => item.type === "finished" || item.type === "wip");
+  const bulkActions: BulkAction<WorkOrder>[] = [
+    {
+      label: "Start",
+      icon: Play,
+      when: (selected) => selected.every((order) => order.status === "draft"),
+      run: async (selected) => {
+        const results = await Promise.allSettled(
+          selected.map((order) => api(`/api/work-orders/${order.id}/start`, { method: "POST" })),
+        );
+        void refreshApi();
+        const failed = results.filter((result) => result.status === "rejected") as PromiseRejectedResult[];
+        if (failed.length) {
+          toast.error(`${failed.length} could not start: ${failed[0]!.reason instanceof Error ? failed[0]!.reason.message : "error"}`);
+        }
+        const started = selected.length - failed.length;
+        if (started) toast.success(`Started ${started} ${started === 1 ? "work order" : "work orders"}.`);
+      },
+    },
+  ];
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
         eyebrow="Make"
         title="Work orders"
         description="Completing a work order consumes the recipe and puts finished goods in the output bay."
-        actions={<Button onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New work order"}</Button>}
       />
-      <ErrorBanner error={error} />
-      {creating ? (
-        <Card className="mb-3">
-          <form className="grid gap-3 md:grid-cols-2" onSubmit={onSubmit(create)}>
-            <Field label="Build item">
-              <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
-                <option value="">Select item</option>
-                {parents.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.sku} — {item.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Quantity">
-              <Input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
-            </Field>
-            <Field label="Consume from">
-              <Select value={sourceLocationId} onChange={(e) => setSourceLocationId(e.target.value)}>
-                {locations.map((location) => (
-                  <option key={location.id} value={location.id}>
-                    {location.code} — {location.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Put away finished">
-              <Select value={outputLocationId} onChange={(e) => setOutputLocationId(e.target.value)}>
-                {locations.map((location) => (
-                  <option key={location.id} value={location.id}>
-                    {location.code} — {location.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <div>
-              <Button type="submit">Release work order</Button>
-            </div>
-          </form>
-        </Card>
-      ) : null}
-      <Table columns={["Number", "Item", "Qty", "Completed", "Status"]}>
-        {inWarehouse(orders, warehouseId).map((order) => (
-          <tr key={order.id}>
-            <td className="px-2.5 py-1.5 font-mono">
-              <Link className="hover:underline" to={`/make/work-orders/${order.id}`}>
-                {order.number}
-              </Link>
-            </td>
-            <td className="px-2.5 py-1.5">
-              {order.sku} — {order.itemName}
-            </td>
-            <td className="px-2.5 py-1.5 font-mono">{order.qty}</td>
-            <td className="px-2.5 py-1.5 font-mono">{order.qtyCompleted ?? 0}</td>
-            <td className="px-2.5 py-1.5">
-              <StatusBadge status={order.status} />
-            </td>
-          </tr>
-        ))}
-      </Table>
+      <DataTable
+        id="work-orders"
+        data={rows}
+        loading={orders.isLoading}
+        error={orders.error?.message}
+        columns={WORK_ORDER_COLUMNS}
+        getRowId={(order) => order.id}
+        rowHref={(order) => `/make/work-orders/${order.id}`}
+        tabs={WORK_ORDER_TABS}
+        defaultTab="open"
+        facets={WORK_ORDER_FACETS}
+        defaultSort={{ id: "created", desc: true }}
+        search={{
+          placeholder: "Search work order, SKU",
+          text: (order) => [order.number, order.sku, order.itemName].filter(Boolean).join(" "),
+        }}
+        bulkActions={bulkActions}
+        exportName="work-orders"
+        toolbar={
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus className="size-4" />
+            New work order
+          </Button>
+        }
+        empty={
+          <EmptyState
+            icon={Hammer}
+            title="No work orders yet."
+            body="Release a work order to build a finished or WIP SKU from its recipe."
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button size="sm" onClick={() => setCreating(true)}>
+                  New work order
+                </Button>
+                <Button size="sm" variant="outline" asChild>
+                  <Link to="/make/recipes">Recipes</Link>
+                </Button>
+              </div>
+            }
+          />
+        }
+      />
+      <NewWorkOrderSheet open={creating} onOpenChange={setCreating} />
     </div>
   );
 }
 
-function WorkOrderDetail({ id }: { id: string }) {
+function isBuildable(item: Item) {
+  return item.type === "finished" || item.type === "wip";
+}
+
+function NewWorkOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate();
+  const { warehouseId } = useWarehouse();
+  const items = useApiQuery<Item[]>(open ? "/api/items" : null);
+  const locations = useApiQuery<Location[]>(open ? "/api/locations" : null);
+  const [itemId, setItemId] = useState("");
+  const [qty, setQty] = useState("1");
+  const [sourceLocationId, setSourceLocationId] = useState("");
+  const [outputLocationId, setOutputLocationId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const parents = useMemo(() => (items.data ?? []).filter(isBuildable), [items.data]);
+  const bays = locations.data ?? [];
+
+  useEffect(() => {
+    if (!itemId && parents[0]) setItemId(parents[0].id);
+  }, [parents, itemId]);
+
+  useEffect(() => {
+    if (!bays.length) return;
+    const storage = bays.find((location) => location.type === "storage") ?? bays[0];
+    const production = bays.find((location) => location.type === "production") ?? bays[0];
+    if (!sourceLocationId && storage) setSourceLocationId(storage.id);
+    if (!outputLocationId && production) setOutputLocationId(production.id);
+  }, [bays, sourceLocationId, outputLocationId]);
+
+  async function create() {
+    setError(null);
+    setBusy(true);
+    try {
+      const created = await apiMutate<WorkOrder>("/api/work-orders", {
+        body: JSON.stringify({ warehouseId, itemId, qty: Number(qty), sourceLocationId, outputLocationId }),
+      });
+      toast.success(`Work order ${created.number} released.`);
+      onOpenChange(false);
+      navigate(`/make/work-orders/${created.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create work order");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <FormSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New work order"
+      description="Pick a SKU with a recipe. Components come out of one bay and finished goods go into another."
+      submitLabel="Release work order"
+      onSubmit={create}
+      busy={busy}
+      error={error}
+    >
+      <Field label="Build item">
+        <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
+          <option value="">Select item</option>
+          {parents.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.sku} — {item.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Quantity">
+        <Input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
+      </Field>
+      <Field label="Consume from">
+        <Select value={sourceLocationId} onChange={(e) => setSourceLocationId(e.target.value)}>
+          {bays.map((location) => (
+            <option key={location.id} value={location.id}>
+              {location.code} — {location.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Put away finished">
+        <Select value={outputLocationId} onChange={(e) => setOutputLocationId(e.target.value)}>
+          {bays.map((location) => (
+            <option key={location.id} value={location.id}>
+              {location.code} — {location.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </FormSheet>
+  );
+}
+
+function WorkOrderDetail({ id }: { id: string }) {
   const [order, setOrder] = useState<WorkOrder | null>(null);
   const [thisQty, setThisQty] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [view, setView] = useState("recipe");
+  const locations = useApiQuery<Location[]>("/api/locations");
+  const { error, run } = useWrite();
 
   useEffect(() => {
     api<WorkOrder>(`/api/work-orders/${id}`)
@@ -147,73 +275,158 @@ function WorkOrderDetail({ id }: { id: string }) {
         setOrder(next);
         setThisQty(String(next.remaining ?? next.qty));
       })
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => setLoadError(err.message));
   }, [id]);
 
+  if (!order) {
+    return loadError ? <ErrorBanner error={loadError} /> : <DetailSkeleton />;
+  }
+
+  const current = order;
+  const remaining = current.remaining ?? Math.max(0, current.qty - (current.qtyCompleted ?? 0));
+  const completable = canCompleteWorkOrder(current.status) && remaining > 0;
+  const bayCode = (locationId: string) => (locations.data ?? []).find((row) => row.id === locationId)?.code;
+  const sourceBay = bayCode(current.sourceLocationId);
+  const outputBay = bayCode(current.outputLocationId);
+  const asBuilt = current.asBuilt ?? [];
+  const hasRecipe = Boolean(current.components?.length || current.steps?.length || current.imageUrl);
+
   async function start() {
-    setError(null);
-    try {
-      setOrder(await api<WorkOrder>(`/api/work-orders/${id}/start`, { method: "POST" }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start");
-    }
+    const next = await run(
+      "Start",
+      () => api<WorkOrder>(`/api/work-orders/${id}/start`, { method: "POST" }),
+      `${current.number} started.`,
+    );
+    if (next) setOrder(next);
   }
 
   async function complete() {
-    setError(null);
-    try {
-      const next = await api<WorkOrder>(`/api/work-orders/${id}/complete`, {
-        method: "POST",
-        body: JSON.stringify({ qty: Number(thisQty) }),
-      });
+    const qty = Number(thisQty);
+    const next = await run(
+      "Complete",
+      () =>
+        api<WorkOrder>(`/api/work-orders/${id}/complete`, {
+          method: "POST",
+          body: JSON.stringify({ qty }),
+        }),
+      (done) => {
+        const left = done.remaining ?? Math.max(0, done.qty - (done.qtyCompleted ?? 0));
+        const built = `Built ${qty} ${current.sku}${outputBay ? ` into ${outputBay}` : ""}.`;
+        return left > 0 ? `${built} ${left} left to build.` : `${built} ${current.number} is complete.`;
+      },
+    );
+    if (next) {
       setOrder(next);
       setThisQty(String(next.remaining ?? 0));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Complete failed");
     }
   }
 
-  if (!order) return <ErrorBanner error={error} />;
-  const remaining = order.remaining ?? Math.max(0, order.qty - (order.qtyCompleted ?? 0));
+  const primary: DocumentAction | null = completable
+    ? { label: "Complete", icon: CheckCircle2, onSelect: complete, disabled: !(Number(thisQty) > 0) }
+    : null;
+
+  const menu: DocumentAction[] = [
+    ...(current.status === "draft" ? [{ label: "Start", icon: Play, onSelect: start }] : []),
+    { label: "Open on floor", icon: ScanLine, to: `/floor/assemble?id=${current.id}` },
+    { label: "Recipe", icon: BookOpen, to: `/make/recipes?item=${current.itemId}` },
+  ];
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-(--density-gap)">
       <DocumentHeader
         eyebrow="Make"
-        title={order.number}
-        description={`Build ${order.sku} · completed ${order.qtyCompleted ?? 0}/${order.qty}`}
-        status={order.status}
+        list={{ label: "Work orders", to: "/make/work-orders" }}
+        title={current.number}
+        description={`Build ${current.sku} · ${current.itemName}`}
+        status={current.status}
         steps={WORK_ORDER_STEPS}
-        actions={
-          <>
-            <Button variant="ghost" onClick={() => navigate("/make/work-orders")}>
-              All work orders
-            </Button>
-            {order.status === "draft" ? <Button onClick={() => void start()}>Start</Button> : null}
-            {canCompleteWorkOrder(order.status) && remaining > 0 ? <Button onClick={() => void complete()}>Complete</Button> : null}
-            <Button variant="secondary">
-              <Link to={`/floor/assemble?id=${order.id}`}>Floor</Link>
-            </Button>
-          </>
-        }
+        refId={current.id}
+        stampRules={STEP_RULES.workOrder}
+        primary={primary}
+        menu={menu}
       />
       <ErrorBanner error={error} />
-      {canCompleteWorkOrder(order.status) && remaining > 0 ? (
-        <Field label={`This complete (remaining ${remaining})`}>
-          <Input type="number" min={1} max={remaining} value={thisQty} onChange={(e) => setThisQty(e.target.value)} />
-        </Field>
-      ) : null}
-      <KitRecipeCard
-        sku={order.sku}
-        itemName={order.itemName}
-        imageUrl={order.imageUrl}
-        components={order.components}
-        steps={order.steps}
-      />
-      {(order.asBuilt ?? []).length ? (
-        <AsBuiltList title="As-built" empty="No component lots were recorded." rows={order.asBuilt ?? []} mode="from" />
-      ) : null}
-      <DocumentActivity refId={order.id} refreshKey={`${order.status}:${order.qtyCompleted ?? 0}`} />
+      <DocumentFrame
+        rail={
+          <DocumentRail>
+            <Card>
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Build</p>
+                <ProgressRow label="Completed" done={current.qtyCompleted ?? 0} total={current.qty} />
+                <DocumentFact label="Item">
+                  <Link className="font-mono underline" to={`/stock/items/${current.itemId}`}>
+                    {current.sku}
+                  </Link>
+                </DocumentFact>
+                <DocumentFact label="Consume from">
+                  <span className="font-mono">{sourceBay ?? "—"}</span>
+                </DocumentFact>
+                <DocumentFact label="Put away to">
+                  <span className="font-mono">{outputBay ?? "—"}</span>
+                </DocumentFact>
+                <DocumentFact label="Created">
+                  <RelativeTime at={current.createdAt} />
+                </DocumentFact>
+              </div>
+            </Card>
+          </DocumentRail>
+        }
+      >
+        {completable ? (
+          <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-3 shadow-xs">
+            <div className="w-36">
+              <Field label="This complete">
+                <Input type="number" min={1} max={remaining} value={thisQty} onChange={(e) => setThisQty(e.target.value)} />
+              </Field>
+            </div>
+            <p className="max-w-md text-xs text-muted-foreground">
+              {remaining} left to build. Complete consumes the recipe{sourceBay ? ` from ${sourceBay}` : ""} and puts finished{" "}
+              {current.sku}
+              {outputBay ? ` in ${outputBay}` : " in the output bay"}. A partial qty is fine.
+            </p>
+          </div>
+        ) : null}
+        <Tabs value={view} onValueChange={setView}>
+          <TabsList className="max-w-full overflow-x-auto">
+            <TabsTrigger value="recipe">Recipe</TabsTrigger>
+            {asBuilt.length ? <TabsTrigger value="as-built">As-built ({asBuilt.length})</TabsTrigger> : null}
+            <TabsTrigger value="activity">Activity</TabsTrigger>
+          </TabsList>
+          <TabsContent value="recipe">
+            {hasRecipe ? (
+              <Card>
+                <KitRecipeCard
+                  sku={current.sku}
+                  itemName={current.itemName}
+                  imageUrl={current.imageUrl}
+                  components={current.components}
+                  steps={current.steps}
+                />
+              </Card>
+            ) : (
+              <EmptyState
+                icon={BookOpen}
+                title="No recipe for this SKU."
+                body="Complete needs a recipe to know which components to consume."
+                action={
+                  <Button size="sm" variant="outline" asChild>
+                    <Link to="/make/recipes">Recipes</Link>
+                  </Button>
+                }
+              />
+            )}
+          </TabsContent>
+          {asBuilt.length ? (
+            <TabsContent value="as-built">
+              <AsBuiltList title="As-built" empty="No component lots were recorded." rows={asBuilt} mode="from" />
+            </TabsContent>
+          ) : null}
+          <TabsContent value="activity">
+            <DocumentActivity refId={current.id} refreshKey={`${current.status}:${current.qtyCompleted ?? 0}`} />
+          </TabsContent>
+        </Tabs>
+      </DocumentFrame>
     </div>
   );
 }
+

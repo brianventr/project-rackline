@@ -1,14 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import {
-  api,
-  type CarrierCatalogProvider,
-  type CarrierConnection,
-  type CarrierHub,
-  type CarrierOutbound,
-} from "../../api";
+import { Copy, FlaskConical, Plug, Star, Truck, Unplug } from "lucide-react";
+import { toast } from "sonner";
+import { api, type CarrierCatalogProvider, type CarrierConnection, type CarrierHub, type CarrierOutbound } from "../../api";
 import { useWarehouse } from "../../warehouse";
-import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, onSubmit } from "../../components/ui";
+import {
+  Button,
+  Card,
+  EmptyState,
+  ErrorBanner,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+  StatusBadge,
+  onSubmit,
+} from "../../components/ui";
+import { ActionButton, DocumentFact } from "../../components/document";
+import { DataTable, type DataColumn, type FacetDef } from "../../components/data-table/DataTable";
+import { Muted, RelativeTime } from "../../components/cells";
+import { useConfirm } from "../../components/confirm";
+import { useWrite } from "../../use-write";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 const CREDENTIAL_LABELS: Record<string, string> = {
   accountNumber: "Account number",
@@ -17,10 +31,46 @@ const CREDENTIAL_LABELS: Record<string, string> = {
   meterNumber: "Meter number",
 };
 
+const ACTIVITY_FACETS: FacetDef<CarrierOutbound>[] = [
+  { id: "kind", label: "Kind", value: (event) => event.kind },
+  { id: "status", label: "Status", value: (event) => event.status },
+];
+
+const ACTIVITY_COLUMNS: DataColumn<CarrierOutbound>[] = [
+  {
+    id: "when",
+    header: "When",
+    sortValue: (event) => event.createdAt,
+    csv: (event) => new Date(event.createdAt).toISOString(),
+    cell: (event) => <RelativeTime at={event.createdAt} />,
+  },
+  {
+    id: "kind",
+    header: "Kind",
+    sortValue: (event) => event.kind,
+    cell: (event) => <span className="font-mono text-xs">{event.kind}</span>,
+  },
+  {
+    id: "status",
+    header: "Status",
+    sortValue: (event) => event.status,
+    cell: (event) => <StatusBadge status={event.status} />,
+  },
+  {
+    id: "payload",
+    header: "Payload",
+    csv: (event) => JSON.stringify({ request: event.request, response: event.response }),
+    cell: (event) => <PayloadDetails request={event.request} response={event.response} />,
+  },
+];
+
 export function CarriersPage() {
   const warehouse = useWarehouse();
+  const confirm = useConfirm();
+  const write = useWrite();
   const [hub, setHub] = useState<CarrierHub | null>(null);
   const [outbound, setOutbound] = useState<CarrierOutbound[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState<string>("ups");
   const [nickname, setNickname] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
@@ -31,8 +81,6 @@ export function CarriersPage() {
   const [mode, setMode] = useState("demo");
   const [enabled, setEnabled] = useState<string[]>([]);
   const [shipFrom, setShipFrom] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const provider = hub?.catalog.find((row) => row.id === selected) ?? null;
   const connection = hub?.connections.find((row) => row.provider === selected) ?? null;
@@ -44,14 +92,14 @@ export function CarriersPage() {
     ]);
     setHub(nextHub);
     setOutbound(nextOutbound);
+    setLoaded(true);
     setShipFrom(nextHub.shipFromAddress ?? "");
-    const pick =
-      nextSelected ||
-      nextHub.connections.find((row) => row.isDefault)?.provider ||
-      nextHub.catalog[1]?.id ||
-      "ups";
+    const pick = nextSelected || nextHub.connections.find((row) => row.isDefault)?.provider || nextHub.catalog[1]?.id || "ups";
     setSelected(pick);
-    applyConnection(nextHub.catalog.find((row) => row.id === pick), nextHub.connections.find((row) => row.provider === pick));
+    applyConnection(
+      nextHub.catalog.find((row) => row.id === pick),
+      nextHub.connections.find((row) => row.provider === pick),
+    );
   }
 
   function applyConnection(nextProvider?: CarrierCatalogProvider | null, nextConnection?: CarrierConnection | null) {
@@ -66,354 +114,492 @@ export function CarriersPage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err: Error) => write.setError(err.message));
   }, [warehouse.warehouseId]);
 
   const connectedProviders = useMemo(() => new Set(hub?.connections.map((row) => row.provider) ?? []), [hub]);
 
   async function saveConnection() {
     if (!provider) return;
-    setError(null);
-    setNotice(null);
-    try {
-      const body = {
-        nickname,
-        accountNumber: accountNumber || undefined,
-        apiKey: apiKey || undefined,
-        apiSecret: apiSecret || undefined,
-        meterNumber: meterNumber || undefined,
-        webhookSecret: webhookSecret || undefined,
-        mode,
-        enabledServices: enabled,
-      };
-      if (connection) {
-        await api(`/api/carriers/${connection.id}`, { method: "PATCH", body: JSON.stringify(body) });
-      } else {
-        await api("/api/carriers", {
-          method: "POST",
-          body: JSON.stringify({ ...body, provider: provider.id }),
-        });
-      }
-      await load(provider.id);
-      setNotice(`${provider.name} connection saved.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save carrier");
+    if (mode === "live" && connection?.mode !== "live") {
+      const ok = await confirm({
+        title: `Switch ${provider.name} to live?`,
+        body: "Buying a label from an order will purchase real postage through EasyPost or ShipEngine and bill the connected account.",
+        confirmLabel: "Go live",
+        cancelLabel: "Stay in demo",
+      });
+      if (!ok) return;
     }
+    const body = {
+      nickname,
+      accountNumber: accountNumber || undefined,
+      apiKey: apiKey || undefined,
+      apiSecret: apiSecret || undefined,
+      meterNumber: meterNumber || undefined,
+      webhookSecret: webhookSecret || undefined,
+      mode,
+      enabledServices: enabled,
+    };
+    await write.run(
+      "Save carrier",
+      async () => {
+        if (connection) {
+          await api(`/api/carriers/${connection.id}`, { method: "PATCH", body: JSON.stringify(body) });
+        } else {
+          await api("/api/carriers", {
+            method: "POST",
+            body: JSON.stringify({ ...body, provider: provider.id }),
+          });
+        }
+        await load(provider.id);
+      },
+      `${provider.name} connection saved.`,
+    );
   }
 
-  async function enableDemo() {
-    setError(null);
-    setNotice(null);
-    try {
-      await api("/api/carriers/enable-demo", { method: "POST" });
-      await load("ups");
-      setNotice("Demo UPS and USPS accounts are on. Buy a label from an order to mint tracking.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not enable demo carriers");
-    }
-  }
+  const enableDemo = () =>
+    write.run(
+      "Enable demo carriers",
+      async () => {
+        await api("/api/carriers/enable-demo", { method: "POST" });
+        await load("ups");
+      },
+      "Demo UPS and USPS accounts are on. Buy a label from an order to mint tracking.",
+    );
 
   async function testConnection() {
     if (!connection) return;
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await api<{ message?: string }>(`/api/carriers/${connection.id}/test`, { method: "POST" });
-      await load(selected);
-      setNotice(result.message || "Connection test passed.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Test failed");
-    }
+    await write.run(
+      "Test",
+      async () => {
+        const result = await api<{ message?: string }>(`/api/carriers/${connection.id}/test`, { method: "POST" });
+        await load(selected);
+        return result;
+      },
+      (result) => result.message || "Connection test passed.",
+    );
   }
 
   async function makeDefault() {
     if (!connection) return;
-    setError(null);
-    try {
-      await api(`/api/carriers/${connection.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ isDefault: true }),
-      });
-      await load(selected);
-      setNotice(`${connection.nickname} is the default carrier.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not set default");
-    }
+    await write.run(
+      "Set default",
+      async () => {
+        await api(`/api/carriers/${connection.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ isDefault: true }),
+        });
+        await load(selected);
+      },
+      `${connection.nickname} is the default carrier.`,
+    );
+  }
+
+  async function confirmDisconnect() {
+    if (!connection) return;
+    const ok = await confirm({
+      title: `Disconnect ${connection.nickname || connection.name}?`,
+      body: `Its stored keys are deleted and its services drop off the ship screen.${
+        connection.isDefault ? " Rackline Ground becomes the default carrier." : ""
+      } To reconnect you paste the keys again.`,
+      confirmLabel: "Disconnect",
+      cancelLabel: "Keep connected",
+      tone: "danger",
+    });
+    if (ok) await disconnect();
   }
 
   async function disconnect() {
     if (!connection) return;
-    setError(null);
-    try {
-      await api(`/api/carriers/${connection.id}`, { method: "DELETE" });
-      await load(selected);
-      setNotice(`${connection.name} disconnected.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not disconnect");
-    }
+    await write.run(
+      "Disconnect",
+      async () => {
+        await api(`/api/carriers/${connection.id}`, { method: "DELETE" });
+        await load(selected);
+      },
+      `${connection.name} disconnected.`,
+    );
   }
 
   async function saveShipFrom() {
     if (!hub?.warehouseId) return;
-    setError(null);
-    setNotice(null);
-    try {
-      await api(`/api/warehouses/${hub.warehouseId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ shipFromAddress: shipFrom }),
-      });
-      setNotice("Ship-from address saved.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save ship-from");
-    }
+    await write.run(
+      "Save ship-from",
+      () =>
+        api(`/api/warehouses/${hub.warehouseId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ shipFromAddress: shipFrom }),
+        }),
+      "Ship-from address saved.",
+    );
   }
 
   return (
-    <div>
+    <div className="space-y-(--density-gap)">
       <PageHeader
         eyebrow="Setup"
         title="Carriers"
         description="Connect your own UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine account. Demo mints tracking. Live accounts shop rates and buy postage."
+        actions={
+          <ActionButton variant="outline" action={{ label: "Enable demo carriers", icon: FlaskConical, onSelect: enableDemo }} />
+        }
       />
-      <ErrorBanner error={error} />
-      {notice ? (
-        <div className="mb-4 rounded-lg border border-ok/30 bg-ok/10 px-2.5 py-1.5 text-sm text-ok">{notice}</div>
-      ) : null}
+      <ErrorBanner error={write.error} />
 
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        <Button variant="secondary" onClick={() => void enableDemo()}>
-          Enable demo carriers
-        </Button>
-        <Button variant="secondary" asChild>
-          <Link to="/setup/warehouse">Warehouse ship-from</Link>
-        </Button>
-        <Button variant="secondary" asChild>
-          <Link to="/outbound/orders">Orders</Link>
-        </Button>
-      </div>
-
-      <div className="mb-3 grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
-        {(hub?.catalog ?? []).map((row) => {
-          const connected = connectedProviders.has(row.id);
-          const active = selected === row.id;
-          const isDefault = hub?.connections.find((item) => item.provider === row.id)?.isDefault;
-          return (
-            <button
-              key={row.id}
-              type="button"
-              title={row.description}
-              onClick={() => {
-                setSelected(row.id);
-                applyConnection(row, hub?.connections.find((item) => item.provider === row.id));
-              }}
-              className={`rounded-md border px-2.5 py-2 text-left ${active ? "border-primary bg-primary/5" : "bg-card"}`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold">{row.name}</p>
-                {connected ? <StatusBadge status={isDefault ? "default" : "connected"} /> : (
-                  <span className="text-[11px] text-muted-foreground">Off</span>
+      <section className="space-y-2">
+        <div>
+          <h2 className="text-sm font-semibold">Accounts</h2>
+          <p className="text-sm text-muted-foreground">Pick a carrier to connect it or change its settings.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+          {(hub?.catalog ?? []).map((row) => {
+            const connected = connectedProviders.has(row.id);
+            const active = selected === row.id;
+            const isDefault = hub?.connections.find((item) => item.provider === row.id)?.isDefault;
+            return (
+              <button
+                key={row.id}
+                type="button"
+                title={row.description}
+                aria-pressed={active}
+                onClick={() => {
+                  setSelected(row.id);
+                  applyConnection(
+                    row,
+                    hub?.connections.find((item) => item.provider === row.id),
+                  );
+                }}
+                className={cn(
+                  "rounded-lg border bg-card px-3 py-2.5 text-left shadow-xs transition-colors hover:border-primary/40",
+                  active && "border-primary bg-primary/5 ring-2 ring-primary/15",
                 )}
-              </div>
-              <p className="text-[10px] uppercase text-muted-foreground">{row.kind}</p>
-            </button>
-          );
-        })}
-      </div>
+              >
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                  <p className="text-sm font-semibold">{row.name}</p>
+                  {connected ? (
+                    <StatusBadge status={isDefault ? "default" : "connected"} />
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground">Off</span>
+                  )}
+                </div>
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{row.kind}</p>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
-      <div className="mb-3 grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-(--density-gap) xl:grid-cols-2">
         <Card>
-          <h2 className="mb-1 font-semibold">{provider?.name ?? "Carrier"} connection</h2>
-          <p className="mb-4 text-sm text-muted-foreground">
-            {provider?.description} Leave secret fields blank to keep the current value.
-          </p>
-          {connection ? (
-            <p className="mb-4 text-sm">
-              <StatusBadge status={connection.mode} />{" "}
-              <StatusBadge status={connection.status} />
-              {connection.accountNumber ? (
-                <span className="ml-2 font-mono text-xs">{connection.accountNumber}</span>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold">{provider?.name ?? "Carrier"} connection</h2>
+                <p className="text-sm text-muted-foreground">
+                  {provider?.description} Leave secret fields blank to keep the current value.
+                </p>
+              </div>
+              {connection ? (
+                <span className="flex flex-wrap gap-1">
+                  <StatusBadge status={connection.mode} />
+                  <StatusBadge status={connection.status} />
+                  {connection.isDefault ? <StatusBadge status="default" /> : null}
+                </span>
               ) : null}
-              {connection.apiKeyHint ? (
-                <span className="ml-2 text-xs text-muted-foreground">key {connection.apiKeyHint}</span>
-              ) : (
-                <span className="ml-2 text-xs text-muted-foreground">no API key</span>
-              )}
-            </p>
-          ) : (
-            <p className="mb-4 text-sm text-muted-foreground">No {provider?.name} account connected yet.</p>
-          )}
-          {provider ? (
-            <form className="space-y-3" onSubmit={onSubmit(saveConnection)}>
-              <Field label="Nickname">
-                <Input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder={provider.name} />
-              </Field>
-              {provider.credentialFields.includes("accountNumber") ? (
-                <Field label={CREDENTIAL_LABELS.accountNumber}>
-                  <Input
-                    value={accountNumber}
-                    onChange={(e) => setAccountNumber(e.target.value)}
-                    placeholder={provider.id === "ups" ? "A1B2C3" : "Account number"}
-                  />
+            </div>
+
+            {connection ? (
+              <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
+                {connection.accountNumber ? (
+                  <DocumentFact label="Account">
+                    <span className="font-mono text-xs">{connection.accountNumber}</span>
+                  </DocumentFact>
+                ) : null}
+                <DocumentFact label="API key">
+                  {connection.apiKeyHint ? (
+                    <span className="font-mono text-xs">{connection.apiKeyHint}</span>
+                  ) : (
+                    <Muted>None</Muted>
+                  )}
+                </DocumentFact>
+                {connection.lastTestedAt ? (
+                  <DocumentFact label="Last test">
+                    <span className="inline-flex items-center gap-2">
+                      {connection.lastTestStatus ? <StatusBadge status={connection.lastTestStatus} /> : null}
+                      <RelativeTime at={connection.lastTestedAt} />
+                    </span>
+                  </DocumentFact>
+                ) : null}
+                {connection.lastTestError ? <p className="text-xs text-destructive">{connection.lastTestError}</p> : null}
+              </div>
+            ) : provider ? (
+              <p className="text-sm text-muted-foreground">No {provider.name} account connected yet.</p>
+            ) : null}
+
+            {provider ? (
+              <form className="space-y-4" onSubmit={onSubmit(saveConnection)}>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <Field label="Nickname">
+                      <Input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder={provider.name} />
+                    </Field>
+                  </div>
+                  {provider.credentialFields.includes("accountNumber") ? (
+                    <Field label={CREDENTIAL_LABELS.accountNumber!}>
+                      <Input
+                        value={accountNumber}
+                        onChange={(e) => setAccountNumber(e.target.value)}
+                        placeholder={provider.id === "ups" ? "A1B2C3" : "Account number"}
+                      />
+                    </Field>
+                  ) : null}
+                  {provider.credentialFields.includes("apiKey") ? (
+                    <Field label={CREDENTIAL_LABELS.apiKey!}>
+                      <Input
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        placeholder={connection?.hasApiKey ? "Leave blank to keep current" : "API key"}
+                      />
+                    </Field>
+                  ) : null}
+                  {provider.credentialFields.includes("apiSecret") ? (
+                    <Field label={CREDENTIAL_LABELS.apiSecret!}>
+                      <Input
+                        type="password"
+                        value={apiSecret}
+                        onChange={(e) => setApiSecret(e.target.value)}
+                        placeholder={connection?.hasApiSecret ? "Leave blank to keep current" : "API secret"}
+                      />
+                    </Field>
+                  ) : null}
+                  {provider.credentialFields.includes("meterNumber") ? (
+                    <Field label={CREDENTIAL_LABELS.meterNumber!}>
+                      <Input
+                        type="password"
+                        value={meterNumber}
+                        onChange={(e) => setMeterNumber(e.target.value)}
+                        placeholder={connection?.hasMeterNumber ? "Leave blank to keep current" : "Meter number"}
+                      />
+                    </Field>
+                  ) : null}
+                  {provider.id === "easypost" || provider.id === "shipengine" ? (
+                    <Field label="Tracker webhook secret">
+                      <Input
+                        type="password"
+                        value={webhookSecret}
+                        onChange={(e) => setWebhookSecret(e.target.value)}
+                        placeholder={connection?.hasWebhookSecret ? "Leave blank to keep current" : "HMAC secret"}
+                      />
+                    </Field>
+                  ) : null}
+                </div>
+
+                <Field label="Mode">
+                  <Select value={mode} onChange={(e) => setMode(e.target.value)}>
+                    <option value="demo">Demo — mint tracking locally</option>
+                    <option value="live">Live — EasyPost / ShipEngine buy postage</option>
+                  </Select>
                 </Field>
-              ) : null}
-              {provider.credentialFields.includes("apiKey") ? (
-                <Field label={CREDENTIAL_LABELS.apiKey}>
-                  <Input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={connection?.hasApiKey ? "Leave blank to keep current" : "API key"}
-                  />
-                </Field>
-              ) : null}
-              {provider.credentialFields.includes("apiSecret") ? (
-                <Field label={CREDENTIAL_LABELS.apiSecret}>
-                  <Input
-                    type="password"
-                    value={apiSecret}
-                    onChange={(e) => setApiSecret(e.target.value)}
-                    placeholder={connection?.hasApiSecret ? "Leave blank to keep current" : "API secret"}
-                  />
-                </Field>
-              ) : null}
-              {provider.credentialFields.includes("meterNumber") ? (
-                <Field label={CREDENTIAL_LABELS.meterNumber}>
-                  <Input
-                    type="password"
-                    value={meterNumber}
-                    onChange={(e) => setMeterNumber(e.target.value)}
-                    placeholder={connection?.hasMeterNumber ? "Leave blank to keep current" : "Meter number"}
-                  />
-                </Field>
-              ) : null}
-              {provider.id === "easypost" || provider.id === "shipengine" ? (
-                <Field label="Tracker webhook secret">
-                  <Input
-                    type="password"
-                    value={webhookSecret}
-                    onChange={(e) => setWebhookSecret(e.target.value)}
-                    placeholder={connection?.hasWebhookSecret ? "Leave blank to keep current" : "HMAC secret"}
-                  />
-                </Field>
-              ) : null}
-              <Field label="Mode">
-                <Select value={mode} onChange={(e) => setMode(e.target.value)}>
-                  <option value="demo">Demo — mint tracking locally</option>
-                  <option value="live">Live — EasyPost / ShipEngine buy postage</option>
-                </Select>
-              </Field>
+
+                <fieldset className="space-y-2">
+                  <legend className="mb-1.5 text-sm font-medium">Services</legend>
+                  <ul className="space-y-1.5">
+                    {provider.services.map((service) => (
+                      <li key={service.id}>
+                        <label className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            checked={enabled.includes(service.id)}
+                            onCheckedChange={(value) =>
+                              setEnabled((current) =>
+                                value === true ? [...current, service.id] : current.filter((id) => id !== service.id),
+                              )
+                            }
+                          />
+                          <span>
+                            {service.company} {service.service}
+                          </span>
+                          <span className="font-mono text-xs text-muted-foreground">{service.id}</span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </fieldset>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+                  <div>
+                    {connection && provider.id !== "rackline" ? (
+                      <Button
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        disabled={write.busy}
+                        onClick={() => void confirmDisconnect()}
+                      >
+                        <Unplug className="size-4" />
+                        Disconnect
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {connection ? (
+                      <Button variant="outline" disabled={write.busy} onClick={() => void testConnection()}>
+                        <Plug className="size-4" />
+                        Test connection
+                      </Button>
+                    ) : null}
+                    {connection && !connection.isDefault ? (
+                      <Button variant="outline" disabled={write.busy} onClick={() => void makeDefault()}>
+                        <Star className="size-4" />
+                        Set as default
+                      </Button>
+                    ) : null}
+                    <Button type="submit" disabled={write.busy}>
+                      {connection ? "Save connection" : "Connect"}
+                    </Button>
+                  </div>
+                </div>
+              </form>
+            ) : !loaded ? (
+              <p className="text-sm text-muted-foreground">Loading carriers…</p>
+            ) : null}
+          </div>
+        </Card>
+
+        <div className="space-y-(--density-gap)">
+          <Card>
+            <div className="space-y-4">
               <div>
-                <p className="mb-2 text-sm font-medium">Services</p>
-                <ul className="space-y-2 text-sm">
-                  {provider.services.map((service) => (
-                    <li key={service.id}>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={enabled.includes(service.id)}
-                          onChange={(e) =>
-                            setEnabled((current) =>
-                              e.target.checked
-                                ? [...current, service.id]
-                                : current.filter((id) => id !== service.id),
-                            )
-                          }
-                        />
-                        {service.company} {service.service}
-                        <span className="font-mono text-xs text-muted-foreground">{service.id}</span>
-                      </label>
+                <h2 className="text-sm font-semibold">Ship-from</h2>
+                <p className="text-sm text-muted-foreground">
+                  Origin address used when shopping rates and printing labels. Same field as Setup → Warehouse.
+                </p>
+              </div>
+              <form className="space-y-3" onSubmit={onSubmit(saveShipFrom)}>
+                <Field label="Ship-from address">
+                  <Textarea
+                    value={shipFrom}
+                    onChange={(e) => setShipFrom(e.target.value)}
+                    rows={4}
+                    placeholder="14 Dock St, Portland, OR 97209"
+                  />
+                </Field>
+                <div className="flex justify-end">
+                  <Button type="submit" variant="outline" disabled={write.busy || !hub?.warehouseId}>
+                    Save ship-from
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="space-y-3">
+              <div>
+                <h2 className="text-sm font-semibold">Enabled for the floor</h2>
+                <p className="text-sm text-muted-foreground">Services packers can pick from on the ship screen.</p>
+              </div>
+              {(hub?.enabledServices.length ?? 0) === 0 ? (
+                <p className="text-sm text-muted-foreground">Connect a carrier to offer services at ship.</p>
+              ) : (
+                <ul className="divide-y rounded-md border text-sm">
+                  {(hub?.enabledServices ?? []).map((row) => (
+                    <li
+                      key={`${row.connectionId ?? "none"}:${row.id}`}
+                      className="flex items-center justify-between gap-2 px-3 py-1.5"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Truck className="size-3.5 text-muted-foreground" />
+                        {row.company} {row.service}
+                        {row.isDefault ? <StatusBadge status="default" /> : null}
+                      </span>
+                      <span className="font-mono text-xs text-muted-foreground">{row.id}</span>
                     </li>
                   ))}
                 </ul>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="submit">{connection ? "Save connection" : "Connect"}</Button>
-                {connection ? (
-                  <Button variant="secondary" onClick={() => void testConnection()}>
-                    Test connection
-                  </Button>
-                ) : null}
-                {connection && !connection.isDefault ? (
-                  <Button variant="secondary" onClick={() => void makeDefault()}>
-                    Set as default
-                  </Button>
-                ) : null}
-                {connection && provider.id !== "rackline" ? (
-                  <Button variant="danger" onClick={() => void disconnect()}>
-                    Disconnect
-                  </Button>
-                ) : null}
-              </div>
-            </form>
-          ) : null}
-        </Card>
-
-        <Card>
-          <h2 className="mb-1 font-semibold">Ship-from</h2>
-          <p className="mb-4 text-sm text-muted-foreground">
-            Origin address used when shopping rates and printing labels. Same field as Setup → Warehouse.
-          </p>
-          <form className="space-y-3" onSubmit={onSubmit(saveShipFrom)}>
-            <Field label="Ship-from address">
-              <textarea
-                value={shipFrom}
-                onChange={(e) => setShipFrom(e.target.value)}
-                rows={4}
-                className="border-input w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-                placeholder="14 Dock St, Portland, OR 97209"
-              />
-            </Field>
-            <Button type="submit">Save ship-from</Button>
-          </form>
-          {hub?.trackerWebhookUrl ? (
-            <div className="mt-6">
-              <h3 className="mb-2 font-medium">Tracker webhook</h3>
-              <p className="mb-2 text-sm text-muted-foreground">
-                EasyPost and ShipEngine POST tracker updates here. Demo records the payload. HMAC is required when the
-                aggregator connection is live and has a webhook secret.
-              </p>
-              <p className="font-mono text-xs break-all">{hub.trackerWebhookUrl}</p>
+              )}
             </div>
+          </Card>
+
+          {hub?.trackerWebhookUrl ? (
+            <Card>
+              <div className="space-y-3">
+                <div>
+                  <h2 className="text-sm font-semibold">Tracker webhook</h2>
+                  <p className="text-sm text-muted-foreground">
+                    EasyPost and ShipEngine POST tracker updates here. Demo records the payload. HMAC is required when the
+                    aggregator connection is live and has a webhook secret.
+                  </p>
+                </div>
+                <CopyValue value={hub.trackerWebhookUrl} label="Tracker webhook URL" />
+              </div>
+            </Card>
           ) : null}
-          <div className="mt-6">
-            <h3 className="mb-2 font-medium">Enabled for the floor</h3>
-            {(hub?.enabledServices.length ?? 0) === 0 ? (
-              <p className="text-sm text-muted-foreground">Connect a carrier to offer services at ship.</p>
-            ) : (
-              <ul className="space-y-1 text-sm">
-                {(hub?.enabledServices ?? []).map((row) => (
-                  <li key={`${row.connectionId ?? "none"}:${row.id}`}>
-                    {row.company} {row.service}
-                    <span className="ml-2 font-mono text-xs text-muted-foreground">{row.id}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </Card>
+        </div>
       </div>
 
-      <Card>
-        <h2 className="mb-3 font-semibold">Carrier activity</h2>
-        {outbound.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Test a connection or buy a label to see the payload here.</p>
-        ) : (
-          <ul className="space-y-3 text-sm">
-            {outbound.map((event) => (
-              <li key={event.id} className="rounded-lg border border-line px-3 py-3">
-                <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <StatusBadge status={event.status} />
-                  <span className="font-mono text-xs">{event.kind}</span>
-                  <span className="text-xs text-muted-foreground">{new Date(event.createdAt).toLocaleString()}</span>
-                </div>
-                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
-                  {JSON.stringify({ request: event.request, response: event.response }, null, 2)}
-                </pre>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+      <section className="space-y-2">
+        <div>
+          <h2 className="text-sm font-semibold">Carrier activity</h2>
+          <p className="text-sm text-muted-foreground">The last 25 requests sent to a carrier, with what came back.</p>
+        </div>
+        <DataTable
+          id="carrier-activity"
+          data={outbound}
+          loading={!loaded}
+          columns={ACTIVITY_COLUMNS}
+          getRowId={(event) => event.id}
+          facets={ACTIVITY_FACETS}
+          defaultSort={{ id: "when", desc: true }}
+          search={{
+            placeholder: "Search kind or payload",
+            text: (event) => `${event.kind} ${event.status} ${JSON.stringify(event.request)}`,
+          }}
+          exportName="carrier-activity"
+          empty={
+            <EmptyState
+              icon={Truck}
+              title="No carrier calls yet."
+              body="Test a connection or buy a label to see the payload here."
+            />
+          }
+        />
+      </section>
+    </div>
+  );
+}
+
+function PayloadDetails({ request, response }: { request: unknown; response: unknown }) {
+  return (
+    <details className="group max-w-xl">
+      <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
+        <span className="group-open:hidden">Show</span>
+        <span className="hidden group-open:inline">Hide</span>
+      </summary>
+      <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-2 font-mono text-[11px] text-muted-foreground">
+        {JSON.stringify({ request, response }, null, 2)}
+      </pre>
+    </details>
+  );
+}
+
+function CopyValue({ value, label }: { value: string; label: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border bg-muted/30 py-1 pr-1 pl-3">
+      <span className="min-w-0 flex-1 break-all font-mono text-xs">{value}</span>
+      <Button
+        size="icon-xs"
+        variant="ghost"
+        aria-label={`Copy ${label}`}
+        title="Copy"
+        onClick={() => {
+          void navigator.clipboard
+            ?.writeText(value)
+            .then(() => toast.success(`${label} copied.`))
+            .catch(() => toast.error("Could not copy. Select the text instead."));
+        }}
+      >
+        <Copy className="size-3.5" />
+      </Button>
     </div>
   );
 }
