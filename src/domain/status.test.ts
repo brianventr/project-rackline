@@ -26,6 +26,7 @@ import {
   isOpenPurchase,
   normalizeOrderStatus,
   statusLabel,
+  statusTone,
 } from "./status";
 
 describe("order status", () => {
@@ -126,5 +127,32 @@ describe("order status", () => {
     expect(canCheckInEquipment("open")).toBe(true);
     expect(canReturnEquipmentToService("out_of_service")).toBe(true);
     expect(statusLabel("checked_in")).toBe("Checked in");
+  });
+});
+
+describe("statusTone", () => {
+  it("reads finished work as success, not as the brand accent", () => {
+    expect(statusTone("shipped")).toBe("success");
+    expect(statusTone("received")).toBe("success");
+    expect(statusTone("posted")).toBe("success");
+  });
+
+  it("separates waiting, moving, and broken work", () => {
+    expect(statusTone("draft")).toBe("neutral");
+    expect(statusTone("open")).toBe("info");
+    expect(statusTone("picking")).toBe("progress");
+    expect(statusTone("exception")).toBe("warning");
+    expect(statusTone("cancelled")).toBe("danger");
+  });
+
+  it("accepts labels as well as raw values", () => {
+    expect(statusTone("In progress")).toBe("progress");
+    expect(statusTone(statusLabel("at_dock"))).toBe("progress");
+  });
+
+  it("falls back to neutral for unknown or empty values", () => {
+    expect(statusTone("something_new")).toBe("neutral");
+    expect(statusTone(null)).toBe("neutral");
+    expect(statusTone("")).toBe("neutral");
   });
 });

@@ -1,9 +1,70 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type CarrierHub, type CarrierRate, type CarrierServiceOption, type Item, type Location, type Order, type ShippingLabel } from "../api";
-import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, onSubmit, summarizeLines } from "../components/ui";
-import { DocumentActionGrid, DocumentActivity, DocumentFact, DocumentFrame, DocumentHeader, DocumentRail } from "../components/document";
-import { ORDER_STEPS, canPackOrder, canPickOrder, canShipOrder, canShipCartonOrder, canStartPick, canCancelOrder, canUnpickOrder } from "@/domain/status";
+import {
+  Box,
+  ClipboardList,
+  FileText,
+  Layers,
+  PackageCheck,
+  PackageMinus,
+  Play,
+  Plus,
+  Printer,
+  RefreshCw,
+  ScanLine,
+  Search,
+  Send,
+  Store,
+  Tag,
+  Trash2,
+  Truck,
+  Undo2,
+  Warehouse,
+  XCircle,
+} from "lucide-react";
+import { toast } from "sonner";
+import {
+  api,
+  type CarrierHub,
+  type CarrierRate,
+  type CarrierServiceOption,
+  type Item,
+  type Location,
+  type Order,
+  type OrderPackage,
+  type ShippingLabel,
+} from "../api";
+import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, ToneBadge, summarizeLines } from "../components/ui";
+import {
+  ActionButton,
+  ActionMenu,
+  DetailSkeleton,
+  DocumentActivity,
+  DocumentFact,
+  DocumentFrame,
+  DocumentHeader,
+  DocumentRail,
+  type DocumentAction,
+} from "../components/document";
+import { DataTable, type BulkAction, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
+import { DocLink, LineChips, Muted, ProgressCell, RelativeTime, SkuCell } from "../components/cells";
+import { FormSheet } from "../components/form-sheet";
+import { apiMutate, refreshApi, useApiQuery } from "../query";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+import { STEP_RULES } from "@/domain/step-stamps";
+import {
+  ORDER_STEPS,
+  canPackOrder,
+  canPickOrder,
+  canShipOrder,
+  canShipCartonOrder,
+  canStartPick,
+  canCancelOrder,
+  canUnpickOrder,
+  isOpenOrder,
+  statusLabel,
+} from "@/domain/status";
 import { canRelabelException } from "@/domain/tracker";
 import { hasUnpicked } from "@/domain/partial-pick";
 import { hasUnpacked } from "@/domain/partial-pack";
@@ -23,32 +84,265 @@ export function OrdersPage() {
   return <OrderList />;
 }
 
+const ORDER_TABS: TabDef<Order>[] = [
+  { id: "active", label: "Active", match: (order) => isOpenOrder(order.status) },
+  { id: "pick", label: "To pick", match: (order) => ["open", "draft", "picking"].includes(order.status) },
+  { id: "pack", label: "To pack", match: (order) => order.status === "picked" || order.status === "packing" },
+  { id: "ship", label: "To ship", match: (order) => order.status === "packed" },
+  { id: "shipped", label: "Shipped", match: (order) => order.status === "shipped" },
+  { id: "cancelled", label: "Cancelled", match: (order) => order.status === "cancelled" },
+  { id: "all", label: "All", match: () => true },
+];
+
+const ORDER_FACETS: FacetDef<Order>[] = [
+  { id: "channel", label: "Channel", value: (order) => (order.source === "shopify" ? "shopify" : "floor"), format: channelLabel },
+  { id: "status", label: "Status", value: (order) => order.status, format: statusLabel },
+];
+
+function channelLabel(source: string | null | undefined): string {
+  return source === "shopify" ? "Shopify" : "Floor";
+}
+
+function orderUnits(order: Order) {
+  const lines = order.lines ?? [];
+  return {
+    ordered: lines.reduce((sum, line) => sum + line.qty, 0),
+    picked: lines.reduce((sum, line) => sum + (line.qtyPicked ?? 0), 0),
+    packed: lines.reduce((sum, line) => sum + (line.qtyPacked ?? 0), 0),
+    shipped: lines.reduce((sum, line) => sum + (line.qtyShipped ?? 0), 0),
+  };
+}
+
+function orderProgress(order: Order): { done: number; total: number } {
+  const units = orderUnits(order);
+  if (order.status === "shipped") return { done: units.ordered, total: units.ordered };
+  if (["picked", "packing", "packed"].includes(order.status)) return { done: units.packed, total: units.picked || units.ordered };
+  return { done: units.picked, total: units.ordered };
+}
+
+const ORDER_COLUMNS: DataColumn<Order>[] = [
+  {
+    id: "number",
+    header: "Order",
+    sortValue: (order) => order.number,
+    cell: (order) => (
+      <span className="flex flex-col">
+        <DocLink to={`/outbound/orders/${order.id}`}>{order.number}</DocLink>
+        {order.parent ? <span className="text-[11px] text-muted-foreground">Backorder of {order.parent.number}</span> : null}
+      </span>
+    ),
+  },
+  {
+    id: "customer",
+    header: "Customer",
+    sortValue: (order) => order.customerName,
+    cell: (order) => (
+      <span className="flex flex-col">
+        <span className="font-medium">{order.customerName}</span>
+        {order.shipToCity || order.shipToRegion ? (
+          <span className="text-xs text-muted-foreground">{[order.shipToCity, order.shipToRegion].filter(Boolean).join(", ")}</span>
+        ) : null}
+      </span>
+    ),
+  },
+  {
+    id: "channel",
+    header: "Channel",
+    sortValue: (order) => channelLabel(order.source),
+    cell: (order) =>
+      order.source === "shopify" ? (
+        <span className="inline-flex items-center gap-1.5 text-sm">
+          <Store className="size-3.5 text-tone-success" />
+          Shopify
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+          <Warehouse className="size-3.5" />
+          Floor
+        </span>
+      ),
+  },
+  {
+    id: "lines",
+    header: "Lines",
+    csv: (order) => summarizeLines(order.lines),
+    cell: (order) => <LineChips lines={order.lines} />,
+  },
+  {
+    id: "progress",
+    header: "Progress",
+    sortValue: (order) => {
+      const progress = orderProgress(order);
+      return progress.total ? progress.done / progress.total : 0;
+    },
+    csv: (order) => {
+      const progress = orderProgress(order);
+      return `${progress.done}/${progress.total}`;
+    },
+    cell: (order) => {
+      if (order.status === "cancelled") return <Muted>—</Muted>;
+      const progress = orderProgress(order);
+      return <ProgressCell done={progress.done} total={progress.total} />;
+    },
+  },
+  {
+    id: "allocated",
+    header: "Allocated",
+    align: "right",
+    defaultHidden: true,
+    sortValue: (order) => order.allocatedUnits ?? 0,
+    cell: (order) => <span className="font-mono">{order.allocatedUnits ?? 0}</span>,
+  },
+  {
+    id: "created",
+    header: "Created",
+    sortValue: (order) => order.createdAt,
+    csv: (order) => new Date(order.createdAt).toISOString(),
+    cell: (order) => <RelativeTime at={order.createdAt} />,
+  },
+  {
+    id: "status",
+    header: "Status",
+    sortValue: (order) => ORDER_STEPS.indexOf(order.status as (typeof ORDER_STEPS)[number]),
+    csv: (order) => order.status,
+    cell: (order) => <StatusBadge status={order.status} />,
+  },
+];
+
 function OrderList() {
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [items, setItems] = useState<Item[]>([]);
+  const orders = useApiQuery<Order[]>("/api/orders");
+  const [creating, setCreating] = useState(false);
+
+  const rows = useMemo(() => inWarehouse(orders.data ?? [], warehouseId), [orders.data, warehouseId]);
+
+  const bulkActions: BulkAction<Order>[] = [
+    {
+      label: "Start pick",
+      icon: Play,
+      when: (selected) => selected.every((order) => canStartPick(order.status)),
+      run: async (selected) => {
+        const results = await Promise.allSettled(
+          selected.map((order) => api(`/api/orders/${order.id}/start`, { method: "POST" })),
+        );
+        const failed = results.filter((result) => result.status === "rejected") as PromiseRejectedResult[];
+        void refreshApi();
+        if (failed.length) {
+          toast.error(`${failed.length} could not start: ${failed[0]!.reason instanceof Error ? failed[0]!.reason.message : "error"}`);
+        }
+        const started = selected.length - failed.length;
+        if (started) toast.success(`Started pick on ${started} ${started === 1 ? "order" : "orders"}. Stock is reserved.`);
+      },
+    },
+    {
+      label: "Create wave",
+      icon: Layers,
+      when: (selected) => selected.every((order) => canStartPick(order.status) && !order.waveId),
+      run: async (selected) => {
+        const wave = await apiMutate<{ id: string; number: string }>("/api/waves", {
+          body: JSON.stringify({ warehouseId, mode: "wave", orderIds: selected.map((order) => order.id) }),
+        });
+        toast.success(`Wave ${wave.number} created with ${selected.length} orders.`);
+        navigate(`/outbound/waves/${wave.id}`);
+      },
+    },
+    {
+      label: "Cancel",
+      icon: XCircle,
+      tone: "danger",
+      when: (selected) => selected.every((order) => canCancelOrder(order.status)),
+      confirm: (selected) => ({
+        title: `Cancel ${selected.length} ${selected.length === 1 ? "order" : "orders"}?`,
+        body: "Picked stock goes back to its bay and reservations are released. Cancelled orders cannot be reopened.",
+        confirmLabel: "Cancel orders",
+        cancelLabel: "Keep orders",
+        tone: "danger",
+      }),
+      run: async (selected) => {
+        const results = await Promise.allSettled(
+          selected.map((order) => api(`/api/orders/${order.id}/cancel`, { method: "POST" })),
+        );
+        void refreshApi();
+        const failed = results.filter((result) => result.status === "rejected").length;
+        if (failed) toast.error(`${failed} could not be cancelled.`);
+        if (selected.length - failed) toast.success(`Cancelled ${selected.length - failed} orders.`);
+      },
+    },
+  ];
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
+      <PageHeader
+        eyebrow="Outbound"
+        title="Orders"
+        description="Shopify checkouts and floor orders. Start pick to reserve stock, then pick from the suggested bay."
+      />
+      <DataTable
+        id="orders"
+        data={rows}
+        loading={orders.isLoading}
+        error={orders.error?.message}
+        columns={ORDER_COLUMNS}
+        getRowId={(order) => order.id}
+        rowHref={(order) => `/outbound/orders/${order.id}`}
+        tabs={ORDER_TABS}
+        defaultTab="active"
+        facets={ORDER_FACETS}
+        defaultSort={{ id: "created", desc: true }}
+        search={{
+          placeholder: "Search order, customer, SKU",
+          text: (order) =>
+            [order.number, order.customerName, order.shopifyOrderName, order.shipToCity, ...(order.lines ?? []).map((line) => line.sku)]
+              .filter(Boolean)
+              .join(" "),
+        }}
+        bulkActions={bulkActions}
+        exportName="orders"
+        toolbar={
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus className="size-4" />
+            New order
+          </Button>
+        }
+        empty={
+          <EmptyState
+            icon={ClipboardList}
+            title="No orders yet."
+            body="Connect Shopify so checkouts land here as pick tickets, or create a floor order by hand."
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button size="sm" onClick={() => setCreating(true)}>
+                  New order
+                </Button>
+                <Button size="sm" variant="outline" asChild>
+                  <Link to="/setup/shopify">Connect Shopify</Link>
+                </Button>
+              </div>
+            }
+          />
+        }
+      />
+      <NewOrderSheet open={creating} onOpenChange={setCreating} />
+    </div>
+  );
+}
+
+function NewOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const navigate = useNavigate();
+  const { warehouseId } = useWarehouse();
+  const items = useApiQuery<Item[]>(open ? "/api/items" : null);
   const [customerName, setCustomerName] = useState("");
   const [shipToAddress, setShipToAddress] = useState("");
   const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
-  const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  async function load() {
-    const [nextOrders, nextItems] = await Promise.all([api<Order[]>("/api/orders"), api<Item[]>("/api/items")]);
-    setOrders(nextOrders);
-    setItems(nextItems);
-  }
-
-  useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
-  }, []);
 
   async function create() {
     setError(null);
+    setBusy(true);
     try {
-      const created = await api<Order>("/api/orders", {
-        method: "POST",
+      const created = await apiMutate<Order>("/api/orders", {
         body: JSON.stringify({
           warehouseId,
           customerName,
@@ -56,64 +350,47 @@ function OrderList() {
           lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
         }),
       });
+      toast.success(`Order ${created.number} created.`);
+      onOpenChange(false);
       navigate(`/outbound/orders/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create order");
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <PageHeader
-        eyebrow="Outbound"
-        title="Orders"
-        description="Shopify checkouts and floor orders. Start pick to reserve ATP, then pick from the suggested bay."
-        actions={<Button size="xs" onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New order"}</Button>}
-      />
-      <ErrorBanner error={error} />
-      {creating ? (
-        <Card className="mb-3">
-          <form className="space-y-4" onSubmit={onSubmit(create)}>
-            <Field label="Customer">
-              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
-            </Field>
-            <Field label="Ship to">
-              <Textarea
-                value={shipToAddress}
-                onChange={(e) => setShipToAddress(e.target.value)}
-                placeholder={"14 Dock Street\nPortland, OR 97201"}
-                rows={3}
-              />
-            </Field>
-            <LineFields items={items} lines={lines} setLines={setLines} />
-            <Button type="submit">Create floor order</Button>
-          </form>
-        </Card>
-      ) : null}
-      <Table columns={["Number", "Channel", "Customer", "Lines", "Allocated", "Status"]}>
-        {inWarehouse(orders, warehouseId).map((order) => (
-          <tr key={order.id}>
-            <td className="px-2.5 py-1.5 font-mono">
-              <Link className="hover:underline" to={`/outbound/orders/${order.id}`}>
-                {order.number}
-              </Link>
-            </td>
-            <td className="px-2.5 py-1.5">{order.source === "shopify" ? "Shopify" : "Floor"}</td>
-            <td className="px-2.5 py-1.5">{order.customerName}</td>
-            <td className="px-2.5 py-1.5 text-sm">{summarizeLines(order.lines)}</td>
-            <td className="px-2.5 py-1.5 font-mono tabular">{order.allocatedUnits ?? 0}</td>
-            <td className="px-2.5 py-1.5">
-              <StatusBadge status={order.status} />
-            </td>
-          </tr>
-        ))}
-      </Table>
-    </div>
+    <FormSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New floor order"
+      description="For phone, email, or will-call orders. Shopify checkouts arrive on their own."
+      submitLabel="Create order"
+      onSubmit={create}
+      busy={busy}
+      error={error}
+    >
+      <Field label="Customer">
+        <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required autoFocus />
+      </Field>
+      <Field label="Ship to">
+        <Textarea
+          value={shipToAddress}
+          onChange={(e) => setShipToAddress(e.target.value)}
+          placeholder={"14 Dock Street\nPortland, OR 97201"}
+          rows={3}
+        />
+      </Field>
+      <div className="space-y-1.5">
+        <p className="text-sm font-medium">Lines</p>
+        <LineFields items={items.data ?? []} lines={lines} setLines={setLines} />
+      </div>
+    </FormSheet>
   );
 }
 
 function OrderDetail({ id }: { id: string }) {
-  const navigate = useNavigate();
   const [order, setOrder] = useState<Order | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [pickLocation, setPickLocation] = useState("");
@@ -134,6 +411,9 @@ function OrderDetail({ id }: { id: string }) {
   const [heightIn, setHeightIn] = useState("6");
   const [liveRateId, setLiveRateId] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<string | null>(null);
+  const [unpickMode, setUnpickMode] = useState(false);
+  const [showShipping, setShowShipping] = useState(false);
 
   async function load() {
     const [next, nextLocations, hub] = await Promise.all([
@@ -144,10 +424,7 @@ function OrderDetail({ id }: { id: string }) {
     setOrder(next);
     setLocations(nextLocations);
     setServices(hub.enabledServices);
-    setPickLocation(defaultPickLocation(next, nextLocations));
-    setQtys(qtyDefaults(next));
-    setPackQtys(packQtyDefaults(next));
-    setUnpickQtys(unpickQtyDefaults(next));
+    resetQtys(next, nextLocations);
     setTrackingNumber(next.trackingNumber || "");
     setTrackingCompany(next.trackingCompany || "");
     setCarrierService(next.carrierService || hub.enabledServices.find((row) => row.isDefault)?.id || "rackline_ground");
@@ -161,153 +438,122 @@ function OrderDetail({ id }: { id: string }) {
     load().catch((err: Error) => setError(err.message));
   }, [id]);
 
-  async function startPick() {
+  function resetQtys(next: Order, bays: Location[] = locations) {
+    setPickLocation(defaultPickLocation(next, bays));
+    setQtys(qtyDefaults(next));
+    setPackQtys(packQtyDefaults(next));
+    setUnpickQtys(unpickQtyDefaults(next));
+  }
+
+  /** Every write goes through here: clear the error, run it, show the result, refresh counts elsewhere. */
+  async function run(label: string, write: () => Promise<Order | void>, success?: (next: Order | null) => string) {
     setError(null);
     try {
-      const next = await api<Order>(`/api/orders/${id}/start`, { method: "POST" });
-      setOrder(next);
-      setPickLocation(defaultPickLocation(next, locations));
-      setQtys(qtyDefaults(next));
-      setPackQtys(packQtyDefaults(next));
-      setUnpickQtys(unpickQtyDefaults(next));
+      const next = await write();
+      if (next) {
+        setOrder(next);
+        resetQtys(next);
+      }
+      void refreshApi();
+      if (success) toast.success(success(next ?? null));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start pick");
+      setError(err instanceof Error ? err.message : `${label} failed`);
     }
   }
 
-  async function pick() {
-    if (!order) return;
-    setError(null);
-    try {
-      const lines = (order.lines ?? [])
-        .map((line) => ({
-          lineId: line.id,
-          qty: Number(qtys[line.id] || 0),
-          lotCode: lots[line.id] || undefined,
-          serials: serials[line.id] || undefined,
-          weightGrams: parseWeightGrams(weights[line.id]),
-        }))
-        .filter((line) => line.qty > 0);
-      const next = await api<Order>(`/api/orders/${id}/pick`, {
-        method: "POST",
-        body: JSON.stringify({ locationId: pickLocation, lines }),
-      });
-      setOrder(next);
-      setPickLocation(defaultPickLocation(next, locations));
-      setQtys(qtyDefaults(next));
-      setPackQtys(packQtyDefaults(next));
-      setUnpickQtys(unpickQtyDefaults(next));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Pick failed");
-    }
-  }
+  const sumQty = (values: Record<string, string>) => Object.values(values).reduce((sum, value) => sum + (Number(value) || 0), 0);
 
-  async function pack() {
-    if (!order) return;
-    setError(null);
-    try {
-      const lines = (order.lines ?? [])
-        .map((line) => ({
-          lineId: line.id,
-          qty: Number(packQtys[line.id] || 0),
-        }))
-        .filter((line) => line.qty > 0);
-      const next = await api<Order>(`/api/orders/${id}/pack`, {
-        method: "POST",
-        body: JSON.stringify({ lines }),
-      });
-      setOrder(next);
-      setPackQtys(packQtyDefaults(next));
-      setUnpickQtys(unpickQtyDefaults(next));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Pack failed");
-    }
-  }
+  const startPick = () =>
+    run("Start pick", () => api<Order>(`/api/orders/${id}/start`, { method: "POST" }), () => "Pick started. Stock is reserved for this order.");
 
-  async function packIntoCarton() {
-    if (!order) return;
-    setError(null);
-    try {
-      const lines = (order.lines ?? [])
-        .map((line) => ({
-          lineId: line.id,
-          qty: Number(packQtys[line.id] || 0),
-        }))
-        .filter((line) => line.qty > 0);
-      const next = await api<Order>(`/api/orders/${id}/packages`, {
-        method: "POST",
-        body: JSON.stringify({
-          pack: true,
-          lines,
-          weightOz: Number(weightOz),
-          lengthIn: Number(lengthIn),
-          widthIn: Number(widthIn),
-          heightIn: Number(heightIn),
+  const pick = () =>
+    run(
+      "Pick",
+      () => {
+        const lines = (order?.lines ?? [])
+          .map((line) => ({
+            lineId: line.id,
+            qty: Number(qtys[line.id] || 0),
+            lotCode: lots[line.id] || undefined,
+            serials: serials[line.id] || undefined,
+            weightGrams: parseWeightGrams(weights[line.id]),
+          }))
+          .filter((line) => line.qty > 0);
+        return api<Order>(`/api/orders/${id}/pick`, {
+          method: "POST",
+          body: JSON.stringify({ locationId: pickLocation, lines }),
+        });
+      },
+      () => {
+        const bay = locations.find((row) => row.id === pickLocation)?.code;
+        return `Picked ${sumQty(qtys)} ${sumQty(qtys) === 1 ? "unit" : "units"}${bay ? ` from ${bay}` : ""}.`;
+      },
+    );
+
+  const packLines = () =>
+    (order?.lines ?? [])
+      .map((line) => ({ lineId: line.id, qty: Number(packQtys[line.id] || 0) }))
+      .filter((line) => line.qty > 0);
+
+  const pack = () =>
+    run(
+      "Pack",
+      () => api<Order>(`/api/orders/${id}/pack`, { method: "POST", body: JSON.stringify({ lines: packLines() }) }),
+      () => `Packed ${sumQty(packQtys)} ${sumQty(packQtys) === 1 ? "unit" : "units"}.`,
+    );
+
+  const packIntoCarton = () =>
+    run(
+      "Carton",
+      () =>
+        api<Order>(`/api/orders/${id}/packages`, {
+          method: "POST",
+          body: JSON.stringify({
+            pack: true,
+            lines: packLines(),
+            weightOz: Number(weightOz),
+            lengthIn: Number(lengthIn),
+            widthIn: Number(widthIn),
+            heightIn: Number(heightIn),
+          }),
         }),
-      });
-      setOrder(next);
-      setPackQtys(packQtyDefaults(next));
-      setUnpickQtys(unpickQtyDefaults(next));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Carton failed");
-    }
-  }
+      (next) => {
+        const box = next?.packages?.at(-1)?.number;
+        return box ? `Packed into ${box}.` : "Packed into a new carton.";
+      },
+    );
 
-  async function unpick() {
-    if (!order) return;
-    setError(null);
-    try {
-      const lines = (order.lines ?? [])
-        .map((line) => ({
-          lineId: line.id,
-          qty: Number(unpickQtys[line.id] || 0),
-        }))
-        .filter((line) => line.qty > 0);
-      const next = await api<Order>(`/api/orders/${id}/unpick`, {
-        method: "POST",
-        body: JSON.stringify({ locationId: pickLocation || undefined, lines }),
-      });
-      setOrder(next);
-      setPickLocation(defaultPickLocation(next, locations));
-      setQtys(qtyDefaults(next));
-      setPackQtys(packQtyDefaults(next));
-      setUnpickQtys(unpickQtyDefaults(next));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unpick failed");
-    }
-  }
+  const unpick = () =>
+    run(
+      "Unpick",
+      async () => {
+        const lines = (order?.lines ?? [])
+          .map((line) => ({ lineId: line.id, qty: Number(unpickQtys[line.id] || 0) }))
+          .filter((line) => line.qty > 0);
+        const next = await api<Order>(`/api/orders/${id}/unpick`, {
+          method: "POST",
+          body: JSON.stringify({ locationId: pickLocation || undefined, lines }),
+        });
+        setUnpickMode(false);
+        return next;
+      },
+      () => `Returned ${sumQty(unpickQtys)} ${sumQty(unpickQtys) === 1 ? "unit" : "units"} to the bay.`,
+    );
 
-  async function shortShip() {
-    setError(null);
-    try {
-      const next = await api<Order>(`/api/orders/${id}/short-ship`, { method: "POST" });
-      setOrder(next);
-      setQtys(qtyDefaults(next));
-      setPackQtys(packQtyDefaults(next));
-      setUnpickQtys(unpickQtyDefaults(next));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Short ship failed");
-    }
-  }
+  const shortShip = () =>
+    run("Short ship", () => api<Order>(`/api/orders/${id}/short-ship`, { method: "POST" }), (next) => {
+      const backorder = next?.backorders?.at(-1)?.number;
+      return backorder ? `Shipped what left. The rest is on backorder ${backorder}.` : "Shipped what left.";
+    });
 
-  async function cancel() {
-    setError(null);
-    try {
-      const next = await api<Order>(`/api/orders/${id}/cancel`, { method: "POST" });
-      setOrder(next);
-      setQtys(qtyDefaults(next));
-      setPackQtys(packQtyDefaults(next));
-      setUnpickQtys(unpickQtyDefaults(next));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Cancel failed");
-    }
-  }
+  const cancel = () =>
+    run("Cancel", () => api<Order>(`/api/orders/${id}/cancel`, { method: "POST" }), () => "Order cancelled. Picked stock is back on its bay.");
 
-  async function ship() {
-    setError(null);
-    try {
-      setOrder(
-        await api<Order>(`/api/orders/${id}/ship`, {
+  const ship = () =>
+    run(
+      "Ship",
+      () =>
+        api<Order>(`/api/orders/${id}/ship`, {
           method: "POST",
           body: JSON.stringify({
             trackingNumber: trackingNumber || undefined,
@@ -320,79 +566,123 @@ function OrderDetail({ id }: { id: string }) {
             heightIn: Number(heightIn),
           }),
         }),
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Ship failed");
-    }
-  }
+      (next) => `Shipped ${next?.number ?? "order"}${next?.source === "shopify" ? " and fulfilled on Shopify" : ""}.`,
+    );
 
-  async function shipCarton(pkgId: string) {
+  const shipCarton = (pkgId: string, number: string) =>
+    run("Ship carton", () => api<Order>(`/api/orders/${id}/packages/${pkgId}/ship`, { method: "POST" }), () => `Shipped ${number}.`);
+
+  const uncarton = (pkgId: string, number: string) =>
+    run("Drop carton", () => api<Order>(`/api/orders/${id}/packages/${pkgId}/uncarton`, { method: "POST" }), () => `Dropped ${number}. Its units can be boxed again.`);
+
+  const retryShopify = () =>
+    run("Shopify fulfill", () => api<Order>(`/api/orders/${id}/shopify/fulfill`, { method: "POST" }), () => "Sent fulfillment to Shopify.");
+
+  const buyLabel = () =>
+    run(
+      "Buy label",
+      async () => {
+        const label = await api<ShippingLabel>(`/api/orders/${id}/label`, {
+          method: "POST",
+          body: JSON.stringify({
+            carrierService,
+            trackingNumber: trackingNumber || undefined,
+            liveRateId,
+            weightOz: Number(weightOz),
+            lengthIn: Number(lengthIn),
+            widthIn: Number(widthIn),
+            heightIn: Number(heightIn),
+          }),
+        });
+        setTrackingNumber(label.trackingNumber);
+        setTrackingCompany(label.carrierCompany);
+        await load();
+      },
+      () => "Label bought.",
+    );
+
+  const buyCartonLabel = (pkg: OrderPackage) =>
+    run(
+      "Buy label",
+      async () => {
+        await api<ShippingLabel>(`/api/orders/${id}/packages/${pkg.id}/label`, {
+          method: "POST",
+          body: JSON.stringify({
+            carrierService,
+            weightOz: pkg.weightOz || Number(weightOz),
+            lengthIn: pkg.lengthIn || Number(lengthIn),
+            widthIn: pkg.widthIn || Number(widthIn),
+            heightIn: pkg.heightIn || Number(heightIn),
+          }),
+        });
+        await load();
+      },
+      () => `Label bought for ${pkg.number}.`,
+    );
+
+  const voidLabel = () =>
+    run(
+      "Void label",
+      async () => {
+        await api(`/api/orders/${id}/label/void`, { method: "POST" });
+        await load();
+      },
+      () => "Label voided.",
+    );
+
+  const relabel = (pkgId?: string) =>
+    run(
+      "Relabel",
+      async () => {
+        const path = pkgId ? `/api/orders/${id}/packages/${pkgId}/relabel` : `/api/orders/${id}/relabel`;
+        const label = await api<ShippingLabel>(path, { method: "POST" });
+        setTrackingNumber(label.trackingNumber);
+        setTrackingCompany(label.carrierCompany);
+        await load();
+      },
+      () => "Replacement label bought.",
+    );
+
+  async function shopRates() {
     setError(null);
     try {
-      setOrder(await api<Order>(`/api/orders/${id}/packages/${pkgId}/ship`, { method: "POST" }));
+      const result = await api<{ rates: CarrierRate[] }>(`/api/orders/${id}/rates`, {
+        method: "POST",
+        body: JSON.stringify({
+          carrierService,
+          weightOz: Number(weightOz),
+          lengthIn: Number(lengthIn),
+          widthIn: Number(widthIn),
+          heightIn: Number(heightIn),
+        }),
+      });
+      setRates(result.rates);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not ship carton");
+      setError(err instanceof Error ? err.message : "Could not shop rates");
     }
   }
 
-  async function uncarton(pkgId: string) {
-    setError(null);
-    try {
-      setOrder(await api<Order>(`/api/orders/${id}/packages/${pkgId}/uncarton`, { method: "POST" }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not drop carton");
-    }
+  if (!order) {
+    return error ? <ErrorBanner error={error} /> : <DetailSkeleton />;
   }
 
-  async function retryShopify() {
-    setError(null);
-    try {
-      setOrder(await api<Order>(`/api/orders/${id}/shopify/fulfill`, { method: "POST" }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Shopify fulfill failed");
-    }
-  }
-
-  async function relabel(pkgId?: string) {
-    setError(null);
-    try {
-      const path = pkgId ? `/api/orders/${id}/packages/${pkgId}/relabel` : `/api/orders/${id}/relabel`;
-      const label = await api<ShippingLabel>(path, { method: "POST" });
-      setTrackingNumber(label.trackingNumber);
-      setTrackingCompany(label.carrierCompany);
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not relabel");
-    }
-  }
-
-  if (!order) return <ErrorBanner error={error} />;
+  const lines = order.lines ?? [];
   const remaining = hasUnpicked(
-    (order.lines ?? []).map((line) => ({
-      lineId: line.id,
-      sku: line.sku,
-      qtyOrdered: line.qty,
-      qtyPicked: line.qtyPicked ?? 0,
-    })),
+    lines.map((line) => ({ lineId: line.id, sku: line.sku, qtyOrdered: line.qty, qtyPicked: line.qtyPicked ?? 0 })),
   );
   const unpacked = hasUnpacked(
-    (order.lines ?? []).map((line) => ({
-      lineId: line.id,
-      sku: line.sku,
-      qtyPicked: line.qtyPicked ?? 0,
-      qtyPacked: line.qtyPacked ?? 0,
-    })),
+    lines.map((line) => ({ lineId: line.id, sku: line.sku, qtyPicked: line.qtyPicked ?? 0, qtyPacked: line.qtyPacked ?? 0 })),
   );
-  const thisPick = Object.values(qtys).some((value) => Number(value) > 0);
-  const thisPack = Object.values(packQtys).some((value) => Number(value) > 0);
-  const thisUnpick = Object.values(unpickQtys).some((value) => Number(value) > 0);
-  const unpickable = (order.lines ?? []).some((line) => (line.unpickRemaining ?? 0) > 0);
+  const thisPick = sumQty(qtys) > 0;
+  const thisPack = sumQty(packQtys) > 0;
+  const thisUnpick = sumQty(unpickQtys) > 0;
+  const unpickable = canUnpickOrder(order.status) && lines.some((line) => (line.unpickRemaining ?? 0) > 0);
   const packages = order.packages ?? [];
   const hasPackages = packages.length > 0;
   const shippedCarton = packages.some((pkg) => pkg.shippedAt);
   const shortShipOk = planShortShip({
     status: order.status,
-    lines: (order.lines ?? []).map((line) => ({
+    lines: lines.map((line) => ({
       lineId: line.id,
       itemId: line.itemId,
       sku: line.sku,
@@ -406,101 +696,131 @@ function OrderDetail({ id }: { id: string }) {
       lines: (pkg.lines ?? []).map((line) => ({ orderLineId: line.orderLineId, qty: line.qty })),
     })),
   }).ok;
-  const showWorkflow =
-    (canStartPick(order.status) && remaining) ||
-    (canPickOrder(order.status) && remaining) ||
-    (canPackOrder(order.status) && unpacked) ||
-    (canUnpickOrder(order.status) && unpickable) ||
-    (canCancelOrder(order.status) && !shippedCarton) ||
-    canShipOrder(order.status) ||
-    shortShipOk;
+
+  const picking = canPickOrder(order.status) && !canStartPick(order.status) && remaining;
+  const packing = canPackOrder(order.status) && unpacked;
+  const shipLabel = order.source === "shopify" ? "Ship & fulfill" : "Ship";
+  const shippingOpen =
+    showShipping ||
+    ["picked", "packing", "packed", "shipped"].includes(order.status) ||
+    (order.labelStatus != null && order.labelStatus !== "none");
+  const shopifyRetry =
+    order.source === "shopify" &&
+    (order.shopifySyncStatus === "failed" || packages.some((pkg) => pkg.shippedAt && !pkg.shopifyFulfillmentId));
+
+  let primary: DocumentAction | null = null;
+  if (canStartPick(order.status) && remaining) primary = { label: "Start pick", icon: Play, onSelect: startPick };
+  else if (picking) primary = { label: "Pick", icon: PackageMinus, onSelect: pick, disabled: !thisPick };
+  else if (packing) primary = { label: "Pack", icon: PackageCheck, onSelect: pack, disabled: !thisPack };
+  else if (canShipOrder(order.status)) primary = { label: shipLabel, icon: Truck, onSelect: ship };
+
+  const menu: DocumentAction[] = [
+    { label: "Open on floor", icon: ScanLine, to: floorActionForOrder(order.status, order.id) },
+    ...(canPickOrder(order.status) ? [{ label: "Pick list", icon: ClipboardList, to: `/outbound/orders/${order.id}/pick-list` }] : []),
+    { label: "Pack slip", icon: FileText, to: `/outbound/orders/${order.id}/pack-slip` },
+    ...(!hasPackages ? [{ label: "Shipping label", icon: Printer, to: `/outbound/orders/${order.id}/shipping-label` }] : []),
+    ...(packing ? [{ label: "Pack into carton", icon: Box, onSelect: packIntoCarton, disabled: !thisPack }] : []),
+    ...(unpickable && !unpickMode
+      ? [{ label: "Unpick…", icon: Undo2, onSelect: () => { setUnpickMode(true); setView("lines"); } }]
+      : []),
+    ...(shopifyRetry ? [{ label: "Retry Shopify", icon: RefreshCw, onSelect: retryShopify }] : []),
+    ...(shortShipOk
+      ? [
+          {
+            label: "Short ship",
+            icon: Send,
+            onSelect: shortShip,
+            confirm: {
+              title: `Short ship ${order.number}?`,
+              body: "Cartons that already left stay shipped. Unshipped units go back to their bay and the rest moves to a new backorder.",
+              confirmLabel: "Short ship",
+            },
+          },
+        ]
+      : []),
+    ...(canCancelOrder(order.status) && !shippedCarton
+      ? [
+          {
+            label: "Cancel order",
+            icon: XCircle,
+            tone: "danger" as const,
+            onSelect: cancel,
+            confirm: {
+              title: `Cancel ${order.number}?`,
+              body: "Picked units go back to their bay and reserved stock is released. A cancelled order cannot be reopened.",
+              confirmLabel: "Cancel order",
+              cancelLabel: "Keep order",
+              tone: "danger" as const,
+            },
+          },
+        ]
+      : []),
+  ];
+
+  const units = orderUnits(order);
+  const tracksAnything = lines.some((line) => line.trackLot || line.trackSerial || line.catchWeight);
+  const hasAllocations = lines.some((line) => (line.allocations ?? []).length || (line.allocatedQty ?? 0) > 0);
+  const defaultView = canShipOrder(order.status) || (order.status === "packing" && !unpacked) ? "shipping" : "lines";
+  const activeView = view ?? defaultView;
+
+  const lineColumns = [
+    "Item",
+    "Ordered",
+    "Picked",
+    "Packed",
+    "Shipped",
+    ...(hasAllocations ? ["Allocated"] : []),
+    ...(remaining ? ["Pick from"] : []),
+    ...(picking ? ["This pick"] : []),
+    ...(picking && tracksAnything ? ["Lot / serial"] : []),
+    ...(packing ? ["This pack"] : []),
+    ...(unpickMode ? ["This unpick"] : []),
+  ];
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-(--density-gap)">
       <DocumentHeader
         eyebrow="Outbound"
+        list={{ label: "Orders", to: "/outbound/orders" }}
         title={order.number}
-        description={order.customerName}
+        description={[order.customerName, [order.shipToCity, order.shipToRegion].filter(Boolean).join(", ")].filter(Boolean).join(" · ")}
         status={order.status}
         steps={ORDER_STEPS}
-        actions={
-          <div className="flex flex-col items-end gap-1.5">
-            <div className="flex flex-wrap justify-end gap-1.5">
-              <Button variant="ghost" size="xs" onClick={() => navigate("/outbound/orders")}>
-                All orders
-              </Button>
-              {canPickOrder(order.status) ? (
-                <Button variant="secondary" size="sm" asChild>
-                  <Link to={`/outbound/orders/${order.id}/pick-list`}>Pick list</Link>
-                </Button>
-              ) : null}
-              <Button variant="secondary" size="sm" asChild>
-                <Link to={`/outbound/orders/${order.id}/pack-slip`}>Pack slip</Link>
-              </Button>
-              {!hasPackages ? (
-                <Button variant="secondary" size="sm" asChild>
-                  <Link to={`/outbound/orders/${order.id}/shipping-label`}>Label</Link>
-                </Button>
-              ) : null}
-              <Button variant="secondary" size="sm" asChild>
-                <Link to={floorActionForOrder(order.status, order.id)}>Floor</Link>
-              </Button>
-              {order.source === "shopify" &&
-              (order.shopifySyncStatus === "failed" ||
-                packages.some((pkg) => pkg.shippedAt && !pkg.shopifyFulfillmentId)) ? (
-                <Button variant="secondary" size="sm" onClick={() => void retryShopify()}>
-                  Retry Shopify
-                </Button>
-              ) : null}
-            </div>
-            {showWorkflow ? (
-              <div className="flex flex-wrap justify-end gap-2">
-                {canStartPick(order.status) && remaining ? (
-                  <Button variant="secondary" onClick={() => void startPick()}>
-                    Start pick
-                  </Button>
-                ) : null}
-                {canPickOrder(order.status) && remaining ? (
-                  <Button disabled={!thisPick} onClick={() => void pick()}>
-                    Pick
-                  </Button>
-                ) : null}
-                {canPackOrder(order.status) && unpacked ? (
-                  <>
-                    <Button disabled={!thisPack} onClick={() => void pack()}>
-                      Pack
-                    </Button>
-                    <Button variant="secondary" disabled={!thisPack} onClick={() => void packIntoCarton()}>
-                      Pack into carton
-                    </Button>
-                  </>
-                ) : null}
-                {canUnpickOrder(order.status) && unpickable ? (
-                  <Button variant="secondary" disabled={!thisUnpick} onClick={() => void unpick()}>
-                    Unpick
-                  </Button>
-                ) : null}
-                {canCancelOrder(order.status) && !shippedCarton ? (
-                  <Button variant="secondary" onClick={() => void cancel()}>
-                    Cancel
-                  </Button>
-                ) : null}
-                {shortShipOk ? (
-                  <Button onClick={() => void shortShip()}>Short ship</Button>
-                ) : null}
-                {canShipOrder(order.status) ? (
-                  <Button onClick={() => void ship()}>{order.source === "shopify" ? "Ship & fulfill" : "Ship"}</Button>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+        refId={order.id}
+        stampRules={STEP_RULES.order}
+        meta={
+          order.source === "shopify" ? (
+            <ToneBadge tone="success" dot={false}>
+              <Store className="size-3" />
+              Shopify {order.shopifyOrderName ?? ""}
+            </ToneBadge>
+          ) : null
         }
+        primary={primary}
+        menu={menu}
       />
       <ErrorBanner error={error} />
       <DocumentFrame
         rail={
           <DocumentRail>
             <Card className="space-y-3">
+              <p className="text-sm font-medium">Units</p>
+              <div className="space-y-2 text-sm">
+                <UnitRow label="Picked" done={units.picked} total={units.ordered} />
+                <UnitRow label="Packed" done={units.packed} total={units.ordered} />
+                <UnitRow label="Shipped" done={order.status === "shipped" ? units.ordered : units.shipped} total={units.ordered} />
+              </div>
+            </Card>
+            <Card className="space-y-3">
+              <p className="text-sm font-medium">Customer</p>
+              <div className="text-sm">
+                <p className="font-medium">{order.customerName}</p>
+                {order.shipToAddress ? (
+                  <p className="mt-1 whitespace-pre-line text-muted-foreground">{order.shipToAddress}</p>
+                ) : (
+                  <p className="mt-1 text-muted-foreground">No ship-to address.</p>
+                )}
+              </div>
               <DocumentFact label="Channel">
                 {order.source === "shopify" ? (
                   <Link className="underline" to="/setup/shopify">
@@ -511,7 +831,7 @@ function OrderDetail({ id }: { id: string }) {
                 )}
               </DocumentFact>
               {order.source === "shopify" ? (
-                <DocumentFact label="Shopify">
+                <DocumentFact label="Shopify sync">
                   <StatusBadge status={order.shopifySyncStatus || "inbound"} />
                 </DocumentFact>
               ) : null}
@@ -533,358 +853,398 @@ function OrderDetail({ id }: { id: string }) {
                   </span>
                 </DocumentFact>
               ) : null}
+              <DocumentFact label="Created">
+                <RelativeTime at={order.createdAt} />
+              </DocumentFact>
               {order.shopifySyncError ? <p className="text-sm text-destructive">{order.shopifySyncError}</p> : null}
-              <Field label="Pick from">
-                <Select value={pickLocation} onChange={(e) => setPickLocation(e.target.value)}>
-                  {locations.map((location) => (
-                    <option key={location.id} value={location.id}>
-                      {location.code}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Carrier service">
-                <Select value={carrierService} onChange={(e) => setCarrierService(e.target.value)}>
-                  {(services.length ? services : [{ id: "rackline_ground", company: "Rackline", service: "Ground" }]).map(
-                    (row) => (
-                      <option key={row.id} value={row.id}>
-                        {row.company} {row.service}
-                      </option>
-                    ),
-                  )}
-                </Select>
-              </Field>
-              <Field label="Tracking">
-                <Input value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} />
-              </Field>
-              <Field label="Carrier">
-                <Input value={trackingCompany} onChange={(e) => setTrackingCompany(e.target.value)} />
-              </Field>
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="Weight oz">
-                  <Input type="number" min={1} value={weightOz} onChange={(e) => setWeightOz(e.target.value)} />
-                </Field>
-                <Field label="L in">
-                  <Input type="number" min={1} value={lengthIn} onChange={(e) => setLengthIn(e.target.value)} />
-                </Field>
-                <Field label="W in">
-                  <Input type="number" min={1} value={widthIn} onChange={(e) => setWidthIn(e.target.value)} />
-                </Field>
-                <Field label="H in">
-                  <Input type="number" min={1} value={heightIn} onChange={(e) => setHeightIn(e.target.value)} />
-                </Field>
-              </div>
-              {order.shipToAddress ? <p className="whitespace-pre-line text-sm text-muted-foreground">{order.shipToAddress}</p> : null}
-              {!hasPackages && order.labelStatus && order.labelStatus !== "none" ? (
-                <DocumentFact label="Label">
-                  <StatusBadge status={order.labelStatus} />
-                </DocumentFact>
-              ) : null}
-              {!hasPackages && order.trackerStatus ? (
-                <DocumentFact label="Tracker">
-                  <StatusBadge status={order.trackerStatus} />
-                </DocumentFact>
-              ) : null}
-              {order.postageCents ? (
-                <p className="text-sm text-muted-foreground">Postage ${(order.postageCents / 100).toFixed(2)}</p>
-              ) : null}
-              {rates.length > 0 ? (
-                <ul className="space-y-1 text-sm">
-                  {rates.map((rate) => (
-                    <li key={`${rate.id}:${rate.liveRateId ?? ""}`}>
-                      <button
-                        type="button"
-                        className="underline-offset-4 hover:underline"
-                        onClick={() => {
-                          setCarrierService(rate.id);
-                          setTrackingCompany(rate.company);
-                          setLiveRateId(rate.liveRateId || undefined);
-                        }}
-                      >
-                        {rate.company} {rate.service}
-                      </button>
-                      <span className="text-muted-foreground">
-                        {" "}
-                        · ${(rate.amountCents / 100).toFixed(2)} · {rate.transitDays}d
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              <DocumentActionGrid>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className={hasPackages ? "col-span-2" : undefined}
-                  onClick={() =>
-                    void api<{ rates: CarrierRate[] }>(`/api/orders/${id}/rates`, {
-                      method: "POST",
-                      body: JSON.stringify({
-                        carrierService,
-                        weightOz: Number(weightOz),
-                        lengthIn: Number(lengthIn),
-                        widthIn: Number(widthIn),
-                        heightIn: Number(heightIn),
-                      }),
-                    })
-                      .then((result) => setRates(result.rates))
-                      .catch((err: Error) => setError(err.message))
-                  }
-                >
-                  Shop rates
-                </Button>
-                {!hasPackages ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() =>
-                      void api<ShippingLabel>(`/api/orders/${id}/label`, {
-                        method: "POST",
-                        body: JSON.stringify({
-                          carrierService,
-                          trackingNumber: trackingNumber || undefined,
-                          liveRateId,
-                          weightOz: Number(weightOz),
-                          lengthIn: Number(lengthIn),
-                          widthIn: Number(widthIn),
-                          heightIn: Number(heightIn),
-                        }),
-                      })
-                        .then((label) => {
-                          setTrackingNumber(label.trackingNumber);
-                          setTrackingCompany(label.carrierCompany);
-                          return load();
-                        })
-                        .catch((err: Error) => setError(err.message))
-                    }
-                  >
-                    Buy label
-                  </Button>
-                ) : null}
-                {!hasPackages && order.labelStatus === "purchased" && order.status !== "shipped" ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() =>
-                      void api(`/api/orders/${id}/label/void`, { method: "POST" })
-                        .then(() => load())
-                        .catch((err: Error) => setError(err.message))
-                    }
-                  >
-                    Void
-                  </Button>
-                ) : null}
-                {!hasPackages &&
-                canRelabelException({
-                  status: order.status,
-                  trackerStatus: order.trackerStatus,
-                  labelStatus: order.labelStatus,
-                  trackingNumber: order.trackingNumber,
-                }).ok ? (
-                  <Button variant="secondary" size="sm" onClick={() => void relabel()}>
-                    Relabel
-                  </Button>
-                ) : null}
-                {!hasPackages && order.trackingNumber ? (
-                  <Button variant="secondary" size="sm" asChild>
-                    <Link to={`/outbound/orders/${id}/shipping-label`}>Print label</Link>
-                  </Button>
-                ) : null}
-              </DocumentActionGrid>
             </Card>
-            {hasPackages ? (
-              <Card className="space-y-3">
-                <h3 className="font-medium">Cartons</h3>
-                <ul className="space-y-3 text-sm">
-                  {packages.map((pkg) => {
-                    const canBuy = !pkg.shippedAt;
-                    const canRelabel =
-                      canRelabelException({
-                        status: order.status,
-                        trackerStatus: pkg.trackerStatus,
-                        labelStatus: pkg.labelStatus,
-                        trackingNumber: pkg.trackingNumber,
-                      }).ok && !pkg.shippedAt;
-                    const canPrint = Boolean(pkg.trackingNumber);
-                    const canShip = canShipCartonOrder(order.status) && canShipLabeledCarton(pkg).ok;
-                    const canDrop = canUncartonOrderPackage({ status: order.status, shippedAt: pkg.shippedAt }).ok;
-                    return (
-                      <li key={pkg.id} className="space-y-3 rounded-lg border p-3">
-                        <div className="space-y-1.5">
-                          <div className="flex items-start justify-between gap-2">
-                            <span className="font-mono font-medium">{pkg.number}</span>
-                            <span className="flex flex-wrap justify-end gap-1">
-                              {pkg.shippedAt ? <StatusBadge status="shipped" /> : null}
-                              {pkg.trackerStatus ? <StatusBadge status={pkg.trackerStatus} /> : null}
-                              {!pkg.shippedAt && pkg.labelStatus ? <StatusBadge status={pkg.labelStatus} /> : null}
-                            </span>
-                          </div>
+          </DocumentRail>
+        }
+      >
+        <Tabs value={activeView} onValueChange={setView}>
+          <TabsList className="max-w-full overflow-x-auto">
+            <TabsTrigger value="lines">Lines</TabsTrigger>
+            {hasPackages ? <TabsTrigger value="cartons">Cartons ({packages.length})</TabsTrigger> : null}
+            <TabsTrigger value="shipping">Shipping</TabsTrigger>
+            <TabsTrigger value="activity">Activity</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="lines" className="space-y-3">
+            {remaining ? (
+              <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-3 shadow-xs">
+                <div className="min-w-48 flex-1">
+                  <Field label="Pick from">
+                    <Select value={pickLocation} onChange={(e) => setPickLocation(e.target.value)}>
+                      {locations.map((location) => (
+                        <option key={location.id} value={location.id}>
+                          {location.code}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </div>
+                <p className="max-w-sm text-xs text-muted-foreground">
+                  The suggested bay per line covers what is left. Tap it in the table, or pick a stop on the map.
+                </p>
+              </div>
+            ) : null}
+            {unpickMode ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-tone-warning/30 bg-tone-warning-bg px-3 py-2 text-sm text-tone-warning">
+                <Undo2 className="size-4" />
+                <span className="flex-1">Enter how many units go back to the bay, then confirm.</span>
+                <Button size="sm" variant="outline" onClick={() => setUnpickMode(false)}>
+                  Cancel
+                </Button>
+                <Button size="sm" disabled={!thisUnpick} onClick={() => void unpick()}>
+                  Unpick {sumQty(unpickQtys) || ""}
+                </Button>
+              </div>
+            ) : null}
+            {remaining ? (
+              <PickMap lines={lines} locations={locations} selectedLocationId={pickLocation} onSelectLocation={setPickLocation} />
+            ) : null}
+            <Table columns={lineColumns}>
+              {lines.map((line) => (
+                <tr key={line.id}>
+                  <td>
+                    <SkuCell sku={line.sku} name={line.itemName} imageUrl={line.imageUrl} to={`/stock/items/${line.itemId}`} />
+                  </td>
+                  <td className="font-mono tabular-nums">{line.qty}</td>
+                  <td>
+                    <ProgressCell done={line.qtyPicked ?? 0} total={line.qty} />
+                  </td>
+                  <td>
+                    <ProgressCell done={line.qtyPacked ?? 0} total={line.qty} />
+                  </td>
+                  <td className="font-mono tabular-nums">{line.qtyShipped ?? 0}</td>
+                  {hasAllocations ? (
+                    <td className="font-mono text-xs">
+                      {(line.allocations ?? []).length
+                        ? (line.allocations ?? []).map((row) => `${row.locationCode} ×${row.qty}`).join(", ")
+                        : (line.allocatedQty ?? 0) > 0
+                          ? line.allocatedQty
+                          : "—"}
+                    </td>
+                  ) : null}
+                  {remaining ? (
+                    <td className="font-mono text-xs">
+                      {line.suggestedLocation ? (
+                        <button
+                          type="button"
+                          className={cn(
+                            "rounded-md border px-1.5 py-0.5 hover:border-primary hover:text-primary",
+                            pickLocation === line.suggestedLocation.locationId && "border-primary bg-primary/5 text-primary",
+                          )}
+                          onClick={() => setPickLocation(line.suggestedLocation!.locationId)}
+                        >
+                          {line.suggestedLocation.locationCode}
+                          <span className="text-muted-foreground"> ×{line.suggestedLocation.qty}</span>
+                        </button>
+                      ) : (
+                        <span className="text-muted-foreground">{line.remaining > 0 ? "—" : "Done"}</span>
+                      )}
+                    </td>
+                  ) : null}
+                  {picking ? (
+                    <td>
+                      {line.remaining > 0 ? (
+                        <Input
+                          type="number"
+                          min={0}
+                          max={line.remaining}
+                          className="w-20"
+                          aria-label={`Pick qty for ${line.sku}`}
+                          value={qtys[line.id] ?? "0"}
+                          onChange={(e) => setQtys((current) => ({ ...current, [line.id]: e.target.value }))}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground">Done</span>
+                      )}
+                    </td>
+                  ) : null}
+                  {picking && tracksAnything ? (
+                    <td className="space-y-1">
+                      {line.trackLot ? (
+                        <Input
+                          placeholder="Lot"
+                          value={lots[line.id] ?? ""}
+                          onChange={(e) => setLots((current) => ({ ...current, [line.id]: e.target.value }))}
+                        />
+                      ) : null}
+                      {line.trackSerial ? (
+                        <Input
+                          placeholder="Serials"
+                          value={serials[line.id] ?? ""}
+                          onChange={(e) => setSerials((current) => ({ ...current, [line.id]: e.target.value }))}
+                        />
+                      ) : null}
+                      <CatchWeightInput
+                        show={line.catchWeight}
+                        value={weights[line.id] ?? ""}
+                        onChange={(value) => setWeights((current) => ({ ...current, [line.id]: value }))}
+                      />
+                    </td>
+                  ) : null}
+                  {packing ? (
+                    <td>
+                      {(line.packRemaining ?? 0) > 0 ? (
+                        <Input
+                          type="number"
+                          min={0}
+                          max={line.packRemaining}
+                          className="w-20"
+                          aria-label={`Pack qty for ${line.sku}`}
+                          value={packQtys[line.id] ?? "0"}
+                          onChange={(e) => setPackQtys((current) => ({ ...current, [line.id]: e.target.value }))}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground">{(line.qtyPicked ?? 0) > 0 ? "Done" : "—"}</span>
+                      )}
+                    </td>
+                  ) : null}
+                  {unpickMode ? (
+                    <td>
+                      {(line.unpickRemaining ?? 0) > 0 ? (
+                        <Input
+                          type="number"
+                          min={0}
+                          max={line.unpickRemaining}
+                          className="w-20"
+                          aria-label={`Unpick qty for ${line.sku}`}
+                          value={unpickQtys[line.id] ?? "0"}
+                          onChange={(e) => setUnpickQtys((current) => ({ ...current, [line.id]: e.target.value }))}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </Table>
+          </TabsContent>
+
+          {hasPackages ? (
+            <TabsContent value="cartons">
+              <ul className="grid gap-3 md:grid-cols-2">
+                {packages.map((pkg) => {
+                  const canBuy = !pkg.shippedAt;
+                  const canRelabel =
+                    canRelabelException({
+                      status: order.status,
+                      trackerStatus: pkg.trackerStatus,
+                      labelStatus: pkg.labelStatus,
+                      trackingNumber: pkg.trackingNumber,
+                    }).ok && !pkg.shippedAt;
+                  const canPrint = Boolean(pkg.trackingNumber);
+                  const canShip = canShipCartonOrder(order.status) && canShipLabeledCarton(pkg).ok;
+                  const canDrop = canUncartonOrderPackage({ status: order.status, shippedAt: pkg.shippedAt }).ok;
+                  const cartonMenu: DocumentAction[] = [
+                    ...(canBuy ? [{ label: pkg.trackingNumber ? "Buy new label" : "Buy label", icon: Tag, onSelect: () => buyCartonLabel(pkg) }] : []),
+                    ...(canPrint ? [{ label: "Print label", icon: Printer, to: `/outbound/orders/${id}/packages/${pkg.id}/shipping-label` }] : []),
+                    ...(canRelabel ? [{ label: "Relabel", icon: RefreshCw, onSelect: () => relabel(pkg.id) }] : []),
+                    ...(canDrop
+                      ? [
+                          {
+                            label: "Drop carton",
+                            icon: Trash2,
+                            tone: "danger" as const,
+                            onSelect: () => uncarton(pkg.id, pkg.number),
+                            confirm: {
+                              title: `Drop ${pkg.number}?`,
+                              body: "A live label is voided when it still can be. The units stay packed and can go into another box.",
+                              confirmLabel: "Drop carton",
+                              tone: "danger" as const,
+                            },
+                          },
+                        ]
+                      : []),
+                  ];
+                  return (
+                    <li key={pkg.id} className="space-y-3 rounded-lg border bg-card p-4 shadow-xs">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-mono font-medium">{pkg.number}</p>
                           <p className="text-xs text-muted-foreground">
                             {pkg.units ?? 0} {(pkg.units ?? 0) === 1 ? "unit" : "units"}
                             {pkg.trackingNumber ? ` · ${pkg.trackingNumber}` : " · no label"}
                           </p>
                         </div>
+                        <span className="flex flex-wrap justify-end gap-1">
+                          {pkg.shippedAt ? <StatusBadge status="shipped" /> : null}
+                          {pkg.trackerStatus ? <StatusBadge status={pkg.trackerStatus} /> : null}
+                          {!pkg.shippedAt && pkg.labelStatus ? <StatusBadge status={pkg.labelStatus} /> : null}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        <ActionMenu actions={cartonMenu} label={`${pkg.number} actions`} />
                         {canShip ? (
-                          <Button className="w-full" size="sm" onClick={() => void shipCarton(pkg.id)}>
-                            Ship carton
-                          </Button>
+                          <ActionButton action={{ label: "Ship carton", icon: Truck, onSelect: () => shipCarton(pkg.id, pkg.number) }} />
                         ) : null}
-                        {canBuy || canPrint || canRelabel || canDrop ? (
-                          <DocumentActionGrid>
-                            {canBuy ? (
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() =>
-                                  void api<ShippingLabel>(`/api/orders/${id}/packages/${pkg.id}/label`, {
-                                    method: "POST",
-                                    body: JSON.stringify({
-                                      carrierService,
-                                      weightOz: pkg.weightOz || Number(weightOz),
-                                      lengthIn: pkg.lengthIn || Number(lengthIn),
-                                      widthIn: pkg.widthIn || Number(widthIn),
-                                      heightIn: pkg.heightIn || Number(heightIn),
-                                    }),
-                                  })
-                                    .then(() => load())
-                                    .catch((err: Error) => setError(err.message))
-                                }
-                              >
-                                Buy
-                              </Button>
-                            ) : null}
-                            {canPrint ? (
-                              <Button variant="secondary" size="sm" asChild>
-                                <Link to={`/outbound/orders/${id}/packages/${pkg.id}/shipping-label`}>Print</Link>
-                              </Button>
-                            ) : null}
-                            {canRelabel ? (
-                              <Button variant="secondary" size="sm" onClick={() => void relabel(pkg.id)}>
-                                Relabel
-                              </Button>
-                            ) : null}
-                            {canDrop ? (
-                              <Button variant="secondary" size="sm" onClick={() => void uncarton(pkg.id)}>
-                                Drop
-                              </Button>
-                            ) : null}
-                          </DocumentActionGrid>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ul>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </TabsContent>
+          ) : null}
+
+          <TabsContent value="shipping">
+            {!shippingOpen ? (
+              <EmptyState
+                icon={Truck}
+                title="Shipping opens once the order is picked."
+                body="Carrier, parcel size, rates, and the label live here. You can set them early if you already know the box."
+                action={
+                  <Button size="sm" variant="outline" onClick={() => setShowShipping(true)}>
+                    Set shipping now
+                  </Button>
+                }
+              />
+            ) : (
+              <Card className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Carrier service">
+                    <Select value={carrierService} onChange={(e) => setCarrierService(e.target.value)}>
+                      {(services.length ? services : [{ id: "rackline_ground", company: "Rackline", service: "Ground" }]).map((row) => (
+                        <option key={row.id} value={row.id}>
+                          {row.company} {row.service}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Tracking (paste to skip buying)">
+                    <Input value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} />
+                  </Field>
+                  <Field label="Carrier">
+                    <Input value={trackingCompany} onChange={(e) => setTrackingCompany(e.target.value)} />
+                  </Field>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-sm font-medium">Parcel</p>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <Field label="Weight oz">
+                      <Input type="number" min={1} value={weightOz} onChange={(e) => setWeightOz(e.target.value)} />
+                    </Field>
+                    <Field label="Length in">
+                      <Input type="number" min={1} value={lengthIn} onChange={(e) => setLengthIn(e.target.value)} />
+                    </Field>
+                    <Field label="Width in">
+                      <Input type="number" min={1} value={widthIn} onChange={(e) => setWidthIn(e.target.value)} />
+                    </Field>
+                    <Field label="Height in">
+                      <Input type="number" min={1} value={heightIn} onChange={(e) => setHeightIn(e.target.value)} />
+                    </Field>
+                  </div>
+                </div>
+                {!hasPackages && (order.labelStatus && order.labelStatus !== "none") ? (
+                  <DocumentFact label="Label">
+                    <StatusBadge status={order.labelStatus} />
+                  </DocumentFact>
+                ) : null}
+                {!hasPackages && order.trackerStatus ? (
+                  <DocumentFact label="Tracker">
+                    <StatusBadge status={order.trackerStatus} />
+                  </DocumentFact>
+                ) : null}
+                {order.postageCents ? (
+                  <DocumentFact label="Postage">${(order.postageCents / 100).toFixed(2)}</DocumentFact>
+                ) : null}
+                {rates.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <p className="text-sm font-medium">Rates</p>
+                    <ul className="divide-y rounded-lg border">
+                      {rates.map((rate) => {
+                        const chosen = carrierService === rate.id && (rate.liveRateId ?? undefined) === liveRateId;
+                        return (
+                          <li key={`${rate.id}:${rate.liveRateId ?? ""}`}>
+                            <button
+                              type="button"
+                              className={cn(
+                                "flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted/60",
+                                chosen && "bg-primary/5",
+                              )}
+                              onClick={() => {
+                                setCarrierService(rate.id);
+                                setTrackingCompany(rate.company);
+                                setLiveRateId(rate.liveRateId || undefined);
+                              }}
+                            >
+                              <span>
+                                <span className="font-medium">{rate.company}</span> {rate.service}
+                                <span className="text-muted-foreground"> · {rate.transitDays}d</span>
+                              </span>
+                              <span className="font-mono tabular-nums">${(rate.amountCents / 100).toFixed(2)}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap justify-end gap-2">
+                  <ActionButton variant="outline" action={{ label: "Shop rates", icon: Search, onSelect: shopRates }} />
+                  {!hasPackages && order.labelStatus === "purchased" && order.status !== "shipped" ? (
+                    <ActionButton
+                      variant="outline"
+                      action={{
+                        label: "Void label",
+                        icon: XCircle,
+                        onSelect: voidLabel,
+                        confirm: {
+                          title: "Void this label?",
+                          body: "A live label is refunded by the carrier when it can be. You will need a new label to ship.",
+                          confirmLabel: "Void label",
+                          tone: "danger",
+                        },
+                      }}
+                    />
+                  ) : null}
+                  {!hasPackages &&
+                  canRelabelException({
+                    status: order.status,
+                    trackerStatus: order.trackerStatus,
+                    labelStatus: order.labelStatus,
+                    trackingNumber: order.trackingNumber,
+                  }).ok ? (
+                    <ActionButton variant="outline" action={{ label: "Relabel", icon: RefreshCw, onSelect: () => relabel() }} />
+                  ) : null}
+                  {!hasPackages && order.trackingNumber ? (
+                    <ActionButton variant="outline" action={{ label: "Print label", icon: Printer, to: `/outbound/orders/${id}/shipping-label` }} />
+                  ) : null}
+                  {!hasPackages && order.status !== "shipped" ? (
+                    <ActionButton action={{ label: "Buy label", icon: Tag, onSelect: buyLabel }} />
+                  ) : null}
+                </div>
               </Card>
-            ) : null}
+            )}
+          </TabsContent>
+
+          <TabsContent value="activity">
             <DocumentActivity
               refId={order.id}
-              refreshKey={`${order.status}:${(order.lines ?? []).map((line) => `${line.qtyPicked}:${line.qtyPacked}`).join(",")}`}
+              refreshKey={`${order.status}:${lines.map((line) => `${line.qtyPicked}:${line.qtyPacked}`).join(",")}`}
             />
-          </DocumentRail>
-        }
-      >
-        <PickMap
-          lines={order.lines ?? []}
-          locations={locations}
-          selectedLocationId={pickLocation}
-          onSelectLocation={setPickLocation}
-        />
-        <Table columns={["SKU", "Item", "Ordered", "Picked", "Packed", "Shipped", "Allocated", "Bay", "This pick", "This pack", "This unpick", "Lot / serial"]}>
-          {(order.lines ?? []).map((line) => (
-            <tr key={line.id}>
-              <td className="px-2.5 py-1.5 font-mono">{line.sku}</td>
-              <td className="px-2.5 py-1.5">{line.itemName}</td>
-              <td className="px-2.5 py-1.5 font-mono">{line.qty}</td>
-              <td className="px-2.5 py-1.5 font-mono">{line.qtyPicked ?? 0}</td>
-              <td className="px-2.5 py-1.5 font-mono">{line.qtyPacked ?? 0}</td>
-              <td className="px-2.5 py-1.5 font-mono">{line.qtyShipped ?? 0}</td>
-              <td className="px-2.5 py-1.5 font-mono text-sm">
-                {(line.allocations ?? []).length
-                  ? (line.allocations ?? []).map((row) => `${row.locationCode} ×${row.qty}`).join(", ")
-                  : (line.allocatedQty ?? 0) > 0
-                    ? line.allocatedQty
-                    : "—"}
-              </td>
-              <td className="px-2.5 py-1.5 font-mono text-sm">
-                {line.suggestedLocation ? (
-                  <button
-                    type="button"
-                    className="underline-offset-4 hover:underline"
-                    onClick={() => setPickLocation(line.suggestedLocation!.locationId)}
-                  >
-                    {line.suggestedLocation.locationCode}
-                    <span className="text-muted-foreground"> ×{line.suggestedLocation.qty}</span>
-                  </button>
-                ) : (
-                  <span className="text-muted-foreground">{line.remaining > 0 ? "—" : "Done"}</span>
-                )}
-              </td>
-              <td className="px-2.5 py-1.5">
-                {line.remaining > 0 ? (
-                  <Input
-                    type="number"
-                    min={0}
-                    max={line.remaining}
-                    value={qtys[line.id] ?? "0"}
-                    onChange={(e) => setQtys((current) => ({ ...current, [line.id]: e.target.value }))}
-                  />
-                ) : (
-                  <span className="text-muted-foreground">Done</span>
-                )}
-              </td>
-              <td className="px-2.5 py-1.5">
-                {(line.packRemaining ?? 0) > 0 ? (
-                  <Input
-                    type="number"
-                    min={0}
-                    max={line.packRemaining}
-                    value={packQtys[line.id] ?? "0"}
-                    onChange={(e) => setPackQtys((current) => ({ ...current, [line.id]: e.target.value }))}
-                  />
-                ) : (
-                  <span className="text-muted-foreground">{(line.qtyPicked ?? 0) > 0 ? "Done" : "—"}</span>
-                )}
-              </td>
-              <td className="px-2.5 py-1.5">
-                {(line.unpickRemaining ?? 0) > 0 ? (
-                  <Input
-                    type="number"
-                    min={0}
-                    max={line.unpickRemaining}
-                    value={unpickQtys[line.id] ?? "0"}
-                    onChange={(e) => setUnpickQtys((current) => ({ ...current, [line.id]: e.target.value }))}
-                  />
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </td>
-              <td className="px-2.5 py-1.5">
-                {line.trackLot ? (
-                  <Input
-                    placeholder="Lot"
-                    value={lots[line.id] ?? ""}
-                    onChange={(e) => setLots((current) => ({ ...current, [line.id]: e.target.value }))}
-                  />
-                ) : null}
-                {line.trackSerial ? (
-                  <Input
-                    className="mt-1"
-                    placeholder="Serials"
-                    value={serials[line.id] ?? ""}
-                    onChange={(e) => setSerials((current) => ({ ...current, [line.id]: e.target.value }))}
-                  />
-                ) : null}
-                <CatchWeightInput
-                  className="mt-1"
-                  show={line.catchWeight}
-                  value={weights[line.id] ?? ""}
-                  onChange={(value) => setWeights((current) => ({ ...current, [line.id]: value }))}
-                />
-              </td>
-            </tr>
-          ))}
-        </Table>
+          </TabsContent>
+        </Tabs>
       </DocumentFrame>
+    </div>
+  );
+}
+
+function UnitRow({ label, done, total }: { label: string; done: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-mono tabular-nums">
+          {done}/{total}
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div className={cn("h-full rounded-full", pct >= 100 ? "bg-tone-success" : "bg-primary")} style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }

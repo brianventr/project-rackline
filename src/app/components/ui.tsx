@@ -10,11 +10,12 @@ import {
   type SelectHTMLAttributes,
 } from "react";
 import { Link } from "react-router-dom";
+import { AlertTriangle, CheckCircle2, Inbox, type LucideIcon } from "lucide-react";
 import { Button as UiButton } from "@/components/ui/button";
 import { Card as UiCard, CardContent } from "@/components/ui/card";
 import { Input as UiInput } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table as UiTable,
   TableBody,
@@ -23,6 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { statusLabel, statusTone, type StatusTone } from "@/domain/status";
 
 export function PageHeader({
   eyebrow,
@@ -36,19 +38,19 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-2">
+    <div className="flex min-w-0 max-w-full flex-wrap items-end justify-between gap-x-4 gap-y-2">
       <div className="min-w-0">
         {eyebrow ? (
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{eyebrow}</p>
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{eyebrow}</p>
         ) : null}
-        <h1 className="text-sm font-semibold tracking-tight">{title}</h1>
+        <h1 className="text-(length:--density-title) font-semibold leading-tight tracking-tight">{title}</h1>
         {description ? (
-          <p className="line-clamp-1 max-w-2xl text-xs text-muted-foreground" title={description}>
+          <p className="mt-0.5 line-clamp-2 max-w-3xl text-(length:--density-meta) text-muted-foreground" title={description}>
             {description}
           </p>
         ) : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-1.5">{actions}</div> : null}
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   );
 }
@@ -56,7 +58,7 @@ export function PageHeader({
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <UiCard className={cn("py-0", className)}>
-      <CardContent className="p-3">{children}</CardContent>
+      <CardContent className="p-(--density-gap)">{children}</CardContent>
     </UiCard>
   );
 }
@@ -70,24 +72,23 @@ export function Button({
   onClick,
   className,
   asChild,
+  title,
+  "aria-label": ariaLabel,
 }: {
   children: ReactNode;
   type?: "button" | "submit";
-  variant?: "primary" | "secondary" | "danger" | "ghost";
+  /** `secondary` renders as an outline so only the primary action is filled. */
+  variant?: "primary" | "secondary" | "outline" | "danger" | "ghost";
   size?: "default" | "xs" | "sm" | "lg" | "icon" | "icon-xs";
   disabled?: boolean;
   onClick?: () => void;
   className?: string;
   asChild?: boolean;
+  title?: string;
+  "aria-label"?: string;
 }) {
   const mapped =
-    variant === "primary"
-      ? "default"
-      : variant === "danger"
-        ? "destructive"
-        : variant === "ghost"
-          ? "outline"
-          : "secondary";
+    variant === "primary" ? "default" : variant === "danger" ? "destructive" : "outline";
   return (
     <UiButton
       type={asChild ? undefined : type}
@@ -97,6 +98,8 @@ export function Button({
       onClick={onClick}
       className={className}
       asChild={asChild}
+      title={title}
+      aria-label={ariaLabel}
     >
       {children}
     </UiButton>
@@ -135,54 +138,104 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
     <select
       {...props}
       className={cn(
-        "border-input h-7 w-full rounded-md border bg-transparent px-2 py-0.5 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+        "border-input h-8 w-full rounded-md border bg-card px-2 py-0.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
         props.className,
       )}
     />
   );
 }
 
-export function StatusBadge({ status }: { status: string }) {
-  const variant =
-    status === "received" ||
-    status === "shipped" ||
-    status === "completed" ||
-    status === "posted" ||
-    status === "packed" ||
-    status === "synced" ||
-    status === "ok" ||
-    status === "demo"
-      ? "default"
-      : status === "cancelled" || status === "failed"
-        ? "destructive"
-        : "secondary";
+const TONE_CLASS: Record<StatusTone, string> = {
+  neutral: "bg-tone-neutral-bg text-tone-neutral",
+  info: "bg-tone-info-bg text-tone-info",
+  progress: "bg-tone-progress-bg text-tone-progress",
+  success: "bg-tone-success-bg text-tone-success",
+  warning: "bg-tone-warning-bg text-tone-warning",
+  danger: "bg-tone-danger-bg text-tone-danger",
+};
+
+export function toneClass(tone: StatusTone): string {
+  return TONE_CLASS[tone];
+}
+
+/** A soft pill with a dot. Colour comes from the status family, so finished work reads green. */
+export function ToneBadge({
+  tone,
+  children,
+  className,
+  dot = true,
+}: {
+  tone: StatusTone;
+  children: ReactNode;
+  className?: string;
+  dot?: boolean;
+}) {
   return (
-    <Badge variant={variant} className="h-5 px-1.5 text-[10px] uppercase">
-      {status}
-    </Badge>
+    <span
+      className={cn(
+        "inline-flex h-5 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 text-[11px] font-medium capitalize leading-none",
+        TONE_CLASS[tone],
+        className,
+      )}
+    >
+      {dot ? <span aria-hidden className="size-1.5 rounded-full bg-current" /> : null}
+      {children}
+    </span>
   );
 }
+
+export function StatusBadge({ status, className }: { status: string; className?: string }) {
+  return (
+    <ToneBadge tone={statusTone(status)} className={className}>
+      {statusLabel(status)}
+    </ToneBadge>
+  );
+}
+
+/** Container classes shared by every data table so density applies everywhere. */
+export const TABLE_FRAME =
+  "min-h-0 flex-1 overflow-auto rounded-lg border bg-card shadow-xs [&_td]:px-(--density-cell) [&_td]:py-(--density-row) [&_td]:text-(length:--density-text) [&_th]:h-auto [&_th]:px-(--density-cell) [&_th]:py-(--density-row)";
 
 export function Table({
   columns,
   children,
+  loading,
 }: {
   columns: string[];
   children: ReactNode;
+  loading?: boolean;
 }) {
   return (
-    <div className="min-h-0 flex-1 overflow-auto rounded-md border bg-card [&_td]:px-2.5 [&_td]:py-1.5 [&_th]:px-2.5">
-      <UiTable className="text-xs">
-        <TableHeader className="sticky top-0 z-10 bg-card">
-          <TableRow>
-            {columns.map((col) => (
-              <TableHead key={col}>{col}</TableHead>
+    <div className={TABLE_FRAME}>
+      <UiTable>
+        <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur supports-[backdrop-filter]:bg-muted/60">
+          <TableRow className="hover:bg-transparent">
+            {columns.map((col, index) => (
+              <TableHead key={`${col}:${index}`} className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {col}
+              </TableHead>
             ))}
           </TableRow>
         </TableHeader>
-        <TableBody>{children}</TableBody>
+        <TableBody>{loading ? <SkeletonRows columns={columns.length} /> : children}</TableBody>
       </UiTable>
     </div>
+  );
+}
+
+export function SkeletonRows({ columns, rows = 6 }: { columns: number; rows?: number }) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, row) => (
+        <TableRow key={row} className="hover:bg-transparent">
+          {Array.from({ length: columns }, (_, col) => (
+            <td key={col}>
+              <Skeleton className={cn("h-4", col === 0 ? "w-20" : col % 3 === 0 ? "w-12" : "w-full max-w-40")} />
+            </td>
+          ))}
+        </TableRow>
+      ))}
+    </>
   );
 }
 
@@ -199,7 +252,7 @@ export function StatStrip({
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-nowrap items-stretch overflow-x-auto border-b bg-card", className)}>
+    <div className={cn("flex flex-nowrap items-stretch divide-x overflow-x-auto rounded-lg border bg-card shadow-xs", className)}>
       {items.map((item) => {
         const quiet = item.value === 0 || item.value === "—" || item.value === "0";
         const toneClass =
@@ -209,13 +262,13 @@ export function StatStrip({
               ? "text-destructive"
               : item.tone === "ok"
                 ? "text-ok"
-                : "text-amber-600 dark:text-chart-4";
+                : "text-tone-warning";
         const content = (
-          <div className="min-w-[4.75rem] shrink-0 px-2.5 py-1.5">
-            <p className="whitespace-nowrap text-[10px] leading-none uppercase tracking-wide text-muted-foreground">
+          <div className="min-w-[5.5rem] shrink-0 px-3 py-2">
+            <p className="whitespace-nowrap text-[11px] leading-none uppercase tracking-wide text-muted-foreground">
               {item.label}
             </p>
-            <p className={cn("mt-0.5 text-sm font-semibold tabular-nums leading-tight", toneClass)}>{item.value}</p>
+            <p className={cn("mt-1 text-lg font-semibold tabular-nums leading-tight", toneClass)}>{item.value}</p>
           </div>
         );
         return item.to ? (
@@ -233,8 +286,12 @@ export function StatStrip({
 export function ErrorBanner({ error }: { error: string | null }) {
   if (!error) return null;
   return (
-    <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
-      {error}
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-tone-danger-bg px-3 py-2 text-sm text-tone-danger"
+    >
+      <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+      <span className="min-w-0">{error}</span>
     </div>
   );
 }
@@ -242,8 +299,15 @@ export function ErrorBanner({ error }: { error: string | null }) {
 export function DoneBanner({ children, className }: { children?: ReactNode; className?: string }) {
   if (children == null || children === false || children === "") return null;
   return (
-    <div className={cn("rounded-md border border-ok/30 bg-ok/10 px-2.5 py-1.5 text-xs text-ok", className)}>
-      {children}
+    <div
+      role="status"
+      className={cn(
+        "flex items-start gap-2 rounded-lg border border-tone-success/25 bg-tone-success-bg px-3 py-2 text-sm text-tone-success",
+        className,
+      )}
+    >
+      <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+      <span className="min-w-0">{children}</span>
     </div>
   );
 }
@@ -252,16 +316,23 @@ export function EmptyState({
   title,
   body,
   action,
+  icon: Icon = Inbox,
+  className,
 }: {
   title: string;
   body?: string;
   action?: ReactNode;
+  icon?: LucideIcon;
+  className?: string;
 }) {
   return (
-    <div className="rounded-md border border-dashed px-4 py-6 text-center">
+    <div className={cn("flex flex-col items-center rounded-lg border border-dashed bg-card/50 px-6 py-10 text-center", className)}>
+      <div className="mb-3 flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <Icon className="size-5" />
+      </div>
       <p className="text-sm font-medium">{title}</p>
-      {body ? <p className="mt-0.5 text-xs text-muted-foreground">{body}</p> : null}
-      {action ? <div className="mt-2">{action}</div> : null}
+      {body ? <p className="mt-1 max-w-sm text-sm text-muted-foreground">{body}</p> : null}
+      {action ? <div className="mt-4">{action}</div> : null}
     </div>
   );
 }
