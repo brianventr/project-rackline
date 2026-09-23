@@ -12,7 +12,7 @@ import {
 import { Link } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Inbox, type LucideIcon } from "lucide-react";
 import { Button as UiButton } from "@/components/ui/button";
-import { Card as UiCard, CardContent } from "@/components/ui/card";
+import { Card as UiCard } from "@/components/ui/card";
 import { Input as UiInput } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,7 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { statusLabel, statusTone, type StatusTone } from "@/domain/status";
+import { statusText, statusTone, type StatusTone } from "@/domain/status";
 
 export function PageHeader({
   eyebrow,
@@ -57,12 +57,9 @@ export function PageHeader({
   );
 }
 
+/** A padded surface. `className` lands on the card itself, so both layout (`col-span-2`) and spacing (`space-y-3`) work. */
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return (
-    <UiCard className={cn("py-0", className)}>
-      <CardContent className="p-(--density-gap)">{children}</CardContent>
-    </UiCard>
-  );
+  return <UiCard className={cn("block gap-0 p-(--density-gap)", className)}>{children}</UiCard>;
 }
 
 export function Button({
@@ -188,8 +185,8 @@ export function ToneBadge({
 
 export function StatusBadge({ status, className }: { status: string; className?: string }) {
   return (
-    <ToneBadge tone={statusTone(status)} className={className}>
-      {statusLabel(status)}
+    <ToneBadge tone={statusTone(status)} className={cn("normal-case", className)}>
+      {statusText(status)}
     </ToneBadge>
   );
 }

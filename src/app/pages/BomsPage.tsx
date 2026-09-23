@@ -1,8 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { BookOpen, ImagePlus, Plus, Trash2, X } from "lucide-react";
+import { toast } from "sonner";
 import { api, uploadFile, type Bom, type BomStep, type Item, type Me } from "../api";
-import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Table, onSubmit } from "../components/ui";
+import { Button, EmptyState, Field, Input, PageHeader, Select, Table, summarizeLines } from "../components/ui";
 import { SkuThumb } from "../components/sku-thumb";
 import { KitRecipeCard } from "../components/kit-recipe";
+import { useConfirm } from "../components/confirm";
+import { DataTable, type DataColumn, type TabDef } from "../components/data-table/DataTable";
+import { LineChips, Muted, SkuCell } from "../components/cells";
+import { FormSheet } from "../components/form-sheet";
+import { apiMutate, refreshApi, useApiQuery } from "../query";
 
 type Line = { itemId: string; qty: string };
 type StepDraft = {
@@ -25,30 +33,176 @@ function draftsFrom(steps: BomStep[] | undefined): StepDraft[] {
   }));
 }
 
-export function BomsPage({ me }: { me: Me }) {
-  const [boms, setBoms] = useState<Bom[]>([]);
-  const [items, setItems] = useState<Item[]>([]);
-  const [itemId, setItemId] = useState("");
-  const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
-  const [error, setError] = useState<string | null>(null);
+const RECIPE_TABS: TabDef<Bom>[] = [
+  { id: "all", label: "All", match: () => true },
+  { id: "steps", label: "With steps", match: (bom) => (bom.steps ?? []).length > 0 },
+  { id: "no-steps", label: "No steps", match: (bom) => (bom.steps ?? []).length === 0 },
+];
 
-  async function load() {
-    const [nextBoms, nextItems] = await Promise.all([api<Bom[]>("/api/boms"), api<Item[]>("/api/items")]);
-    setBoms(nextBoms);
-    setItems(nextItems);
-    const finished = nextItems.find((item) => item.type === "finished" || item.type === "wip");
-    if (!itemId && finished) setItemId(finished.id);
+const RECIPE_COLUMNS: DataColumn<Bom>[] = [
+  {
+    id: "item",
+    header: "Builds",
+    sortValue: (bom) => bom.sku,
+    csv: (bom) => `${bom.sku} — ${bom.itemName}`,
+    cell: (bom) => <SkuCell sku={bom.sku} name={bom.itemName} imageUrl={bom.imageUrl} />,
+  },
+  {
+    id: "components",
+    header: "Components",
+    csv: (bom) => summarizeLines(bom.lines),
+    cell: (bom) => <LineChips lines={bom.lines} max={4} />,
+  },
+  {
+    id: "count",
+    header: "Parts",
+    align: "right",
+    defaultHidden: true,
+    sortValue: (bom) => bom.lines.length,
+    cell: (bom) => <span className="font-mono">{bom.lines.length}</span>,
+  },
+  {
+    id: "steps",
+    header: "Steps",
+    align: "right",
+    sortValue: (bom) => (bom.steps ?? []).length,
+    cell: (bom) => {
+      const count = (bom.steps ?? []).length;
+      return count ? <span className="font-mono">{count}</span> : <Muted>None</Muted>;
+    },
+  },
+];
+
+export function BomsPage({ me }: { me: Me }) {
+  const [params, setParams] = useSearchParams();
+  const boms = useApiQuery<Bom[]>("/api/boms");
+  const [creating, setCreating] = useState(false);
+  const rows = boms.data ?? [];
+
+  const itemParam = params.get("item");
+  const openId = params.get("recipe") ?? (itemParam ? rows.find((bom) => bom.itemId === itemParam)?.id : undefined);
+  const openBom = openId ? rows.find((bom) => bom.id === openId) ?? null : null;
+
+  function hrefFor(bom: Bom) {
+    const next = new URLSearchParams(params);
+    next.delete("item");
+    next.set("recipe", bom.id);
+    return `/make/recipes?${next.toString()}`;
   }
 
+  function closeRecipe() {
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.delete("recipe");
+        next.delete("item");
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  function openRecipe(id: string) {
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.delete("item");
+      next.set("recipe", id);
+      return next;
+    });
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
+      <PageHeader
+        eyebrow="Make"
+        title="Recipes"
+        description="One recipe per finished or WIP SKU. Numbered steps guide the bench; complete still explodes qty."
+      />
+      <DataTable
+        id="recipes"
+        data={rows}
+        loading={boms.isLoading}
+        error={boms.error?.message}
+        columns={RECIPE_COLUMNS}
+        getRowId={(bom) => bom.id}
+        rowHref={hrefFor}
+        tabs={RECIPE_TABS}
+        defaultTab="all"
+        defaultSort={{ id: "item", desc: false }}
+        search={{
+          placeholder: "Search SKU, component",
+          text: (bom) => [bom.sku, bom.itemName, ...bom.lines.map((line) => line.sku)].filter(Boolean).join(" "),
+        }}
+        exportName="recipes"
+        toolbar={
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus className="size-4" />
+            New recipe
+          </Button>
+        }
+        empty={
+          <EmptyState
+            icon={BookOpen}
+            title="No recipes yet."
+            body="A recipe lists the components one finished or WIP SKU consumes. Work orders and kits need one."
+            action={
+              <Button size="sm" onClick={() => setCreating(true)}>
+                New recipe
+              </Button>
+            }
+          />
+        }
+      />
+      <NewRecipeSheet
+        open={creating}
+        onOpenChange={setCreating}
+        onCreated={(bom) => {
+          setCreating(false);
+          openRecipe(bom.id);
+        }}
+      />
+      {openBom ? (
+        <RecipeSheet
+          key={openBom.id}
+          bom={openBom}
+          canDelete={me.role === "owner"}
+          onClose={closeRecipe}
+          onSaved={async () => {
+            await boms.refetch();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function NewRecipeSheet({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: (bom: Bom) => void;
+}) {
+  const items = useApiQuery<Item[]>(open ? "/api/items" : null);
+  const [itemId, setItemId] = useState("");
+  const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const all = items.data ?? [];
+  const parents = useMemo(() => all.filter((item) => item.type === "finished" || item.type === "wip"), [all]);
+
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
-  }, []);
+    if (!itemId && parents[0]) setItemId(parents[0].id);
+  }, [parents, itemId]);
 
   async function create() {
     setError(null);
+    setBusy(true);
     try {
-      await api("/api/boms", {
-        method: "POST",
+      const created = await apiMutate<Bom>("/api/boms", {
         body: JSON.stringify({
           itemId,
           lines: lines
@@ -57,117 +211,104 @@ export function BomsPage({ me }: { me: Me }) {
         }),
       });
       setLines([{ itemId: "", qty: "1" }]);
-      await load();
+      toast.success(`Recipe saved for ${created.sku}. Add bench steps next.`);
+      onCreated(created);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create BOM");
+    } finally {
+      setBusy(false);
     }
   }
-
-  async function remove(id: string) {
-    setError(null);
-    try {
-      await api(`/api/boms/${id}`, { method: "DELETE" });
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not delete BOM");
-    }
-  }
-
-  const parents = items.filter((item) => item.type === "finished" || item.type === "wip");
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Make"
-        title="Recipes"
-        description="One recipe per finished or WIP SKU. Numbered steps guide the bench; complete still explodes qty."
-      />
-      <ErrorBanner error={error} />
-      <Card className="mb-3">
-        <form className="space-y-4" onSubmit={onSubmit(create)}>
-          <Field label="Parent item">
-            <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
-              <option value="">Select parent</option>
-              {parents.map((item) => (
+    <FormSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New recipe"
+      description="What one unit of a finished or WIP SKU consumes. Steps come after you save."
+      submitLabel="Save recipe"
+      onSubmit={create}
+      busy={busy}
+      error={error}
+    >
+      <Field label="Parent item">
+        <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
+          <option value="">Select parent</option>
+          {parents.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.sku} — {item.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <div className="space-y-2">
+        <div className="grid grid-cols-[1fr_96px] gap-2 text-sm font-medium">
+          <span>Component</span>
+          <span>Qty each</span>
+        </div>
+        {lines.map((line, index) => (
+          <div key={index} className="grid grid-cols-[1fr_96px] gap-2">
+            <Select
+              aria-label={`Component ${index + 1}`}
+              value={line.itemId}
+              onChange={(e) =>
+                setLines((current) => current.map((row, i) => (i === index ? { ...row, itemId: e.target.value } : row)))
+              }
+            >
+              <option value="">Component</option>
+              {all.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.sku} — {item.name}
                 </option>
               ))}
             </Select>
-          </Field>
-          <div className="space-y-2">
-            {lines.map((line, index) => (
-              <div key={index} className="grid gap-2 md:grid-cols-[1fr_120px]">
-                <Select
-                  value={line.itemId}
-                  onChange={(e) =>
-                    setLines((current) =>
-                      current.map((row, i) => (i === index ? { ...row, itemId: e.target.value } : row)),
-                    )
-                  }
-                >
-                  <option value="">Component</option>
-                  {items.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.sku} — {item.name}
-                    </option>
-                  ))}
-                </Select>
-                <Input
-                  type="number"
-                  min={1}
-                  value={line.qty}
-                  onChange={(e) =>
-                    setLines((current) =>
-                      current.map((row, i) => (i === index ? { ...row, qty: e.target.value } : row)),
-                    )
-                  }
-                />
-              </div>
-            ))}
-            <Button variant="ghost" onClick={() => setLines((current) => [...current, { itemId: "", qty: "1" }])}>
-              Add component
-            </Button>
+            <Input
+              type="number"
+              min={1}
+              aria-label={`Qty for component ${index + 1}`}
+              value={line.qty}
+              onChange={(e) =>
+                setLines((current) => current.map((row, i) => (i === index ? { ...row, qty: e.target.value } : row)))
+              }
+            />
           </div>
-          <Button type="submit">Save BOM</Button>
-        </form>
-      </Card>
-      {boms.map((bom) => (
-        <BomCard
-          key={bom.id}
-          bom={bom}
-          canDelete={me.role === "owner"}
-          onDelete={() => void remove(bom.id)}
-          onError={setError}
-          onSaved={load}
-        />
-      ))}
-    </div>
+        ))}
+        <Button variant="ghost" size="sm" onClick={() => setLines((current) => [...current, { itemId: "", qty: "1" }])}>
+          <Plus className="size-4" />
+          Add component
+        </Button>
+      </div>
+    </FormSheet>
   );
 }
 
-function BomCard({
+function RecipeSheet({
   bom,
   canDelete,
-  onDelete,
-  onError,
+  onClose,
   onSaved,
 }: {
   bom: Bom;
   canDelete: boolean;
-  onDelete: () => void;
-  onError: (message: string | null) => void;
+  onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
   const [steps, setSteps] = useState<StepDraft[]>(() => draftsFrom(bom.steps));
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   useEffect(() => {
     setSteps(draftsFrom(bom.steps));
   }, [bom.id, bom.steps]);
 
+  function patchStep(index: number, patch: Partial<StepDraft>) {
+    setSteps((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
   async function saveSteps() {
-    onError(null);
+    setError(null);
     setSaving(true);
     try {
       const payload = steps
@@ -197,114 +338,173 @@ function BomCard({
         }
       }
       await onSaved();
+      void refreshApi();
+      toast.success(`Saved ${payload.length} ${payload.length === 1 ? "step" : "steps"} for ${bom.sku}.`);
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Could not save steps");
+      setError(err instanceof Error ? err.message : "Could not save steps");
     } finally {
       setSaving(false);
     }
   }
 
+  async function remove() {
+    const ok = await confirm({
+      title: `Delete the ${bom.sku} recipe?`,
+      body: `Its components, steps, and step photos are removed. Stock does not move, but open work orders and kits for ${bom.sku} cannot complete until it has a recipe again.`,
+      confirmLabel: "Delete recipe",
+      cancelLabel: "Keep recipe",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setError(null);
+    setDeleting(true);
+    try {
+      await api(`/api/boms/${bom.id}`, { method: "DELETE" });
+      void refreshApi();
+      toast.success(`${bom.sku} recipe deleted.`);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete BOM");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const savedSteps = bom.steps ?? [];
+
   return (
-    <Card className="mb-4 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <SkuThumb sku={bom.sku} name={bom.itemName} imageUrl={bom.imageUrl} />
-          <h2 className="font-semibold">
-            {bom.sku} — {bom.itemName}
-          </h2>
+    <FormSheet
+      open
+      onOpenChange={(open) => (open ? null : onClose())}
+      title={`${bom.sku} recipe`}
+      description={`${bom.itemName} · ${bom.lines.length} ${bom.lines.length === 1 ? "component" : "components"}`}
+      submitLabel="Save steps"
+      onSubmit={saveSteps}
+      busy={saving}
+      error={error}
+      wide
+    >
+      <div className="flex items-center gap-3">
+        <SkuThumb sku={bom.sku} name={bom.itemName} imageUrl={bom.imageUrl} />
+        <div className="min-w-0">
+          <p className="font-mono text-sm font-semibold">{bom.sku}</p>
+          <p className="truncate text-sm text-muted-foreground">{bom.itemName}</p>
         </div>
-        {canDelete ? (
-          <button className="text-sm text-bad" onClick={onDelete}>
-            Delete
-          </button>
-        ) : null}
       </div>
-      <Table columns={["", "Component", "Qty each"]}>
-        {bom.lines.map((line) => (
-          <tr key={line.id}>
-            <td className="px-2.5 py-1.5">
-              <SkuThumb sku={line.sku} name={line.itemName} imageUrl={line.imageUrl} size="sm" />
-            </td>
-            <td className="px-2.5 py-1.5">
-              <span className="font-mono">{line.sku}</span> {line.itemName}
-            </td>
-            <td className="px-2.5 py-1.5 font-mono tabular">{line.qty}</td>
-          </tr>
-        ))}
-      </Table>
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold">Kitting steps</h3>
-        {steps.map((step, index) => (
-          <div key={step.id ?? `new-${index}`} className="grid gap-2 rounded-md border p-3 md:grid-cols-[auto_1fr_1fr_160px]">
-            <SkuThumb
-              sku={bom.lines.find((line) => line.itemId === step.componentItemId)?.sku || bom.sku}
-              imageUrl={step.imageUrl}
-              size="sm"
-            />
-            <Input
-              placeholder={`Step ${index + 1} title`}
-              value={step.title}
-              onChange={(e) =>
-                setSteps((current) => current.map((row, i) => (i === index ? { ...row, title: e.target.value } : row)))
-              }
-            />
-            <Input
-              placeholder="What to do"
-              value={step.body}
-              onChange={(e) =>
-                setSteps((current) => current.map((row, i) => (i === index ? { ...row, body: e.target.value } : row)))
-              }
-            />
-            <Select
-              value={step.componentItemId}
-              onChange={(e) =>
-                setSteps((current) =>
-                  current.map((row, i) => (i === index ? { ...row, componentItemId: e.target.value } : row)),
-                )
-              }
-            >
-              <option value="">Component</option>
-              {bom.lines.map((line) => (
-                <option key={line.itemId} value={line.itemId}>
-                  {line.sku}
-                </option>
-              ))}
-            </Select>
-            <div className="flex flex-wrap items-center gap-2 md:col-span-4">
-              <label className="inline-flex cursor-pointer text-sm underline">
-                Photo
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] ?? null;
-                    e.target.value = "";
-                    setSteps((current) => current.map((row, i) => (i === index ? { ...row, file } : row)));
-                  }}
-                />
-              </label>
-              <Button
-                variant="ghost"
-                onClick={() => setSteps((current) => current.filter((_, i) => i !== index))}
-              >
-                Remove
-              </Button>
-            </div>
+
+      <div className="space-y-1.5">
+        <p className="text-sm font-medium">Components</p>
+        <Table columns={["Component", "Qty each"]}>
+          {bom.lines.map((line) => (
+            <tr key={line.id}>
+              <td>
+                <SkuCell sku={line.sku} name={line.itemName} imageUrl={line.imageUrl} />
+              </td>
+              <td className="font-mono tabular-nums">{line.qty}</td>
+            </tr>
+          ))}
+        </Table>
+      </div>
+
+      <div className="space-y-2">
+        <div>
+          <p className="text-sm font-medium">Kitting steps</p>
+          <p className="text-xs text-muted-foreground">Steps with no title or text are dropped on save.</p>
+        </div>
+        <ol className="space-y-2">
+          {steps.map((step, index) => {
+            const partSku = bom.lines.find((line) => line.itemId === step.componentItemId)?.sku || bom.sku;
+            return (
+              <li key={step.id ?? `new-${index}`} className="space-y-2 rounded-lg border bg-card p-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-xs font-semibold">
+                    {index + 1}
+                  </span>
+                  <Input
+                    placeholder={`Step ${index + 1} title`}
+                    aria-label={`Step ${index + 1} title`}
+                    value={step.title}
+                    onChange={(e) => patchStep(index, { title: e.target.value })}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Remove step ${index + 1}`}
+                    title="Remove step"
+                    onClick={() => setSteps((current) => current.filter((_, i) => i !== index))}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+                <div className="grid gap-2 pl-8 sm:grid-cols-[1fr_10rem]">
+                  <Input
+                    placeholder="What to do"
+                    aria-label={`Step ${index + 1} instructions`}
+                    value={step.body}
+                    onChange={(e) => patchStep(index, { body: e.target.value })}
+                  />
+                  <Select
+                    aria-label={`Step ${index + 1} component`}
+                    value={step.componentItemId}
+                    onChange={(e) => patchStep(index, { componentItemId: e.target.value })}
+                  >
+                    <option value="">Component</option>
+                    {bom.lines.map((line) => (
+                      <option key={line.itemId} value={line.itemId}>
+                        {line.sku}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2 pl-8">
+                  <SkuThumb sku={partSku} imageUrl={step.imageUrl} size="sm" />
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+                    <ImagePlus className="size-4" />
+                    {step.file ? step.file.name : step.imageUrl ? "Replace photo" : "Add photo"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] ?? null;
+                        e.target.value = "";
+                        patchStep(index, { file });
+                      }}
+                    />
+                  </label>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setSteps((current) => [...current, { title: "", body: "", componentItemId: "" }])}
+        >
+          <Plus className="size-4" />
+          Add step
+        </Button>
+      </div>
+
+      {savedSteps.length ? (
+        <div className="space-y-1.5">
+          <p className="text-sm font-medium">What the bench sees</p>
+          <div className="rounded-lg border bg-card p-3">
+            <KitRecipeCard sku={bom.sku} itemName={bom.itemName} imageUrl={bom.imageUrl} components={bom.lines} steps={savedSteps} />
           </div>
-        ))}
-        <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => setSteps((current) => [...current, { title: "", body: "", componentItemId: "" }])}>
-            Add step
-          </Button>
-          <Button onClick={() => void saveSteps()} disabled={saving}>
-            {saving ? "Saving…" : "Save steps"}
+        </div>
+      ) : null}
+
+      {canDelete ? (
+        <div className="flex items-center justify-between gap-3 border-t pt-4">
+          <p className="text-xs text-muted-foreground">Owners can delete a recipe. Open builds of {bom.sku} cannot complete without one.</p>
+          <Button size="sm" variant="outline" className="text-tone-danger" disabled={deleting} onClick={() => void remove()}>
+            <Trash2 className="size-4" />
+            Delete recipe
           </Button>
         </div>
-      </div>
-      {(bom.steps ?? []).length ? (
-        <KitRecipeCard sku={bom.sku} itemName={bom.itemName} imageUrl={bom.imageUrl} components={bom.lines} steps={bom.steps} />
       ) : null}
-    </Card>
+    </FormSheet>
   );
 }

@@ -368,6 +368,8 @@ export type InventoryRow = {
   locationId: string;
   locationCode: string;
   locationName: string;
+  locationType?: string;
+  updatedAt?: number;
   warehouseId?: string;
 };
 
@@ -982,6 +984,7 @@ export type CycleCount = {
   id: string;
   number: string;
   status: string;
+  createdAt?: number;
   locationId: string;
   locationCode?: string;
   locationBarcode?: string;
@@ -1022,6 +1025,8 @@ export type Movement = {
   id: string;
   type: string;
   qty: number;
+  refType?: string;
+  refId?: string;
   sku: string;
   itemName: string;
   reason: string | null;

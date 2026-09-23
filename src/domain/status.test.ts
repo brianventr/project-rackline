@@ -26,6 +26,7 @@ import {
   isOpenPurchase,
   normalizeOrderStatus,
   statusLabel,
+  statusText,
   statusTone,
 } from "./status";
 
@@ -154,5 +155,14 @@ describe("statusTone", () => {
     expect(statusTone("something_new")).toBe("neutral");
     expect(statusTone(null)).toBe("neutral");
     expect(statusTone("")).toBe("neutral");
+  });
+});
+
+describe("statusText", () => {
+  it("sentence-cases labels", () => {
+    expect(statusText("in_progress")).toBe("In progress");
+    expect(statusText("checked_in")).toBe("Checked in");
+    expect(statusText("order_now")).toBe("Order now");
+    expect(statusText("shipped")).toBe("Shipped");
   });
 });

@@ -7,7 +7,10 @@ import { SkuThumb } from "./sku-thumb";
 /** Document number link in the first column. Mono so numbers line up. */
 export function DocLink({ to, children, className }: { to: string; children: ReactNode; className?: string }) {
   return (
-    <Link to={to} className={cn("font-mono font-medium text-foreground hover:text-primary hover:underline", className)}>
+    <Link
+      to={to}
+      className={cn("whitespace-nowrap font-mono font-medium text-foreground hover:text-primary hover:underline", className)}
+    >
       {children}
     </Link>
   );
@@ -64,6 +67,24 @@ export function ProgressCell({
         {done}/{total}
       </span>
     </span>
+  );
+}
+
+/** Label, `done/total`, and a full-width bar. For record side panels (picked, received, completed). */
+export function ProgressRow({ label, done, total }: { label: string; done: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-mono tabular-nums">
+          {done}/{total}
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div className={cn("h-full rounded-full", pct >= 100 ? "bg-tone-success" : "bg-primary")} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
   );
 }
 

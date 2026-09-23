@@ -1369,6 +1369,7 @@ catalogRoute.get("/dashboard", async (c) => {
         inArray(schema.inventoryMovements.type, ["receive", "pick", "ship", "wo_produce", "kit_produce"]),
       ),
     )
+    .orderBy(desc(schema.inventoryMovements.createdAt))
     .limit(20000);
   const trend = dailyTrend(
     trendRows.filter(

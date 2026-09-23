@@ -29,7 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { statusLabel } from "@/domain/status";
+import { statusLabel, statusText } from "@/domain/status";
 import { relativeTime } from "@/domain/relative-time";
 import { stepStamps, type StepRule, type StepStamp } from "@/domain/step-stamps";
 import { toast } from "sonner";
@@ -83,11 +83,11 @@ export function StatusStepper({
                 </span>
                 <span
                   className={cn(
-                    "whitespace-nowrap text-xs font-medium capitalize",
+                    "whitespace-nowrap text-xs font-medium",
                     active ? "text-foreground" : done ? "text-foreground/80" : "text-muted-foreground",
                   )}
                 >
-                  {statusLabel(step)}
+                  {statusText(step)}
                 </span>
               </div>
               {stamp ? (
@@ -177,6 +177,7 @@ export function ActionButton({
   }
   return (
     <Button
+      type="button"
       size={size}
       variant={action.tone === "danger" ? "destructive" : variant}
       className={className}
@@ -212,7 +213,7 @@ export function ActionMenu({ actions, label = "More actions" }: { actions: Docum
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="outline" aria-label={label}>
+        <Button type="button" size="sm" variant="outline" aria-label={label}>
           {busy ? <Loader2 className="animate-spin" /> : <MoreHorizontal />}
           <span className="hidden sm:inline">More</span>
         </Button>
@@ -267,8 +268,9 @@ export function DocumentHeader({
   eyebrow: string;
   title: string;
   description?: string;
-  status: string;
-  steps: readonly string[];
+  /** Records without a lifecycle (items, bays) omit both; `meta` can carry a badge instead. */
+  status?: string;
+  steps?: readonly string[];
   /** Legacy free-form buttons. Prefer `primary` + `menu`. */
   actions?: ReactNode;
   /** The list this record belongs to, shown as a breadcrumb. */
@@ -284,10 +286,11 @@ export function DocumentHeader({
   meta?: ReactNode;
 }) {
   const movements = useDocumentMovements(refId && stampRules ? refId : null);
-  const current = status === "draft" && steps[0] === "open" ? "open" : status;
-  const stamps = stampRules ? stepStamps(steps, current, movements.data ?? [], stampRules) : undefined;
+  const stepList = steps ?? [];
+  const current = status === "draft" && stepList[0] === "open" ? "open" : (status ?? "");
+  const stamps = stampRules ? stepStamps(stepList, current, movements.data ?? [], stampRules) : undefined;
   const menuActions = (menu ?? []).filter(Boolean) as DocumentAction[];
-  const inSteps = steps.includes(current);
+  const inSteps = !!status && stepList.includes(current);
 
   return (
     <div className="space-y-3">
@@ -296,7 +299,7 @@ export function DocumentHeader({
           {list ? <Breadcrumbs items={[{ label: eyebrow }, { label: list.label, to: list.to }, { label: title }]} /> : null}
           <div className="flex flex-wrap items-center gap-2">
             <PageHeader eyebrow={list ? undefined : eyebrow} title={title} />
-            {!inSteps ? <StatusBadge status={status} /> : null}
+            {status && !inSteps ? <StatusBadge status={status} /> : null}
             {meta}
           </div>
           {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
@@ -309,7 +312,7 @@ export function DocumentHeader({
       </div>
       {inSteps && status !== "cancelled" ? (
         <div className="rounded-lg border bg-card px-4 py-3 shadow-xs">
-          <StatusStepper steps={steps} current={current} stamps={stamps} />
+          <StatusStepper steps={stepList} current={current} stamps={stamps} />
         </div>
       ) : null}
     </div>

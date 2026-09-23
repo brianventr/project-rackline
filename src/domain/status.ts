@@ -205,6 +205,12 @@ export function isOpenYard(status: string): boolean {
   return status === "expected" || status === "checked_in" || status === "at_dock";
 }
 
+/** Sentence case for display: "In progress", "Checked in", "Order now". */
+export function statusText(status: string): string {
+  const label = statusLabel(status);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 export function statusLabel(status: string): string {
   if (status === "in_progress") return "In progress";
   if (status === "checked_in") return "Checked in";

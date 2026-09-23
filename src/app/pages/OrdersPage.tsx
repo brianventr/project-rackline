@@ -47,7 +47,7 @@ import {
   type DocumentAction,
 } from "../components/document";
 import { DataTable, type BulkAction, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
-import { DocLink, LineChips, Muted, ProgressCell, RelativeTime, SkuCell } from "../components/cells";
+import { DocLink, LineChips, Muted, ProgressCell, RelativeTime, SkuCell, ProgressRow } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -825,9 +825,9 @@ function OrderDetail({ id }: { id: string }) {
             <Card className="space-y-3">
               <p className="text-sm font-medium">Units</p>
               <div className="space-y-2 text-sm">
-                <UnitRow label="Picked" done={units.picked} total={units.ordered} />
-                <UnitRow label="Packed" done={units.packed} total={units.ordered} />
-                <UnitRow label="Shipped" done={order.status === "shipped" ? units.ordered : units.shipped} total={units.ordered} />
+                <ProgressRow label="Picked" done={units.picked} total={units.ordered} />
+                <ProgressRow label="Packed" done={units.packed} total={units.ordered} />
+                <ProgressRow label="Shipped" done={order.status === "shipped" ? units.ordered : units.shipped} total={units.ordered} />
               </div>
             </Card>
             <Card className="space-y-3">
@@ -1251,22 +1251,6 @@ function OrderDetail({ id }: { id: string }) {
   );
 }
 
-function UnitRow({ label, done, total }: { label: string; done: number; total: number }) {
-  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-mono tabular-nums">
-          {done}/{total}
-        </span>
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-        <div className={cn("h-full rounded-full", pct >= 100 ? "bg-tone-success" : "bg-primary")} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
 
 function floorActionForOrder(status: string, id: string): string {
   if (status === "picked" || status === "packing") return `/floor/pack?id=${id}`;
