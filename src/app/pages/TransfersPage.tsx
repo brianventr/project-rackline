@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowRight, ArrowRightLeft, Play, Plus, ScanLine, Send } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Item, type Location, type Transfer } from "../api";
-import { Button, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, ToneBadge, summarizeLines } from "../components/ui";
+import { z } from "zod";
+import { api, errorText, type Item, type Location, type Transfer } from "../api";
+import { Button, EmptyState, ErrorBanner, Input, PageHeader, StatusBadge, Table, ToneBadge, summarizeLines } from "../components/ui";
 import {
   DetailSkeleton,
   DocumentActivity,
@@ -16,15 +17,38 @@ import {
 import { DataTable, type BulkAction, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, LineChips, Muted, ProgressCell, ProgressRow, RelativeTime, SkuCell } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { LinesField, SelectField, TextField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import { apiMutate, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { STEP_RULES } from "@/domain/step-stamps";
+import { blankLine, linesSchema, optionalText, requiredChoice } from "@/domain/form-schemas";
 import { TRANSFER_STEPS, canPostTransfer, isOpenTransfer } from "@/domain/status";
 import { hasUnmoved } from "@/domain/partial-transfer";
 import { useWarehouse, inWarehouse } from "../warehouse";
-import { LineFields, RailCard, countOf, runEach, unitCount } from "./ReceiptsPage";
+import { RailCard, countOf, runEach, unitCount } from "./ReceiptsPage";
 
-type Line = { itemId: string; qty: string };
+/**
+ * POST /api/transfers (`src/routes/floor.ts`): both bays are required and must differ; lines may
+ * repeat a SKU (unlike receipts), so this uses `linesSchema`.
+ */
+const putawayFormSchema = z
+  .object({
+    fromLocationId: requiredChoice("Pick the bay to move from."),
+    toLocationId: requiredChoice("Pick the bay to move to."),
+    notes: optionalText,
+    lines: linesSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (value.fromLocationId && value.fromLocationId === value.toLocationId) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Pick a different bay to move to.",
+        path: ["toLocationId"],
+        input: value.toLocationId,
+      });
+    }
+  });
 
 /** The list endpoint also returns createdAt; `toWarehouseName` is resolved on the client. */
 type TransferRow = Transfer & { createdAt?: number; toWarehouseName: string | null };
@@ -219,7 +243,11 @@ function TransferList() {
           <EmptyState
             icon={ArrowRightLeft}
             title="No putaway yet."
-            body="A putaway moves stock from one bay to another, here or in another warehouse. Quick moves can be scanned on the floor."
+            body={
+              <>
+                A <Term id="putaway">putaway</Term> moves stock from one bay to another, in this warehouse or another one.
+              </>
+            }
             action={
               <div className="flex flex-wrap justify-center gap-2">
                 <Button size="sm" onClick={() => setCreating(true)}>
@@ -243,10 +271,7 @@ function NewPutawaySheet({ open, onOpenChange }: { open: boolean; onOpenChange: 
   const { warehouseId, warehouses } = useWarehouse();
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
   const locations = useApiQuery<Location[]>("/api/locations");
-  const [fromLocationId, setFromLocationId] = useState("");
-  const [toLocationId, setToLocationId] = useState("");
-  const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
+  const form = useZodForm(putawayFormSchema, { fromLocationId: "", toLocationId: "", notes: "", lines: [blankLine()] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -255,6 +280,7 @@ function NewPutawaySheet({ open, onOpenChange }: { open: boolean; onOpenChange: 
   const warehouseName = (id: string) => warehouses.find((row) => row.id === id)?.name ?? id;
 
   // Same defaults as before: from the receiving dock of this warehouse, to the first bulk (or storage) bay.
+  const { reset, getValues, setValue } = form;
   useEffect(() => {
     const all = locations.data;
     if (!all) return;
@@ -262,28 +288,45 @@ function NewPutawaySheet({ open, onOpenChange }: { open: boolean; onOpenChange: 
     const recv = fromPool.find((location) => location.type === "receiving") ?? fromPool[0] ?? all[0];
     const bulk =
       all.find((location) => location.slotRole === "bulk") ?? all.find((location) => location.type === "storage") ?? all[1];
-    if (recv) setFromLocationId(recv.id);
-    if (bulk) setToLocationId(bulk.id);
-  }, [locations.data, warehouseId]);
+    if (recv) setValue("fromLocationId", recv.id);
+    if (bulk) setValue("toLocationId", bulk.id);
+  }, [locations.data, warehouseId, setValue]);
 
-  async function create() {
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  useEffect(() => {
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  // The "different bay" message sits on To, so re-check To when From changes (once it has been
+  // checked), or the message stays after From is fixed.
+  const fromLocationId = form.watch("fromLocationId");
+  const submitted = form.formState.isSubmitted;
+  const submittedRef = useRef(submitted);
+  submittedRef.current = submitted;
+  const { trigger, getFieldState } = form;
+  useEffect(() => {
+    if (submittedRef.current || getFieldState("toLocationId").invalid) void trigger("toLocationId");
+  }, [fromLocationId, trigger, getFieldState]);
+
+  async function create(values: ZodFormOutput<typeof putawayFormSchema>) {
     setError(null);
     setBusy(true);
     try {
+      // Same body as before: notes as typed, blank rows already dropped, qty already a number.
       const created = await apiMutate<Transfer>("/api/transfers", {
         body: JSON.stringify({
           warehouseId,
-          fromLocationId,
-          toLocationId,
-          notes,
-          lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
+          fromLocationId: values.fromLocationId,
+          toLocationId: values.toLocationId,
+          notes: values.notes,
+          lines: values.lines.map((line) => ({ itemId: line.itemId, qty: line.qty })),
         }),
       });
       toast.success(`Putaway ${created.number} created.`);
       onOpenChange(false);
       navigate(`/inbound/putaway/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create transfer");
+      setError(errorText(err, "Could not create the putaway."));
     } finally {
       setBusy(false);
     }
@@ -296,38 +339,30 @@ function NewPutawaySheet({ open, onOpenChange }: { open: boolean; onOpenChange: 
       title="New putaway"
       description="Move stock between bays. The destination can be in another warehouse."
       submitLabel="Create putaway"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
       wide
     >
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="From">
-          <Select value={fromLocationId} onChange={(e) => setFromLocationId(e.target.value)}>
-            {fromLocations.map((location) => (
-              <option key={location.id} value={location.id}>
-                {location.code} — {location.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="To (any warehouse)">
-          <Select value={toLocationId} onChange={(e) => setToLocationId(e.target.value)}>
-            {allLocations.map((location) => (
-              <option key={location.id} value={location.id}>
-                {location.warehouseName || warehouseName(location.warehouseId)} · {location.code} — {location.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
+      <div className="grid items-start gap-3 sm:grid-cols-2">
+        <SelectField
+          form={form}
+          name="fromLocationId"
+          label="From"
+          options={fromLocations.map((location) => ({ value: location.id, label: `${location.code} — ${location.name}` }))}
+        />
+        <SelectField
+          form={form}
+          name="toLocationId"
+          label="To (any warehouse)"
+          options={allLocations.map((location) => ({
+            value: location.id,
+            label: `${location.warehouseName || warehouseName(location.warehouseId)} · ${location.code} — ${location.name}`,
+          }))}
+        />
       </div>
-      <Field label="Notes">
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
-      </Field>
-      <div className="space-y-1.5">
-        <p className="text-sm font-medium">Lines</p>
-        <LineFields items={items.data ?? []} lines={lines} setLines={setLines} />
-      </div>
+      <TextField form={form} name="notes" label="Notes" />
+      <LinesField form={form} name="lines" items={items.data ?? []} />
     </FormSheet>
   );
 }

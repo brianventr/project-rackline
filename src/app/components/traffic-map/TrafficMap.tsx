@@ -80,14 +80,14 @@ export function TrafficMap({ snapshot, grain, frame, selectedFlightId, onSelectF
             </feMerge>
           </filter>
         </defs>
-        {countries.features.map((feat) => {
+        {countries.features.map((feat, index) => {
           const iso = countryByIsoNumeric(String(feat.id ?? ""));
           const dest = iso && grain === "country" ? destByCountry.get(iso.code) : undefined;
           const d = path(feat);
           if (!d) return null;
           return (
             <path
-              key={`c-${feat.id}`}
+              key={feat.id != null ? `c-${feat.id}` : `c-i${index}`}
               d={d}
               onClick={(event) => {
                 event.stopPropagation();

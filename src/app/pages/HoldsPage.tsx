@@ -1,20 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { LockOpen, Plus, ScanLine, ShieldAlert } from "lucide-react";
+import { useWatch } from "react-hook-form";
+import { Lock, LockOpen, Plus, ScanLine, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Hold, type Item, type Location } from "../api";
-import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorBanner,
-  Field,
-  Input,
-  PageHeader,
-  Select,
-  StatusBadge,
-  ToneBadge,
-} from "../components/ui";
+import { api, errorText, type Hold, type Item, type Location } from "../api";
+import { Button, Card, EmptyState, ErrorBanner, PageHeader, StatusBadge, ToneBadge } from "../components/ui";
+import { SelectField, TextField, useZodForm, type ZodFormInput, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import {
   DetailSkeleton,
   DocumentActivity,
@@ -31,6 +23,7 @@ import { refreshApi, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { HOLD_STEPS, canReleaseHold, isOpenHoldStatus } from "@/domain/status";
 import { HOLD_REASONS, holdLabel, holdScope } from "@/domain/holds";
+import { holdFormSchema } from "@/domain/form-schemas";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
 export function HoldsPage() {
@@ -156,9 +149,10 @@ function HoldList() {
         void refreshApi();
         const failed = results.filter((result) => result.status === "rejected") as PromiseRejectedResult[];
         if (failed.length) {
-          toast.error(
-            `${failed.length} could not be released: ${failed[0]!.reason instanceof Error ? failed[0]!.reason.message : "error"}`,
-          );
+          // The count leads; the server's own sentence (and its fix) goes underneath, unwrapped.
+          toast.error(`${failed.length} could not be released.`, {
+            description: errorText(failed[0]!.reason, "Something went wrong. Try again."),
+          });
         }
         const released = selected.length - failed.length;
         if (released) toast.success(`Released ${released} ${released === 1 ? "hold" : "holds"}. That stock is available again.`);
@@ -171,7 +165,12 @@ function HoldList() {
       <PageHeader
         eyebrow="Stock"
         title="Holds"
-        description="Lock a bay, a SKU in a bay, or a lot so pick, replenish, kit, and move skip it. Qty stays on the ledger until you release."
+        description={
+          <>
+            Lock a bay, a SKU in a bay, or a <Term id="lot">lot</Term> so pick, replenish, kit, and move skip it. Qty stays
+            on the <Term id="ledger">ledger</Term> until you release.
+          </>
+        }
       />
       <DataTable
         id="holds"
@@ -202,7 +201,7 @@ function HoldList() {
         }
         empty={
           <EmptyState
-            icon={ShieldAlert}
+            icon={Lock}
             title="No holds yet."
             body="Hold a bay, SKU, or lot for QC, damage, or a recall. Nothing ships from it until you release."
             action={
@@ -218,32 +217,48 @@ function HoldList() {
   );
 }
 
+type NewHoldInput = ZodFormInput<typeof holdFormSchema>;
+type NewHoldValues = ZodFormOutput<typeof holdFormSchema>;
+
+const NEW_HOLD_DEFAULTS: NewHoldInput = { locationId: "", itemId: "", lotCode: "", reason: "QC", notes: "" };
+const HOLD_REASON_OPTIONS = HOLD_REASONS.map((reason) => ({ value: reason, label: reason }));
+
 function NewHoldSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
   const locations = useApiQuery<Location[]>(open ? "/api/locations" : null);
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
-  const [locationId, setLocationId] = useState("");
-  const [itemId, setItemId] = useState("");
-  const [lotCode, setLotCode] = useState("");
-  const [reason, setReason] = useState<(typeof HOLD_REASONS)[number]>("QC");
-  const [notes, setNotes] = useState("");
+  const form = useZodForm(holdFormSchema, NEW_HOLD_DEFAULTS);
+  const itemId = useWatch({ control: form.control, name: "itemId" });
   const { error, setError, busy, run } = useWrite();
 
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues, setValue } = form;
   useEffect(() => {
-    if (open) setError(null);
-  }, [open, setError]);
+    if (!open) return;
+    setError(null);
+    reset(getValues(), { keepDefaultValues: true });
+  }, [open, setError, reset, getValues]);
 
+  // Preselect the first storage bay (else the first bay) once the list loads, as before.
   useEffect(() => {
     const list = locations.data ?? [];
+    const locationId = getValues("locationId");
     if (locationId && list.some((location) => location.id === locationId)) return;
     const storage = list.find((location) => location.type === "storage") ?? list[0];
-    if (storage) setLocationId(storage.id);
-  }, [locations.data, locationId]);
+    if (storage) setValue("locationId", storage.id);
+  }, [locations.data, getValues, setValue]);
 
   const selectedItem = (items.data ?? []).find((item) => item.id === itemId);
 
-  async function place() {
+  // The lot field only shows for a lot-tracked SKU. When the SKU changes to one without lots,
+  // drop the lot too, so a hidden value is never sent.
+  const hideLot = Boolean(items.data) && !selectedItem?.trackLot;
+  useEffect(() => {
+    if (hideLot && getValues("lotCode")) setValue("lotCode", "");
+  }, [hideLot, getValues, setValue]);
+
+  async function place(values: NewHoldValues) {
     const created = await run(
       "Place hold",
       () =>
@@ -251,11 +266,11 @@ function NewHoldSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           method: "POST",
           body: JSON.stringify({
             warehouseId,
-            locationId,
-            itemId: itemId || undefined,
-            lotCode: lotCode.trim() || undefined,
-            reason,
-            notes: notes.trim() || undefined,
+            locationId: values.locationId,
+            itemId: values.itemId || undefined,
+            lotCode: values.lotCode.trim() || undefined,
+            reason: values.reason,
+            notes: values.notes.trim() || undefined,
           }),
         }),
       (hold) => `Hold ${hold.number} placed. Pick, replenish, kit, and move skip ${holdLabel(hold)}.`,
@@ -265,6 +280,12 @@ function NewHoldSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (op
     navigate(`/stock/holds/${created.id}`);
   }
 
+  const locationOptions = (locations.data ?? []).map((location) => ({
+    value: location.id,
+    label: `${location.code} — ${location.name}`,
+  }));
+  const itemOptions = (items.data ?? []).map((item) => ({ value: item.id, label: `${item.sku} — ${item.name}` }));
+
   return (
     <FormSheet
       open={open}
@@ -272,46 +293,21 @@ function NewHoldSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (op
       title="Place hold"
       description="Hold a whole bay, one SKU in it, or one lot. Stock stays on the ledger but nothing picks or moves it."
       submitLabel="Place hold"
-      onSubmit={place}
+      onSubmit={form.handleSubmit(place)}
       busy={busy}
       error={error ?? locations.error?.message ?? items.error?.message ?? null}
     >
-      <Field label="Location">
-        <Select value={locationId} onChange={(e) => setLocationId(e.target.value)} disabled={locations.isLoading}>
-          {(locations.data ?? []).map((location) => (
-            <option key={location.id} value={location.id}>
-              {location.code} — {location.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="SKU (optional)">
-        <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
-          <option value="">Whole bay</option>
-          {(items.data ?? []).map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.sku} — {item.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      {selectedItem?.trackLot ? (
-        <Field label="Lot (optional)">
-          <Input value={lotCode} onChange={(e) => setLotCode(e.target.value)} placeholder="LOT-…" />
-        </Field>
-      ) : null}
-      <Field label="Reason">
-        <Select value={reason} onChange={(e) => setReason(e.target.value as (typeof HOLD_REASONS)[number])}>
-          {HOLD_REASONS.map((row) => (
-            <option key={row} value={row}>
-              {row}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Notes">
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
-      </Field>
+      <SelectField
+        form={form}
+        name="locationId"
+        label="Location"
+        options={locationOptions}
+        placeholder={locationOptions.length ? undefined : locations.isLoading ? "Loading bays…" : "No bays yet"}
+      />
+      <SelectField form={form} name="itemId" label="SKU (optional)" options={itemOptions} placeholder="Whole bay" />
+      {selectedItem?.trackLot ? <TextField form={form} name="lotCode" label="Lot (optional)" placeholder="LOT-…" /> : null}
+      <SelectField form={form} name="reason" label="Reason" options={HOLD_REASON_OPTIONS} />
+      <TextField form={form} name="notes" label="Notes" placeholder="Optional" />
     </FormSheet>
   );
 }
@@ -324,7 +320,7 @@ function HoldDetail({ id }: { id: string }) {
   useEffect(() => {
     api<Hold>(`/api/holds/${id}`)
       .then(setActive)
-      .catch((err: Error) => setLoadError(err.message));
+      .catch((err: unknown) => setLoadError(errorText(err, "Could not load this hold. Try again.")));
   }, [id]);
 
   async function release() {

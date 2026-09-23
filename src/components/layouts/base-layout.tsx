@@ -8,6 +8,7 @@ import { useSidebarConfig } from "@/hooks/use-sidebar-config";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { useSession } from "@/app/session";
+import { FLOOR_TAB_BAR_HEIGHT, FloorTabBar } from "@/app/components/floor-tab-bar";
 import { isGarageMode } from "@/domain/operating-mode";
 
 interface BaseLayoutProps {
@@ -52,11 +53,24 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
                 </div>
               ) : null}
               {children}
+              {floor ? (
+                // Room for the phone tab bar so the last card is not hidden behind it.
+                <div
+                  aria-hidden
+                  className="shrink-0 md:hidden print:hidden"
+                  style={{ height: `calc(${FLOOR_TAB_BAR_HEIGHT} + env(safe-area-inset-bottom))` }}
+                />
+              ) : null}
             </div>
           </div>
         </div>
       </SidebarInset>
-      <Toaster />
+      {floor ? <FloorTabBar /> : null}
+      <Toaster
+        mobileOffset={
+          floor ? { bottom: `calc(${FLOOR_TAB_BAR_HEIGHT} + 1rem + env(safe-area-inset-bottom))` } : undefined
+        }
+      />
     </SidebarProvider>
   );
 }

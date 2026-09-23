@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import NumberFlow from "@number-flow/react";
 import {
@@ -23,9 +23,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Dashboard, type FloorJob, type Purchase, type TeamMember } from "../api";
+import { api, errorText, type Dashboard, type FloorJob, type Purchase, type TeamMember } from "../api";
 import { EmptyState, ErrorBanner, PageHeader, StatusBadge, ToneBadge } from "../components/ui";
 import { PersonAvatar } from "../components/cells";
+import { OnboardingChecklist } from "../components/onboarding";
+import { Term } from "../components/term";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
 import { useDashboard } from "../dashboard";
@@ -33,7 +35,7 @@ import { refreshApi, useApiQuery } from "../query";
 import { statusLabel } from "@/domain/status";
 import { formatCountVariance } from "@/domain/blind-count";
 import { formatExpiresOn } from "@/domain/expiry";
-import { desiredVerb } from "@/domain/jobs";
+import { desiredVerb, isFloorVerb, type FloorVerb } from "@/domain/jobs";
 import { DEFAULT_JOB_REASON } from "@/domain/job-rank";
 import { ageInDays, relativeTime } from "@/domain/relative-time";
 import { jobForRef, jobForSuggestion } from "../jobs";
@@ -79,6 +81,31 @@ const GARAGE_LANE_NEXT: Record<LaneId, string> = {
   exceptions: "A label that bounced shows up here.",
 };
 
+type LaneAction = { label: string; to: string } | null;
+
+/** The verb a floor link needs: every verb screen lives at /floor/<verb> (Lookup, ASN, Wave… need none). */
+function floorVerbFor(to: string): FloorVerb | null {
+  const segment = /^\/floor\/([a-z]+)/.exec(to)?.[1];
+  return segment && isFloorVerb(segment) ? segment : null;
+}
+
+/** What an empty lane offers next. Links only; each page keeps its own create button and gating. */
+const LANE_ACTION: Record<LaneId, LaneAction> = {
+  inbound: { label: "Open receipts", to: "/inbound/receipts" },
+  outbound: { label: "New order", to: "/outbound/orders?new=1" },
+  make: { label: "Open work orders", to: "/make/work-orders" },
+  stock: { label: "Count a bay", to: "/floor/count" },
+  exceptions: null,
+};
+
+const GARAGE_LANE_ACTION: Record<LaneId, LaneAction> = {
+  inbound: { label: "Buy parts", to: "/inbound/purchases" },
+  outbound: { label: "New order", to: "/outbound/orders?new=1" },
+  make: { label: "Open builds", to: "/make/work-orders" },
+  stock: { label: "Open on hand", to: "/stock" },
+  exceptions: null,
+};
+
 type WorkRow = {
   id: string;
   lane: LaneId;
@@ -117,34 +144,34 @@ export function TodayPage() {
   const [drafting, setDrafting] = useState(false);
   const [lane, setLane] = useState<LaneId>("inbound");
 
-  async function write(label: string, run: () => Promise<unknown>, success?: string) {
+  async function write(fallback: string, run: () => Promise<unknown>, success?: string) {
     setError(null);
     try {
       await run();
       await refreshApi();
       if (success) toast.success(success);
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Could not ${label}`);
+      setError(errorText(err, fallback));
     }
   }
 
   const assign = (jobId: string, userId: string | null, name?: string) =>
     write(
-      "assign",
+      "Could not assign the job.",
       () => api(`/api/jobs/${jobId}/assign`, { method: "POST", body: JSON.stringify({ userId }) }),
       userId ? `Assigned to ${name ?? "teammate"}.` : "Left unassigned. The next scan claims it.",
     );
 
   const pin = (jobId: string, pinned: boolean) =>
     write(
-      "pin",
+      "Could not pin the job.",
       () => api(`/api/jobs/${jobId}/pin`, { method: "POST", body: JSON.stringify({ pinned }) }),
       pinned ? "Pinned to the top of the floor queue." : "Unpinned.",
     );
 
   const relabelTracker = (row: WorkRow) =>
     write(
-      "relabel",
+      "Could not buy a replacement label.",
       () => {
         if (!row.relabel) return Promise.resolve();
         const path = row.relabel.packageId
@@ -157,7 +184,7 @@ export function TodayPage() {
 
   async function draftReorderPo() {
     if (!warehouseId) {
-      setError("Select a warehouse before drafting a PO");
+      setError("Pick a warehouse before you draft a PO.");
       return;
     }
     setError(null);
@@ -171,7 +198,7 @@ export function TodayPage() {
       void refreshApi();
       navigate(`/inbound/purchases/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not draft PO");
+      setError(errorText(err, "Could not draft the PO."));
     } finally {
       setDrafting(false);
     }
@@ -195,10 +222,17 @@ export function TodayPage() {
     return counts;
   }, [rows]);
   const laneNext = garage ? GARAGE_LANE_NEXT : LANE_NEXT;
+  const laneAction = (garage ? GARAGE_LANE_ACTION : LANE_ACTION)[lane];
   const trend = data?.trend ?? [];
   const loading = dashboard.isLoading;
 
   const allow = (to: string) => !garage || garageAllowsPath(to);
+  // Start buttons also follow the person's floor verbs, as the floor launcher's tiles do.
+  const floorVerbs = me.floorVerbs ?? [];
+  const canStart = (to: string) => {
+    const verb = floorVerbFor(to);
+    return allow(to) && (!verb || me.role === "owner" || floorVerbs.includes(verb));
+  };
   const exceptions = laneCounts.exceptions + (data?.countVariances ?? 0) + (data?.openHolds ?? 0);
 
   const headline: HeadlineProps[] = [
@@ -285,9 +319,13 @@ export function TodayPage() {
           eyebrow={garage ? "Garage Mode" : new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" }).format(new Date())}
           title={greeting(me.user.name)}
           description={
-            garage
-              ? "Founder bench for today: receive, make, pick, and ship."
-              : "Assign floor jobs, or leave them unassigned so the next scan claims them."
+            garage ? (
+              "Founder bench for today: receive, make, pick, and ship."
+            ) : (
+              <>
+                Assign floor <Term id="job">jobs</Term>, or leave them unassigned so the next scan claims them.
+              </>
+            )
           }
         />
         <div className="flex items-center gap-2">
@@ -304,6 +342,8 @@ export function TodayPage() {
           <MoreMetrics stats={moreStats} />
         </div>
       </div>
+
+      {me.role === "owner" ? <OnboardingChecklist /> : null}
 
       <ErrorBanner error={error ?? dashboard.error?.message ?? null} />
 
@@ -373,6 +413,7 @@ export function TodayPage() {
                   team={team}
                   garage={garage}
                   owner={me.role === "owner"}
+                  canStart={canStart(row.actionTo)}
                   onAssign={assign}
                   onPin={pin}
                   onRelabel={relabelTracker}
@@ -385,6 +426,13 @@ export function TodayPage() {
                 icon={LANE_ICON[lane]}
                 title={`Nothing in ${LANE_LABEL[lane].toLowerCase()} right now.`}
                 body={laneNext[lane]}
+                action={
+                  laneAction && canStart(laneAction.to) ? (
+                    <Button size="sm" variant="outline" asChild>
+                      <Link to={laneAction.to}>{laneAction.label}</Link>
+                    </Button>
+                  ) : undefined
+                }
               />
             </div>
           )}
@@ -405,7 +453,17 @@ export function TodayPage() {
                 Draft PO
               </Button>
             }
-            empty="No SKUs at reorder."
+            empty={
+              <RailEmpty
+                icon={Boxes}
+                title="No SKUs at reorder."
+                body={
+                  <>
+                    A SKU joins this list when on hand falls to its <Term id="reorder-point">reorder point</Term>.
+                  </>
+                }
+              />
+            }
             loading={loading}
           >
             {(data?.lowStock ?? []).slice(0, 6).map((row) => (
@@ -429,7 +487,17 @@ export function TodayPage() {
                   Promise →
                 </Link>
               }
-              empty="Every open order leaves on the next pickup."
+              empty={
+                <RailEmpty
+                  icon={Clock}
+                  title="Every open order leaves on the next pickup."
+                  body={
+                    <>
+                      Orders that miss the next <Term id="cutoff">carrier pickup</Term> or wait on stock show up here.
+                    </>
+                  }
+                />
+              }
               loading={promiseQuery.isLoading}
             >
               {(promise?.orders ?? [])
@@ -468,7 +536,13 @@ export function TodayPage() {
                 Runway →
               </Link>
             }
-            empty="No SKUs run out in 7 days."
+            empty={
+              <RailEmpty
+                icon={Hourglass}
+                title="No SKUs run out in 7 days."
+                body="SKUs with less than a week of cover show up here, with a qty to order."
+              />
+            }
             loading={loading}
           >
             {(data?.runwayThisWeek ?? []).slice(0, 6).map((row) => (
@@ -492,7 +566,13 @@ export function TodayPage() {
                   Map →
                 </Link>
               }
-              empty="No occupied bays."
+              empty={
+                <RailEmpty
+                  icon={LayoutGrid}
+                  title="No occupied bays."
+                  body="The bays holding the most units show up here once stock is put away."
+                />
+              }
               loading={loading}
             >
               {(data?.hotBays ?? []).map((row) => (
@@ -507,7 +587,18 @@ export function TodayPage() {
               ))}
             </RailCard>
           )}
-          <RailCard title="Recent activity" icon={Repeat} empty="No ledger activity yet." loading={loading}>
+          <RailCard
+            title="Recent activity"
+            icon={Repeat}
+            empty={
+              <RailEmpty
+                icon={Repeat}
+                title="No ledger activity yet."
+                body="Every receive, pick, move, and count posts here as it happens."
+              />
+            }
+            loading={loading}
+          >
             {(data?.recent ?? []).slice(0, 6).map((row) => (
               <Link
                 key={row.id}
@@ -702,7 +793,7 @@ function RailCard({
   title: string;
   icon: ComponentType<{ className?: string }>;
   action?: React.ReactNode;
-  empty: string;
+  empty: ReactNode;
   loading?: boolean;
   children: React.ReactNode;
 }) {
@@ -724,9 +815,21 @@ function RailCard({
       ) : items.length ? (
         <div className="space-y-2">{children}</div>
       ) : (
-        <p className="text-sm text-muted-foreground">{empty}</p>
+        empty
       )}
     </section>
+  );
+}
+
+/** A rail card's empty state: the card already has a frame and a heading, so this one drops its own. */
+function RailEmpty({ icon, title, body }: { icon: LucideIcon; title: string; body: ReactNode }) {
+  return (
+    <EmptyState
+      icon={icon}
+      title={title}
+      body={body}
+      className="rounded-none border-0 bg-transparent px-2 py-1 [&>div:first-child]:mb-2 [&>div:first-child]:size-8 [&>div:first-child_svg]:size-4"
+    />
   );
 }
 
@@ -779,6 +882,7 @@ function QueueRow({
   team,
   garage,
   owner,
+  canStart,
   onAssign,
   onPin,
   onRelabel,
@@ -787,6 +891,8 @@ function QueueRow({
   team: TeamMember[];
   garage: boolean;
   owner: boolean;
+  /** False when the row's floor screen needs a verb this person does not have. */
+  canStart: boolean;
   onAssign: (jobId: string, userId: string | null, name?: string) => Promise<void>;
   onPin: (jobId: string, pinned: boolean) => Promise<void>;
   onRelabel: (row: WorkRow) => Promise<void>;
@@ -837,14 +943,14 @@ function QueueRow({
         <Button size="sm" variant="outline" onClick={() => void onRelabel(row)}>
           Relabel
         </Button>
-      ) : (
+      ) : canStart ? (
         <Button size="sm" variant="outline" asChild>
           <Link to={row.actionTo}>
             {row.action}
             <ArrowRight />
           </Link>
         </Button>
-      )}
+      ) : null}
     </li>
   );
 }

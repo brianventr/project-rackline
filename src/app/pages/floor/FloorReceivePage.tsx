@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Location, type Purchase, type Receipt, type ScanHit } from "../../api";
+import { Truck } from "lucide-react";
+import { api, errorText, type Location, type Purchase, type Receipt, type ScanHit } from "../../api";
 import { Button, Card, DoneBanner, Field, Input, StatusBadge } from "../../components/ui";
 import { BayCombobox } from "../../components/BayCombobox";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
@@ -12,6 +13,11 @@ import { hasRemaining } from "@/domain/partial-receive";
 import { useSession } from "../../session";
 import { useWarehouse } from "../../warehouse";
 import { jobForRef, useOpenJobs } from "../../jobs";
+
+const textLink =
+  "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
+/** BayCombobox takes no className, so size its input like the other floor inputs (44px, 16px text on phones). */
+const bayPicker = "[&_[role=combobox]]:h-11 [&_[role=combobox]]:text-base md:[&_[role=combobox]]:text-sm";
 
 export function FloorReceivePage() {
   const me = useSession();
@@ -30,6 +36,7 @@ export function FloorReceivePage() {
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [done, setDone] = useState<string | null>(null);
 
   async function load() {
@@ -88,7 +95,9 @@ export function FloorReceivePage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load()
+      .catch((err) => setError(errorText(err, "Could not load open receipts and purchase orders.")))
+      .finally(() => setLoaded(true));
   }, []);
 
   const onScan = useCallback((raw: string, report?: ScanReport) => {
@@ -126,8 +135,8 @@ export function FloorReceivePage() {
         setError("Scan a receipt, purchase order, or a dock / bay barcode.");
         report?.(false);
       })
-      .catch((err: Error) => {
-        setError(err.message);
+      .catch((err) => {
+        setError(errorText(err, "That barcode did not scan. Try again."));
         report?.(false);
       });
   }, [jobs, me.user.id]);
@@ -155,7 +164,7 @@ export function FloorReceivePage() {
       setDone(`${posted.number} posted to the dock.`);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Receive failed");
+      setError(errorText(err, "Could not post the receive."));
     }
   }
 
@@ -182,13 +191,13 @@ export function FloorReceivePage() {
       setDone(`${posted.number} posted to the dock.`);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Receive failed");
+      setError(errorText(err, "Could not post the receive."));
     }
   }
 
   return (
     <FloorFrame title="Receive" description="Scan a receipt or purchase order, scan the dock, post it into the bay." error={error}>
-      <FloorScanBox label="Scan receipt, PO, or bay" placeholder="PO-DEMO1, RCP-DEMO1, or RECV" onScan={onScan} />
+      <FloorScanBox label="Scan receipt, PO, or bay" placeholder="PO-DEMO1, RCP-DEMO1, or RECV" onScan={onScan} ready={loaded} />
       <DoneBanner>
         {done ? (
           <>
@@ -205,17 +214,27 @@ export function FloorReceivePage() {
       {!activeReceipt && !activePurchase ? (
         <div className="grid gap-4 md:grid-cols-2">
           <ClaimList
+            loading={!loaded}
             title="Open receipts"
-            empty="No blank receipts."
+            empty="No open receipts."
+            emptyBody="Receipts the office expects show here until every line is on the dock."
+            emptyIcon={Truck}
+            emptyAction={
+              <Button variant="secondary" className="h-11" asChild>
+                <Link to="/inbound/receipts">Office receipts</Link>
+              </Button>
+            }
             rows={receipts}
             userId={me.user.id}
             jobFor={(row) => jobForRef(jobs, "receipt", row.id, "receive")}
             onOpen={(row) =>
               openFloorRow(row, me.user.id, jobForRef(jobs, "receipt", row.id, "receive"), (receipt) => {
-                void api<Receipt>(`/api/receipts/${receipt.id}`).then((next) => {
-                  setActiveReceipt(next);
-                  setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
-                });
+                api<Receipt>(`/api/receipts/${receipt.id}`)
+                  .then((next) => {
+                    setActiveReceipt(next);
+                    setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+                  })
+                  .catch((err) => setError(errorText(err, "Could not open that receipt.")));
               }, setError)
             }
             render={(row) => (
@@ -225,17 +244,27 @@ export function FloorReceivePage() {
             )}
           />
           <ClaimList
+            loading={!loaded}
             title="Purchase orders"
-            empty="No open purchases."
+            empty="No open purchase orders."
+            emptyBody="Purchase orders sent to a vendor show here until every line is received."
+            emptyIcon={Truck}
+            emptyAction={
+              <Button variant="secondary" className="h-11" asChild>
+                <Link to="/inbound/purchases">Office purchases</Link>
+              </Button>
+            }
             rows={purchases}
             userId={me.user.id}
             jobFor={(row) => jobForRef(jobs, "purchase", row.id, "receive")}
             onOpen={(row) =>
               openFloorRow(row, me.user.id, jobForRef(jobs, "purchase", row.id, "receive"), (purchase) => {
-                void api<Purchase>(`/api/purchases/${purchase.id}`).then((next) => {
-                  setActivePurchase(next);
-                  setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
-                });
+                api<Purchase>(`/api/purchases/${purchase.id}`)
+                  .then((next) => {
+                    setActivePurchase(next);
+                    setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+                  })
+                  .catch((err) => setError(errorText(err, "Could not open that purchase order.")));
               }, setError)
             }
             render={(row) => (
@@ -247,8 +276,8 @@ export function FloorReceivePage() {
         </div>
       ) : activePurchase ? (
         <Card className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
               <h2 className="text-xl font-semibold">{activePurchase.number}</h2>
               <p className="text-sm text-muted-foreground">{activePurchase.vendorName}</p>
             </div>
@@ -266,7 +295,9 @@ export function FloorReceivePage() {
                 </span>
                 {line.remaining > 0 ? (
                   <Input
+                    className="h-11 text-base"
                     type="number"
+                    aria-label={`${line.sku} qty to receive`}
                     min={0}
                     max={line.remaining}
                     value={qtys[line.itemId] ?? "0"}
@@ -278,6 +309,8 @@ export function FloorReceivePage() {
                 </div>
                 {line.trackLot ? (
                   <Input
+                    className="h-11 text-base"
+                    aria-label={`${line.sku} lot code`}
                     placeholder="Lot code"
                     value={lots[line.itemId] ?? ""}
                     onChange={(e) => setLots((current) => ({ ...current, [line.itemId]: e.target.value }))}
@@ -285,17 +318,21 @@ export function FloorReceivePage() {
                 ) : null}
                 {line.trackSerial ? (
                   <Input
+                    className="h-11 text-base"
+                    aria-label={`${line.sku} serials`}
                     placeholder="Serials"
                     value={serials[line.itemId] ?? ""}
                     onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
                   />
                 ) : null}
                 <CatchWeightInput
+                  className="h-11 text-base"
                   show={line.catchWeight}
                   value={weights[line.itemId] ?? ""}
                   onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
                 />
                 <ExpiryInput
+                  className="h-11 text-base"
                   show={line.trackExpiry}
                   value={expiries[line.itemId] ?? ""}
                   onChange={(value) => setExpiries((current) => ({ ...current, [line.itemId]: value }))}
@@ -303,15 +340,17 @@ export function FloorReceivePage() {
               </li>
             ))}
           </ul>
-          <Field label="Receive into">
-            <BayCombobox
-              locations={locations}
-              warehouseId={activePurchase.warehouseId || warehouseId}
-              value={locationId}
-              onChange={setLocationId}
-              onCreated={(location) => setLocations((current) => [...current, location])}
-            />
-          </Field>
+          <div className={bayPicker}>
+            <Field label="Receive into">
+              <BayCombobox
+                locations={locations}
+                warehouseId={activePurchase.warehouseId || warehouseId}
+                value={locationId}
+                onChange={setLocationId}
+                onCreated={(location) => setLocations((current) => [...current, location])}
+              />
+            </Field>
+          </div>
           {canReceivePurchase(activePurchase.status) &&
           hasRemaining(
             (activePurchase.lines ?? []).map((line) => ({
@@ -320,24 +359,27 @@ export function FloorReceivePage() {
               qtyReceived: line.qtyReceived,
             })),
           ) ? (
-            <Button onClick={() => void receivePurchase()}>Post receive</Button>
+            <Button className="h-14 w-full text-lg sm:w-auto" onClick={() => void receivePurchase()}>
+              Post receive
+            </Button>
           ) : (
             <div className="space-y-2">
               <p>Fully received.</p>
-              <Link
-                className="block text-sm underline"
-                to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
-              >
-                Put away from this bay
-              </Link>
+              <Button className="h-14 w-full text-lg sm:w-auto" asChild>
+                <Link to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}>
+                  Put away from this bay
+                </Link>
+              </Button>
             </div>
           )}
-          <button className="text-sm underline" onClick={() => setActivePurchase(null)}>
-            Back to list
-          </button>
-          <Link className="block text-sm underline" to="/inbound/purchases">
-            Office purchases
-          </Link>
+          <div className="flex flex-wrap gap-x-5">
+            <button type="button" className={textLink} onClick={() => setActivePurchase(null)}>
+              Back to list
+            </button>
+            <Link className={textLink} to="/inbound/purchases">
+              Office purchases
+            </Link>
+          </div>
         </Card>
       ) : (
         <Card className="space-y-4">
@@ -357,7 +399,9 @@ export function FloorReceivePage() {
                 </span>
                 {line.remaining > 0 ? (
                   <Input
+                    className="h-11 text-base"
                     type="number"
+                    aria-label={`${line.sku} qty to receive`}
                     min={0}
                     max={line.remaining}
                     value={qtys[line.itemId] ?? "0"}
@@ -369,6 +413,8 @@ export function FloorReceivePage() {
                 </div>
                 {line.trackLot ? (
                   <Input
+                    className="h-11 text-base"
+                    aria-label={`${line.sku} lot code`}
                     placeholder="Lot code"
                     value={lots[line.itemId] ?? ""}
                     onChange={(e) => setLots((current) => ({ ...current, [line.itemId]: e.target.value }))}
@@ -376,17 +422,21 @@ export function FloorReceivePage() {
                 ) : null}
                 {line.trackSerial ? (
                   <Input
+                    className="h-11 text-base"
+                    aria-label={`${line.sku} serials`}
                     placeholder="Serials"
                     value={serials[line.itemId] ?? ""}
                     onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
                   />
                 ) : null}
                 <CatchWeightInput
+                  className="h-11 text-base"
                   show={line.catchWeight}
                   value={weights[line.itemId] ?? ""}
                   onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
                 />
                 <ExpiryInput
+                  className="h-11 text-base"
                   show={line.trackExpiry}
                   value={expiries[line.itemId] ?? ""}
                   onChange={(value) => setExpiries((current) => ({ ...current, [line.itemId]: value }))}
@@ -394,15 +444,17 @@ export function FloorReceivePage() {
               </li>
             ))}
           </ul>
-          <Field label="Receive into">
-            <BayCombobox
-              locations={locations}
-              warehouseId={activeReceipt!.warehouseId || warehouseId}
-              value={locationId}
-              onChange={setLocationId}
-              onCreated={(location) => setLocations((current) => [...current, location])}
-            />
-          </Field>
+          <div className={bayPicker}>
+            <Field label="Receive into">
+              <BayCombobox
+                locations={locations}
+                warehouseId={activeReceipt!.warehouseId || warehouseId}
+                value={locationId}
+                onChange={setLocationId}
+                onCreated={(location) => setLocations((current) => [...current, location])}
+              />
+            </Field>
+          </div>
           {canReceive(activeReceipt!.status) &&
           hasRemaining(
             (activeReceipt!.lines ?? []).map((line) => ({
@@ -411,24 +463,27 @@ export function FloorReceivePage() {
               qtyReceived: line.qtyReceived,
             })),
           ) ? (
-            <Button onClick={() => void receiveReceipt()}>Post receive</Button>
+            <Button className="h-14 w-full text-lg sm:w-auto" onClick={() => void receiveReceipt()}>
+              Post receive
+            </Button>
           ) : (
             <div className="space-y-2">
               <p>Fully received.</p>
-              <Link
-                className="block text-sm underline"
-                to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}
-              >
-                Put away from this bay
-              </Link>
+              <Button className="h-14 w-full text-lg sm:w-auto" asChild>
+                <Link to={`/floor/putaway?from=${encodeURIComponent(locations.find((row) => row.id === locationId)?.barcode || "")}`}>
+                  Put away from this bay
+                </Link>
+              </Button>
             </div>
           )}
-          <button className="text-sm underline" onClick={() => setActiveReceipt(null)}>
-            Back to list
-          </button>
-          <Link className="block text-sm underline" to="/inbound/receipts">
-            Office receipts
-          </Link>
+          <div className="flex flex-wrap gap-x-5">
+            <button type="button" className={textLink} onClick={() => setActiveReceipt(null)}>
+              Back to list
+            </button>
+            <Link className={textLink} to="/inbound/receipts">
+              Office receipts
+            </Link>
+          </div>
         </Card>
       )}
     </FloorFrame>

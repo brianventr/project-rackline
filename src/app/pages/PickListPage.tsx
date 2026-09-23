@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   api,
+  errorText,
   type Client,
   type FloorJob,
   type Item,
@@ -175,7 +176,7 @@ export function OrderPickListPage() {
           }),
         );
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load pick list");
+        if (!cancelled) setError(errorText(err, "Could not load the pick list."));
       }
     })();
     return () => {
@@ -222,7 +223,7 @@ export function WavePickListPage() {
           }),
         );
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load pick list");
+        if (!cancelled) setError(errorText(err, "Could not load the pick list."));
       }
     })();
     return () => {

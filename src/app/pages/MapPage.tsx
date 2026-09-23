@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, lazy, Suspense } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type MapLocation, type Me, type ScanHit, type WarehouseMapData } from "../api";
+import { Map as MapIcon } from "lucide-react";
+import { api, errorText, type MapLocation, type Me, type ScanHit, type WarehouseMapData } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { WarehouseMap, type MapView } from "../components/WarehouseMap";
-import { Button, Card, ErrorBanner, PageHeader } from "../components/ui";
+import { Button, Card, EmptyState, ErrorBanner, PageHeader } from "../components/ui";
 import { useScanner } from "../scanner/ScannerProvider";
 import { useWarehouse } from "../warehouse";
 import { groupFloorObjects, objectForLocation } from "@/domain/rack-builder";
@@ -20,6 +21,9 @@ export function MapPage({ me }: { me: Me }) {
   const [params] = useSearchParams();
   const [data, setData] = useState<WarehouseMapData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The first load's failure lives apart from `error`, which view switches and scans clear.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [view, setView] = useState<MapView>(params.get("edit") ? "build" : "floor");
   const [levelFilter, setLevelFilter] = useState<"all" | number>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -29,10 +33,12 @@ export function MapPage({ me }: { me: Me }) {
   async function load() {
     const next = await api<WarehouseMapData>(`/api/map?warehouseId=${encodeURIComponent(warehouseId)}`);
     setData(next);
+    setLoadError(null);
     return next;
   }
 
   useEffect(() => {
+    setLoadError(null);
     load()
       .then((next) => {
         const wanted = params.get("location") || params.get("code");
@@ -42,8 +48,8 @@ export function MapPage({ me }: { me: Me }) {
         );
         if (match) setSelectedId(match.id);
       })
-      .catch((err: Error) => setError(err.message));
-  }, [params, warehouseId]);
+      .catch((err: unknown) => setLoadError(errorText(err, "Could not load the map. Try again.")));
+  }, [params, warehouseId, loadAttempt]);
 
   useEffect(() => {
     const scan = scanner.lastScan;
@@ -55,7 +61,7 @@ export function MapPage({ me }: { me: Me }) {
         else if (hit.kind === "item" && hit.onHand[0]) setSelectedId(hit.onHand[0].locationId);
         setError(null);
       })
-      .catch((err: Error) => setError(err.message));
+      .catch((err: unknown) => setError(errorText(err, "Could not look up that scan. Try again.")));
   }, [scanner.lastScan, handledAt]);
 
   const selected = data?.locations.find((row) => row.id === selectedId) ?? null;
@@ -89,7 +95,7 @@ export function MapPage({ me }: { me: Me }) {
       }
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not move that bay on the map");
+      setError(errorText(err, "Could not move that bay on the map. Try again."));
     }
   }
 
@@ -118,7 +124,19 @@ export function MapPage({ me }: { me: Me }) {
           </div>
         }
       />
-      <ErrorBanner error={error} />
+      {error ? (
+        <div className="my-3">
+          <ErrorBanner error={error} />
+        </div>
+      ) : null}
+      {loadError ? (
+        <div className="my-3 flex flex-col items-start gap-2">
+          <ErrorBanner error={loadError} />
+          <Button variant="secondary" size="sm" onClick={() => setLoadAttempt((n) => n + 1)}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
       {view !== "build" ? (
         <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
           <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Level</span>
@@ -171,7 +189,11 @@ export function MapPage({ me }: { me: Me }) {
             onSelectObject={() => undefined}
           />
           </Suspense>
-          <BayDetail location={selected} />
+          {data.locations.length ? (
+            <BayDetail location={selected} />
+          ) : (
+            <NoBays owner={me.role === "owner"} onBuild={() => setView("build")} />
+          )}
         </div>
       ) : data ? (
         <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_16rem]">
@@ -185,12 +207,39 @@ export function MapPage({ me }: { me: Me }) {
             onSelect={(location) => setSelectedId(location.id)}
             onReposition={reposition}
           />
-          <BayDetail location={selected} />
+          {data.locations.length ? (
+            <BayDetail location={selected} />
+          ) : (
+            <NoBays owner={me.role === "owner"} onBuild={() => setView("build")} />
+          )}
         </div>
-      ) : (
+      ) : loadError ? null : (
         <p className="text-sm text-muted-foreground">Loading floor…</p>
       )}
     </div>
+  );
+}
+
+/** Side panel while the warehouse has no bays: owners open Build floor, others add bays on Locations. */
+function NoBays({ owner, onBuild }: { owner: boolean; onBuild: () => void }) {
+  return (
+    <EmptyState
+      className="self-start"
+      icon={MapIcon}
+      title="No bays on the map yet."
+      body="Each rack, dock, and bay you add shows up here, so you can find stock by where it sits."
+      action={
+        owner ? (
+          <Button size="sm" onClick={onBuild}>
+            Build floor
+          </Button>
+        ) : (
+          <Button size="sm" asChild>
+            <Link to="/stock/locations">Go to locations</Link>
+          </Button>
+        )
+      }
+    />
   );
 }
 

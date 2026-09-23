@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Location, type ScanHit, type VendorReturn } from "../../api";
-import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox, ClaimList, openFloorRow } from "./floor-ui";
+import { ArrowUpFromLine } from "lucide-react";
+import { api, errorText, type Location, type ScanHit, type VendorReturn } from "../../api";
+import { Button, Card, DoneBanner, Field, Input, Select, StatusBadge } from "../../components/ui";
+import { Term } from "../../components/term";
+import { FloorFrame, FloorScanBox, ClaimList, openFloorRow, type ScanReport } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { canPostVendorReturn } from "@/domain/status";
 import { hasUnreturned } from "@/domain/partial-rtv";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
+
+const textLink =
+  "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 export function FloorRtvPage() {
   const me = useSession();
@@ -22,6 +27,7 @@ export function FloorRtvPage() {
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [done, setDone] = useState<string | null>(null);
 
   function openRtv(rtv: VendorReturn) {
@@ -54,36 +60,43 @@ export function FloorRtvPage() {
       nextLocations.find((row) => row.type === "storage") ??
       nextLocations[0];
     if (from && !locationId) setLocationId(from.id);
+    // Jobs load before the screen counts as loaded, so a waiting scan sees who has claimed what.
+    const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
       const match = await api<VendorReturn>(`/api/vendor-returns/${wanted}`);
-      const nextJobs = await reloadJobs();
       openFloorRow(match, me.user.id, jobForRef(nextJobs, "vendorReturn", match.id, "rtv"), openRtv, setError);
     }
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load()
+      .catch((err) => setError(errorText(err, "Could not load open vendor returns.")))
+      .finally(() => setLoaded(true));
   }, []);
 
-  const onScan = useCallback((raw: string) => {
+  const onScan = useCallback((raw: string, report?: ScanReport) => {
     setError(null);
     setDone(null);
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
-      .then((hit) => {
+      .then(async (hit) => {
         if (hit.kind === "vendorReturn") {
-          void api<VendorReturn>(`/api/vendor-returns/${hit.vendorReturn.id}`).then((rtv) =>
-            openFloorRow(rtv, me.user.id, jobForRef(jobs, "vendorReturn", rtv.id, "rtv"), openRtv, setError),
-          );
+          const rtv = await api<VendorReturn>(`/api/vendor-returns/${hit.vendorReturn.id}`);
+          report?.(openFloorRow(rtv, me.user.id, jobForRef(jobs, "vendorReturn", rtv.id, "rtv"), openRtv, setError));
           return;
         }
         if (hit.kind === "location") {
           setLocationId(hit.location.id);
+          report?.(true);
           return;
         }
         setError("Scan a vendor return or a bay barcode.");
+        report?.(false);
       })
-      .catch((err: Error) => setError(err.message));
+      .catch((err) => {
+        setError(errorText(err, "That barcode did not scan. Try again."));
+        report?.(false);
+      });
   }, [jobs, me.user.id]);
 
   async function postReturn() {
@@ -107,7 +120,7 @@ export function FloorRtvPage() {
       setDone(`${posted.number} returned ${lines.reduce((sum, line) => sum + line.qty, 0)}.`);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Return failed");
+      setError(errorText(err, "Could not post the vendor return."));
     }
   }
 
@@ -123,18 +136,28 @@ export function FloorRtvPage() {
 
   return (
     <FloorFrame title="Vendor return" description="Scan an RTV, scan the bay, ship remaining qty back to the vendor." error={error}>
-      <FloorScanBox label="Scan vendor return or bay" placeholder="RTV-DEMO1 or A-01-01" onScan={onScan} />
-      {done ? <p className="text-sm text-emerald-700">{done}</p> : null}
+      <FloorScanBox label="Scan vendor return or bay" placeholder="RTV-DEMO1 or A-01-01" onScan={onScan} ready={loaded} />
+      <DoneBanner>{done}</DoneBanner>
       {!active ? (
         <ClaimList
+          loading={!loaded}
           title="Open vendor returns"
           empty="Nothing to ship back."
+          emptyBody="Vendor returns booked in the office show here until every line has left its bay."
+          emptyIcon={ArrowUpFromLine}
+          emptyAction={
+            <Button variant="secondary" className="h-11" asChild>
+              <Link to="/inbound/vendor-returns">Office vendor returns</Link>
+            </Button>
+          }
           rows={returns}
           userId={me.user.id}
           jobFor={(row) => jobForRef(jobs, "vendorReturn", row.id, "rtv")}
           onOpen={(row) =>
             openFloorRow(row, me.user.id, jobForRef(jobs, "vendorReturn", row.id, "rtv"), (rtv) => {
-              void api<VendorReturn>(`/api/vendor-returns/${rtv.id}`).then(openRtv);
+              api<VendorReturn>(`/api/vendor-returns/${rtv.id}`)
+                .then(openRtv)
+                .catch((err) => setError(errorText(err, "Could not open that vendor return.")));
             }, setError)
           }
           render={(row) => (
@@ -145,10 +168,12 @@ export function FloorRtvPage() {
         />
       ) : (
         <Card className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
               <h2 className="text-xl font-semibold">{active.number}</h2>
-              <p className="text-sm text-muted-foreground">{active.vendorName}</p>
+              <p className="text-sm text-muted-foreground">
+                <Term id="rtv">RTV</Term> to {active.vendorName}
+              </p>
             </div>
             <StatusBadge status={active.status} />
           </div>
@@ -162,7 +187,9 @@ export function FloorRtvPage() {
                   </span>
                   {line.remaining > 0 ? (
                     <Input
+                      className="h-11 text-base"
                       type="number"
+                      aria-label={`${line.sku} qty to return`}
                       min={0}
                       max={line.remaining}
                       value={qtys[line.itemId] ?? "0"}
@@ -174,6 +201,8 @@ export function FloorRtvPage() {
                 </div>
                 {line.trackLot && line.remaining > 0 ? (
                   <Input
+                    className="h-11 text-base"
+                    aria-label={`${line.sku} lot code`}
                     placeholder="Lot (FIFO if blank)"
                     value={lots[line.itemId] ?? ""}
                     onChange={(e) => setLots((current) => ({ ...current, [line.itemId]: e.target.value }))}
@@ -181,12 +210,15 @@ export function FloorRtvPage() {
                 ) : null}
                 {line.trackSerial && line.remaining > 0 ? (
                   <Input
+                    className="h-11 text-base"
+                    aria-label={`${line.sku} serials`}
                     placeholder="Serials"
                     value={serials[line.itemId] ?? ""}
                     onChange={(e) => setSerials((current) => ({ ...current, [line.itemId]: e.target.value }))}
                   />
                 ) : null}
                 <CatchWeightInput
+                  className="h-11 text-base"
                   show={line.catchWeight}
                   value={weights[line.itemId] ?? ""}
                   onChange={(value) => setWeights((current) => ({ ...current, [line.itemId]: value }))}
@@ -195,7 +227,7 @@ export function FloorRtvPage() {
             ))}
           </ul>
           <Field label="Ship from">
-            <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
+            <Select className="h-11" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
               {locations.map((location) => (
                 <option key={location.id} value={location.id}>
                   {location.code} — {location.name}
@@ -204,11 +236,13 @@ export function FloorRtvPage() {
             </Select>
           </Field>
           {canPostVendorReturn(active.status) && remaining ? (
-            <Button onClick={() => void postReturn()}>Return to vendor</Button>
+            <Button className="h-14 w-full text-lg sm:w-auto" onClick={() => void postReturn()}>
+              Return to vendor
+            </Button>
           ) : (
             <p>Already returned.</p>
           )}
-          <Link className="block text-sm underline" to="/inbound/vendor-returns">
+          <Link className={textLink} to="/inbound/vendor-returns">
             Office vendor returns
           </Link>
         </Card>

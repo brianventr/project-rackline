@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Maximize2, Minimize2 } from "lucide-react";
-import { api, type LiveDay, type LivePresence, type WarehouseMapData } from "../api";
-import { ErrorBanner, PageHeader, Select } from "../components/ui";
+import { Activity, Maximize2, Minimize2 } from "lucide-react";
+import { api, errorText, type LiveDay, type LivePresence, type WarehouseMapData } from "../api";
+import { EmptyState, ErrorBanner, PageHeader, Select } from "../components/ui";
+import { Term } from "../components/term";
 import { WarehouseMap, type MapPin } from "../components/WarehouseMap";
 import { useWarehouse } from "../warehouse";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const POLL_MS = 3000;
+
+/** Empty states sit inside a bordered panel here, so they drop their own frame. */
+const RAIL_EMPTY = "rounded-none border-0 bg-transparent px-4 py-6";
 
 const FLOW_LABEL: Record<LiveDay["flows"][number]["id"], string> = {
   inbound: "Inbound",
@@ -61,6 +65,7 @@ export function LivePage() {
   const boardRef = useRef<HTMLDivElement>(null);
   const [day, setDay] = useState<LiveDay | null>(null);
   const [map, setMap] = useState<WarehouseMapData | null>(null);
+  const [mapFailed, setMapFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -69,12 +74,15 @@ export function LivePage() {
   useEffect(() => {
     if (!warehouseId) return;
     let cancelled = false;
+    setMapFailed(false);
     api<WarehouseMapData>(`/api/map?warehouseId=${encodeURIComponent(warehouseId)}`)
       .then((next) => {
         if (!cancelled) setMap(next);
       })
       .catch(() => {
-        if (!cancelled) setMap(null);
+        if (cancelled) return;
+        setMap(null);
+        setMapFailed(true);
       });
     return () => {
       cancelled = true;
@@ -97,7 +105,7 @@ export function LivePage() {
       } catch (err) {
         if (cancelled) return;
         setStale(true);
-        setError(err instanceof Error ? err.message : "Could not refresh the floor");
+        setError(errorText(err, "Could not refresh the floor."));
       }
     }
 
@@ -149,7 +157,7 @@ export function LivePage() {
       setDay(next);
       setStale(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not reassign");
+      setError(errorText(err, "Could not reassign the job."));
     }
   }
 
@@ -239,7 +247,21 @@ export function LivePage() {
                   ))}
                 </ul>
               ) : (
-                <p className="px-3 py-4 text-xs text-muted-foreground">No one has scanned, claimed, or checked out a truck today.</p>
+                <EmptyState
+                  icon={Activity}
+                  title="No one on the floor yet today."
+                  body={
+                    <>
+                      People show up here after their first scan, <Term id="job">job</Term> claim, or truck checkout.
+                    </>
+                  }
+                  action={
+                    <Button size="sm" variant="outline" asChild>
+                      <Link to="/floor">Open the floor</Link>
+                    </Button>
+                  }
+                  className={RAIL_EMPTY}
+                />
               )}
               {selected ? (
                 <div className="space-y-2 border-t px-3 py-2 text-xs">
@@ -274,7 +296,19 @@ export function LivePage() {
 
             <section className="space-y-3 lg:col-span-6">
               <div className="rounded-xl border bg-card p-2">
-                {map ? (
+                {map && map.locations.length === 0 ? (
+                  <EmptyState
+                    icon={Activity}
+                    title="No bays on the map yet."
+                    body="Build the floor with racks and bays, and each person's last scan shows as a dot."
+                    action={
+                      <Button size="sm" variant="outline" asChild>
+                        <Link to="/map?edit=1">Build floor</Link>
+                      </Button>
+                    }
+                    className="border-0 bg-transparent"
+                  />
+                ) : map ? (
                   <WarehouseMap
                     warehouse={map.warehouse}
                     locations={map.locations}
@@ -290,7 +324,9 @@ export function LivePage() {
                     onSelectPin={setSelectedId}
                   />
                 ) : (
-                  <p className="grid h-48 place-items-center text-xs text-muted-foreground">Floor map is loading.</p>
+                  <p className="grid h-48 place-items-center text-xs text-muted-foreground">
+                    {mapFailed ? "The floor map did not load. People and flows still update." : "Floor map is loading."}
+                  </p>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-2 xl:grid-cols-5">
@@ -341,7 +377,12 @@ export function LivePage() {
                   ))}
                 </ul>
               ) : (
-                <p className="px-3 py-4 text-xs text-muted-foreground">Nothing is idle, late, or stuck.</p>
+                <EmptyState
+                  icon={Activity}
+                  title="Nothing is idle, late, or stuck."
+                  body="Idle people, unassigned work due today, late trailers, and tracker exceptions show up here."
+                  className={RAIL_EMPTY}
+                />
               )}
             </section>
           </div>
@@ -360,7 +401,12 @@ export function LivePage() {
                 ))}
               </ul>
             ) : (
-              <p className="px-3 py-3 text-xs text-muted-foreground">No scans yet today.</p>
+              <EmptyState
+                icon={Activity}
+                title="No scans yet today."
+                body="Every scan and post on the floor lands here, newest first."
+                className={RAIL_EMPTY}
+              />
             )}
           </section>
           {error && stale ? <ErrorBanner error={error} /> : null}

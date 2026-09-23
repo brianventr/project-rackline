@@ -80,3 +80,28 @@ export function codeFromBody(body: unknown): string | null {
   const code = (body as { code?: unknown }).code;
   return typeof code === "string" && code.trim() ? code.trim() : null;
 }
+
+/**
+ * A sign-in is audited too. `/api/auth` is skipped by the request audit above, so better-auth's
+ * session hook (`createAuth`) writes this row instead. It is what lets the Team list see someone
+ * who signed in, only looked things up, and signed out: sign-out deletes the session row, and an
+ * audit row outlives it.
+ */
+export const SIGN_IN_CODE = "SIGNED_IN";
+export const SIGN_IN_ACTION = "auth.sign_in";
+
+export type SignInAudit = {
+  action: string;
+  method: string;
+  path: string;
+  status: number;
+  code: string;
+  summary: string;
+};
+
+/** The fixed audit fields for a sign-in. `endpointPath` is better-auth's own path, e.g. "/sign-in/email". */
+export function signInAudit(endpointPath: unknown): SignInAudit {
+  const path =
+    typeof endpointPath === "string" && /^\/[\w\-/]*$/.test(endpointPath) ? `/api/auth${endpointPath}` : "/api/auth/sign-in";
+  return { action: SIGN_IN_ACTION, method: "POST", path, status: 200, code: SIGN_IN_CODE, summary: "Signed in" };
+}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, type Order } from "../api";
+import { api, errorText, type Order } from "../api";
 import { Button, ErrorBanner } from "../components/ui";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { useSession } from "../session";
@@ -16,7 +16,7 @@ export function PackSlipPage() {
     if (!id) return;
     api<Order>(`/api/orders/${id}`)
       .then(setOrder)
-      .catch((err: Error) => setError(err.message));
+      .catch((err: unknown) => setError(errorText(err, "Could not load the pack slip.")));
   }, [id]);
 
   useAutoPrint(Boolean(order));

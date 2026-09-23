@@ -1,4 +1,4 @@
-import { ScrollText } from "lucide-react";
+import { Shield } from "lucide-react";
 import type { AuditEvent } from "../../api";
 import { EmptyState, PageHeader, ToneBadge } from "../../components/ui";
 import { DataTable, type DataColumn, type FacetDef, type TabDef } from "../../components/data-table/DataTable";
@@ -128,7 +128,7 @@ export function AuditPage() {
         exportName="audit-log"
         empty={
           <EmptyState
-            icon={ScrollText}
+            icon={Shield}
             title="No audit entries yet."
             body="Every write, 409, and owner-only action lands here with who did it. Receive, pick, or invite a teammate to see one."
           />

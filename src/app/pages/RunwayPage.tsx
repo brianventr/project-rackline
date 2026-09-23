@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { FilePlus2, Hourglass } from "lucide-react";
 import {
@@ -15,6 +15,7 @@ import {
 import { Button, EmptyState, ErrorBanner, Input, PageHeader, ToneBadge } from "../components/ui";
 import { DataTable, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { Muted, SkuCell } from "../components/cells";
+import { Term } from "../components/term";
 import { useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { useWarehouse } from "../warehouse";
@@ -261,7 +262,7 @@ export function RunwayPage() {
 
   async function draftPo() {
     if (!warehouseId) {
-      draft.setError("Select a warehouse before drafting a PO");
+      draft.setError("Pick a warehouse before you draft a PO.");
       return;
     }
     const lines = board?.draftLines.length ?? 0;
@@ -282,7 +283,13 @@ export function RunwayPage() {
       <PageHeader
         eyebrow="Analytics"
         title="Runway"
-        description="Live days until a SKU runs out at its baseline shipping rate. Cover is sellable qty (on-hand − held − remaining to pick), plus dated ASN/PO inbound, minus BOM burn from finished goods."
+        description={
+          // Short enough that every Term sits in the two lines the header shows on a phone.
+          <>
+            Days each SKU lasts: <Term id="sellable">sellable qty</Term> plus dated <Term id="asn">ASN</Term>/PO
+            inbound, minus <Term id="recipe">BOM</Term> burn, at its baseline ship rate.
+          </>
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ToggleGroup
@@ -414,6 +421,11 @@ export function RunwayPage() {
             icon={Hourglass}
             title="No SKUs in this warehouse yet."
             body="Add items and ship a few orders, and runway fills in from their burn rate."
+            action={
+              <Button size="sm" asChild>
+                <Link to="/stock/items">Add items</Link>
+              </Button>
+            }
           />
         }
       />

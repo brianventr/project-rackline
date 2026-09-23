@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { Grid3x3, Plus } from "lucide-react";
 import { api, type Location, type Zone } from "../../api";
-import { Button, EmptyState, ErrorBanner, Field, Input, PageHeader, Select } from "../../components/ui";
+import { Button, EmptyState, ErrorBanner, PageHeader, Select } from "../../components/ui";
 import { DataTable, type DataColumn, type FacetDef } from "../../components/data-table/DataTable";
 import { RelativeTime } from "../../components/cells";
 import { FormSheet } from "../../components/form-sheet";
+import { TextField, useZodForm, type ZodFormOutput } from "../../components/form-kit";
+import { Term } from "../../components/term";
 import { apiMutate, useApiQuery } from "../../query";
 import { useWrite } from "../../use-write";
 import { useWarehouse, inWarehouse } from "../../warehouse";
+import { zoneFormSchema } from "@/domain/form-schemas";
 
 type ZoneRow = Zone & { bays: number };
 type BayRow = Location & { zoneCode: string | null };
@@ -121,7 +125,12 @@ export function ZonesPage() {
       <PageHeader
         eyebrow="Setup"
         title="Zones"
-        description="Pick / put zones for this warehouse. Assign bays so waves can stay in-zone."
+        description={
+          <>
+            Pick / put <Term id="zone">zones</Term> for this warehouse. Assign bays so <Term id="wave">waves</Term> can
+            stay in-zone.
+          </>
+        }
       />
 
       <section className="space-y-2">
@@ -180,7 +189,18 @@ export function ZonesPage() {
           facets={BAY_FACETS}
           defaultSort={{ id: "bay", desc: false }}
           search={{ placeholder: "Search bay", text: (bay) => `${bay.code} ${bay.name} ${bay.zoneCode ?? ""}` }}
-          empty={<EmptyState icon={Grid3x3} title="No bays in this warehouse." body="Bays live under Stock → Locations." />}
+          empty={
+            <EmptyState
+              icon={Grid3x3}
+              title="No bays in this warehouse."
+              body="Add bays under Stock → Locations, then give each one a zone here."
+              action={
+                <Button size="sm" variant="outline" asChild>
+                  <Link to="/stock/locations">Open locations</Link>
+                </Button>
+              }
+            />
+          }
         />
       </section>
 
@@ -244,23 +264,25 @@ function NewZoneSheet({
   onOpenChange: (open: boolean) => void;
   warehouseId: string;
 }) {
-  const [code, setCode] = useState("");
-  const [name, setName] = useState("");
+  const form = useZodForm(zoneFormSchema, { code: "", name: "" });
   const write = useWrite();
 
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
   useEffect(() => {
-    if (open) write.setError(null);
+    if (!open) return;
+    write.setError(null);
+    reset(getValues(), { keepDefaultValues: true });
   }, [open]);
 
-  async function submit() {
+  async function submit(values: ZodFormOutput<typeof zoneFormSchema>) {
     const created = await write.run(
       "Add zone",
-      () => apiMutate<Zone>("/api/zones", { body: JSON.stringify({ warehouseId, code, name }) }),
-      (zone) => `Zone ${zone?.code ?? code} added.`,
+      () => apiMutate<Zone>("/api/zones", { body: JSON.stringify({ warehouseId, code: values.code, name: values.name }) }),
+      (zone) => `Zone ${zone?.code ?? values.code} added.`,
     );
     if (!created) return;
-    setCode("");
-    setName("");
+    reset();
     onOpenChange(false);
   }
 
@@ -271,16 +293,12 @@ function NewZoneSheet({
       title="New zone"
       description="Zones belong to the warehouse picked in the top bar."
       submitLabel="Add zone"
-      onSubmit={submit}
+      onSubmit={form.handleSubmit(submit)}
       busy={write.busy}
       error={write.error}
     >
-      <Field label="Code">
-        <Input value={code} onChange={(e) => setCode(e.target.value)} required placeholder="A" autoFocus />
-      </Field>
-      <Field label="Name">
-        <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Aisle A" />
-      </Field>
+      <TextField form={form} name="code" label="Code" placeholder="A" autoFocus />
+      <TextField form={form} name="name" label="Name" placeholder="Aisle A" />
     </FormSheet>
   );
 }

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type CycleCount, type Location, type ScanHit } from "../../api";
-import { Button, Card, EmptyState, Field, Input, Select, StatusBadge } from "../../components/ui";
+import { Calculator } from "lucide-react";
+import { api, errorText, type CycleCount, type Location, type ScanHit } from "../../api";
+import { Button, Card, DoneBanner, EmptyState, Field, Input, Select, StatusBadge } from "../../components/ui";
+import { Term } from "../../components/term";
+import { Skeleton } from "@/components/ui/skeleton";
 import { FloorFrame, FloorScanBox, ClaimList, openFloorRow, type ScanReport } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { useWarehouse } from "../../warehouse";
@@ -10,6 +13,9 @@ import { allLinesEntered, countVariance, formatCountVariance, isBlindCount } fro
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 
+const textLink =
+  "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
+
 export function FloorCountPage() {
   const me = useSession();
   const canCount = me.role === "owner" || (me.floorVerbs ?? []).includes("count");
@@ -17,7 +23,10 @@ export function FloorCountPage() {
   const [params] = useSearchParams();
   const { warehouseId } = useWarehouse();
   const [counts, setCounts] = useState<CycleCount[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
+  // True once the bay list came back, so a failed load does not read as "no bays".
+  const [baysLoaded, setBaysLoaded] = useState(false);
   const [active, setActive] = useState<CycleCount | null>(null);
   const [locationId, setLocationId] = useState("");
   const [weights, setWeights] = useState<Record<string, string>>({});
@@ -30,12 +39,14 @@ export function FloorCountPage() {
     ]);
     setCounts(nextCounts.filter((row) => canPostCount(row.status)));
     setLocations(nextLocations);
+    setBaysLoaded(true);
     const storage = nextLocations.find((row) => row.type === "storage") ?? nextLocations[0];
     if (storage) setLocationId(storage.id);
+    // Jobs load before the screen counts as loaded, so a waiting scan sees who has claimed what.
+    const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
       const match = await api<CycleCount>(`/api/cycle-counts/${wanted}`);
-      const nextJobs = await reloadJobs();
       openFloorRow(match, me.user.id, jobForRef(nextJobs, "cycleCount", match.id, "count"), setActive, setError);
     }
     const locationWanted = params.get("location");
@@ -47,7 +58,9 @@ export function FloorCountPage() {
 
   useEffect(() => {
     if (!canCount) return;
-    load().catch((err: Error) => setError(err.message));
+    load()
+      .catch((err) => setError(errorText(err, "Could not load open counts.")))
+      .finally(() => setLoaded(true));
   }, []);
 
   const onScan = useCallback(
@@ -69,7 +82,7 @@ export function FloorCountPage() {
             try {
               await api(`/api/cycle-counts/${created.id}/start`, { method: "POST" });
             } catch (err) {
-              setError(err instanceof Error ? err.message : "Could not start count");
+              setError(errorText(err, "Could not start the count."));
               report?.(false);
               return;
             }
@@ -102,8 +115,8 @@ export function FloorCountPage() {
           setError("Scan a bay to count it, or a SKU you found in the bay.");
           report?.(false);
         })
-        .catch((err: Error) => {
-          setError(err.message);
+        .catch((err) => {
+          setError(errorText(err, "That barcode did not scan. Try again."));
           report?.(false);
         });
     },
@@ -129,7 +142,7 @@ export function FloorCountPage() {
       setActive(posted);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not post count");
+      setError(errorText(err, "Could not post the count."));
     }
   }
 
@@ -140,12 +153,13 @@ export function FloorCountPage() {
     return (
       <FloorFrame title="Count" description="Scan a bay, then count what you see." error={null}>
         <EmptyState
+          icon={Calculator}
           title="Counting isn't one of your floor verbs."
           body="Ask an owner to add Count to your floor verbs on the Team page."
           action={
-            <Link className="text-xs font-medium underline" to="/floor">
-              Back to floor
-            </Link>
+            <Button variant="secondary" className="h-11" asChild>
+              <Link to="/floor">Back to floor</Link>
+            </Button>
           }
         />
       </FloorFrame>
@@ -154,97 +168,124 @@ export function FloorCountPage() {
 
   return (
     <FloorFrame title="Count" description="Scan a bay, then count what you see. Scan a SKU that was not on the snapshot to add it. System qty stays hidden until you post." error={error}>
-      <FloorScanBox label="Scan bay or found SKU" placeholder="A-01-01 or LAMP" onScan={onScan} />
+      <FloorScanBox label="Scan bay or found SKU" placeholder="A-01-01 or LAMP" onScan={onScan} ready={loaded} />
       {!active ? (
-        <>
-        <Card className="space-y-3">
-          <Field label="Or choose a bay">
-            <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-              {locations.map((location) => (
-                <option key={location.id} value={location.id}>
-                  {location.code}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Button
-            onClick={() =>
-              onScan(locations.find((row) => row.id === locationId)?.barcode || locationId)
+        loaded && baysLoaded && locations.length === 0 ? (
+          <EmptyState
+            icon={Calculator}
+            title="No bays to count yet."
+            body="Add bays under Locations, then scan one here to count it."
+            action={
+              <Button variant="secondary" className="h-11" asChild>
+                <Link to="/stock/locations">Add bays</Link>
+              </Button>
             }
-          >
-            Start count
-          </Button>
-        </Card>
-          <ClaimList
-            title="Open counts"
-            empty="No open cycle counts."
-            emptyBody="Scan a bay to start a count."
-            rows={counts}
-            userId={me.user.id}
-            jobFor={(row) => jobForRef(jobs, "cycleCount", row.id, "count")}
-            onOpen={(row) =>
-              openFloorRow(row, me.user.id, jobForRef(jobs, "cycleCount", row.id, "count"), (count) => {
-                void api<CycleCount>(`/api/cycle-counts/${count.id}`).then(setActive);
-              }, setError)
-            }
-            render={(row) => (
-              <>
-                {row.number} <StatusBadge status={row.status} />
-              </>
-            )}
           />
-        </>
+        ) : (
+          <>
+            <Card className="space-y-3">
+              <Field label="Or choose a bay">
+                <Select className="h-11 text-base" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
+                  {locations.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.code}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Button
+                className="h-14 w-full text-lg sm:w-auto"
+                disabled={!locationId}
+                onClick={() => onScan(locations.find((row) => row.id === locationId)?.barcode || locationId)}
+              >
+                Start count
+              </Button>
+            </Card>
+            {loaded ? (
+              <ClaimList
+                title="Open counts"
+                empty="No open cycle counts."
+                emptyBody="Scan a bay to start a count."
+                emptyIcon={Calculator}
+                rows={counts}
+                userId={me.user.id}
+                jobFor={(row) => jobForRef(jobs, "cycleCount", row.id, "count")}
+                onOpen={(row) =>
+                  openFloorRow(row, me.user.id, jobForRef(jobs, "cycleCount", row.id, "count"), (count) => {
+                    api<CycleCount>(`/api/cycle-counts/${count.id}`)
+                      .then(setActive)
+                      .catch((err) => setError(errorText(err, "Could not open that count.")));
+                  }, setError)
+                }
+                render={(row) => (
+                  <>
+                    {row.number} <StatusBadge status={row.status} />
+                  </>
+                )}
+              />
+            ) : (
+              <Skeleton className="h-40 w-full rounded-xl motion-reduce:animate-none" />
+            )}
+          </>
+        )
       ) : (
         <Card className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">{active.number}</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="min-w-0 text-xl font-semibold">{active.number}</h2>
             <StatusBadge status={active.status} />
           </div>
           <p className="text-sm text-muted-foreground">
             {active.locationCode}
-            {isBlindCount(active.status) ? " · Blind count" : ""}
+            {isBlindCount(active.status) ? (
+              <>
+                {" · "}
+                <Term id="blind-count">Blind count</Term>
+              </>
+            ) : null}
           </p>
           {lines.length === 0 ? (
             <p className="text-sm">Nothing on the snapshot. Confirm the bay is empty, or scan a SKU you found.</p>
           ) : (
             lines.map((line) => (
               <div key={line.id} className="space-y-2">
-              <Field
-                label={
-                  isBlindCount(active.status) || line.systemQty === null
-                    ? line.sku
-                    : `${line.sku} · system ${line.systemQty} · variance ${formatCountVariance(countVariance(line.countedQty, line.systemQty))}`
-                }
-              >
-                <Input
-                  type="number"
-                  min={0}
-                  placeholder="Count"
-                  value={line.entered ? String(line.countedQty) : ""}
-                  disabled={!canPostCount(active.status)}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    const countedQty = raw === "" ? 0 : Number(e.target.value);
-                    setActive((current) =>
-                      current
-                        ? {
-                            ...current,
-                            lines: (current.lines ?? []).map((row) =>
-                              row.id === line.id
-                                ? { ...row, countedQty: Number.isFinite(countedQty) ? countedQty : 0, entered: raw !== "" }
-                                : row,
-                            ),
-                          }
-                        : current,
-                    );
-                  }}
+                <Field
+                  label={
+                    isBlindCount(active.status) || line.systemQty === null
+                      ? line.sku
+                      : `${line.sku} · system ${line.systemQty} · variance ${formatCountVariance(countVariance(line.countedQty, line.systemQty))}`
+                  }
+                >
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    className="h-11 text-base"
+                    placeholder="Count"
+                    value={line.entered ? String(line.countedQty) : ""}
+                    disabled={!canPostCount(active.status)}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const countedQty = raw === "" ? 0 : Number(e.target.value);
+                      setActive((current) =>
+                        current
+                          ? {
+                              ...current,
+                              lines: (current.lines ?? []).map((row) =>
+                                row.id === line.id
+                                  ? { ...row, countedQty: Number.isFinite(countedQty) ? countedQty : 0, entered: raw !== "" }
+                                  : row,
+                              ),
+                            }
+                          : current,
+                      );
+                    }}
+                  />
+                </Field>
+                <CatchWeightInput
+                  show={line.catchWeight}
+                  value={weights[line.id] ?? (line.weightGrams != null ? String(line.weightGrams) : "")}
+                  onChange={(value) => setWeights((current) => ({ ...current, [line.id]: value }))}
                 />
-              </Field>
-              <CatchWeightInput
-                show={line.catchWeight}
-                value={weights[line.id] ?? (line.weightGrams != null ? String(line.weightGrams) : "")}
-                onChange={(value) => setWeights((current) => ({ ...current, [line.id]: value }))}
-              />
               </div>
             ))
           )}
@@ -253,13 +294,16 @@ export function FloorCountPage() {
               {!ready && lines.length > 0 ? (
                 <p className="text-sm text-muted-foreground">Enter every SKU (0 is a real count) before posting.</p>
               ) : null}
-              <Button disabled={!ready} onClick={() => void post()}>
+              <Button className="h-14 w-full text-lg sm:w-auto" disabled={!ready} onClick={() => void post()}>
                 {lines.length === 0 ? "Confirm empty" : "Post variances"}
               </Button>
             </>
           ) : (
-            <p>Posted.</p>
+            <DoneBanner>Posted.</DoneBanner>
           )}
+          <button type="button" className={textLink} onClick={() => setActive(null)}>
+            Back to list
+          </button>
         </Card>
       )}
     </FloorFrame>

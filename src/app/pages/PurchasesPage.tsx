@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowDownToLine, Mail, PackageOpen, Plus, ScanLine, Send, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Item, type Location, type Purchase } from "../api";
+import { api, errorText, type Item, type Location, type Purchase } from "../api";
 import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, StatusBadge, Table, ToneBadge, summarizeLines } from "../components/ui";
 import { BayCombobox } from "../components/BayCombobox";
 import {
@@ -17,18 +17,19 @@ import {
 import { DataTable, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, LineChips, Muted, ProgressCell, ProgressRow, RelativeTime, SkuCell } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { LinesField, TextField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import { apiMutate, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { STEP_RULES } from "@/domain/step-stamps";
+import { blankLine, purchaseFormSchema } from "@/domain/form-schemas";
 import { PURCHASE_STEPS, canReceivePurchase, canStartPurchase, isOpenPurchase } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
 import { useWarehouse, inWarehouse } from "../warehouse";
-import { LineFields, LinesBar, RailCard, unitCount } from "./ReceiptsPage";
+import { LinesBar, RailCard, unitCount } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { ExpiryInput, parseExpiryInput } from "../components/expiry-field";
-
-type Line = { itemId: string; qty: string };
 
 export function PurchasesPage() {
   const { id } = useParams();
@@ -133,7 +134,12 @@ function PurchaseList() {
       <PageHeader
         eyebrow="Inbound"
         title="Purchases"
-        description="What you ordered from a vendor. Send the draft to mint an expected ASN, then receive on the dock."
+        description={
+          <>
+            What you ordered from a vendor. Send the draft to mint an expected <Term id="asn">ASN</Term>, then receive on
+            the dock.
+          </>
+        }
       />
       <DataTable
         id="purchases"
@@ -165,7 +171,12 @@ function PurchaseList() {
           <EmptyState
             icon={ShoppingCart}
             title="No purchases yet."
-            body="A purchase is what you order from a vendor. Send it to expect an ASN, then receive it on the dock."
+            body={
+              <>
+                A <Term id="purchase-order">purchase order</Term> is what you buy from a vendor, and sending it sets up the
+                expected ASN for the dock.
+              </>
+            }
             action={
               <Button size="sm" onClick={() => setCreating(true)}>
                 New purchase
@@ -183,29 +194,34 @@ function NewPurchaseSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
-  const [vendorName, setVendorName] = useState("");
-  const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
+  const form = useZodForm(purchaseFormSchema, { vendorName: "", notes: "", lines: [blankLine()] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function create() {
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
+  useEffect(() => {
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  async function create(values: ZodFormOutput<typeof purchaseFormSchema>) {
     setError(null);
     setBusy(true);
     try {
+      // Same body as before: text as typed, blank rows already dropped, qty already a number.
       const created = await apiMutate<Purchase>("/api/purchases", {
         body: JSON.stringify({
           warehouseId,
-          vendorName,
-          notes,
-          lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
+          vendorName: values.vendorName,
+          notes: values.notes,
+          lines: values.lines.map((line) => ({ itemId: line.itemId, qty: line.qty })),
         }),
       });
       toast.success(`Purchase ${created.number} created.`);
       onOpenChange(false);
       navigate(`/inbound/purchases/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create purchase");
+      setError(errorText(err, "Could not create the purchase."));
     } finally {
       setBusy(false);
     }
@@ -218,20 +234,13 @@ function NewPurchaseSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
       title="New purchase"
       description="Starts as a draft. Send it to the vendor from the purchase page."
       submitLabel="Create purchase"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <Field label="Vendor">
-        <Input value={vendorName} onChange={(e) => setVendorName(e.target.value)} required placeholder="Harbor Components" autoFocus />
-      </Field>
-      <Field label="Notes">
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Restock, lead time, packing slip" />
-      </Field>
-      <div className="space-y-1.5">
-        <p className="text-sm font-medium">Lines</p>
-        <LineFields items={items.data ?? []} lines={lines} setLines={setLines} />
-      </div>
+      <TextField form={form} name="vendorName" label="Vendor" placeholder="Harbor Components" autoFocus />
+      <TextField form={form} name="notes" label="Notes" placeholder="Restock, lead time, packing slip" />
+      <LinesField form={form} name="lines" items={items.data ?? []} />
     </FormSheet>
   );
 }
@@ -380,7 +389,9 @@ function PurchaseDetail({ id }: { id: string }) {
                     placeholder="orders@vendor.com"
                   />
                 </Field>
-                <p className="text-xs text-muted-foreground">Sending marks the purchase ordered and creates the expected ASN.</p>
+                <p className="text-xs text-muted-foreground">
+                  Sending marks the purchase ordered and creates the expected <Term id="asn">ASN</Term>.
+                </p>
               </RailCard>
             ) : null}
             <RailCard>

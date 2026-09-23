@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, ApiError, type ShippingLabel } from "../api";
+import { Printer } from "lucide-react";
+import { api, ApiError, errorText, type ShippingLabel } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
-import { Button, ErrorBanner, PageHeader } from "../components/ui";
+import { Button, EmptyState, ErrorBanner, PageHeader } from "../components/ui";
 import { usePrint } from "../print/PrintProvider";
 
 export function ShippingLabelPage() {
@@ -23,12 +24,12 @@ export function ShippingLabelPage() {
         setLabel(next);
         setNeedsBuy(false);
       })
-      .catch((err: Error) => {
+      .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 409) {
           setNeedsBuy(true);
           setError(null);
         } else {
-          setError(err.message);
+          setError(errorText(err, "Could not load the label."));
         }
       });
   }
@@ -51,7 +52,7 @@ export function ShippingLabelPage() {
       setLabel(next);
       setNeedsBuy(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not buy label");
+      setError(errorText(err, "Could not buy the label."));
     }
   }
 
@@ -60,7 +61,25 @@ export function ShippingLabelPage() {
       <div className="mx-auto max-w-xl space-y-6">
         <PageHeader eyebrow="Outbound" title="Shipping label" description="Buy a carrier label before printing." />
         <ErrorBanner error={error} />
-        {needsBuy ? <Button onClick={() => void buy()}>Buy label</Button> : null}
+        {needsBuy ? (
+          <EmptyState
+            icon={Printer}
+            title="No label yet."
+            body="Buy a carrier label for this order, then print it here."
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button size="sm" onClick={() => void buy()}>
+                  Buy label
+                </Button>
+                {id ? (
+                  <Button size="sm" variant="outline" asChild>
+                    <Link to={`/outbound/orders/${id}`}>Back to order</Link>
+                  </Button>
+                ) : null}
+              </div>
+            }
+          />
+        ) : null}
       </div>
     );
   }

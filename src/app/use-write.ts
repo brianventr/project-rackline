@@ -1,6 +1,13 @@
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { refreshApi } from "./query";
+import { errorText, splitErrorText } from "./api";
+
+/** Toast a failed write: the plain sentence as the title, the fix (when there is one) underneath. */
+export function toastError(err: unknown, fallback: string): void {
+  const { message, hint } = splitErrorText(errorText(err, fallback));
+  toast.error(message, hint ? { description: hint } : undefined);
+}
 
 /**
  * One way to run a write from a page: clear the old error, run it, toast the result,
@@ -25,7 +32,7 @@ export function useWrite() {
         if (message) toast.success(message);
         return result;
       } catch (err) {
-        setError(err instanceof Error ? err.message : `${label} failed`);
+        setError(errorText(err, `${label} did not go through. Try again.`));
         return undefined;
       } finally {
         setBusy(false);

@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { z } from "zod";
 import { Clock, PackageCheck, Truck, TriangleAlert, type LucideIcon } from "lucide-react";
-import { api } from "../api";
-import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, ToneBadge, toneClass } from "../components/ui";
+import { api, errorText } from "../api";
+import { Button, Card, EmptyState, ErrorBanner, Input, PageHeader, ToneBadge, toneClass } from "../components/ui";
 import { DataTable, type DataColumn, type TabDef } from "../components/data-table/DataTable";
 import { DocLink } from "../components/cells";
+import { TextField, useZodForm } from "../components/form-kit";
+import { Term } from "../components/term";
 import { useApiQuery } from "../query";
 import { useWarehouse } from "../warehouse";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { qtySchema, skuSchema } from "@/domain/form-schemas";
 import { statusText, type StatusTone } from "@/domain/status";
 import {
   formatPickupLabel,
@@ -15,6 +21,27 @@ import {
   type PromiseCode,
   type PromiseOrder,
 } from "@/domain/promise";
+
+/** Server cap in `parsePromiseQty` (src/domain/promise.ts). */
+const MAX_ASK_QTY = 100_000;
+
+/**
+ * GET /api/analytics/promises/ask (`parsePromiseSku`, `parsePromiseQty`). Both fields stay text so the
+ * query is built exactly as before: SKU trimmed, a blank qty asks for 1.
+ */
+const askFormSchema = z.object({
+  sku: skuSchema,
+  qty: z.string().superRefine((value, ctx) => {
+    if (!value.trim()) return;
+    const parsed = qtySchema.safeParse(value);
+    if (!parsed.success) {
+      ctx.addIssue({ code: "custom", message: parsed.error.issues[0]?.message ?? "Qty must be 1 or more.", input: value });
+    } else if (parsed.data > MAX_ASK_QTY) {
+      ctx.addIssue({ code: "custom", message: "Qty can be 100,000 at most.", input: value });
+    }
+  }),
+});
+type AskFormValues = z.output<typeof askFormSchema>;
 
 const CODE_LABEL: Record<PromiseCode, string> = {
   leaves_today: "This pickup",
@@ -128,8 +155,7 @@ export function PromisePage() {
     { refetchInterval: 60_000 },
   );
   const board = boardQuery.data ?? null;
-  const [sku, setSku] = useState("");
-  const [qty, setQty] = useState("1");
+  const askForm = useZodForm(askFormSchema, { sku: "", qty: "1" });
   const [ask, setAsk] = useState<PromiseAsk | null>(null);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -148,21 +174,21 @@ export function PromisePage() {
   const pickupAt = board ? nextPickup(now, board.timeZone, board.cutoffMinutes) : null;
   const columns = promiseColumns(board?.timeZone ?? "UTC");
 
-  async function askSku() {
+  async function askSku(values: AskFormValues) {
     if (!warehouseId) return;
     setError(null);
     setAsking(true);
     try {
       const params = new URLSearchParams({
         warehouseId,
-        sku: sku.trim(),
-        qty: qty.trim() || "1",
+        sku: values.sku.trim(),
+        qty: values.qty.trim() || "1",
       });
       const next = await api<PromiseAsk>(`/api/analytics/promises/ask?${params.toString()}`);
       setAsk(next);
     } catch (err) {
       setAsk(null);
-      setError(err instanceof Error ? err.message : "Could not quote that SKU");
+      setError(errorText(err, "Could not quote that SKU."));
     } finally {
       setAsking(false);
     }
@@ -180,7 +206,12 @@ export function PromisePage() {
       <PageHeader
         eyebrow="Analytics"
         title="Promise"
-        description="When an open order leaves on the carrier pickup. The same answer a checkout or a buying agent can read."
+        description={
+          <>
+            When an open order leaves on the <Term id="cutoff">carrier pickup</Term>. The same answer a checkout or a
+            buying agent can read.
+          </>
+        }
         actions={
           board && pickupAt != null ? (
             <div className="rounded-lg border bg-card px-3 py-2 text-right shadow-xs">
@@ -221,24 +252,26 @@ export function PromisePage() {
           <p className="text-sm font-medium">Ask about a SKU</p>
           <p className="text-sm text-muted-foreground">A new order sits behind the open pick queue. Nothing is reserved.</p>
         </div>
-        <form
-          className="flex flex-wrap items-end gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void askSku();
-          }}
-        >
-          <div className="w-40">
-            <Field label="SKU">
-              <Input value={sku} onChange={(event) => setSku(event.target.value)} placeholder="LAMP" className="font-mono" />
-            </Field>
-          </div>
-          <div className="w-24">
-            <Field label="Qty">
-              <Input value={qty} onChange={(event) => setQty(event.target.value)} inputMode="numeric" />
-            </Field>
-          </div>
-          <Button type="submit" disabled={asking || !sku.trim()}>
+        <form className="flex flex-wrap items-start gap-3" onSubmit={askForm.handleSubmit(askSku)}>
+          <TextField form={askForm} name="sku" label="SKU" placeholder="LAMP" className="w-40 [&_input]:font-mono" />
+          {/* Qty stays a text input with the number pad, as before: a number input would read "1e" as blank. */}
+          <Form {...askForm}>
+            <FormField
+              control={askForm.control}
+              name="qty"
+              render={({ field }) => (
+                // minmax(0,1fr) pins the track to w-24 so a long message overflows under Ask instead of widening the input.
+                <FormItem className="w-24 grid-cols-[minmax(0,1fr)] text-sm">
+                  <FormLabel>Qty</FormLabel>
+                  <FormControl>
+                    <Input {...field} inputMode="numeric" />
+                  </FormControl>
+                  <FormMessage className="w-max max-w-48" />
+                </FormItem>
+              )}
+            />
+          </Form>
+          <Button type="submit" className="mt-3.5" disabled={asking}>
             {asking ? "Asking…" : "Ask"}
           </Button>
         </form>
@@ -259,7 +292,18 @@ export function PromisePage() {
           text: (order) => [order.number, order.customerName, order.slowSku, order.waitingOn].filter(Boolean).join(" "),
         }}
         exportName="promise"
-        empty={<EmptyState icon={Clock} title="No open orders to promise." body="Orders show up here once they are open for picking." />}
+        empty={
+          <EmptyState
+            icon={Clock}
+            title="No open orders to promise."
+            body="Orders show up here once they are open for picking."
+            action={
+              <Button size="sm" asChild>
+                <Link to="/outbound/orders?new=1">New order</Link>
+              </Button>
+            }
+          />
+        }
       />
     </div>
   );

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Location, type Order, type ScanHit, type Wave } from "../../api";
+import { Printer } from "lucide-react";
+import { api, errorText, type Location, type Order, type ScanHit, type Wave } from "../../api";
 import { BarcodeLabel } from "../../components/BarcodeLabel";
-import { Button, Card, StatusBadge } from "../../components/ui";
-import { FloorFrame, FloorScanBox } from "./floor-ui";
+import { Button, Card, EmptyState, ErrorBanner, StatusBadge } from "../../components/ui";
+import { FloorFrame, FloorScanBox, type ScanReport } from "./floor-ui";
 import {
   isHtmlPrintKind,
   jobsForScan,
@@ -17,6 +18,11 @@ import {
 import { usePrint } from "../../print/PrintProvider";
 import { useScanner } from "../../scanner/ScannerProvider";
 
+const PRINTABLE_KINDS = new Set<ScanHit["kind"]>(["location", "item", "equipment", "order", "wave"]);
+
+const listLink =
+  "inline-flex min-h-11 items-center rounded-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
+
 export function FloorPrintPage() {
   const [params] = useSearchParams();
   const printer = usePrint();
@@ -27,19 +33,22 @@ export function FloorPrintPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   const onScan = useCallback(
-    (raw: string) => {
+    (raw: string, report?: ScanReport) => {
       setError(null);
       setMessage(null);
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
         .then((next) => {
           setHit(next);
           setJobs(jobsForScan(next));
+          report?.(PRINTABLE_KINDS.has(next.kind));
         })
-        .catch((err: Error) => {
+        .catch((err) => {
           setHit(null);
           setJobs([]);
-          setError(err.message);
-          scanner.emitScanError();
+          setError(errorText(err, "That barcode did not scan. Try again."));
+          // A ?code= link has no scan to answer, so it keeps the plain error tone.
+          if (report) report(false);
+          else scanner.emitScanError();
         });
     },
     [scanner],
@@ -134,16 +143,17 @@ export function FloorPrintPage() {
       ) : null}
       {hit?.kind === "order" ? (
         <Card className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <h2 className="text-xl font-semibold">{hit.order.number}</h2>
             <StatusBadge status={hit.order.status} />
           </div>
           <p>{hit.order.customerName}</p>
           {jobs.length ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               {jobs.map((job) => (
                 <Button
                   key={job.href}
+                  className="h-11 w-full sm:w-auto"
                   variant={isHtmlPrintKind(job.kind) ? "primary" : "secondary"}
                   onClick={() => {
                     void printer
@@ -171,16 +181,17 @@ export function FloorPrintPage() {
       ) : null}
       {hit?.kind === "wave" ? (
         <Card className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <h2 className="text-xl font-semibold">{hit.wave.number}</h2>
             <StatusBadge status={hit.wave.status} />
           </div>
           <p className="capitalize">{hit.wave.mode}</p>
           {jobs.length ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               {jobs.map((job) => (
                 <Button
                   key={job.href}
+                  className="h-11 w-full sm:w-auto"
                   variant="primary"
                   onClick={() => {
                     void printer
@@ -239,10 +250,12 @@ function PrintCard({
         <p className="text-muted-foreground">{subtitle}</p>
       </div>
       <BarcodeLabel value={value} className="w-full" />
-      <div className="flex flex-wrap gap-2 print:hidden">
-        <Button onClick={() => void onPrint()}>Print label</Button>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap print:hidden">
+        <Button className="h-14 w-full text-lg sm:w-auto" onClick={() => void onPrint()}>
+          Print label
+        </Button>
         {jobs[0] ? (
-          <Button variant="secondary" asChild>
+          <Button variant="secondary" className="h-11 w-full sm:h-14 sm:w-auto" asChild>
             <Link to={jobs[0].href}>Open record</Link>
           </Button>
         ) : null}
@@ -255,6 +268,8 @@ function WaitingJobs() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [waves, setWaves] = useState<Wave[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -266,72 +281,69 @@ function WaitingJobs() {
         setOrders(nextOrders);
         setWaves(nextWaves);
         setLocations(nextLocations);
+        setLoaded(true);
       })
-      .catch(() => {});
+      .catch((err) => setLoadError(errorText(err, "Could not load what is waiting to print.")));
   }, []);
 
   const lists = [...pickListJobs(orders), ...wavePickListJobs(waves)];
   const slips = packSlipJobs(orders);
   const labels = shippingLabelJobs(orders);
+  const nothingWaiting = lists.length === 0 && slips.length === 0 && labels.length === 0;
 
   return (
     <div className="grid gap-3 sm:grid-cols-2 print:hidden">
-      <Card>
-        <p className="mb-2 font-medium">Pick lists</p>
-        <ul className="space-y-2 text-sm">
-          {lists.map((job) => (
-            <li key={job.href}>
-              <Link className="underline" to={job.href}>
-                {job.title}
-              </Link>{" "}
-              <span className="text-muted-foreground">{job.subtitle}</span>
-            </li>
-          ))}
-          {lists.length === 0 ? <li className="text-muted-foreground">None waiting.</li> : null}
-        </ul>
-      </Card>
-      <Card>
-        <p className="mb-2 font-medium">Pack slips</p>
-        <ul className="space-y-2 text-sm">
-          {slips.map((job) => (
-            <li key={job.href}>
-              <Link className="underline" to={job.href}>
-                {job.title}
-              </Link>{" "}
-              <span className="text-muted-foreground">{job.subtitle}</span>
-            </li>
-          ))}
-          {slips.length === 0 ? <li className="text-muted-foreground">None waiting.</li> : null}
-        </ul>
-      </Card>
-      <Card>
-        <p className="mb-2 font-medium">Shipping labels</p>
-        <ul className="space-y-2 text-sm">
-          {labels.map((job) => (
-            <li key={job.href}>
-              <Link className="underline" to={job.href}>
-                {job.title}
-              </Link>{" "}
-              <span className="text-muted-foreground">{job.subtitle}</span>
-            </li>
-          ))}
-          {labels.length === 0 ? <li className="text-muted-foreground">None waiting.</li> : null}
-        </ul>
-      </Card>
+      {loadError ? (
+        <div className="sm:col-span-2">
+          <ErrorBanner error={loadError} />
+        </div>
+      ) : !loaded ? null : nothingWaiting ? (
+        <EmptyState
+          className="sm:col-span-2"
+          icon={Printer}
+          title="Nothing waiting to print."
+          body="Pick lists, pack slips, and shipping labels for open orders and waves show here."
+        />
+      ) : (
+        <>
+          <WaitingCard title="Pick lists" jobs={lists} />
+          <WaitingCard title="Pack slips" jobs={slips} />
+          <WaitingCard title="Shipping labels" jobs={labels} />
+        </>
+      )}
       <Card className="sm:col-span-2">
-        <p className="mb-2 font-medium">Sheets</p>
-        <div className="flex flex-wrap gap-3 text-sm">
-          <Link className="underline" to="/stock/locations?labels=1">
-            All bay labels ({locations.length})
+        <p className="mb-1 font-medium">Sheets</p>
+        <div className="flex flex-wrap gap-x-4 text-sm">
+          <Link className={listLink} to="/stock/locations?labels=1">
+            All bay labels{loaded ? ` (${locations.length})` : ""}
           </Link>
-          <Link className="underline" to="/stock/items?labels=1">
+          <Link className={listLink} to="/stock/items?labels=1">
             All SKU labels
           </Link>
-          <Link className="underline" to="/equipment?labels=1">
+          <Link className={listLink} to="/equipment?labels=1">
             All equipment labels
           </Link>
         </div>
       </Card>
     </div>
+  );
+}
+
+function WaitingCard({ title, jobs }: { title: string; jobs: PrintJob[] }) {
+  return (
+    <Card>
+      <p className="mb-1 font-medium">{title}</p>
+      <ul className="text-sm">
+        {jobs.map((job) => (
+          <li key={job.href} className="flex min-h-11 flex-wrap items-center gap-x-1.5">
+            <Link className={listLink} to={job.href}>
+              {job.title}
+            </Link>
+            <span className="text-muted-foreground">{job.subtitle}</span>
+          </li>
+        ))}
+        {jobs.length === 0 ? <li className="py-2 text-muted-foreground">None waiting.</li> : null}
+      </ul>
+    </Card>
   );
 }

@@ -25,6 +25,7 @@ import {
 import { toast } from "sonner";
 import {
   api,
+  errorText,
   type CarrierHub,
   type CarrierRate,
   type CarrierServiceOption,
@@ -49,6 +50,9 @@ import {
 import { DataTable, type BulkAction, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, LineChips, Muted, ProgressCell, RelativeTime, SkuCell, ProgressRow } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { LinesField, TextField, TextareaField, useZodForm } from "../components/form-kit";
+import { Term } from "../components/term";
+import { blankLine, orderFormSchema, type OrderFormValues } from "@/domain/form-schemas";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -71,12 +75,8 @@ import { hasUnpacked } from "@/domain/partial-pack";
 import { canShipLabeledCarton, canUncartonOrderPackage } from "@/domain/cartons";
 import { planShortShip } from "@/domain/short-ship";
 import { useWarehouse, inWarehouse } from "../warehouse";
-import { LineFields } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { PickMap } from "../components/PickMap";
-import { Textarea } from "@/components/ui/textarea";
-
-type Line = { itemId: string; qty: string };
 
 export function OrdersPage() {
   const { id } = useParams();
@@ -248,7 +248,10 @@ function OrderList() {
         const failed = results.filter((result) => result.status === "rejected") as PromiseRejectedResult[];
         void refreshApi();
         if (failed.length) {
-          toast.error(`${failed.length} could not start: ${failed[0]!.reason instanceof Error ? failed[0]!.reason.message : "error"}`);
+          // The count leads; the server's own sentence (and its fix) goes underneath, unwrapped.
+          toast.error(`${failed.length} could not start.`, {
+            description: errorText(failed[0]!.reason, "Something went wrong. Try again."),
+          });
         }
         const started = selected.length - failed.length;
         if (started) toast.success(`Started pick on ${started} ${started === 1 ? "order" : "orders"}. Stock is reserved.`);
@@ -283,9 +286,13 @@ function OrderList() {
           selected.map((order) => api(`/api/orders/${order.id}/cancel`, { method: "POST" })),
         );
         void refreshApi();
-        const failed = results.filter((result) => result.status === "rejected").length;
-        if (failed) toast.error(`${failed} could not be cancelled.`);
-        if (selected.length - failed) toast.success(`Cancelled ${selected.length - failed} orders.`);
+        const failed = results.filter((result) => result.status === "rejected") as PromiseRejectedResult[];
+        if (failed.length) {
+          toast.error(`${failed.length} could not be cancelled.`, {
+            description: errorText(failed[0]!.reason, "Something went wrong. Try again."),
+          });
+        }
+        if (selected.length - failed.length) toast.success(`Cancelled ${selected.length - failed.length} orders.`);
       },
     },
   ];
@@ -295,7 +302,12 @@ function OrderList() {
       <PageHeader
         eyebrow="Outbound"
         title="Orders"
-        description="Shopify checkouts and floor orders. Start pick to reserve stock, then pick from the suggested bay."
+        description={
+          <>
+            Shopify checkouts and floor orders. Start pick to <Term id="allocation">reserve stock</Term>, then pick from
+            the suggested bay.
+          </>
+        }
       />
       <DataTable
         id="orders"
@@ -351,29 +363,35 @@ function NewOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
-  const [customerName, setCustomerName] = useState("");
-  const [shipToAddress, setShipToAddress] = useState("");
-  const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
+  const form = useZodForm(orderFormSchema, { customerName: "", shipToAddress: "", lines: [blankLine()] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function create() {
+  // Keep what was typed between opens, but start each open without stale inline errors
+  // (closing the sheet blurs the focused field, which would otherwise flag it).
+  const { reset, getValues } = form;
+  useEffect(() => {
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  async function create(values: OrderFormValues) {
     setError(null);
     setBusy(true);
     try {
+      // Same body as before inline validation: blank rows are already dropped and qty is a number.
       const created = await apiMutate<Order>("/api/orders", {
         body: JSON.stringify({
           warehouseId,
-          customerName,
-          shipToAddress: shipToAddress || undefined,
-          lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
+          customerName: values.customerName,
+          shipToAddress: values.shipToAddress || undefined,
+          lines: values.lines.map((line) => ({ itemId: line.itemId, qty: line.qty })),
         }),
       });
       toast.success(`Order ${created.number} created.`);
       onOpenChange(false);
       navigate(`/outbound/orders/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create order");
+      setError(errorText(err, "Could not create the order."));
     } finally {
       setBusy(false);
     }
@@ -386,25 +404,19 @@ function NewOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o
       title="New floor order"
       description="For phone, email, or will-call orders. Shopify checkouts arrive on their own."
       submitLabel="Create order"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <Field label="Customer">
-        <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required autoFocus />
-      </Field>
-      <Field label="Ship to">
-        <Textarea
-          value={shipToAddress}
-          onChange={(e) => setShipToAddress(e.target.value)}
-          placeholder={"14 Dock Street\nPortland, OR 97201"}
-          rows={3}
-        />
-      </Field>
-      <div className="space-y-1.5">
-        <p className="text-sm font-medium">Lines</p>
-        <LineFields items={items.data ?? []} lines={lines} setLines={setLines} />
-      </div>
+      <TextField form={form} name="customerName" label="Customer" autoFocus />
+      <TextareaField
+        form={form}
+        name="shipToAddress"
+        label="Ship to"
+        placeholder={"14 Dock Street\nPortland, OR 97201"}
+        rows={3}
+      />
+      <LinesField form={form} name="lines" items={items.data ?? []} />
     </FormSheet>
   );
 }
@@ -454,7 +466,7 @@ function OrderDetail({ id }: { id: string }) {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err: unknown) => setError(errorText(err, "Could not load this order.")));
   }, [id]);
 
   function resetQtys(next: Order, bays: Location[] = locations) {
@@ -476,7 +488,7 @@ function OrderDetail({ id }: { id: string }) {
       void refreshApi();
       if (success) toast.success(success(next ?? null));
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${label} failed`);
+      setError(errorText(err, `${label} failed. Try again.`));
     }
   }
 
@@ -677,7 +689,7 @@ function OrderDetail({ id }: { id: string }) {
       });
       setRates(result.rates);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not shop rates");
+      setError(errorText(err, "Could not get rates. Try again."));
     }
   }
 
@@ -858,14 +870,20 @@ function OrderDetail({ id }: { id: string }) {
                 </DocumentFact>
               ) : null}
               {order.parent ? (
-                <DocumentFact label="Backorder of">
+                <DocumentFact
+                  label={
+                    <>
+                      <Term id="backorder">Backorder</Term> of
+                    </>
+                  }
+                >
                   <Link className="underline" to={`/outbound/orders/${order.parent.id}`}>
                     {order.parent.number}
                   </Link>
                 </DocumentFact>
               ) : null}
               {(order.backorders ?? []).length > 0 ? (
-                <DocumentFact label="Backorder">
+                <DocumentFact label={<Term id="backorder">Backorder</Term>}>
                   <span className="flex flex-col items-end gap-1">
                     {(order.backorders ?? []).map((row) => (
                       <Link key={row.id} className="underline" to={`/outbound/orders/${row.id}`}>
@@ -913,7 +931,9 @@ function OrderDetail({ id }: { id: string }) {
             {unpickMode ? (
               <div className="flex flex-wrap items-center gap-2 rounded-lg border border-tone-warning/30 bg-tone-warning-bg px-3 py-2 text-sm text-tone-warning">
                 <Undo2 className="size-4" />
-                <span className="flex-1">Enter how many units go back to the bay, then confirm.</span>
+                <span className="flex-1">
+                  Enter how many units go back to the bay, then confirm.
+                </span>
                 <Button size="sm" variant="outline" onClick={() => setUnpickMode(false)}>
                   Cancel
                 </Button>
