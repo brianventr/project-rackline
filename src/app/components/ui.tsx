@@ -41,7 +41,9 @@ export function PageHeader({
     <div className="flex min-w-0 max-w-full flex-wrap items-end justify-between gap-x-4 gap-y-2">
       <div className="min-w-0">
         {eyebrow ? (
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{eyebrow}</p>
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground print:text-[10px] print:tracking-wide">
+            {eyebrow}
+          </p>
         ) : null}
         <h1 className="text-(length:--density-title) font-semibold leading-tight tracking-tight">{title}</h1>
         {description ? (

@@ -53,7 +53,8 @@ export function zonedParts(ms: number, timeZone: string): ZonedParts {
 function wallClockOffset(ms: number, timeZone: string): number {
   const parts = zonedParts(ms, timeZone);
   const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
-  return asUtc - ms;
+  // Wall-clock parts drop milliseconds, so compare against the whole second or the offset picks up the remainder.
+  return asUtc - Math.floor(ms / 1000) * 1000;
 }
 
 /** UTC epoch of local midnight for the calendar day that contains `ms` in `timeZone`. */

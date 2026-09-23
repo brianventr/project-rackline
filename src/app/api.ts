@@ -858,6 +858,9 @@ export type Dashboard = {
     lastVendorName: string | null;
   }[];
   recent: { id: string; type: string; qty: number; createdAt: number; sku: string }[];
+  /** Units per local day for the last 7 days, oldest first. */
+  trend?: { start: number; received: number; picked: number; shipped: number; built: number; shippedOrders: number }[];
+  timeZone?: string;
   hotBays: { locationId: string; locationCode: string; locationName: string; units: number }[];
   replenishSuggestions?: ReplenishSuggestion[];
   putawaySuggestions?: PutawaySuggestion[];

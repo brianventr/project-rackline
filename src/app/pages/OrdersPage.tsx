@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Box,
   ClipboardList,
@@ -213,7 +213,26 @@ function OrderList() {
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
   const orders = useApiQuery<Order[]>("/api/orders");
-  const [creating, setCreating] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const [creating, setCreatingState] = useState(() => params.get("new") === "1");
+
+  function setCreating(open: boolean) {
+    setCreatingState(open);
+    if (!open && params.has("new")) {
+      setParams(
+        (previous) => {
+          const next = new URLSearchParams(previous);
+          next.delete("new");
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }
+
+  useEffect(() => {
+    if (params.get("new") === "1") setCreatingState(true);
+  }, [params]);
 
   const rows = useMemo(() => inWarehouse(orders.data ?? [], warehouseId), [orders.data, warehouseId]);
 
