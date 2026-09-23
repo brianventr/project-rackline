@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { Building2, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, type Client } from "../../api";
-import { Button, EmptyState, Field, Input, PageHeader } from "../../components/ui";
+import { Button, EmptyState, PageHeader } from "../../components/ui";
 import { DataTable, type DataColumn } from "../../components/data-table/DataTable";
 import { RelativeTime } from "../../components/cells";
 import { ActionMenu } from "../../components/document";
 import { FormSheet } from "../../components/form-sheet";
+import { TextField, useZodForm, type ZodFormOutput } from "../../components/form-kit";
+import { Term } from "../../components/term";
 import { apiMutate, useApiQuery } from "../../query";
 import { useWrite } from "../../use-write";
+import { clientFormSchema } from "@/domain/form-schemas";
 
 const CLIENT_COLUMNS: DataColumn<Client>[] = [
   {
@@ -75,7 +78,15 @@ export function ClientsPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
-      <PageHeader eyebrow="Setup" title="Clients" description="3PL / multi-client codes for waves, ASNs, and orders." />
+      <PageHeader
+        eyebrow="Setup"
+        title="Clients"
+        description={
+          <>
+            <Term id="3pl-client">3PL</Term> / multi-client codes for waves, <Term id="asn">ASNs</Term>, and orders.
+          </>
+        }
+      />
       <DataTable
         id="clients"
         data={clients.data}
@@ -111,26 +122,26 @@ export function ClientsPage() {
 
 function ClientSheet({ state, onClose }: { state: SheetState; onClose: () => void }) {
   const editing = state?.mode === "edit" ? state.client : null;
-  const [code, setCode] = useState("");
-  const [name, setName] = useState("");
+  const form = useZodForm(clientFormSchema, { code: "", name: "" });
   const write = useWrite();
 
+  // A new client starts blank; an edit loads the client's code and name.
+  const { reset } = form;
   useEffect(() => {
     if (!state) return;
-    setCode(editing?.code ?? "");
-    setName(editing?.name ?? "");
+    reset({ code: editing?.code ?? "", name: editing?.name ?? "" });
     write.setError(null);
   }, [state]);
 
-  async function submit() {
+  async function submit(values: ZodFormOutput<typeof clientFormSchema>) {
     const saved = await write.run(
       editing ? "Save client" : "Add client",
       () =>
         api<Client>(editing ? `/api/clients/${editing.id}` : "/api/clients", {
           method: editing ? "PATCH" : "POST",
-          body: JSON.stringify({ code, name }),
+          body: JSON.stringify({ code: values.code, name: values.name }),
         }),
-      (row) => `Client ${row?.code ?? code.toUpperCase()} ${editing ? "saved" : "added"}.`,
+      (row) => `Client ${row?.code ?? values.code.toUpperCase()} ${editing ? "saved" : "added"}.`,
     );
     if (saved) onClose();
   }
@@ -142,16 +153,12 @@ function ClientSheet({ state, onClose }: { state: SheetState; onClose: () => voi
       title={editing ? `Edit ${editing.code}` : "New client"}
       description="The code prints on waves, ASNs, and invoices. Keep it short."
       submitLabel={editing ? "Save client" : "Add client"}
-      onSubmit={submit}
+      onSubmit={form.handleSubmit(submit)}
       busy={write.busy}
       error={write.error}
     >
-      <Field label="Code">
-        <Input value={code} onChange={(e) => setCode(e.target.value)} required placeholder="ACME" autoFocus />
-      </Field>
-      <Field label="Name">
-        <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Acme Corp" />
-      </Field>
+      <TextField form={form} name="code" label="Code" placeholder="ACME" autoFocus />
+      <TextField form={form} name="name" label="Name" placeholder="Acme Corp" />
     </FormSheet>
   );
 }

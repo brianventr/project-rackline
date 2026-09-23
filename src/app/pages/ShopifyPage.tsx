@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Copy, ExternalLink, FlaskConical, PackagePlus, RefreshCw, Store } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import {
   api,
+  errorText,
   type Item,
   type Me,
   type ShopifyConnection,
@@ -30,21 +32,78 @@ import { ActionButton } from "../components/document";
 import { DataTable, type DataColumn, type FacetDef } from "../components/data-table/DataTable";
 import { Muted, RelativeTime } from "../components/cells";
 import { useConfirm } from "../components/confirm";
+import { SelectField, TextField, useZodForm, type ZodFormInput, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import { useWrite } from "../use-write";
+import { choiceOf, optionalText, requiredText } from "@/domain/form-schemas";
 
 function shopifyInstallError(code: string): string {
   switch (code) {
     case "missing_app":
-      return "Shopify app credentials are not configured";
+      return "Shopify app credentials are not configured on this server.";
     case "hmac":
-      return "Shopify rejected the install signature";
+      return "Shopify rejected the install signature. Start the install again.";
     case "token":
-      return "Shopify did not return an access token";
+      return "Shopify did not return an access token. Start the install again.";
     case "shop":
-      return "That shop is already connected to another organization";
+      return "That shop is already connected to another organization.";
     default:
-      return "Shopify install link expired or was rejected";
+      return "The Shopify install link expired or was rejected. Start the install again.";
   }
+}
+
+/**
+ * PUT /api/shopify/connection (`src/routes/shopify.ts`): a shop domain, a webhook secret (typed or
+ * already saved), and for live mode an Admin API token (typed or already saved). Until the saved
+ * connection has loaded, the saved-secret checks are left to the server.
+ */
+function connectionFormSchema(connection: ShopifyConnection | null) {
+  return z
+    .object({
+      shopDomain: requiredText("Enter the shop domain, like northwind-makers.myshopify.com."),
+      accessToken: optionalText,
+      webhookSecret: optionalText,
+      locationGid: optionalText,
+      mode: choiceOf(["demo", "live"], "Pick demo or live."),
+    })
+    .superRefine((values, ctx) => {
+      if (!connection) return;
+      if (!values.webhookSecret.trim() && !connection.hasWebhookSecret) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Enter the webhook signing secret from your Shopify app.",
+          path: ["webhookSecret"],
+          input: values.webhookSecret,
+        });
+      }
+      if (values.mode === "live" && !values.accessToken.trim() && !connection.hasAccessToken) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Enter the Admin API token to go live.",
+          path: ["accessToken"],
+          input: values.accessToken,
+        });
+      }
+    });
+}
+
+type ConnectionFormSchema = ReturnType<typeof connectionFormSchema>;
+
+const BLANK_CONNECTION_FORM: ZodFormInput<ConnectionFormSchema> = {
+  shopDomain: "",
+  accessToken: "",
+  webhookSecret: "",
+  locationGid: "",
+  mode: "demo",
+};
+
+const SHOPIFY_MODE_OPTIONS = [
+  { value: "demo", label: "Demo — capture fulfill-back locally" },
+  { value: "live", label: "Live — call Shopify Admin GraphQL" },
+];
+
+function modeValue(mode: string | null | undefined): "demo" | "live" {
+  return mode === "live" ? "live" : "demo";
 }
 
 const SELLABLE_COLUMNS: DataColumn<ShopifySellableRow>[] = [
@@ -157,11 +216,15 @@ export function ShopifyPage({ me }: { me: Me }) {
   const [locations, setLocations] = useState<ShopifyLocation[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [shopDomain, setShopDomain] = useState("");
-  const [accessToken, setAccessToken] = useState("");
-  const [webhookSecret, setWebhookSecret] = useState("");
-  const [locationGid, setLocationGid] = useState("");
-  const [mode, setMode] = useState("demo");
+  const schema = useMemo(() => connectionFormSchema(connection), [connection]);
+  const form = useZodForm(schema, BLANK_CONNECTION_FORM);
+
+  // The token is only needed for live, so a mode change re-checks its message if one is showing.
+  const connectionMode = form.watch("mode");
+  const { getFieldState, trigger } = form;
+  useEffect(() => {
+    if (getFieldState("accessToken").invalid) void trigger("accessToken");
+  }, [connectionMode, getFieldState, trigger]);
   const [customerName, setCustomerName] = useState("Jordan Hale");
   const [sku, setSku] = useState("");
   const [qty, setQty] = useState("1");
@@ -182,15 +245,19 @@ export function ShopifyPage({ me }: { me: Me }) {
     setOutbound(nextOutbound);
     setItems(nextItems);
     setInventory(nextInventory);
-    setShopDomain(nextConnection.shopDomain ?? "");
-    setMode(nextConnection.mode);
+    // Refill the saved fields; a token or secret being typed stays put.
+    form.setValue("shopDomain", nextConnection.shopDomain ?? "");
+    form.setValue("mode", modeValue(nextConnection.mode));
     if (nextConnection.connected) {
       const nextLocations = await api<ShopifyLocation[]>("/api/shopify/locations").catch(() => [] as ShopifyLocation[]);
       setLocations(nextLocations);
-      setLocationGid(nextConnection.shopifyLocationGid ?? nextInventory.locationGid ?? nextLocations[0]?.id ?? "");
+      form.setValue(
+        "locationGid",
+        nextConnection.shopifyLocationGid ?? nextInventory.locationGid ?? nextLocations[0]?.id ?? "",
+      );
     } else {
       setLocations([]);
-      setLocationGid(nextConnection.shopifyLocationGid ?? nextInventory.locationGid ?? "");
+      form.setValue("locationGid", nextConnection.shopifyLocationGid ?? nextInventory.locationGid ?? "");
     }
     if (!sku) {
       const lamp = nextItems.find((item) => item.sku === "LAMP") ?? nextItems[0];
@@ -207,24 +274,24 @@ export function ShopifyPage({ me }: { me: Me }) {
         if (installed) toast.success("Shopify app installed.");
         if (oauthError) setError(shopifyInstallError(oauthError));
       })
-      .catch((err: Error) => setError(err.message));
+      .catch((err: unknown) => setError(errorText(err, "Could not load the Shopify connection.")));
   }, []);
 
   async function install() {
     setError(null);
-    if (!shopDomain.trim()) {
-      setError("Shop domain is required");
-      return;
-    }
+    // Only the shop domain matters here; its message shows under the field.
+    if (!(await form.trigger("shopDomain", { shouldFocus: true }))) return;
+    const shopDomain = form.getValues("shopDomain");
     try {
       const result = await api<{ url: string }>(`/api/shopify/oauth/start?shop=${encodeURIComponent(shopDomain.trim())}`);
       window.location.assign(result.url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start Shopify install");
+      setError(errorText(err, "Could not start the Shopify install."));
     }
   }
 
-  async function save() {
+  async function save(values: ZodFormOutput<ConnectionFormSchema>) {
+    const { mode } = values;
     if (mode === "live" && connection?.mode !== "live") {
       const ok = await confirm({
         title: "Switch Shopify to live?",
@@ -240,10 +307,10 @@ export function ShopifyPage({ me }: { me: Me }) {
         api<ShopifyConnection>("/api/shopify/connection", {
           method: "PUT",
           body: JSON.stringify({
-            shopDomain,
-            accessToken: accessToken || undefined,
-            webhookSecret: webhookSecret || undefined,
-            shopifyLocationGid: locationGid || null,
+            shopDomain: values.shopDomain,
+            accessToken: values.accessToken || undefined,
+            webhookSecret: values.webhookSecret || undefined,
+            shopifyLocationGid: values.locationGid || null,
             mode,
           }),
         }),
@@ -251,8 +318,7 @@ export function ShopifyPage({ me }: { me: Me }) {
     );
     if (!next) return;
     setConnection(next);
-    setAccessToken("");
-    setWebhookSecret("");
+    form.reset({ ...form.getValues(), accessToken: "", webhookSecret: "" });
   }
 
   async function enableDemo() {
@@ -263,8 +329,8 @@ export function ShopifyPage({ me }: { me: Me }) {
     );
     if (!next) return;
     setConnection(next);
-    setShopDomain(next.shopDomain ?? "");
-    setMode(next.mode);
+    form.setValue("shopDomain", next.shopDomain ?? "");
+    form.setValue("mode", modeValue(next.mode));
   }
 
   async function syncSellable() {
@@ -308,7 +374,12 @@ export function ShopifyPage({ me }: { me: Me }) {
       <PageHeader
         eyebrow="Setup"
         title="Shopify"
-        description="Customer checkout lands here as a pick ticket. Sellable qty (on-hand − held − remaining to pick) is pushed back to Shopify. After ship, Rackline posts fulfillment."
+        description={
+          <>
+            Customer checkout lands here as a pick ticket. <Term id="sellable">Sellable qty</Term> (on-hand − held −
+            remaining to pick) is pushed back to Shopify. After ship, Rackline posts fulfillment.
+          </>
+        }
       />
       <ErrorBanner error={error} />
 
@@ -343,62 +414,50 @@ export function ShopifyPage({ me }: { me: Me }) {
             </div>
 
             {owner ? (
-              <form className="space-y-4" onSubmit={onSubmit(save)}>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="sm:col-span-2">
-                    <Field label="Shop domain">
-                      <Input
-                        value={shopDomain}
-                        onChange={(e) => setShopDomain(e.target.value)}
-                        placeholder="northwind-makers.myshopify.com"
-                        required
-                      />
-                    </Field>
-                  </div>
-                  <Field label="Admin API access token">
-                    <Input
-                      type="password"
-                      value={accessToken}
-                      onChange={(e) => setAccessToken(e.target.value)}
-                      placeholder={connection?.hasAccessToken ? "Leave blank to keep current" : "shpat_…"}
+              <form className="space-y-4" onSubmit={form.handleSubmit(save)}>
+                <div className="grid gap-3 sm:grid-cols-2 sm:items-start">
+                  <TextField
+                    form={form}
+                    name="shopDomain"
+                    label="Shop domain"
+                    placeholder="northwind-makers.myshopify.com"
+                    className="sm:col-span-2"
+                  />
+                  <TextField
+                    form={form}
+                    name="accessToken"
+                    label="Admin API access token"
+                    type="password"
+                    autoComplete="off"
+                    placeholder={connection?.hasAccessToken ? "Leave blank to keep current" : "shpat_…"}
+                  />
+                  <TextField
+                    form={form}
+                    name="webhookSecret"
+                    label="Webhook signing secret"
+                    type="password"
+                    autoComplete="off"
+                    placeholder={connection?.hasWebhookSecret ? "Leave blank to keep current" : "Required"}
+                  />
+                  {locations.length ? (
+                    <SelectField
+                      form={form}
+                      name="locationGid"
+                      label="Shopify location"
+                      options={locations.map((row) => ({ value: row.id, label: row.name }))}
+                      placeholder="Select location"
+                      className="sm:col-span-2"
                     />
-                  </Field>
-                  <Field label="Webhook signing secret">
-                    <Input
-                      type="password"
-                      value={webhookSecret}
-                      onChange={(e) => setWebhookSecret(e.target.value)}
-                      placeholder={connection?.hasWebhookSecret ? "Leave blank to keep current" : "Required"}
+                  ) : (
+                    <TextField
+                      form={form}
+                      name="locationGid"
+                      label="Shopify location"
+                      placeholder="gid://shopify/Location/…"
+                      className="sm:col-span-2"
                     />
-                  </Field>
-                  <div className="sm:col-span-2">
-                    <Field label="Shopify location">
-                      {locations.length ? (
-                        <Select value={locationGid} onChange={(e) => setLocationGid(e.target.value)}>
-                          <option value="">Select location</option>
-                          {locations.map((row) => (
-                            <option key={row.id} value={row.id}>
-                              {row.name}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : (
-                        <Input
-                          value={locationGid}
-                          onChange={(e) => setLocationGid(e.target.value)}
-                          placeholder="gid://shopify/Location/…"
-                        />
-                      )}
-                    </Field>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <Field label="Mode">
-                      <Select value={mode} onChange={(e) => setMode(e.target.value)}>
-                        <option value="demo">Demo — capture fulfill-back locally</option>
-                        <option value="live">Live — call Shopify Admin GraphQL</option>
-                      </Select>
-                    </Field>
-                  </div>
+                  )}
+                  <SelectField form={form} name="mode" label="Mode" options={SHOPIFY_MODE_OPTIONS} className="sm:col-span-2" />
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-3">
                   {!connection?.connected ? (
@@ -507,7 +566,16 @@ export function ShopifyPage({ me }: { me: Me }) {
           search={{ placeholder: "Search SKU", text: (row) => `${row.sku} ${row.name}` }}
           exportName="shopify-sellable"
           empty={
-            <EmptyState icon={Store} title="No catalog SKUs yet." body="Add items under Stock → Items and they show up here." />
+            <EmptyState
+              icon={Store}
+              title="No catalog SKUs yet."
+              body="Add items under Stock → Items and they show up here."
+              action={
+                <Button size="sm" variant="outline" asChild>
+                  <Link to="/stock/items">Open items</Link>
+                </Button>
+              }
+            />
           }
         />
       </section>
@@ -569,7 +637,7 @@ export function ShopifyPage({ me }: { me: Me }) {
           exportName="shopify-posts"
           empty={
             <EmptyState
-              icon={RefreshCw}
+              icon={Store}
               title="Nothing posted yet."
               body="Ship a Shopify order or push sellable qty to see the payload here."
             />

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Inbox, Send } from "lucide-react";
+import { FileCode2, Send } from "lucide-react";
 import { api } from "../../api";
 import {
   Button,
@@ -17,6 +17,7 @@ import {
 } from "../../components/ui";
 import { DataTable, type DataColumn, type FacetDef } from "../../components/data-table/DataTable";
 import { DocLink, LineChips, Muted, RelativeTime } from "../../components/cells";
+import { Term } from "../../components/term";
 import { refreshApi, useApiQuery } from "../../query";
 import { useWrite } from "../../use-write";
 import { useWarehouse } from "../../warehouse";
@@ -196,7 +197,11 @@ export function EdiPage() {
       <PageHeader
         eyebrow="Setup"
         title="Supplier EDI"
-        description="Thin ASN ingest (JSON stub). A supplier posts one ASN and it lands as expected inbound."
+        description={
+          <>
+            Thin <Term id="asn">ASN</Term> ingest (JSON stub). A supplier posts one ASN and it lands as expected inbound.
+          </>
+        }
       />
       <ErrorBanner error={write.error} />
       {created ? (
@@ -277,9 +282,14 @@ export function EdiPage() {
           exportName="edi-inbox"
           empty={
             <EmptyState
-              icon={Inbox}
+              icon={FileCode2}
               title="No supplier ASNs yet."
-              body="Each ASN posted to the EDI endpoint lands here, including refused ones and why. Post a test ASN above to see one."
+              body={
+                <>
+                  Each ASN posted to the <Term id="edi">EDI</Term> endpoint lands here, including refused ones and why. Post a
+                  test ASN above to see one.
+                </>
+              }
             />
           }
         />

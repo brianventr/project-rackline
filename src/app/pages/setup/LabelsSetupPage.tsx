@@ -1,26 +1,19 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ClipboardList, History, MonitorSmartphone, Plus, Printer, ScanLine, Trash2 } from "lucide-react";
+import { Plus, Printer, ScanLine, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Item, type Location, type Order, type WarehouseMapInfo, type Wave } from "../../api";
-import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorBanner,
-  Field,
-  Input,
-  PageHeader,
-  Select,
-  StatusBadge,
-  ToneBadge,
-} from "../../components/ui";
+import { z } from "zod";
+import { api, errorText, type Item, type Location, type Order, type WarehouseMapInfo, type Wave } from "../../api";
+import { Button, Card, EmptyState, ErrorBanner, Field, PageHeader, Select, StatusBadge, ToneBadge } from "../../components/ui";
 import { DataTable, type DataColumn, type FacetDef, type TabDef } from "../../components/data-table/DataTable";
 import { DocLink, Muted, RelativeTime } from "../../components/cells";
 import { ActionButton } from "../../components/document";
 import { FormSheet } from "../../components/form-sheet";
+import { SelectField, TextField, useZodForm, type ZodFormOutput } from "../../components/form-kit";
+import { Term } from "../../components/term";
 import { refreshApi, useApiQuery } from "../../query";
 import { useWrite } from "../../use-write";
+import { choiceOf, optionalText, requiredText } from "@/domain/form-schemas";
 import {
   packSlipJobs,
   pickListJobs,
@@ -55,6 +48,35 @@ const MEDIA_LABEL: Record<PrinterRecord["media"], string> = {
   "4x6": "4×6",
   "2x1": "2×1",
 };
+
+/** POST /api/printers (`src/routes/printers.ts`): a name, plus a connection and media the server knows. */
+const printerFormSchema = z.object({
+  name: requiredText("Enter a printer name."),
+  connection: choiceOf(["browser", "download", "qz"], "Pick a connection."),
+  media: choiceOf(["letter", "4x6", "2x1"], "Pick a media size."),
+  qzPrinterName: optionalText,
+});
+
+/** POST /api/print-stations: only the name is required; a blank slot means none. */
+const stationFormSchema = z.object({
+  name: requiredText("Enter a station name."),
+  warehouseId: optionalText,
+  defaultPrinterId: optionalText,
+  bayPrinterId: optionalText,
+  shippingPrinterId: optionalText,
+});
+
+const CONNECTION_OPTIONS = [
+  { value: "browser", label: "Browser" },
+  { value: "download", label: "ZPL download" },
+  { value: "qz", label: "QZ Tray" },
+];
+
+const MEDIA_OPTIONS = [
+  { value: "letter", label: "Letter" },
+  { value: "4x6", label: "4×6" },
+  { value: "2x1", label: "2×1" },
+];
 
 const QUEUE_TABS: TabDef<PrintJob>[] = [
   { id: "all", label: "All", match: () => true },
@@ -143,7 +165,7 @@ export function LabelsSetupPage() {
   useEffect(() => {
     printerCtx
       .refresh()
-      .catch((err: Error) => setError(err.message))
+      .catch((err: unknown) => setError(errorText(err, "Could not load printers and stations.")))
       .finally(() => setReady(true));
   }, []);
 
@@ -403,7 +425,7 @@ export function LabelsSetupPage() {
               defaultSort={{ id: "name", desc: false }}
               empty={
                 <EmptyState
-                  icon={MonitorSmartphone}
+                  icon={Printer}
                   title="No stations yet."
                   body="Add a station, then pick it for this workstation above."
                   action={
@@ -420,7 +442,12 @@ export function LabelsSetupPage() {
         <TabsContent value="queue" className="space-y-2">
           <SectionHeading
             title="Ready to print"
-            description="Pick lists for open tickets and waves, plus pack slips and shipping labels for orders far enough along."
+            description={
+              <>
+                <Term id="pick-list">Pick lists</Term> for open tickets and waves, plus <Term id="pack-slip">pack slips</Term>{" "}
+                and shipping labels for orders far enough along.
+              </>
+            }
           />
           <DataTable
             id="print-queue"
@@ -437,7 +464,7 @@ export function LabelsSetupPage() {
             search={{ placeholder: "Search order, wave, customer", text: (job) => `${job.title} ${job.subtitle}` }}
             empty={
               <EmptyState
-                icon={ClipboardList}
+                icon={Printer}
                 title="Nothing to print."
                 body="Open orders and waves show up here with their pick list, slip, or label."
               />
@@ -459,7 +486,7 @@ export function LabelsSetupPage() {
             defaultSort={{ id: "when", desc: true }}
             exportName="print-jobs"
             empty={
-              <EmptyState icon={History} title="No jobs yet." body="Print a pick list, slip, or label and it is logged here." />
+              <EmptyState icon={Printer} title="No jobs yet." body="Print a pick list, slip, or label and it is logged here." />
             }
           />
         </TabsContent>
@@ -524,7 +551,7 @@ export function LabelsSetupPage() {
   );
 }
 
-function SectionHeading({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
+function SectionHeading({ title, description, action }: { title: string; description?: ReactNode; action?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-2">
       <div className="min-w-0">
@@ -558,35 +585,38 @@ function PrinterSheet({
   isFirst: boolean;
   onSaved: () => Promise<void>;
 }) {
-  const [printerName, setPrinterName] = useState("Thermal 4x6");
-  const [printerConnection, setPrinterConnection] = useState<"browser" | "qz" | "download">("download");
-  const [printerMedia, setPrinterMedia] = useState<"letter" | "4x6" | "2x1">("4x6");
-  const [qzName, setQzName] = useState("");
+  const form = useZodForm(printerFormSchema, { name: "Thermal 4x6", connection: "download", media: "4x6", qzPrinterName: "" });
   const write = useWrite();
+  const connection = form.watch("connection");
 
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
   useEffect(() => {
-    if (open) write.setError(null);
+    if (!open) return;
+    write.setError(null);
+    reset(getValues(), { keepDefaultValues: true });
   }, [open]);
 
-  async function submit() {
+  async function submit(values: ZodFormOutput<typeof printerFormSchema>) {
     const done = await write.run(
       "Add printer",
       async () => {
         await api("/api/printers", {
           method: "POST",
+          // A QZ name typed before switching away from QZ Tray still goes along, as it always has.
           body: JSON.stringify({
-            name: printerName,
-            connection: printerConnection,
-            media: printerMedia,
+            name: values.name,
+            connection: values.connection,
+            media: values.media,
             dpi: 203,
-            qzPrinterName: qzName || undefined,
+            qzPrinterName: values.qzPrinterName || undefined,
             isDefault: isFirst,
           }),
         });
         await onSaved();
         return true;
       },
-      `Printer ${printerName} added.`,
+      `Printer ${values.name} added.`,
     );
     if (done) onOpenChange(false);
   }
@@ -598,33 +628,17 @@ function PrinterSheet({
       title="Add printer"
       description={isFirst ? "Your first printer becomes the default." : "Assign it to a station to use it."}
       submitLabel="Add printer"
-      onSubmit={submit}
+      onSubmit={form.handleSubmit(submit)}
       busy={write.busy}
       error={write.error}
     >
-      <Field label="Name">
-        <Input value={printerName} onChange={(e) => setPrinterName(e.target.value)} placeholder="Printer name" autoFocus />
-      </Field>
+      <TextField form={form} name="name" label="Name" placeholder="Printer name" autoFocus />
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Connection">
-          <Select value={printerConnection} onChange={(e) => setPrinterConnection(e.target.value as PrinterRecord["connection"])}>
-            <option value="browser">Browser</option>
-            <option value="download">ZPL download</option>
-            <option value="qz">QZ Tray</option>
-          </Select>
-        </Field>
-        <Field label="Media">
-          <Select value={printerMedia} onChange={(e) => setPrinterMedia(e.target.value as PrinterRecord["media"])}>
-            <option value="letter">Letter</option>
-            <option value="4x6">4×6</option>
-            <option value="2x1">2×1</option>
-          </Select>
-        </Field>
+        <SelectField form={form} name="connection" label="Connection" options={CONNECTION_OPTIONS} />
+        <SelectField form={form} name="media" label="Media" options={MEDIA_OPTIONS} />
       </div>
-      {printerConnection === "qz" ? (
-        <Field label="QZ printer name">
-          <Input value={qzName} onChange={(e) => setQzName(e.target.value)} placeholder="QZ printer name" />
-        </Field>
+      {connection === "qz" ? (
+        <TextField form={form} name="qzPrinterName" label="QZ printer name" placeholder="QZ printer name" />
       ) : null}
     </FormSheet>
   );
@@ -643,35 +657,43 @@ function StationSheet({
   warehouses: WarehouseMapInfo[];
   onSaved: () => Promise<void>;
 }) {
-  const [stationName, setStationName] = useState("Pack bench");
-  const [stationWarehouseId, setStationWarehouseId] = useState("");
-  const [stationDefault, setStationDefault] = useState("");
-  const [stationBay, setStationBay] = useState("");
-  const [stationShipping, setStationShipping] = useState("");
+  const form = useZodForm(stationFormSchema, {
+    name: "Pack bench",
+    warehouseId: "",
+    defaultPrinterId: "",
+    bayPrinterId: "",
+    shippingPrinterId: "",
+  });
   const write = useWrite();
+  const printerOptions = printers.map((row) => ({ value: row.id, label: row.name }));
+  const warehouseOptions = warehouses.map((row) => ({ value: row.id, label: row.name }));
 
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
   useEffect(() => {
-    if (open) write.setError(null);
+    if (!open) return;
+    write.setError(null);
+    reset(getValues(), { keepDefaultValues: true });
   }, [open]);
 
-  async function submit() {
+  async function submit(values: ZodFormOutput<typeof stationFormSchema>) {
     const done = await write.run(
       "Add station",
       async () => {
         await api("/api/print-stations", {
           method: "POST",
           body: JSON.stringify({
-            name: stationName,
-            warehouseId: stationWarehouseId || null,
-            defaultPrinterId: stationDefault || null,
-            bayPrinterId: stationBay || null,
-            shippingPrinterId: stationShipping || null,
+            name: values.name,
+            warehouseId: values.warehouseId || null,
+            defaultPrinterId: values.defaultPrinterId || null,
+            bayPrinterId: values.bayPrinterId || null,
+            shippingPrinterId: values.shippingPrinterId || null,
           }),
         });
         await onSaved();
         return true;
       },
-      `Station ${stationName} added.`,
+      `Station ${values.name} added.`,
     );
     if (done) onOpenChange(false);
   }
@@ -683,51 +705,15 @@ function StationSheet({
       title="Add station"
       description="Pick which printer takes each kind of job. Leave a slot on None to use the default."
       submitLabel="Add station"
-      onSubmit={submit}
+      onSubmit={form.handleSubmit(submit)}
       busy={write.busy}
       error={write.error}
     >
-      <Field label="Name">
-        <Input value={stationName} onChange={(e) => setStationName(e.target.value)} placeholder="Station name" autoFocus />
-      </Field>
-      <Field label="Warehouse">
-        <Select value={stationWarehouseId} onChange={(e) => setStationWarehouseId(e.target.value)}>
-          <option value="">Any warehouse</option>
-          {warehouses.map((row) => (
-            <option key={row.id} value={row.id}>
-              {row.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <PrinterPick label="Default" value={stationDefault} onChange={setStationDefault} printers={printers} />
-      <PrinterPick label="Bay / SKU" value={stationBay} onChange={setStationBay} printers={printers} />
-      <PrinterPick label="Shipping" value={stationShipping} onChange={setStationShipping} printers={printers} />
+      <TextField form={form} name="name" label="Name" placeholder="Station name" autoFocus />
+      <SelectField form={form} name="warehouseId" label="Warehouse" options={warehouseOptions} placeholder="Any warehouse" />
+      <SelectField form={form} name="defaultPrinterId" label="Default" options={printerOptions} placeholder="None" />
+      <SelectField form={form} name="bayPrinterId" label="Bay / SKU" options={printerOptions} placeholder="None" />
+      <SelectField form={form} name="shippingPrinterId" label="Shipping" options={printerOptions} placeholder="None" />
     </FormSheet>
-  );
-}
-
-function PrinterPick({
-  label,
-  value,
-  onChange,
-  printers,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  printers: PrinterRecord[];
-}) {
-  return (
-    <Field label={label}>
-      <Select value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">None</option>
-        {printers.map((row) => (
-          <option key={row.id} value={row.id}>
-            {row.name}
-          </option>
-        ))}
-      </Select>
-    </Field>
   );
 }

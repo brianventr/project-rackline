@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BadgeCheck, Plus, Trash2, UserPlus, Users } from "lucide-react";
+import { Plus, Trash2, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
-import { api, type OperatorCertification, type TeamMember } from "../../api";
-import { Button, EmptyState, Field, Input, PageHeader, Select, ToneBadge } from "../../components/ui";
+import { z } from "zod";
+import { api, errorText, type OperatorCertification, type TeamMember } from "../../api";
+import { Button, EmptyState, PageHeader, ToneBadge } from "../../components/ui";
 import { DataTable, type DataColumn, type FacetDef } from "../../components/data-table/DataTable";
 import { Muted, PersonAvatar, RelativeTime } from "../../components/cells";
 import { ActionButton } from "../../components/document";
 import { FormSheet } from "../../components/form-sheet";
+import { SelectField, TextField, useZodForm, type ZodFormOutput } from "../../components/form-kit";
 import { apiMutate, useApiQuery } from "../../query";
 import { useWrite } from "../../use-write";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,9 +16,22 @@ import { FLOOR_VERBS, VERB_LABELS, type FloorVerb } from "@/domain/jobs";
 import { EQUIPMENT_CLASSES, equipmentClassLabel, isCertExpired, isCertExpiring } from "@/domain/equipment";
 import { formatExpiresOn } from "@/domain/expiry";
 import { inviteOwnerMessage, type InviteKind } from "@/domain/auth-mail";
+import { choiceOf, inviteFormSchema, requiredChoice, requiredText } from "@/domain/form-schemas";
 import { teamStatusLabel, teamStatusTone, type TeamMemberStatus } from "@/domain/team-status";
 
-type EquipmentClass = (typeof EQUIPMENT_CLASSES)[number];
+/** POST /api/certifications (`src/routes/equipment.ts`): a member, a known class, and a calendar date. */
+const certificationFormSchema = z.object({
+  userId: requiredChoice("Pick a teammate."),
+  class: choiceOf(EQUIPMENT_CLASSES, "Pick an equipment class."),
+  expiresOn: requiredText("Pick the date it runs out."),
+});
+
+const ROLE_OPTIONS = [
+  { value: "operator", label: "Operator — lands on the floor" },
+  { value: "owner", label: "Owner — sees setup" },
+];
+
+const CLASS_OPTIONS = EQUIPMENT_CLASSES.map((value) => ({ value, label: equipmentClassLabel(value) }));
 
 /**
  * A `GET /api/team` row: the member plus when they last used Rackline. Declared here rather than
@@ -288,7 +303,7 @@ export function TeamPage() {
           }}
           empty={
             <EmptyState
-              icon={BadgeCheck}
+              icon={Users}
               title="No certifications yet."
               body="Add one per teammate and equipment class, with the date it runs out."
               action={
@@ -328,7 +343,7 @@ function FloorVerbsCell({ member }: { member: TeamMember }) {
   async function toggle(verb: FloorVerb, on: boolean) {
     const next = on ? [...new Set([...current, verb])] : current.filter((row) => row !== verb);
     if (next.length === 0) {
-      toast.error("Pick at least one floor verb");
+      toast.error("Pick at least one floor verb.");
       return;
     }
     setSaving(verb);
@@ -336,7 +351,7 @@ function FloorVerbsCell({ member }: { member: TeamMember }) {
       await apiMutate(`/api/team/${member.userId}`, { method: "PATCH", body: JSON.stringify({ floorVerbs: next }) });
       toast.success(`${VERB_LABELS[verb]} ${on ? "on" : "off"} for ${member.name}.`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not update verbs");
+      toast.error(errorText(err, "Could not update floor verbs."));
     } finally {
       setSaving(null);
     }
@@ -359,35 +374,35 @@ function FloorVerbsCell({ member }: { member: TeamMember }) {
 }
 
 function InviteSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState("operator");
+  const form = useZodForm(inviteFormSchema, { name: "", email: "", role: "operator", password: "" });
   const write = useWrite();
 
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
   useEffect(() => {
-    if (open) write.setError(null);
+    if (!open) return;
+    write.setError(null);
+    reset(getValues(), { keepDefaultValues: true });
   }, [open]);
 
-  async function submit() {
+  async function submit(values: ZodFormOutput<typeof inviteFormSchema>) {
     const created = await write.run(
       "Invite",
       () =>
         api<TeamMember & { invite?: InviteKind }>("/api/team", {
           method: "POST",
           body: JSON.stringify({
-            name,
-            email,
-            role,
-            password: password.trim() || undefined,
+            name: values.name,
+            email: values.email,
+            role: values.role,
+            password: values.password.trim() || undefined,
           }),
         }),
       (row) => inviteOwnerMessage(row.invite ?? "password", row.name, row.email),
     );
     if (!created) return;
-    setName("");
-    setEmail("");
-    setPassword("");
+    // Clear who was invited; the role stays picked for the next invite.
+    reset({ name: "", email: "", role: values.role, password: "" }, { keepDefaultValues: true });
     onOpenChange(false);
   }
 
@@ -398,31 +413,21 @@ function InviteSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
       title="Invite teammate"
       description="Leave the starter password blank to email a set-password link (needs mail)."
       submitLabel="Invite"
-      onSubmit={submit}
+      onSubmit={form.handleSubmit(submit)}
       busy={write.busy}
       error={write.error}
     >
-      <Field label="Name">
-        <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
-      </Field>
-      <Field label="Email">
-        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-      </Field>
-      <Field label="Role">
-        <Select value={role} onChange={(e) => setRole(e.target.value)}>
-          <option value="operator">Operator — lands on the floor</option>
-          <option value="owner">Owner — sees setup</option>
-        </Select>
-      </Field>
-      <Field label="Starter password (optional)">
-        <Input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          minLength={8}
-          placeholder="Email a reset link instead"
-        />
-      </Field>
+      <TextField form={form} name="name" label="Name" autoFocus />
+      <TextField form={form} name="email" label="Email" type="email" />
+      <SelectField form={form} name="role" label="Role" options={ROLE_OPTIONS} />
+      <TextField
+        form={form}
+        name="password"
+        label="Starter password (optional)"
+        type="password"
+        autoComplete="new-password"
+        placeholder="Email a reset link instead"
+      />
     </FormSheet>
   );
 }
@@ -436,31 +441,34 @@ function CertificationSheet({
   onOpenChange: (open: boolean) => void;
   members: TeamMember[];
 }) {
-  const [userId, setUserId] = useState("");
-  const [certClass, setCertClass] = useState<EquipmentClass>("sit_down");
-  const [expiresOn, setExpiresOn] = useState("");
+  const form = useZodForm(certificationFormSchema, { userId: "", class: "sit_down", expiresOn: "" });
   const write = useWrite();
-  const chosen = userId || members[0]?.userId || "";
+  const memberOptions = members.map((member) => ({ value: member.userId, label: member.name }));
 
+  // Start on the first teammate, as the picker always has; keep the rest of what was typed.
+  const { reset, getValues } = form;
   useEffect(() => {
-    if (open) write.setError(null);
+    if (!open) return;
+    write.setError(null);
+    const current = getValues();
+    reset({ ...current, userId: current.userId || members[0]?.userId || "" }, { keepDefaultValues: true });
   }, [open]);
 
-  async function submit() {
-    const person = members.find((member) => member.userId === chosen);
+  async function submit(values: ZodFormOutput<typeof certificationFormSchema>) {
+    const person = members.find((member) => member.userId === values.userId);
     const created = await write.run(
       "Add certification",
       async () => {
         await api("/api/certifications", {
           method: "POST",
-          body: JSON.stringify({ userId: chosen, class: certClass, expiresOn }),
+          body: JSON.stringify({ userId: values.userId, class: values.class, expiresOn: values.expiresOn }),
         });
         return true;
       },
-      `${person?.name ?? "Teammate"} is certified for ${equipmentClassLabel(certClass).toLowerCase()} until ${expiresOn}.`,
+      `${person?.name ?? "Teammate"} is certified for ${equipmentClassLabel(values.class).toLowerCase()} until ${values.expiresOn}.`,
     );
     if (!created) return;
-    setExpiresOn("");
+    reset({ ...values, expiresOn: "" }, { keepDefaultValues: true });
     onOpenChange(false);
   }
 
@@ -471,31 +479,13 @@ function CertificationSheet({
       title="Add certification"
       description="One per teammate and class. Checkout is refused after the expiry date."
       submitLabel="Add certification"
-      onSubmit={submit}
+      onSubmit={form.handleSubmit(submit)}
       busy={write.busy}
       error={write.error}
     >
-      <Field label="Teammate">
-        <Select value={chosen} onChange={(e) => setUserId(e.target.value)}>
-          {members.map((member) => (
-            <option key={member.userId} value={member.userId}>
-              {member.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Class">
-        <Select value={certClass} onChange={(e) => setCertClass(e.target.value as EquipmentClass)}>
-          {EQUIPMENT_CLASSES.map((value) => (
-            <option key={value} value={value}>
-              {equipmentClassLabel(value)}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Expires">
-        <Input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} required />
-      </Field>
+      <SelectField form={form} name="userId" label="Teammate" options={memberOptions} />
+      <SelectField form={form} name="class" label="Class" options={CLASS_OPTIONS} />
+      <TextField form={form} name="expiresOn" label="Expires" type="date" />
     </FormSheet>
   );
 }
