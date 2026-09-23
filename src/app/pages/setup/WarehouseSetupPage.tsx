@@ -189,7 +189,7 @@ export function WarehouseSetupPage() {
               name="timeZone"
               label="Timezone"
               placeholder="America/Los_Angeles"
-              description="Live starts this building's day at local midnight. Use an IANA name such as America/Los_Angeles."
+              description="Live starts this building's day at local midnight."
             />
           </div>
 

@@ -606,6 +606,9 @@ function byStatus(ctx: Ctx): Copy {
   if (/^invalid json$/i.test(text)) {
     return { message: "Rackline could not read that request.", hint: "Refresh the page and try again." };
   }
+  if (/^user already exists\b/i.test(text)) {
+    return { message: "An account with that email already exists.", hint: "Sign in instead, or reset the password." };
+  }
   if (/^a bom already exists for this item$/i.test(text)) {
     return { message: "A recipe already exists for this SKU.", hint: "Open it from Recipes to change it." };
   }

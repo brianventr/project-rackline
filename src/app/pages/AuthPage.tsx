@@ -2,18 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { FieldErrors } from "react-hook-form";
 import { z } from "zod";
-import { api, authClient, errorText } from "../api";
+import { api, ApiError, authClient, errorText } from "../api";
 import { Button, ErrorBanner } from "../components/ui";
 import { TextField, useZodForm, type ZodFormInput, type ZodFormOutput } from "../components/form-kit";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/logo";
 import { ModeToggle } from "@/components/mode-toggle";
-import { MIN_PASSWORD_LENGTH } from "@/domain/form-schemas";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/domain/form-schemas";
 
 type AuthMode = "login" | "signup" | "forgot";
 
 /** Better Auth's default `maxPasswordLength` (src/lib/auth.ts keeps the defaults). */
-const MAX_PASSWORD_LENGTH = 128;
 
 /** Better Auth checks every email with `z.email()` (sign in, sign up, and password reset). */
 function emailProblem(value: string): string | null {
@@ -113,7 +112,7 @@ export function AuthPage({ mode: initialMode = "login" }: { mode?: AuthMode }) {
         });
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         if (!res.ok) {
-          throw new Error(data.error || "Could not create the organization.");
+          throw new ApiError(data.error || "Could not create the organization.", res.status, data);
         }
       }
       window.location.assign("/");

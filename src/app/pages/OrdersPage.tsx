@@ -870,14 +870,20 @@ function OrderDetail({ id }: { id: string }) {
                 </DocumentFact>
               ) : null}
               {order.parent ? (
-                <DocumentFact label="Backorder of">
+                <DocumentFact
+                  label={
+                    <>
+                      <Term id="backorder">Backorder</Term> of
+                    </>
+                  }
+                >
                   <Link className="underline" to={`/outbound/orders/${order.parent.id}`}>
                     {order.parent.number}
                   </Link>
                 </DocumentFact>
               ) : null}
               {(order.backorders ?? []).length > 0 ? (
-                <DocumentFact label="Backorder">
+                <DocumentFact label={<Term id="backorder">Backorder</Term>}>
                   <span className="flex flex-col items-end gap-1">
                     {(order.backorders ?? []).map((row) => (
                       <Link key={row.id} className="underline" to={`/outbound/orders/${row.id}`}>
@@ -926,7 +932,7 @@ function OrderDetail({ id }: { id: string }) {
               <div className="flex flex-wrap items-center gap-2 rounded-lg border border-tone-warning/30 bg-tone-warning-bg px-3 py-2 text-sm text-tone-warning">
                 <Undo2 className="size-4" />
                 <span className="flex-1">
-                  Enter how many units go <Term id="unpick">back to the bay</Term>, then confirm.
+                  Enter how many units go back to the bay, then confirm.
                 </span>
                 <Button size="sm" variant="outline" onClick={() => setUnpickMode(false)}>
                   Cancel

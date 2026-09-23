@@ -465,7 +465,11 @@ function WaveDetail({ id }: { id: string }) {
 
           <TabsContent value="orders">
             {orders.length === 0 ? (
-              <EmptyState icon={ClipboardList} title="No orders on this wave." />
+              <EmptyState
+                icon={ClipboardList}
+                title="No orders on this wave."
+                body="Orders join a wave when it is created and cannot be added later."
+              />
             ) : (
               <Table columns={["Order", "Customer", "Lines", "Picked", "Status"]}>
                 {orders.map((order) => {

@@ -5,7 +5,6 @@ import { SlidersHorizontal } from "lucide-react";
 import { api, errorText, type Item, type Location } from "../api";
 import { Button, Card, EmptyState, ErrorBanner, PageHeader } from "../components/ui";
 import { SelectField, TextField, useZodForm, type ZodFormOutput } from "../components/form-kit";
-import { Term } from "../components/term";
 import { requiredChoice, requiredText } from "@/domain/form-schemas";
 
 /**
@@ -82,11 +81,7 @@ export function AdjustmentsPage() {
       <PageHeader
         eyebrow="Floor"
         title="Adjust"
-        description={
-          <>
-            <Term id="adjustment">Signed quantity change</Term> with a reason. Negative qty cannot drive a bay below zero.
-          </>
-        }
+        description="Signed quantity change with a reason. Negative qty cannot drive a bay below zero."
       />
       <ErrorBanner error={error} />
       {ok ? <p className="text-sm text-ok">{ok}</p> : null}

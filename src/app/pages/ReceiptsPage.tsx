@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowDownToLine, Inbox, Play, Plus, ScanLine, X } from "lucide-react";
+import { ArrowDownToLine, Inbox, Play, Plus, ScanLine } from "lucide-react";
 import { toast } from "sonner";
 import { api, errorText, type Item, type Location, type Receipt } from "../api";
-import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge, Table, summarizeLines } from "../components/ui";
-import { Button as IconButton } from "@/components/ui/button";
+import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, StatusBadge, Table, summarizeLines } from "../components/ui";
 import { BayCombobox } from "../components/BayCombobox";
 import {
   DetailSkeleton,
@@ -29,8 +28,6 @@ import { hasRemaining } from "@/domain/partial-receive";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { ExpiryInput, parseExpiryInput } from "../components/expiry-field";
-
-type Line = { itemId: string; qty: string };
 
 export function ReceiptsPage() {
   const { id } = useParams();
@@ -510,65 +507,6 @@ function ReceiptDetail({ id }: { id: string }) {
           ))}
         </Table>
       </DocumentFrame>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------------------------------------
- * Line editor for create sheets (also used by Orders, ASNs, Purchases, Putaway, Returns, RTVs).
- * ---------------------------------------------------------------------------------------------- */
-
-export function LineFields({
-  items,
-  lines,
-  setLines,
-}: {
-  items: Item[];
-  lines: Line[];
-  setLines: (updater: (current: Line[]) => Line[]) => void;
-}) {
-  const update = (index: number, patch: Partial<Line>) =>
-    setLines((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-  return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-[minmax(0,1fr)_5rem_1.75rem] gap-2 text-xs text-muted-foreground">
-        <span>SKU</span>
-        <span>Qty</span>
-        <span />
-      </div>
-      {lines.map((line, index) => (
-        <div key={index} className="grid grid-cols-[minmax(0,1fr)_5rem_1.75rem] items-center gap-2">
-          <Select aria-label={`Line ${index + 1} SKU`} value={line.itemId} onChange={(e) => update(index, { itemId: e.target.value })}>
-            <option value="">Select SKU</option>
-            {items.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.sku} — {item.name}
-              </option>
-            ))}
-          </Select>
-          <Input
-            type="number"
-            min={1}
-            aria-label={`Line ${index + 1} qty`}
-            value={line.qty}
-            onChange={(e) => update(index, { qty: e.target.value })}
-          />
-          <IconButton
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={`Remove line ${index + 1}`}
-            disabled={lines.length === 1}
-            onClick={() => setLines((current) => current.filter((_, i) => i !== index))}
-          >
-            <X />
-          </IconButton>
-        </div>
-      ))}
-      <Button size="sm" variant="outline" onClick={() => setLines((current) => [...current, { itemId: "", qty: "1" }])}>
-        <Plus className="size-4" />
-        Add line
-      </Button>
     </div>
   );
 }

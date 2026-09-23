@@ -21,6 +21,9 @@ export function MapPage({ me }: { me: Me }) {
   const [params] = useSearchParams();
   const [data, setData] = useState<WarehouseMapData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The first load's failure lives apart from `error`, which view switches and scans clear.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [view, setView] = useState<MapView>(params.get("edit") ? "build" : "floor");
   const [levelFilter, setLevelFilter] = useState<"all" | number>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -30,10 +33,12 @@ export function MapPage({ me }: { me: Me }) {
   async function load() {
     const next = await api<WarehouseMapData>(`/api/map?warehouseId=${encodeURIComponent(warehouseId)}`);
     setData(next);
+    setLoadError(null);
     return next;
   }
 
   useEffect(() => {
+    setLoadError(null);
     load()
       .then((next) => {
         const wanted = params.get("location") || params.get("code");
@@ -43,8 +48,8 @@ export function MapPage({ me }: { me: Me }) {
         );
         if (match) setSelectedId(match.id);
       })
-      .catch((err: unknown) => setError(errorText(err, "Could not load the map. Try again.")));
-  }, [params, warehouseId]);
+      .catch((err: unknown) => setLoadError(errorText(err, "Could not load the map. Try again.")));
+  }, [params, warehouseId, loadAttempt]);
 
   useEffect(() => {
     const scan = scanner.lastScan;
@@ -124,6 +129,14 @@ export function MapPage({ me }: { me: Me }) {
           <ErrorBanner error={error} />
         </div>
       ) : null}
+      {loadError ? (
+        <div className="my-3 flex flex-col items-start gap-2">
+          <ErrorBanner error={loadError} />
+          <Button variant="secondary" size="sm" onClick={() => setLoadAttempt((n) => n + 1)}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
       {view !== "build" ? (
         <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
           <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Level</span>
@@ -200,7 +213,7 @@ export function MapPage({ me }: { me: Me }) {
             <NoBays owner={me.role === "owner"} onBuild={() => setView("build")} />
           )}
         </div>
-      ) : error ? null : (
+      ) : loadError ? null : (
         <p className="text-sm text-muted-foreground">Loading floor…</p>
       )}
     </div>

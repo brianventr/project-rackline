@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { formatAsBuiltPart, type AsBuiltView } from "@/domain/as-built";
 import type { AsBuiltLink } from "../api";
 import { Card } from "./ui";
@@ -8,7 +9,7 @@ export function AsBuiltList({
   rows,
   mode,
 }: {
-  title: string;
+  title: ReactNode;
   empty: string;
   rows: AsBuiltLink[] | AsBuiltView[];
   mode: "from" | "into";

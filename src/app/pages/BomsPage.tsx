@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ImagePlus, ListTree, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -231,7 +231,7 @@ function NewRecipeSheet({
   const parents = useMemo(() => all.filter((item) => item.type === "finished" || item.type === "wip"), [all]);
 
   // Keep what was typed between opens, but start each open without stale inline errors.
-  const { reset, getValues, setValue, watch } = form;
+  const { reset, getValues, setValue, watch, trigger, getFieldState } = form;
   useEffect(() => {
     if (open) reset(getValues(), { keepDefaultValues: true });
   }, [open, reset, getValues]);
@@ -240,6 +240,15 @@ function NewRecipeSheet({
   useEffect(() => {
     if (!itemId && parents[0]) setValue("itemId", parents[0].id);
   }, [parents, itemId, setValue]);
+
+  // The "cannot use the SKU it builds" message sits on a line row, so re-check the lines when the
+  // parent changes (once they have been checked), or the message stays after the parent is fixed.
+  const submitted = form.formState.isSubmitted;
+  const submittedRef = useRef(submitted);
+  submittedRef.current = submitted;
+  useEffect(() => {
+    if (submittedRef.current || getFieldState("lines").invalid) void trigger("lines");
+  }, [itemId, trigger, getFieldState]);
 
   async function create(values: ZodFormOutput<typeof recipeFormSchema>) {
     setError(null);

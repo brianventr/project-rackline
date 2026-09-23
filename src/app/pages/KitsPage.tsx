@@ -427,7 +427,7 @@ function KitDetail({ id }: { id: string }) {
           </TabsContent>
           {asBuilt.length ? (
             <TabsContent value="as-built">
-              <AsBuiltList title="As-built" empty="No component lots were recorded." rows={asBuilt} mode="from" />
+              <AsBuiltList title={<Term id="as-built">As-built</Term>} empty="No component lots were recorded." rows={asBuilt} mode="from" />
             </TabsContent>
           ) : null}
           <TabsContent value="activity">

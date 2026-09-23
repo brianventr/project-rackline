@@ -387,6 +387,10 @@ describe("explainError — no code", () => {
 
   it("409 duplicates and stale state get a fix", () => {
     expect(explainError(409, { error: "SKU or barcode already exists" }, "x").hint).toBe("Use a different SKU or barcode.");
+    expect(explainError(422, { error: "User already exists. Use another email." }, "x")).toMatchObject({
+      message: "An account with that email already exists.",
+      hint: "Sign in instead, or reset the password.",
+    });
     expect(explainError(409, { error: "A BOM already exists for this item" }, "x")).toMatchObject({
       message: "A recipe already exists for this SKU.",
       hint: "Open it from Recipes to change it.",

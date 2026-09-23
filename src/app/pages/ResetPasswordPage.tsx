@@ -7,10 +7,9 @@ import { TextField, useZodForm, type ZodFormOutput } from "../components/form-ki
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/logo";
 import { ModeToggle } from "@/components/mode-toggle";
-import { MIN_PASSWORD_LENGTH } from "@/domain/form-schemas";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/domain/form-schemas";
 
 /** Better Auth's default `maxPasswordLength` (src/lib/auth.ts keeps the defaults). */
-const MAX_PASSWORD_LENGTH = 128;
 
 /** Better Auth `resetPassword`: the new password as typed must be 8 to 128 characters. */
 const resetFormSchema = z

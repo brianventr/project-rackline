@@ -562,8 +562,9 @@ export function CarriersPage() {
               {!hub ? null : hub.enabledServices.length === 0 ? (
                 <EmptyState
                   icon={Truck}
-                  title="No services on yet."
+                  title="No services yet."
                   body="Connect a carrier to offer services at ship."
+                  action={<ActionButton action={{ label: "Enable demo carriers", icon: FlaskConical, onSelect: enableDemo }} />}
                   className="py-6"
                 />
               ) : (

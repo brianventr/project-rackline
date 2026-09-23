@@ -25,6 +25,8 @@ export const FORM_ROLES = ["owner", "operator"] as const;
 
 /** Server minimum for a starter password (`parseTeamInvite`). */
 export const MIN_PASSWORD_LENGTH = 8;
+/** Better Auth's default maximum password length. */
+export const MAX_PASSWORD_LENGTH = 128;
 
 /** What an input can hold for a number: the string it gives back, or a number set in code. */
 const numberInput = z.union([z.string(), z.number()]);

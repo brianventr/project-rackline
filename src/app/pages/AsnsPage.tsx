@@ -704,8 +704,9 @@ function AsnDetail({ id }: { id: string }) {
 
 /**
  * The pasted carton list. Blank text, broken JSON, and anything that is not a list of cartons are
- * caught here; the server still checks each carton's lines. An empty list is refused the way the
- * server refuses it ("At least one carton line is required").
+ * caught here, as before; the server still checks each carton's lines. An empty list is sent as is:
+ * the server turns `[]` into one carton holding every remaining line (it only refuses when nothing
+ * is left to carton).
  */
 const pasteCartonsSchema = z.object({
   paste: z.string().transform((value, ctx): unknown[] => {
@@ -727,10 +728,6 @@ const pasteCartonsSchema = z.object({
         : null;
     if (!Array.isArray(cartons)) {
       ctx.addIssue({ code: "custom", message: "Paste a list of cartons: [ { … }, { … } ].", input: value });
-      return z.NEVER;
-    }
-    if (cartons.length === 0) {
-      ctx.addIssue({ code: "custom", message: "Paste at least one carton.", input: value });
       return z.NEVER;
     }
     return cartons;

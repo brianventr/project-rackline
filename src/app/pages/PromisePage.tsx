@@ -260,7 +260,8 @@ export function PromisePage() {
               control={askForm.control}
               name="qty"
               render={({ field }) => (
-                <FormItem className="w-24 text-sm">
+                // minmax(0,1fr) pins the track to w-24 so a long message overflows under Ask instead of widening the input.
+                <FormItem className="w-24 grid-cols-[minmax(0,1fr)] text-sm">
                   <FormLabel>Qty</FormLabel>
                   <FormControl>
                     <Input {...field} inputMode="numeric" />
