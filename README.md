@@ -177,6 +177,8 @@ On the sign-in screen, either:
 
 Local D1 does not need a Cloudflare account. The deployed Worker is `rackline` on `https://rackline.brian-72c.workers.dev`, with D1 database `rackline` (`8c92d366-90f5-4743-bc2f-7888ab3c1405`) and R2 bucket `rackline-media`. `BETTER_AUTH_SECRET` is a Wrangler secret, not a committed var.
 
+Merging to `main` deploys on its own: the **Deploy** GitHub Actions workflow (`.github/workflows/deploy.yml`) typechecks, tests, and builds, then applies pending D1 migrations with `--remote` and runs `npm run deploy`. Pull requests get the checks only. The workflow needs two repository secrets, `CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit and D1: Edit) and `CLOUDFLARE_ACCOUNT_ID`. To redeploy `main` without a merge, run the workflow from the Actions tab. To deploy by hand instead:
+
 ```bash
 npx wrangler d1 migrations apply rackline --remote
 npx wrangler secret put BETTER_AUTH_SECRET
