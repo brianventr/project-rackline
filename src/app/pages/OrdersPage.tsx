@@ -49,6 +49,8 @@ import {
 import { DataTable, type BulkAction, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, LineChips, Muted, ProgressCell, RelativeTime, SkuCell, ProgressRow } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { LinesField, TextField, TextareaField, useZodForm } from "../components/form-kit";
+import { blankLine, orderFormSchema, type OrderFormValues } from "@/domain/form-schemas";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -71,12 +73,8 @@ import { hasUnpacked } from "@/domain/partial-pack";
 import { canShipLabeledCarton, canUncartonOrderPackage } from "@/domain/cartons";
 import { planShortShip } from "@/domain/short-ship";
 import { useWarehouse, inWarehouse } from "../warehouse";
-import { LineFields } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { PickMap } from "../components/PickMap";
-import { Textarea } from "@/components/ui/textarea";
-
-type Line = { itemId: string; qty: string };
 
 export function OrdersPage() {
   const { id } = useParams();
@@ -351,22 +349,28 @@ function NewOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
-  const [customerName, setCustomerName] = useState("");
-  const [shipToAddress, setShipToAddress] = useState("");
-  const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
+  const form = useZodForm(orderFormSchema, { customerName: "", shipToAddress: "", lines: [blankLine()] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function create() {
+  // Keep what was typed between opens, but start each open without stale inline errors
+  // (closing the sheet blurs the focused field, which would otherwise flag it).
+  const { reset, getValues } = form;
+  useEffect(() => {
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  async function create(values: OrderFormValues) {
     setError(null);
     setBusy(true);
     try {
+      // Same body as before inline validation: blank rows are already dropped and qty is a number.
       const created = await apiMutate<Order>("/api/orders", {
         body: JSON.stringify({
           warehouseId,
-          customerName,
-          shipToAddress: shipToAddress || undefined,
-          lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
+          customerName: values.customerName,
+          shipToAddress: values.shipToAddress || undefined,
+          lines: values.lines.map((line) => ({ itemId: line.itemId, qty: line.qty })),
         }),
       });
       toast.success(`Order ${created.number} created.`);
@@ -386,25 +390,19 @@ function NewOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o
       title="New floor order"
       description="For phone, email, or will-call orders. Shopify checkouts arrive on their own."
       submitLabel="Create order"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <Field label="Customer">
-        <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required autoFocus />
-      </Field>
-      <Field label="Ship to">
-        <Textarea
-          value={shipToAddress}
-          onChange={(e) => setShipToAddress(e.target.value)}
-          placeholder={"14 Dock Street\nPortland, OR 97201"}
-          rows={3}
-        />
-      </Field>
-      <div className="space-y-1.5">
-        <p className="text-sm font-medium">Lines</p>
-        <LineFields items={items.data ?? []} lines={lines} setLines={setLines} />
-      </div>
+      <TextField form={form} name="customerName" label="Customer" autoFocus />
+      <TextareaField
+        form={form}
+        name="shipToAddress"
+        label="Ship to"
+        placeholder={"14 Dock Street\nPortland, OR 97201"}
+        rows={3}
+      />
+      <LinesField form={form} name="lines" items={items.data ?? []} />
     </FormSheet>
   );
 }
