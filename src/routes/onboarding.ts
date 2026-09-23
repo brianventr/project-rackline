@@ -120,6 +120,22 @@ onboardingRoute.get("/onboarding", async (c) => {
 
 const SAMPLE_EXISTS = "Sample data only loads into an empty workspace, and this one already has SKUs or bays.";
 
+/** True once the org has any SKU or any bay: sample data only loads into an empty catalog. */
+async function catalogStarted(db: AppDb, organizationId: string): Promise<boolean> {
+  const [itemCount, locationCount] = await Promise.all([
+    countRows(
+      db.select({ n: sql<number>`count(*)` }).from(schema.items).where(eq(schema.items.organizationId, organizationId)),
+    ),
+    countRows(
+      db
+        .select({ n: sql<number>`count(*)` })
+        .from(schema.locations)
+        .where(eq(schema.locations.organizationId, organizationId)),
+    ),
+  ]);
+  return itemCount > 0 || locationCount > 0;
+}
+
 /**
  * `POST /api/onboarding/sample` `{ warehouseId }`: owner only. Writes the sample catalog with the same
  * row shapes as `POST /locations`, `POST /items`, and `POST /boms` (plus recipe steps as the seed writes them).
@@ -132,18 +148,7 @@ onboardingRoute.post("/onboarding/sample", async (c) => {
   const organizationId = c.get("organizationId")!;
   const warehouse = await getOrgWarehouse(db, organizationId, warehouseId);
 
-  const [itemCount, locationCount] = await Promise.all([
-    countRows(
-      db.select({ n: sql<number>`count(*)` }).from(schema.items).where(eq(schema.items.organizationId, organizationId)),
-    ),
-    countRows(
-      db
-        .select({ n: sql<number>`count(*)` })
-        .from(schema.locations)
-        .where(eq(schema.locations.organizationId, organizationId)),
-    ),
-  ]);
-  if (itemCount > 0 || locationCount > 0) conflict(SAMPLE_EXISTS, "SAMPLE_EXISTS");
+  if (await catalogStarted(db, organizationId)) conflict(SAMPLE_EXISTS, "SAMPLE_EXISTS");
 
   const catalog = buildSampleCatalog();
   const now = Date.now();
@@ -224,9 +229,13 @@ onboardingRoute.post("/onboarding/sample", async (c) => {
   ];
   try {
     await db.batch(writes as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
-  } catch {
-    // Two tabs loading at once: the batch is atomic, so the loser writes nothing and hits a unique index.
-    conflict(SAMPLE_EXISTS, "SAMPLE_EXISTS");
+  } catch (err) {
+    // Two tabs loading at once: the batch is atomic, so the loser writes nothing and hits a unique
+    // index, and by now the winner's rows are there. Any other failure (a timeout, an overloaded
+    // database) leaves the workspace empty, so it must not be reported as "already has data".
+    if (await catalogStarted(db, organizationId).catch(() => false)) conflict(SAMPLE_EXISTS, "SAMPLE_EXISTS");
+    console.error("sample data load failed", err);
+    throw err;
   }
 
   return c.json(

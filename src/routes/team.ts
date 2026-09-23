@@ -20,6 +20,7 @@ import {
   TeamInviteError,
 } from "../domain/auth-mail";
 import { latestActivity, SIGNUP_SESSION_WINDOW_MS, teamMemberStatus } from "../domain/team-status";
+import { SIGN_IN_CODE } from "../domain/audit";
 
 export const teamRoute = new Hono<AppEnv>();
 
@@ -45,9 +46,10 @@ const RECENT_WRITES_WINDOW = 2_000;
 teamRoute.get("/team", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  // Sign-out deletes the session row, so sessions alone forget anyone who signed out. Two
-  // records that outlive it also count: stock moves this person made here (indexed, all time)
-  // and their audited writes among the org's newest RECENT_WRITES_WINDOW.
+  // Sign-out deletes the session row, so sessions alone forget anyone who signed out. Records that
+  // outlive it also count: their audited sign-ins (`recordSignIn`; indexed by code, all time), stock
+  // moves they made here (indexed, all time) and their audited writes among the org's newest
+  // RECENT_WRITES_WINDOW.
   const recentWrites = db
     .select({ actorUserId: schema.auditEvents.actorUserId, createdAt: schema.auditEvents.createdAt })
     .from(schema.auditEvents)
@@ -56,7 +58,8 @@ teamRoute.get("/team", async (c) => {
     .limit(RECENT_WRITES_WINDOW)
     .as("recent_writes");
   const movements = schema.inventoryMovements;
-  const [rows, writes] = await Promise.all([
+  const audit = schema.auditEvents;
+  const [rows, writes, signIns] = await Promise.all([
     // One grouped read: each member with their latest real session and latest stock move.
     db
       .select({
@@ -78,12 +81,24 @@ teamRoute.get("/team", async (c) => {
       .select({ userId: recentWrites.actorUserId, at: sql<number | null>`max(${recentWrites.createdAt})` })
       .from(recentWrites)
       .groupBy(recentWrites.actorUserId),
+    db
+      .select({ userId: audit.actorUserId, at: sql<number | null>`max(${audit.createdAt})` })
+      .from(audit)
+      .where(and(eq(audit.organizationId, organizationId), eq(audit.code, SIGN_IN_CODE)))
+      .groupBy(audit.actorUserId),
   ]);
   const wroteAt = new Map<string, number | null>();
   for (const row of writes) if (row.userId) wroteAt.set(row.userId, row.at);
+  const signedInAt = new Map<string, number | null>();
+  for (const row of signIns) if (row.userId) signedInAt.set(row.userId, row.at);
   return c.json(
     rows.map((row) => {
-      const lastActiveAt = latestActivity([row.sessionAt, row.movedAt, wroteAt.get(row.userId)]);
+      const lastActiveAt = latestActivity([
+        row.sessionAt,
+        row.movedAt,
+        wroteAt.get(row.userId),
+        signedInAt.get(row.userId),
+      ]);
       return {
         id: row.id,
         role: row.role,

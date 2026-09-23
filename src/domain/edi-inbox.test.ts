@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { EDI_INBOX_LINES, REFUSED_PAYLOAD_MAX, refusedPayloadJson, summarizeEdiPayload } from "./edi-inbox";
+import {
+  clipInboxText,
+  EDI_INBOX_LINES,
+  EDI_INBOX_TEXT_MAX,
+  REFUSED_PAYLOAD_MAX,
+  refusedPayloadJson,
+  summarizeEdiPayload,
+} from "./edi-inbox";
 
 const EMPTY = { vendorName: null, reference: null, lineCount: 0, lines: [] };
 
@@ -32,6 +39,20 @@ describe("summarizeEdiPayload", () => {
     expect(summarizeEdiPayload("")).toEqual(EMPTY);
     expect(summarizeEdiPayload("not json {")).toEqual(EMPTY);
     expect(summarizeEdiPayload("null")).toEqual(EMPTY);
+  });
+
+  it("clips a huge vendor name, reference or SKU a refused body was kept with", () => {
+    // Refused bodies are stored as sent (up to REFUSED_PAYLOAD_MAX), so one field can be ~32k long.
+    const stored = refusedPayloadJson({
+      vendorName: "y".repeat(31_000),
+      reference: "r".repeat(500),
+      lines: [{ sku: "s".repeat(400), qty: 1 }],
+    });
+    const summary = summarizeEdiPayload(stored);
+    expect(summary.vendorName).toBe(`${"y".repeat(EDI_INBOX_TEXT_MAX - 1)}…`);
+    expect(summary.reference).toBe(`${"r".repeat(EDI_INBOX_TEXT_MAX - 1)}…`);
+    expect(summary.lines).toEqual([{ sku: `${"S".repeat(EDI_INBOX_TEXT_MAX - 1)}…`, qty: 1 }]);
+    expect(JSON.stringify(summary).length).toBeLessThan(1_000);
   });
 
   it("returns an empty summary when the body is not an object", () => {
@@ -150,6 +171,23 @@ describe("summarizeEdiPayload", () => {
   });
 });
 
+describe("clipInboxText", () => {
+  it("keeps short text trimmed and drops blanks and non-strings", () => {
+    expect(clipInboxText("  Harbor  ")).toBe("Harbor");
+    expect(clipInboxText("x".repeat(EDI_INBOX_TEXT_MAX))).toBe("x".repeat(EDI_INBOX_TEXT_MAX));
+    expect(clipInboxText("   ")).toBeNull();
+    expect(clipInboxText(7)).toBeNull();
+    expect(clipInboxText(null)).toBeNull();
+  });
+
+  it("cuts long text to the limit with an ellipsis", () => {
+    const clipped = clipInboxText("y".repeat(31_000));
+    expect(clipped).toHaveLength(EDI_INBOX_TEXT_MAX);
+    expect(clipped?.endsWith("…")).toBe(true);
+    expect(clipInboxText(`${"a".repeat(EDI_INBOX_TEXT_MAX - 2)}   tail`)).toBe(`${"a".repeat(EDI_INBOX_TEXT_MAX - 2)}…`);
+  });
+});
+
 describe("refusedPayloadJson", () => {
   it("keeps a body that fits as sent", () => {
     const raw = { vendorName: "Harbor", lines: [{ sku: "NOPE", qty: 1 }], extra: { note: "hi" } };
@@ -173,8 +211,9 @@ describe("refusedPayloadJson", () => {
     const stored = refusedPayloadJson(raw);
     expect(JSON.stringify(raw).length).toBeGreaterThan(REFUSED_PAYLOAD_MAX);
     expect(stored.length).toBeLessThan(REFUSED_PAYLOAD_MAX);
-    expect(JSON.parse(stored)).toEqual({ truncated: true, vendorName: "Harbor", reference: null, lineCount: 2000 });
-    expect(summarizeEdiPayload(stored)).toEqual({ vendorName: "Harbor", reference: null, lineCount: 2000, lines: [] });
+    const reference = `${"R".repeat(EDI_INBOX_TEXT_MAX - 1)}…`;
+    expect(JSON.parse(stored)).toEqual({ truncated: true, vendorName: "Harbor", reference, lineCount: 2000 });
+    expect(summarizeEdiPayload(stored)).toEqual({ vendorName: "Harbor", reference, lineCount: 2000, lines: [] });
   });
 
   it("counts no lines on a too-big body that is not an ASN shape", () => {

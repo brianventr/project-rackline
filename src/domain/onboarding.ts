@@ -159,7 +159,9 @@ export function onboardingCountLabel(id: OnboardingStepId, count: number): strin
     case "bays":
       return n ? plural(n, "bay", "bays") : null;
     case "stock":
-      return n ? "Stock on the shelf" : null;
+      // The count is either bays holding stock or, once it has all shipped, real receipts, so the
+      // note has to be true for both.
+      return n ? "Stock received" : null;
     case "shipped":
       return n ? `${plural(n, "order", "orders")} shipped` : null;
     case "shopify":

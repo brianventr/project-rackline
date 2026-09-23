@@ -169,7 +169,9 @@ describe("onboardingCountLabel", () => {
     expect(onboardingCountLabel("sku", 1)).toBe("1 SKU");
     expect(onboardingCountLabel("sku", 4)).toBe("4 SKUs");
     expect(onboardingCountLabel("bays", 5)).toBe("5 bays");
-    expect(onboardingCountLabel("stock", 7)).toBe("Stock on the shelf");
+    expect(onboardingCountLabel("stock", 7)).toBe("Stock received");
+    // Received and since shipped: nothing on a shelf, so the note must not claim there is.
+    expect(onboardingCountLabel("stock", stockSignal(0, 1))).toBe("Stock received");
     expect(onboardingCountLabel("shipped", 1)).toBe("1 order shipped");
     expect(onboardingCountLabel("shipped", 3)).toBe("3 orders shipped");
     expect(onboardingCountLabel("shopify", 1)).toBe("Connected");

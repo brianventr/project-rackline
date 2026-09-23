@@ -9,6 +9,19 @@ export const EDI_INBOX_LINES = 50;
 /** A refused body is kept as sent up to this many characters, then only its headline fields. */
 export const REFUSED_PAYLOAD_MAX = 32_000;
 
+/**
+ * Longest vendor name, reference or SKU the inbox echoes. A refused body is stored as sent, so these
+ * can be as long as the whole body; the inbox cuts them here with an ellipsis.
+ */
+export const EDI_INBOX_TEXT_MAX = 200;
+
+/**
+ * Refused rows kept per org. Older ones are dropped as new ones land, so a supplier retrying a bad
+ * ASN cannot grow the table without bound or push processed ASNs out of the inbox (which reads
+ * the newest 200 rows).
+ */
+export const FAILED_INBOX_KEEP = 100;
+
 export type EdiInboxLine = { sku: string; qty: number };
 
 export type EdiInboxPayloadSummary = {
@@ -30,6 +43,13 @@ export type TruncatedEdiPayload = {
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** Trimmed text cut to `EDI_INBOX_TEXT_MAX` characters (the last one an ellipsis), or null when blank or not a string. */
+export function clipInboxText(value: unknown): string | null {
+  const kept = text(value);
+  if (!kept || kept.length <= EDI_INBOX_TEXT_MAX) return kept;
+  return `${kept.slice(0, EDI_INBOX_TEXT_MAX - 1).trimEnd()}…`;
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -58,7 +78,7 @@ export function summarizeEdiPayload(payloadJson: string | null | undefined): Edi
   for (const line of rawLines) {
     if (lines.length >= EDI_INBOX_LINES) break;
     const entry = asObject(line);
-    const sku = entry ? text(entry.sku) : null;
+    const sku = entry ? clipInboxText(entry.sku) : null;
     if (!entry || !sku) continue;
     lines.push({ sku: sku.toUpperCase(), qty: lineQty(entry.qty) });
   }
@@ -69,8 +89,8 @@ export function summarizeEdiPayload(payloadJson: string | null | undefined): Edi
       ? row.lineCount
       : null;
   return {
-    vendorName: text(row.vendorName),
-    reference: text(row.reference),
+    vendorName: clipInboxText(row.vendorName),
+    reference: clipInboxText(row.reference),
     lineCount: storedCount ?? rawLines.length,
     lines,
   };
@@ -86,14 +106,10 @@ export function refusedPayloadJson(raw: unknown): string {
   }
   if (full.length <= REFUSED_PAYLOAD_MAX) return full;
   const row = asObject(raw) ?? {};
-  const short = (value: unknown) => {
-    const kept = text(value);
-    return kept && kept.length <= 200 ? kept : null;
-  };
   const stub: TruncatedEdiPayload = {
     truncated: true,
-    vendorName: short(row.vendorName),
-    reference: short(row.reference),
+    vendorName: clipInboxText(row.vendorName),
+    reference: clipInboxText(row.reference),
     lineCount: Array.isArray(row.lines) ? row.lines.length : 0,
   };
   return JSON.stringify(stub);

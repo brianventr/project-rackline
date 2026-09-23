@@ -71,6 +71,13 @@ describe("latestActivity", () => {
     expect(teamMemberStatus(latestActivity([null, USER_CREATED + 5_000, undefined]))).toBe("active");
   });
 
+  it("keeps someone who signed in, only looked around, and signed out", () => {
+    // Session, stock move and write are all gone or never happened; only the audited sign-in is left.
+    const signedIn = USER_CREATED + 60_000;
+    expect(latestActivity([null, null, undefined, signedIn])).toBe(signedIn);
+    expect(teamMemberStatus(latestActivity([null, null, undefined, signedIn]))).toBe("active");
+  });
+
   it("takes the latest of session, stock move and audited write", () => {
     expect(latestActivity([USER_CREATED + 3, USER_CREATED + 1, USER_CREATED + 2])).toBe(USER_CREATED + 3);
     expect(latestActivity([USER_CREATED + 1, USER_CREATED + 3, USER_CREATED + 2])).toBe(USER_CREATED + 3);

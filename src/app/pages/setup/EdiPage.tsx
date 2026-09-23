@@ -105,13 +105,27 @@ const INBOX_COLUMNS: DataColumn<EdiInboxRow>[] = [
     id: "vendor",
     header: "Vendor",
     sortValue: (row) => row.vendorName,
-    cell: (row) => (row.vendorName ? <span className="font-medium">{row.vendorName}</span> : <Muted>Not given</Muted>),
+    cell: (row) =>
+      row.vendorName ? (
+        <span className="block max-w-[16rem] truncate font-medium" title={row.vendorName}>
+          {row.vendorName}
+        </span>
+      ) : (
+        <Muted>Not given</Muted>
+      ),
   },
   {
     id: "reference",
     header: "Reference",
     sortValue: (row) => row.reference,
-    cell: (row) => (row.reference ? <span className="font-mono text-[13px]">{row.reference}</span> : <Muted>—</Muted>),
+    cell: (row) =>
+      row.reference ? (
+        <span className="block max-w-[12rem] truncate font-mono text-[13px]" title={row.reference}>
+          {row.reference}
+        </span>
+      ) : (
+        <Muted>—</Muted>
+      ),
   },
   {
     id: "lines",

@@ -33,8 +33,8 @@ export function lastActiveAt(sessions: readonly SessionTrace[], userCreatedAt: n
 /**
  * The latest real time among a person's activity signals, or null when there is none. Sessions
  * alone are not enough: better-auth deletes the session row on sign-out, so `GET /api/team` also
- * passes times that outlive it (stock moves, audited writes). Values may arrive as SQL numbers or
- * numeric strings; blanks, zero, negatives and non-numbers are ignored.
+ * passes times that outlive it (audited sign-ins, stock moves, audited writes). Values may arrive
+ * as SQL numbers or numeric strings; blanks, zero, negatives and non-numbers are ignored.
  */
 export function latestActivity(times: readonly unknown[]): number | null {
   let latest: number | null = null;
@@ -48,8 +48,8 @@ export function latestActivity(times: readonly unknown[]): number | null {
 
 /**
  * Invited until Rackline has any record of this person using it: a session they opened that is
- * still stored, or activity that outlives one. Someone who only looked around and then signed
- * out leaves no record, so the UI words this as "no activity on record", not "never signed in".
+ * still stored, or a record that outlives one. Every sign-in is audited (`recordSignIn`), so
+ * someone who only looked around and then signed out still reads as active.
  */
 export function teamMemberStatus(lastActive: number | null | undefined): TeamMemberStatus {
   return typeof lastActive === "number" && Number.isFinite(lastActive) && lastActive > 0 ? "active" : "invited";

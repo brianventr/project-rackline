@@ -1,12 +1,12 @@
 import { Hono } from "hono";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, notInArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppDb } from "../db/stock";
 import type { AppEnv } from "../lib/types";
 import { badRequest, HttpError } from "../lib/http";
 import { docNumber, newId } from "../lib/ids";
 import { EdiParseError, parseEdiAsnBody } from "../domain/edi";
-import { refusedPayloadJson, summarizeEdiPayload } from "../domain/edi-inbox";
+import { clipInboxText, FAILED_INBOX_KEEP, refusedPayloadJson, summarizeEdiPayload } from "../domain/edi-inbox";
 import { getOrgItem, getOrgWarehouse, requireOwner } from "../lib/org";
 
 export const ediRoute = new Hono<AppEnv>();
@@ -14,18 +14,63 @@ export const ediRoute = new Hono<AppEnv>();
 /** Newest first, capped so a chatty supplier cannot make the page slow. */
 const INBOX_LIMIT = 200;
 
+/**
+ * Keep a refused ASN in the inbox. A supplier retrying the same bad body gets one row, moved to the
+ * top with the latest attempt's time, not one row per retry; and only the newest
+ * `FAILED_INBOX_KEEP` refused rows are kept, so they cannot crowd processed ASNs out of the inbox.
+ */
 async function recordFailedAsn(db: AppDb, organizationId: string, raw: unknown, error: string) {
+  const inbox = schema.ediInbox;
+  const payloadJson = refusedPayloadJson(raw);
+  const reason = error.slice(0, 500);
+  const now = Date.now();
   try {
-    await db.insert(schema.ediInbox).values({
-      id: newId(),
-      organizationId,
-      kind: "asn",
-      payloadJson: refusedPayloadJson(raw),
-      status: "failed",
-      createdAsnId: null,
-      createdAt: Date.now(),
-      error: error.slice(0, 500),
-    });
+    const [repeat] = await db
+      .select({ id: inbox.id })
+      .from(inbox)
+      .where(
+        and(
+          eq(inbox.organizationId, organizationId),
+          eq(inbox.status, "failed"),
+          eq(inbox.error, reason),
+          eq(inbox.payloadJson, payloadJson),
+        ),
+      )
+      .orderBy(desc(inbox.createdAt), desc(inbox.id))
+      .limit(1);
+    if (repeat) {
+      await db.update(inbox).set({ createdAt: now }).where(eq(inbox.id, repeat.id));
+      return;
+    }
+    const failedHere = and(eq(inbox.organizationId, organizationId), eq(inbox.status, "failed"));
+    await db.batch([
+      db.insert(inbox).values({
+        id: newId(),
+        organizationId,
+        kind: "asn",
+        payloadJson,
+        status: "failed",
+        createdAsnId: null,
+        createdAt: now,
+        error: reason,
+      }),
+      db
+        .delete(inbox)
+        .where(
+          and(
+            failedHere,
+            notInArray(
+              inbox.id,
+              db
+                .select({ id: inbox.id })
+                .from(inbox)
+                .where(failedHere)
+                .orderBy(desc(inbox.createdAt), desc(inbox.id))
+                .limit(FAILED_INBOX_KEEP),
+            ),
+          ),
+        ),
+    ]);
   } catch (err) {
     console.error("edi inbox write failed", err);
   }
@@ -66,7 +111,7 @@ ediRoute.get("/edi/inbox", async (c) => {
         error: row.error,
         createdAsnId: row.createdAsnId,
         createdAsnNumber: row.asnNumber ?? null,
-        vendorName: payload.vendorName ?? row.asnVendorName ?? null,
+        vendorName: payload.vendorName ?? clipInboxText(row.asnVendorName),
         reference: payload.reference,
         lineCount: payload.lineCount,
         lines: payload.lines,
