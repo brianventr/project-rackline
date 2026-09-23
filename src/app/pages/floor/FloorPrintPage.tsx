@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Printer } from "lucide-react";
 import { api, errorText, type Location, type Order, type ScanHit, type Wave } from "../../api";
 import { BarcodeLabel } from "../../components/BarcodeLabel";
-import { Button, Card, EmptyState, StatusBadge } from "../../components/ui";
+import { Button, Card, EmptyState, ErrorBanner, StatusBadge } from "../../components/ui";
 import { FloorFrame, FloorScanBox, type ScanReport } from "./floor-ui";
 import {
   isHtmlPrintKind,
@@ -269,6 +269,7 @@ function WaitingJobs() {
   const [waves, setWaves] = useState<Wave[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -282,7 +283,7 @@ function WaitingJobs() {
         setLocations(nextLocations);
         setLoaded(true);
       })
-      .catch(() => {});
+      .catch((err) => setLoadError(errorText(err, "Could not load what is waiting to print.")));
   }, []);
 
   const lists = [...pickListJobs(orders), ...wavePickListJobs(waves)];
@@ -292,7 +293,11 @@ function WaitingJobs() {
 
   return (
     <div className="grid gap-3 sm:grid-cols-2 print:hidden">
-      {!loaded ? null : nothingWaiting ? (
+      {loadError ? (
+        <div className="sm:col-span-2">
+          <ErrorBanner error={loadError} />
+        </div>
+      ) : !loaded ? null : nothingWaiting ? (
         <EmptyState
           className="sm:col-span-2"
           icon={Printer}
@@ -310,7 +315,7 @@ function WaitingJobs() {
         <p className="mb-1 font-medium">Sheets</p>
         <div className="flex flex-wrap gap-x-4 text-sm">
           <Link className={listLink} to="/stock/locations?labels=1">
-            All bay labels ({locations.length})
+            All bay labels{loaded ? ` (${locations.length})` : ""}
           </Link>
           <Link className={listLink} to="/stock/items?labels=1">
             All SKU labels

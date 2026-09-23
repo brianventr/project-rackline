@@ -23,6 +23,8 @@ import {
 
 const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
+/** BayCombobox takes no className, so size its input to 44px from here. */
+const bayPicker = "[&_[role=combobox]]:h-11 [&_[role=combobox]]:text-base";
 
 export function FloorReturnPage() {
   const me = useSession();
@@ -244,10 +246,14 @@ export function FloorReturnPage() {
                 )}
                 </div>
                 {line.remaining > 0 ? (
-                  <DispositionSelect
-                    value={dispositions[line.itemId] ?? "restock"}
-                    onChange={(value) => setDispositions((current) => ({ ...current, [line.itemId]: value }))}
-                  />
+                  // DispositionSelect takes no className or label, so the wrapping label names and sizes it.
+                  <label className="block [&_select]:h-11 [&_select]:text-base">
+                    <span className="sr-only">{line.sku} disposition</span>
+                    <DispositionSelect
+                      value={dispositions[line.itemId] ?? "restock"}
+                      onChange={(value) => setDispositions((current) => ({ ...current, [line.itemId]: value }))}
+                    />
+                  </label>
                 ) : null}
                 {line.trackSerial ? (
                   <Input
@@ -273,15 +279,17 @@ export function FloorReturnPage() {
               </li>
             ))}
           </ul>
-          <Field label="Receive into">
-            <BayCombobox
-              locations={locations}
-              warehouseId={active.warehouseId || warehouseId}
-              value={locationId}
-              onChange={setLocationId}
-              onCreated={(location) => setLocations((current) => [...current, location])}
-            />
-          </Field>
+          <div className={bayPicker}>
+            <Field label="Receive into">
+              <BayCombobox
+                locations={locations}
+                warehouseId={active.warehouseId || warehouseId}
+                value={locationId}
+                onChange={setLocationId}
+                onCreated={(location) => setLocations((current) => [...current, location])}
+              />
+            </Field>
+          </div>
           {canReceiveReturn(active.status) && remaining ? (
             <Button className="h-14 w-full text-lg sm:w-auto" onClick={() => void receive()}>
               Post return

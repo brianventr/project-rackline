@@ -317,13 +317,15 @@ export function MovePage() {
             <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">2. To</p>
             <SlotCard slot={to} />
           </Card>
-          <Card data-scan-capture="true">
+          <Card>
             <p className="mb-2 font-semibold" id="move-scan-prompt">
               {prompt}
             </p>
             <div className="flex gap-2">
+              {/* data-scan-capture: a gun's Enter lands here once, and the tab bar's Scan finds this field. */}
               <input
                 ref={inputRef}
+                data-scan-capture
                 aria-labelledby="move-scan-prompt"
                 value={step === "from" ? from.barcode : to.barcode}
                 onChange={(event) => {

@@ -11,9 +11,13 @@ import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
 import { canReceiveAsn, isOpenAsn } from "@/domain/status";
 import { useWarehouse } from "../../warehouse";
 import { hasRemaining } from "@/domain/partial-receive";
+import { useSession } from "../../session";
+import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 
 const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
+/** BayCombobox takes no className, so size its input to 44px from here. */
+const bayPicker = "[&_[role=combobox]]:h-11 [&_[role=combobox]]:text-base";
 
 function matchAsn(asns: Asn[], raw: string): Asn | undefined {
   const needle = raw.trim().toUpperCase().replace(/^ASN[:\-]/, "");
@@ -27,9 +31,16 @@ function matchAsn(asns: Asn[], raw: string): Asn | undefined {
 }
 
 export function FloorAsnPage() {
+  const me = useSession();
+  const garage = isGarageMode(me.organization.operatingMode);
+  // Same test the floor launcher uses to show the Receive tile.
+  const canReceivePo =
+    (me.role === "owner" || (me.floorVerbs ?? []).includes("receive")) &&
+    (!garage || garageAllowsPath("/floor/receive"));
   const { warehouseId } = useWarehouse();
   const [params] = useSearchParams();
   const [asns, setAsns] = useState<Asn[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
   const [active, setActive] = useState<Asn | null>(null);
   const [locationId, setLocationId] = useState("");
@@ -86,6 +97,7 @@ export function FloorAsnPage() {
           (row.packages ?? []).some((pkg) => pkg.receivedAt && !pkg.putawayAt),
       ),
     );
+    setLoaded(true);
     setLocations(nextLocations);
     const dock = nextLocations.find((row) => row.type === "receiving") ?? nextLocations[0];
     if (dock) setLocationId(dock.id);
@@ -244,7 +256,7 @@ export function FloorAsnPage() {
       {!active ? (
         <Card className="space-y-4">
           <p className="font-medium">Open ASNs</p>
-          {asns.length === 0 ? (
+          {!loaded ? null : asns.length === 0 ? (
             <EmptyState
               icon={Package}
               title="No open ASNs."
@@ -254,9 +266,11 @@ export function FloorAsnPage() {
                 </>
               }
               action={
-                <Button variant="secondary" className="h-11" asChild>
-                  <Link to="/floor/receive">Receive a PO instead</Link>
-                </Button>
+                canReceivePo ? (
+                  <Button variant="secondary" className="h-11" asChild>
+                    <Link to="/floor/receive">Receive a PO instead</Link>
+                  </Button>
+                ) : undefined
               }
             />
           ) : (
@@ -340,9 +354,12 @@ export function FloorAsnPage() {
           </ul>
           {(active.packages ?? []).length > 0 ? (
             <div className="space-y-2">
-              <p className="text-sm font-medium">
-                <Term id="sscc">Vendor cartons</Term>
-              </p>
+              <div>
+                <p className="text-sm font-medium">Vendor cartons</p>
+                <p className="text-sm text-muted-foreground">
+                  Tap a <Term id="sscc">vendor carton</Term> or scan its BOX- or SSCC barcode.
+                </p>
+              </div>
               <ul className="space-y-2 text-sm">
                 {(active.packages ?? []).map((pkg) => (
                   <li key={pkg.id}>
@@ -369,15 +386,17 @@ export function FloorAsnPage() {
               </ul>
             </div>
           ) : null}
-          <Field label="Receive into">
-            <BayCombobox
-              locations={locations}
-              warehouseId={active.warehouseId || warehouseId}
-              value={locationId}
-              onChange={setLocationId}
-              onCreated={(location) => setLocations((current) => [...current, location])}
-            />
-          </Field>
+          <div className={bayPicker}>
+            <Field label="Receive into">
+              <BayCombobox
+                locations={locations}
+                warehouseId={active.warehouseId || warehouseId}
+                value={locationId}
+                onChange={setLocationId}
+                onCreated={(location) => setLocations((current) => [...current, location])}
+              />
+            </Field>
+          </div>
           {canReceiveAsn(active.status) &&
           hasRemaining(
             (active.lines ?? []).map((line) => ({

@@ -1,8 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { api, type ScanHit } from "../../api";
+import { Search } from "lucide-react";
+import { api, errorText, type ScanHit } from "../../api";
 import { documentPath } from "@/domain/barcodes";
-import { Button, Card, StatusBadge } from "../../components/ui";
+import { Button, Card, EmptyState, StatusBadge } from "../../components/ui";
+import { Term } from "../../components/term";
 import { FloorFrame, FloorScanBox, type ScanReport } from "./floor-ui";
 import { AsBuiltList } from "../../components/as-built";
 import { SkuThumb } from "../../components/sku-thumb";
@@ -18,9 +20,9 @@ export function FloorLookupPage() {
         setHit(next);
         report?.(true);
       })
-      .catch((err: Error) => {
+      .catch((err) => {
         setHit(null);
-        setError(err.message);
+        setError(errorText(err, "That barcode did not scan. Try again."));
         report?.(false);
       });
   }, []);
@@ -28,8 +30,70 @@ export function FloorLookupPage() {
   return (
     <FloorFrame title="Lookup" description="Scan a SKU, bay, document, serial, lot, or EQ: truck." error={error}>
       <FloorScanBox label="Scan" placeholder="Bay, SKU, LAMP-1001, LOT-2026-A" onScan={onScan} />
-      {hit ? <LookupResult hit={hit} /> : null}
+      {hit ? (
+        <LookupResult hit={hit} />
+      ) : (
+        <EmptyState
+          icon={Search}
+          title="Nothing scanned yet."
+          body="Scan a bay to see what is in it, or a SKU, document, serial, or lot to see where it stands."
+        />
+      )}
     </FloorFrame>
+  );
+}
+
+/** The eyebrow over a document hit, in words rather than the API's kind ids (workOrder, cycleCount). */
+const KIND_LABEL: Partial<Record<ScanHit["kind"], string>> = {
+  order: "Order",
+  receipt: "Receipt",
+  purchase: "Purchase order",
+  rma: "Return",
+  vendorReturn: "Vendor return",
+  transfer: "Transfer",
+  workOrder: "Work order",
+  replenishment: "Replenishment",
+  kit: "Kit",
+  hold: "Hold",
+  wave: "Wave",
+  asn: "ASN",
+  yard: "Yard visit",
+  cycleCount: "Count",
+};
+
+const primaryAction = "h-14 w-full text-lg sm:w-auto";
+const secondaryAction = "h-11";
+
+/** The next step goes first and full width on a phone; the rest sit two to a row. */
+function LookupActions({ primary, children }: { primary?: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="mt-4 space-y-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:space-y-0">
+      {primary}
+      {children ? (
+        <div className="grid grid-cols-2 gap-2 sm:contents [&>*]:min-w-0 [&>*:last-child:nth-child(odd)]:col-span-2">
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Column heads over a bay's or SKU's stock list; the right-hand number is what can still be picked. */
+function StockHead({ left }: { left: string }) {
+  return (
+    <div className="mt-4 flex justify-between gap-2 border-b pb-1 text-xs text-muted-foreground">
+      <span>{left}</span>
+      <span>Available</span>
+    </div>
+  );
+}
+
+/** Says what the Available column means; the glossary term lives here, not in the column head. */
+function StockNote() {
+  return (
+    <p className="mt-2 text-xs text-muted-foreground">
+      <Term id="atp">Available</Term> is on hand minus holds and allocations.
+    </p>
   );
 }
 
@@ -40,11 +104,12 @@ function LookupResult({ hit }: { hit: ScanHit }) {
         <p className="font-mono text-xs uppercase text-muted-foreground">Bay</p>
         <h2 className="text-2xl font-semibold">{hit.location.code}</h2>
         <p className="text-muted-foreground">{hit.location.name}</p>
-        <ul className="mt-4 space-y-1 text-sm">
+        {hit.contents.length ? <StockHead left="SKU" /> : null}
+        <ul className={hit.contents.length ? "mt-2 space-y-1 text-sm" : "mt-4 space-y-1 text-sm"}>
           {hit.contents.length ? (
             hit.contents.map((row) => (
               <li key={row.itemId} className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-2">
+                <span className="flex min-w-0 items-center gap-2">
                   <SkuThumb sku={row.sku} name={row.itemName} imageUrl={row.imageUrl} size="sm" />
                   <span>
                     <span className="font-mono">{row.sku}</span> {row.itemName}
@@ -63,25 +128,29 @@ function LookupResult({ hit }: { hit: ScanHit }) {
             <li className="text-muted-foreground">Empty bay.</li>
           )}
         </ul>
+        {hit.contents.length ? <StockNote /> : null}
         {hit.holds?.length ? (
           <p className="mt-3 text-sm text-destructive">
             On hold: {hit.holds.map((hold) => `${hold.number} (${hold.reason})`).join(", ")}
           </p>
         ) : null}
-        <div className="mt-4 flex gap-2">
-          <Button>
-            <Link to={`/floor/putaway?from=${encodeURIComponent(hit.location.barcode)}`}>Put away / move</Link>
-          </Button>
-          <Button variant="secondary" asChild>
+        <LookupActions
+          primary={
+            <Button className={primaryAction} asChild>
+              <Link to={`/floor/putaway?from=${encodeURIComponent(hit.location.barcode)}`}>Put away / move</Link>
+            </Button>
+          }
+        >
+          <Button variant="secondary" className={secondaryAction} asChild>
             <Link to={`/floor/hold?location=${hit.location.id}`}>Hold</Link>
           </Button>
-          <Button variant="secondary" asChild>
+          <Button variant="secondary" className={secondaryAction} asChild>
             <Link to={`/floor/print?code=${encodeURIComponent(hit.location.barcode)}`}>Print label</Link>
           </Button>
-          <Button variant="secondary">
+          <Button variant="secondary" className={secondaryAction} asChild>
             <Link to={`/stock/locations/${hit.location.id}`}>Open record</Link>
           </Button>
-        </div>
+        </LookupActions>
       </Card>
     );
   }
@@ -91,15 +160,16 @@ function LookupResult({ hit }: { hit: ScanHit }) {
         <p className="font-mono text-xs uppercase text-muted-foreground">Item</p>
         <div className="mt-1 flex items-center gap-3">
           <SkuThumb sku={hit.item.sku} name={hit.item.name} imageUrl={hit.item.imageUrl} size="lg" />
-          <div>
+          <div className="min-w-0">
             <h2 className="text-2xl font-semibold">{hit.item.sku}</h2>
             <p className="text-muted-foreground">{hit.item.name}</p>
           </div>
         </div>
-        <ul className="mt-4 space-y-1 text-sm">
+        {hit.onHand.length ? <StockHead left="Bay" /> : null}
+        <ul className={hit.onHand.length ? "mt-2 space-y-1 text-sm" : "mt-4 space-y-1 text-sm"}>
           {hit.onHand.length ? (
             hit.onHand.map((row) => (
-              <li key={row.locationId} className="flex justify-between">
+              <li key={row.locationId} className="flex justify-between gap-2">
                 <span className="font-mono">
                   {row.locationCode}
                   {row.held ? <span className="ml-2 text-xs uppercase text-destructive">Hold</span> : null}
@@ -114,17 +184,18 @@ function LookupResult({ hit }: { hit: ScanHit }) {
             <li className="text-muted-foreground">None on hand.</li>
           )}
         </ul>
-        <div className="mt-4 flex gap-2">
-          <Button variant="secondary" asChild>
+        {hit.onHand.length ? <StockNote /> : null}
+        <LookupActions>
+          <Button variant="secondary" className={secondaryAction} asChild>
             <Link to={`/floor/hold?item=${hit.item.id}`}>Hold</Link>
           </Button>
-          <Button variant="secondary" asChild>
+          <Button variant="secondary" className={secondaryAction} asChild>
             <Link to={`/floor/print?code=${encodeURIComponent(hit.item.barcode || hit.item.sku)}`}>Print label</Link>
           </Button>
-          <Button variant="secondary">
+          <Button variant="secondary" className={secondaryAction} asChild>
             <Link to={`/stock/items/${hit.item.id}`}>Open record</Link>
           </Button>
-        </div>
+        </LookupActions>
       </Card>
     );
   }
@@ -141,11 +212,11 @@ function LookupResult({ hit }: { hit: ScanHit }) {
             <StatusBadge status={hit.serial.status} />{" "}
             <span className="font-mono">{hit.serial.locationCode || "—"}</span>
           </p>
-          <div className="mt-4 flex gap-2">
-            <Button variant="secondary">
+          <LookupActions>
+            <Button variant="secondary" className={secondaryAction} asChild>
               <Link to={`/stock/items/${hit.item.id}`}>Open item</Link>
             </Button>
-          </div>
+          </LookupActions>
         </Card>
         <AsBuiltList title="Built from" empty="No kit or work-order genealogy for this serial." rows={hit.builtFrom} mode="from" />
         <AsBuiltList title="Used in" empty="This serial was not consumed into a build." rows={hit.usedIn} mode="into" />
@@ -193,17 +264,20 @@ function LookupResult({ hit }: { hit: ScanHit }) {
             </span>
           ) : null}
         </p>
-        <div className="mt-4 flex gap-2">
-          <Button>
-            <Link to={`/floor/checkout?id=${hit.equipment.id}`}>Check out</Link>
-          </Button>
-          <Button variant="secondary" asChild>
+        <LookupActions
+          primary={
+            <Button className={primaryAction} asChild>
+              <Link to={`/floor/checkout?id=${hit.equipment.id}`}>Check out</Link>
+            </Button>
+          }
+        >
+          <Button variant="secondary" className={secondaryAction} asChild>
             <Link to={`/floor/print?code=${encodeURIComponent(hit.equipment.barcode)}`}>Print label</Link>
           </Button>
-          <Button variant="secondary">
+          <Button variant="secondary" className={secondaryAction} asChild>
             <Link to={`/equipment/${hit.equipment.id}`}>Open record</Link>
           </Button>
-        </div>
+        </LookupActions>
       </Card>
     );
   }
@@ -254,24 +328,27 @@ function LookupResult({ hit }: { hit: ScanHit }) {
 
   return (
     <Card>
-      <p className="font-mono text-xs uppercase text-muted-foreground">{hit.kind}</p>
+      <p className="font-mono text-xs uppercase text-muted-foreground">{KIND_LABEL[hit.kind] ?? hit.kind}</p>
       <h2 className="text-2xl font-semibold">{record.title}</h2>
       <div className="mt-2">
         <StatusBadge status={record.status} />
       </div>
-      <div className="mt-4 flex gap-2">
-        <Button>
-          <Link to={record.floor}>Do this on the floor</Link>
-        </Button>
+      <LookupActions
+        primary={
+          <Button className={primaryAction} asChild>
+            <Link to={record.floor}>Do this on the floor</Link>
+          </Button>
+        }
+      >
         {hit.kind === "order" ? (
-          <Button variant="secondary" asChild>
+          <Button variant="secondary" className={secondaryAction} asChild>
             <Link to={`/floor/print?code=${encodeURIComponent(hit.order.number)}`}>Print slip / label</Link>
           </Button>
         ) : null}
-        <Button variant="secondary">
+        <Button variant="secondary" className={secondaryAction} asChild>
           <Link to={record.to}>Open record</Link>
         </Button>
-      </div>
+      </LookupActions>
     </Card>
   );
 }

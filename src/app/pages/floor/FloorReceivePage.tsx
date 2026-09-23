@@ -16,6 +16,8 @@ import { jobForRef, useOpenJobs } from "../../jobs";
 
 const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
+/** BayCombobox takes no className, so size its input to 44px from here. */
+const bayPicker = "[&_[role=combobox]]:h-11 [&_[role=combobox]]:text-base";
 
 export function FloorReceivePage() {
   const me = useSession();
@@ -333,15 +335,17 @@ export function FloorReceivePage() {
               </li>
             ))}
           </ul>
-          <Field label="Receive into">
-            <BayCombobox
-              locations={locations}
-              warehouseId={activePurchase.warehouseId || warehouseId}
-              value={locationId}
-              onChange={setLocationId}
-              onCreated={(location) => setLocations((current) => [...current, location])}
-            />
-          </Field>
+          <div className={bayPicker}>
+            <Field label="Receive into">
+              <BayCombobox
+                locations={locations}
+                warehouseId={activePurchase.warehouseId || warehouseId}
+                value={locationId}
+                onChange={setLocationId}
+                onCreated={(location) => setLocations((current) => [...current, location])}
+              />
+            </Field>
+          </div>
           {canReceivePurchase(activePurchase.status) &&
           hasRemaining(
             (activePurchase.lines ?? []).map((line) => ({
@@ -435,15 +439,17 @@ export function FloorReceivePage() {
               </li>
             ))}
           </ul>
-          <Field label="Receive into">
-            <BayCombobox
-              locations={locations}
-              warehouseId={activeReceipt!.warehouseId || warehouseId}
-              value={locationId}
-              onChange={setLocationId}
-              onCreated={(location) => setLocations((current) => [...current, location])}
-            />
-          </Field>
+          <div className={bayPicker}>
+            <Field label="Receive into">
+              <BayCombobox
+                locations={locations}
+                warehouseId={activeReceipt!.warehouseId || warehouseId}
+                value={locationId}
+                onChange={setLocationId}
+                onCreated={(location) => setLocations((current) => [...current, location])}
+              />
+            </Field>
+          </div>
           {canReceive(activeReceipt!.status) &&
           hasRemaining(
             (activeReceipt!.lines ?? []).map((line) => ({

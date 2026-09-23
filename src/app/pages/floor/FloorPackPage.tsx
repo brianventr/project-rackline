@@ -1,19 +1,38 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Order, type ScanHit } from "../../api";
+import { Box } from "lucide-react";
+import { api, errorText, type Order, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
-import { ClaimList, FloorFrame, FloorScanBox, openFloorRow } from "./floor-ui";
-import { canPackOrder, canStartPack, canCancelOrder } from "@/domain/status";
+import { Term } from "../../components/term";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
+import { canPackOrder, canStartPack, canCancelOrder, normalizeOrderStatus } from "@/domain/status";
 import { hasUnpacked } from "@/domain/partial-pack";
 import { cartonShipGate, canUncartonOrderPackage, hasUncartoned } from "@/domain/cartons";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
+import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
+
+const textLink =
+  "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
+
+function notPackableMessage(order: Order): string {
+  const status = normalizeOrderStatus(order.status);
+  if (status === "shipped") return `${order.number} is already shipped.`;
+  if (status === "cancelled") return `${order.number} is cancelled.`;
+  return `${order.number} is not picked yet.`;
+}
 
 export function FloorPackPage() {
   const me = useSession();
+  const garage = isGarageMode(me.organization.operatingMode);
+  // Same test the floor launcher uses to show the Pick tile.
+  const canPick =
+    (me.role === "owner" || (me.floorVerbs ?? []).includes("pick")) && (!garage || garageAllowsPath("/floor/pick"));
   const { jobs, reload: reloadJobs } = useOpenJobs("pack");
   const [params] = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [active, setActive] = useState<Order | null>(null);
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [weightOz, setWeightOz] = useState("16");
@@ -52,32 +71,50 @@ export function FloorPackPage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load()
+      .catch((err) => setError(errorText(err, "Could not load orders ready to pack.")))
+      .finally(() => setLoaded(true));
   }, []);
 
   const onScan = useCallback(
-    (raw: string) => {
+    (raw: string, report?: ScanReport) => {
       setError(null);
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
-        .then((hit) => {
+        .then(async (hit) => {
           if (hit.kind === "order") {
-            void api<Order>(`/api/orders/${hit.order.id}`).then((order) =>
-              openFloorRow(order, me.user.id, jobForRef(jobs, "order", order.id, "pack"), applyOrder, setError),
-            );
+            const order = await api<Order>(`/api/orders/${hit.order.id}`);
+            // Pack takes picked or packing tickets, plus packed ones that may still need a carton boxed or dropped.
+            if (!canPackOrder(order.status) && normalizeOrderStatus(order.status) !== "packed") {
+              setError(notPackableMessage(order));
+              report?.(false);
+              return;
+            }
+            report?.(openFloorRow(order, me.user.id, jobForRef(jobs, "order", order.id, "pack"), applyOrder, setError));
             return;
           }
           if (hit.kind === "item" && active) {
             const line = (active.lines ?? []).find((row) => row.itemId === hit.item.id || row.sku === hit.item.sku);
             if (!line) {
               setError(`${hit.item.sku} is not on this order.`);
+              report?.(false);
+              return;
+            }
+            if ((line.packRemaining ?? 0) <= 0) {
+              setError(`${line.sku} is already packed.`);
+              report?.(false);
               return;
             }
             setQtys((current) => ({ ...current, [line.id]: String(line.packRemaining ?? 0) }));
+            report?.(true);
             return;
           }
           setError("Scan a picked order, then scan a SKU to pack remaining qty.");
+          report?.(false);
         })
-        .catch((err: Error) => setError(err.message));
+        .catch((err) => {
+          setError(errorText(err, "That barcode did not scan. Try again."));
+          report?.(false);
+        });
     },
     [active, jobs, me.user.id],
   );
@@ -103,7 +140,7 @@ export function FloorPackPage() {
       applyOrder(packed);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Pack failed");
+      setError(errorText(err, "Could not pack the order."));
     }
   }
 
@@ -135,7 +172,7 @@ export function FloorPackPage() {
       applyOrder(packed);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Carton failed");
+      setError(errorText(err, "Could not box the carton."));
     }
   }
 
@@ -155,7 +192,7 @@ export function FloorPackPage() {
       applyOrder(packed);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Carton failed");
+      setError(errorText(err, "Could not box the carton."));
     }
   }
 
@@ -167,7 +204,7 @@ export function FloorPackPage() {
       applyOrder(next);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not drop carton");
+      setError(errorText(err, "Could not drop the carton."));
     }
   }
 
@@ -179,7 +216,7 @@ export function FloorPackPage() {
       applyOrder(next);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Cancel failed");
+      setError(errorText(err, "Could not cancel the order."));
     }
   }
 
@@ -209,27 +246,42 @@ export function FloorPackPage() {
     <FloorFrame title="Pack" description="Scan the tote, pack remaining qty into BOX-1 / BOX-2, drop a mispacked box, print a pack slip." error={error}>
       <FloorScanBox label="Scan order or SKU" placeholder="ORD-… or LAMP" onScan={onScan} />
       {!active ? (
-        <ClaimList
-          title="Ready to pack"
-          empty="Nothing to pack."
-          rows={orders}
-          userId={me.user.id}
-          jobFor={(row) => jobForRef(jobs, "order", row.id, "pack")}
-          onOpen={(row) =>
-            openFloorRow(row, me.user.id, jobForRef(jobs, "order", row.id, "pack"), (order) => {
-              void api<Order>(`/api/orders/${order.id}`).then(applyOrder);
-            }, setError)
-          }
-          render={(row) => (
-            <>
-              <span className="font-mono">{row.number}</span> {row.customerName} <StatusBadge status={row.status} />
-            </>
-          )}
-        />
+        loaded ? (
+          <ClaimList
+            title="Ready to pack"
+            empty="Nothing to pack."
+            emptyBody="Orders show up here once they are picked."
+            emptyIcon={Box}
+            emptyAction={
+              canPick ? (
+                <Button variant="secondary" className="h-11" asChild>
+                  <Link to="/floor/pick">Go pick</Link>
+                </Button>
+              ) : undefined
+            }
+            rows={orders}
+            userId={me.user.id}
+            jobFor={(row) => jobForRef(jobs, "order", row.id, "pack")}
+            onOpen={(row) =>
+              openFloorRow(row, me.user.id, jobForRef(jobs, "order", row.id, "pack"), (order) => {
+                api<Order>(`/api/orders/${order.id}`)
+                  .then(applyOrder)
+                  .catch((err) => setError(errorText(err, "Could not open that order.")));
+              }, setError)
+            }
+            render={(row) => (
+              <>
+                <span className="font-mono">{row.number}</span> {row.customerName} <StatusBadge status={row.status} />
+              </>
+            )}
+          />
+        ) : (
+          <Skeleton className="h-40 w-full rounded-xl motion-reduce:animate-none" />
+        )
       ) : (
         <Card className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">{active.number}</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="min-w-0 text-xl font-semibold">{active.number}</h2>
             <StatusBadge status={active.status} />
           </div>
           <ul className="space-y-3 text-sm">
@@ -249,8 +301,10 @@ export function FloorPackPage() {
                   <Field label={`This pack (remaining ${line.packRemaining})`}>
                     <Input
                       type="number"
+                      inputMode="numeric"
                       min={0}
                       max={line.packRemaining}
+                      className="h-11 text-base"
                       value={qtys[line.id] ?? "0"}
                       onChange={(e) => setQtys((current) => ({ ...current, [line.id]: e.target.value }))}
                     />
@@ -262,52 +316,86 @@ export function FloorPackPage() {
             ))}
           </ul>
           {canPackOrder(active.status) && remaining ? (
-            <div className="flex flex-wrap items-center gap-4">
-              <Button disabled={!thisPack} onClick={() => void pack()}>
+            <div className="space-y-2">
+              <Button className="h-14 w-full text-lg sm:w-auto" disabled={!thisPack} onClick={() => void pack()}>
                 Pack remaining
               </Button>
-              <Button disabled={!thisPack} variant="secondary" onClick={() => void packIntoCarton()}>
-                Pack into carton
-              </Button>
-              {uncartoned ? (
-                <Button variant="secondary" onClick={() => void addCarton()}>
-                  Box remaining
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap [&>*]:min-w-0 [&>*:last-child:nth-child(odd)]:col-span-2">
+                <Button className="h-11" disabled={!thisPack} variant="secondary" onClick={() => void packIntoCarton()}>
+                  Pack into carton
                 </Button>
-              ) : null}
-              {canCancelOrder(active.status) ? (
-                <Button variant="secondary" onClick={() => void cancel()}>
-                  Cancel order
-                </Button>
-              ) : null}
-              <Link className="font-medium underline" to={`/outbound/orders/${active.id}/pack-slip`}>
+                {uncartoned ? (
+                  <Button className="h-11" variant="secondary" onClick={() => void addCarton()}>
+                    Box remaining
+                  </Button>
+                ) : null}
+                {canCancelOrder(active.status) ? (
+                  <Button className="h-11" variant="secondary" onClick={() => void cancel()}>
+                    Cancel order
+                  </Button>
+                ) : null}
+              </div>
+              <Link className={`${textLink} font-medium`} to={`/outbound/orders/${active.id}/pack-slip`}>
                 Print pack slip
               </Link>
             </div>
           ) : (
-            <div className="flex flex-wrap gap-4">
+            <div className="space-y-2">
               {uncartoned ? (
-                <Button onClick={() => void addCarton()}>Box remaining</Button>
+                <Button className="h-14 w-full text-lg sm:w-auto" onClick={() => void addCarton()}>
+                  Box remaining
+                </Button>
               ) : null}
-              <Link className="font-medium underline" to={`/floor/ship?id=${active.id}`}>
-                Go ship
-              </Link>
-              <Link className="font-medium underline" to={`/outbound/orders/${active.id}/pack-slip`}>
-                Pack slip
-              </Link>
+              <div className="flex flex-wrap gap-x-5">
+                <Link className={`${textLink} font-medium`} to={`/floor/ship?id=${active.id}`}>
+                  Go ship
+                </Link>
+                <Link className={`${textLink} font-medium`} to={`/outbound/orders/${active.id}/pack-slip`}>
+                  Pack slip
+                </Link>
+              </div>
             </div>
           )}
           <div className="grid grid-cols-2 gap-2">
             <Field label="Carton weight oz">
-              <Input type="number" min={1} value={weightOz} onChange={(e) => setWeightOz(e.target.value)} />
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={1}
+                className="h-11 text-base"
+                value={weightOz}
+                onChange={(e) => setWeightOz(e.target.value)}
+              />
             </Field>
             <Field label="L in">
-              <Input type="number" min={1} value={lengthIn} onChange={(e) => setLengthIn(e.target.value)} />
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={1}
+                className="h-11 text-base"
+                value={lengthIn}
+                onChange={(e) => setLengthIn(e.target.value)}
+              />
             </Field>
             <Field label="W in">
-              <Input type="number" min={1} value={widthIn} onChange={(e) => setWidthIn(e.target.value)} />
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={1}
+                className="h-11 text-base"
+                value={widthIn}
+                onChange={(e) => setWidthIn(e.target.value)}
+              />
             </Field>
             <Field label="H in">
-              <Input type="number" min={1} value={heightIn} onChange={(e) => setHeightIn(e.target.value)} />
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={1}
+                className="h-11 text-base"
+                value={heightIn}
+                onChange={(e) => setHeightIn(e.target.value)}
+              />
             </Field>
           </div>
           {(active.packages ?? []).length > 0 ? (
@@ -325,7 +413,7 @@ export function FloorPackPage() {
                     </p>
                   </div>
                   {canUncartonOrderPackage({ status: active.status, shippedAt: pkg.shippedAt }).ok ? (
-                    <Button variant="secondary" size="sm" className="w-full" onClick={() => void uncarton(pkg.id)}>
+                    <Button variant="secondary" className="h-11 w-full" onClick={() => void uncarton(pkg.id)}>
                       Drop carton
                     </Button>
                   ) : null}
@@ -334,8 +422,8 @@ export function FloorPackPage() {
             </ul>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Cartons are optional until the first box. After BOX-1 exists, every packed unit needs a labeled carton
-              before ship.
+              <Term id="carton">Cartons</Term> are optional until the first box. After BOX-1 exists, every packed unit
+              needs a labeled carton before ship.
             </p>
           )}
           {active.status === "packed" &&
@@ -349,6 +437,9 @@ export function FloorPackPage() {
           }).ok === false ? (
             <p className="text-sm text-muted-foreground">Label each carton on Ship before closing the order.</p>
           ) : null}
+          <button type="button" className={textLink} onClick={() => setActive(null)}>
+            Back to list
+          </button>
         </Card>
       )}
     </FloorFrame>

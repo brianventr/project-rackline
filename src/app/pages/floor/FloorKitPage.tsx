@@ -116,7 +116,7 @@ export function FloorKitPage() {
           <ClaimList
             title="Open kits"
             empty="Nothing to kit."
-            emptyBody="Kits released in the office show up here to build."
+            emptyBody="Kits created in the office show up here to build."
             emptyIcon={Factory}
             emptyAction={
               <Button variant="secondary" className="h-11" asChild>

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ShieldAlert } from "lucide-react";
 import { api, errorText, type Hold, type Item, type Location, type ScanHit } from "../../api";
-import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
+import { Button, Card, EmptyState, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FloorFrame, FloorScanBox, ClaimList, openFloorRow, type ScanReport } from "./floor-ui";
 import { useWarehouse } from "../../warehouse";
@@ -19,6 +19,8 @@ export function FloorHoldPage() {
   const [holds, setHolds] = useState<Hold[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
+  // True once the bay list came back, so a failed load does not read as "no bays".
+  const [baysLoaded, setBaysLoaded] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
   const [active, setActive] = useState<Hold | null>(null);
   const [locationId, setLocationId] = useState("");
@@ -35,6 +37,7 @@ export function FloorHoldPage() {
     ]);
     setHolds(nextHolds.filter((row) => canReleaseHold(row.status)));
     setLocations(nextLocations);
+    setBaysLoaded(true);
     setItems(nextItems);
     const storage = nextLocations.find((row) => row.type === "storage") ?? nextLocations[0];
     const locationWanted = params.get("location");
@@ -152,6 +155,17 @@ export function FloorHoldPage() {
             Place another
           </Button>
         </Card>
+      ) : loaded && baysLoaded && locations.length === 0 ? (
+        <EmptyState
+          icon={ShieldAlert}
+          title="No bays to hold yet."
+          body="Add bays under Locations, then scan one here to lock it."
+          action={
+            <Button variant="secondary" className="h-11" asChild>
+              <Link to="/stock/locations">Add bays</Link>
+            </Button>
+          }
+        />
       ) : (
         <>
           <Card className="space-y-3">

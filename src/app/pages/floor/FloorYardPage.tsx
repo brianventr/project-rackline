@@ -28,6 +28,7 @@ function matchVisit(visits: YardVisit[], raw: string): YardVisit | undefined {
 export function FloorYardPage() {
   const [params] = useSearchParams();
   const [visits, setVisits] = useState<YardVisit[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
   const [active, setActive] = useState<YardVisit | null>(null);
   const [dockLocationId, setDockLocationId] = useState("");
@@ -40,6 +41,7 @@ export function FloorYardPage() {
       api<Location[]>("/api/locations"),
     ]);
     setVisits(nextVisits.filter((row) => isOpenYard(row.status)));
+    setLoaded(true);
     setLocations(nextLocations);
     const dock = nextLocations.find((row) => row.type === "receiving") ?? nextLocations[0];
     if (dock) setDockLocationId(dock.id);
@@ -156,7 +158,7 @@ export function FloorYardPage() {
       {!active ? (
         <Card className="space-y-4">
           <p className="font-medium">Open visits</p>
-          {visits.length === 0 ? (
+          {!loaded ? null : visits.length === 0 ? (
             <EmptyState
               icon={Warehouse}
               title="No open yard visits."

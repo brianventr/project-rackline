@@ -128,7 +128,7 @@ export function FloorReplenishPage() {
           <ClaimList
             title="Open replenishments"
             empty="Nothing queued."
-            emptyBody="Replenishments queued in the office, or from a suggestion, show here until they are moved."
+            emptyBody="Replenishments queued in the office or from a suggestion wait here until they are moved."
             emptyIcon={ArrowDownToLine}
             rows={docs}
             userId={me.user.id}

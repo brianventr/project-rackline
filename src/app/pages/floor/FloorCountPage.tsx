@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Calculator } from "lucide-react";
 import { api, errorText, type CycleCount, type Location, type ScanHit } from "../../api";
-import { Button, Card, DoneBanner, Field, Input, Select, StatusBadge } from "../../components/ui";
+import { Button, Card, DoneBanner, EmptyState, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { Term } from "../../components/term";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FloorFrame, FloorScanBox, ClaimList, openFloorRow, type ScanReport } from "./floor-ui";
@@ -24,6 +24,8 @@ export function FloorCountPage() {
   const [counts, setCounts] = useState<CycleCount[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
+  // True once the bay list came back, so a failed load does not read as "no bays".
+  const [baysLoaded, setBaysLoaded] = useState(false);
   const [active, setActive] = useState<CycleCount | null>(null);
   const [locationId, setLocationId] = useState("");
   const [weights, setWeights] = useState<Record<string, string>>({});
@@ -36,6 +38,7 @@ export function FloorCountPage() {
     ]);
     setCounts(nextCounts.filter((row) => canPostCount(row.status)));
     setLocations(nextLocations);
+    setBaysLoaded(true);
     const storage = nextLocations.find((row) => row.type === "storage") ?? nextLocations[0];
     if (storage) setLocationId(storage.id);
     const wanted = params.get("id");
@@ -141,51 +144,64 @@ export function FloorCountPage() {
     <FloorFrame title="Count" description="Scan a bay, then count what you see. Scan a SKU that was not on the snapshot to add it. System qty stays hidden until you post." error={error}>
       <FloorScanBox label="Scan bay or found SKU" placeholder="A-01-01 or LAMP" onScan={onScan} />
       {!active ? (
-        <>
-          <Card className="space-y-3">
-            <Field label="Or choose a bay">
-              <Select className="h-11 text-base" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-                {locations.map((location) => (
-                  <option key={location.id} value={location.id}>
-                    {location.code}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Button
-              className="h-14 w-full text-lg sm:w-auto"
-              disabled={!locationId}
-              onClick={() => onScan(locations.find((row) => row.id === locationId)?.barcode || locationId)}
-            >
-              Start count
-            </Button>
-          </Card>
-          {loaded ? (
-            <ClaimList
-              title="Open counts"
-              empty="No open cycle counts."
-              emptyBody="Scan a bay to start a count."
-              emptyIcon={Calculator}
-              rows={counts}
-              userId={me.user.id}
-              jobFor={(row) => jobForRef(jobs, "cycleCount", row.id, "count")}
-              onOpen={(row) =>
-                openFloorRow(row, me.user.id, jobForRef(jobs, "cycleCount", row.id, "count"), (count) => {
-                  api<CycleCount>(`/api/cycle-counts/${count.id}`)
-                    .then(setActive)
-                    .catch((err) => setError(errorText(err, "Could not open that count.")));
-                }, setError)
-              }
-              render={(row) => (
-                <>
-                  {row.number} <StatusBadge status={row.status} />
-                </>
-              )}
-            />
-          ) : (
-            <Skeleton className="h-40 w-full rounded-xl motion-reduce:animate-none" />
-          )}
-        </>
+        loaded && baysLoaded && locations.length === 0 ? (
+          <EmptyState
+            icon={Calculator}
+            title="No bays to count yet."
+            body="Add bays under Locations, then scan one here to count it."
+            action={
+              <Button variant="secondary" className="h-11" asChild>
+                <Link to="/stock/locations">Add bays</Link>
+              </Button>
+            }
+          />
+        ) : (
+          <>
+            <Card className="space-y-3">
+              <Field label="Or choose a bay">
+                <Select className="h-11 text-base" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
+                  {locations.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.code}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Button
+                className="h-14 w-full text-lg sm:w-auto"
+                disabled={!locationId}
+                onClick={() => onScan(locations.find((row) => row.id === locationId)?.barcode || locationId)}
+              >
+                Start count
+              </Button>
+            </Card>
+            {loaded ? (
+              <ClaimList
+                title="Open counts"
+                empty="No open cycle counts."
+                emptyBody="Scan a bay to start a count."
+                emptyIcon={Calculator}
+                rows={counts}
+                userId={me.user.id}
+                jobFor={(row) => jobForRef(jobs, "cycleCount", row.id, "count")}
+                onOpen={(row) =>
+                  openFloorRow(row, me.user.id, jobForRef(jobs, "cycleCount", row.id, "count"), (count) => {
+                    api<CycleCount>(`/api/cycle-counts/${count.id}`)
+                      .then(setActive)
+                      .catch((err) => setError(errorText(err, "Could not open that count.")));
+                  }, setError)
+                }
+                render={(row) => (
+                  <>
+                    {row.number} <StatusBadge status={row.status} />
+                  </>
+                )}
+              />
+            ) : (
+              <Skeleton className="h-40 w-full rounded-xl motion-reduce:animate-none" />
+            )}
+          </>
+        )
       ) : (
         <Card className="space-y-4">
           <div className="flex items-center justify-between gap-3">

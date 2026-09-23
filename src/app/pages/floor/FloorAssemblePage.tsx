@@ -105,7 +105,7 @@ export function FloorAssemblePage() {
           <ClaimList
             title="Open work orders"
             empty="Nothing on the bench."
-            emptyBody="Work orders released in the office show up here to build."
+            emptyBody="Work orders created in the office show up here to build."
             emptyIcon={Hammer}
             emptyAction={
               <Button variant="secondary" className="h-11" asChild>
