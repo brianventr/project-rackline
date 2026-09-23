@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { BookOpen, CheckCircle2, Hammer, Play, Plus, ScanLine } from "lucide-react";
+import { BookOpen, CheckCircle2, Hammer, ListTree, Play, Plus, ScanLine } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Item, type Location, type WorkOrder } from "../api";
-import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, StatusBadge } from "../components/ui";
+import { api, errorText, type Item, type Location, type WorkOrder } from "../api";
+import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, StatusBadge } from "../components/ui";
 import {
   DetailSkeleton,
   DocumentActivity,
@@ -16,12 +16,15 @@ import {
 import { DataTable, type BulkAction, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, ProgressCell, RelativeTime, SkuCell, ProgressRow } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { NumberField, SelectField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import { AsBuiltList } from "../components/as-built";
 import { KitRecipeCard } from "../components/kit-recipe";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { STEP_RULES } from "@/domain/step-stamps";
+import { workOrderFormSchema } from "@/domain/form-schemas";
 import { WORK_ORDER_STEPS, canCompleteWorkOrder } from "@/domain/status";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
@@ -105,7 +108,10 @@ function WorkOrderList() {
         void refreshApi();
         const failed = results.filter((result) => result.status === "rejected") as PromiseRejectedResult[];
         if (failed.length) {
-          toast.error(`${failed.length} could not start: ${failed[0]!.reason instanceof Error ? failed[0]!.reason.message : "error"}`);
+          // The count leads; the server's own sentence (and its fix) goes underneath, unwrapped.
+          toast.error(`${failed.length} could not start.`, {
+            description: errorText(failed[0]!.reason, "Something went wrong. Try again."),
+          });
         }
         const started = selected.length - failed.length;
         if (started) toast.success(`Started ${started} ${started === 1 ? "work order" : "work orders"}.`);
@@ -118,7 +124,12 @@ function WorkOrderList() {
       <PageHeader
         eyebrow="Make"
         title="Work orders"
-        description="Completing a work order consumes the recipe and puts finished goods in the output bay."
+        description={
+          <>
+            Completing a <Term id="work-order">work order</Term> consumes the <Term id="recipe">recipe</Term> and puts
+            finished goods in the output bay.
+          </>
+        }
       />
       <DataTable
         id="work-orders"
@@ -148,7 +159,11 @@ function WorkOrderList() {
           <EmptyState
             icon={Hammer}
             title="No work orders yet."
-            body="Release a work order to build a finished or WIP SKU from its recipe."
+            body={
+              <>
+                Release a work order to build a finished or <Term id="wip">WIP</Term> SKU from its recipe.
+              </>
+            }
             action={
               <div className="flex flex-wrap justify-center gap-2">
                 <Button size="sm" onClick={() => setCreating(true)}>
@@ -176,40 +191,53 @@ function NewWorkOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange
   const { warehouseId } = useWarehouse();
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
   const locations = useApiQuery<Location[]>(open ? "/api/locations" : null);
-  const [itemId, setItemId] = useState("");
-  const [qty, setQty] = useState("1");
-  const [sourceLocationId, setSourceLocationId] = useState("");
-  const [outputLocationId, setOutputLocationId] = useState("");
+  const form = useZodForm(workOrderFormSchema, { itemId: "", qty: "1", sourceLocationId: "", outputLocationId: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const parents = useMemo(() => (items.data ?? []).filter(isBuildable), [items.data]);
   const bays = locations.data ?? [];
+  const bayOptions = bays.map((location) => ({ value: location.id, label: `${location.code} — ${location.name}` }));
 
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues, setValue, watch } = form;
   useEffect(() => {
-    if (!itemId && parents[0]) setItemId(parents[0].id);
-  }, [parents, itemId]);
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  // Same defaults as before: the first buildable SKU, then bays by type once they load.
+  const [itemId, sourceLocationId, outputLocationId] = watch(["itemId", "sourceLocationId", "outputLocationId"]);
+  useEffect(() => {
+    if (!itemId && parents[0]) setValue("itemId", parents[0].id);
+  }, [parents, itemId, setValue]);
 
   useEffect(() => {
     if (!bays.length) return;
     const storage = bays.find((location) => location.type === "storage") ?? bays[0];
     const production = bays.find((location) => location.type === "production") ?? bays[0];
-    if (!sourceLocationId && storage) setSourceLocationId(storage.id);
-    if (!outputLocationId && production) setOutputLocationId(production.id);
-  }, [bays, sourceLocationId, outputLocationId]);
+    if (!getValues("sourceLocationId") && storage) setValue("sourceLocationId", storage.id);
+    if (!getValues("outputLocationId") && production) setValue("outputLocationId", production.id);
+  }, [bays, sourceLocationId, outputLocationId, getValues, setValue]);
 
-  async function create() {
+  async function create(values: ZodFormOutput<typeof workOrderFormSchema>) {
     setError(null);
     setBusy(true);
     try {
       const created = await apiMutate<WorkOrder>("/api/work-orders", {
-        body: JSON.stringify({ warehouseId, itemId, qty: Number(qty), sourceLocationId, outputLocationId }),
+        // Same body as before: qty is already a number.
+        body: JSON.stringify({
+          warehouseId,
+          itemId: values.itemId,
+          qty: values.qty,
+          sourceLocationId: values.sourceLocationId,
+          outputLocationId: values.outputLocationId,
+        }),
       });
       toast.success(`Work order ${created.number} released.`);
       onOpenChange(false);
       navigate(`/make/work-orders/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create work order");
+      setError(errorText(err, "Could not create the work order."));
     } finally {
       setBusy(false);
     }
@@ -222,41 +250,20 @@ function NewWorkOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange
       title="New work order"
       description="Pick a SKU with a recipe. Components come out of one bay and finished goods go into another."
       submitLabel="Release work order"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <Field label="Build item">
-        <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
-          <option value="">Select item</option>
-          {parents.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.sku} — {item.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Quantity">
-        <Input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
-      </Field>
-      <Field label="Consume from">
-        <Select value={sourceLocationId} onChange={(e) => setSourceLocationId(e.target.value)}>
-          {bays.map((location) => (
-            <option key={location.id} value={location.id}>
-              {location.code} — {location.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Put away finished">
-        <Select value={outputLocationId} onChange={(e) => setOutputLocationId(e.target.value)}>
-          {bays.map((location) => (
-            <option key={location.id} value={location.id}>
-              {location.code} — {location.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      <SelectField
+        form={form}
+        name="itemId"
+        label="Build item"
+        placeholder="Select item"
+        options={parents.map((item) => ({ value: item.id, label: `${item.sku} — ${item.name}` }))}
+      />
+      <NumberField form={form} name="qty" label="Quantity" min={1} />
+      <SelectField form={form} name="sourceLocationId" label="Consume from" options={bayOptions} />
+      <SelectField form={form} name="outputLocationId" label="Put away finished" options={bayOptions} />
     </FormSheet>
   );
 }
@@ -275,7 +282,7 @@ function WorkOrderDetail({ id }: { id: string }) {
         setOrder(next);
         setThisQty(String(next.remaining ?? next.qty));
       })
-      .catch((err: Error) => setLoadError(err.message));
+      .catch((err: unknown) => setLoadError(errorText(err, "Could not load this work order.")));
   }, [id]);
 
   if (!order) {
@@ -405,7 +412,7 @@ function WorkOrderDetail({ id }: { id: string }) {
               </Card>
             ) : (
               <EmptyState
-                icon={BookOpen}
+                icon={ListTree}
                 title="No recipe for this SKU."
                 body="Complete needs a recipe to know which components to consume."
                 action={

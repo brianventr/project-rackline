@@ -1,18 +1,50 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BookOpen, ImagePlus, Plus, Trash2, X } from "lucide-react";
+import { ImagePlus, ListTree, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
-import { api, uploadFile, type Bom, type BomStep, type Item, type Me } from "../api";
-import { Button, EmptyState, Field, Input, PageHeader, Select, Table, summarizeLines } from "../components/ui";
+import { z } from "zod";
+import { api, errorText, uploadFile, type Bom, type BomStep, type Item, type Me } from "../api";
+import { Button, EmptyState, Input, PageHeader, Select, Table, summarizeLines } from "../components/ui";
 import { SkuThumb } from "../components/sku-thumb";
 import { KitRecipeCard } from "../components/kit-recipe";
 import { useConfirm } from "../components/confirm";
 import { DataTable, type DataColumn, type TabDef } from "../components/data-table/DataTable";
 import { LineChips, Muted, SkuCell } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { LinesField, SelectField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
+import { blankLine, lineDraftSchema, requiredChoice, uniqueLinesSchema } from "@/domain/form-schemas";
 
-type Line = { itemId: string; qty: string };
+/**
+ * POST /api/boms (`src/routes/manufacturing.ts`): a parent SKU, then components with a qty of 1 or
+ * more. Each component once per recipe (the `bom_lines` unique index), and never the parent itself.
+ * Lines are checked raw so the self-component message lands on its own row.
+ */
+const recipeFormSchema = z
+  .object({
+    itemId: requiredChoice("Pick the SKU this recipe builds."),
+    lines: z.array(lineDraftSchema),
+  })
+  .superRefine((value, ctx) => {
+    const lines = uniqueLinesSchema.safeParse(value.lines);
+    if (!lines.success) {
+      for (const issue of lines.error.issues) {
+        ctx.addIssue({ code: "custom", message: issue.message, path: ["lines", ...issue.path], input: issue.input });
+      }
+    }
+    value.lines.forEach((line, index) => {
+      if (line.itemId && line.itemId === value.itemId) {
+        ctx.addIssue({
+          code: "custom",
+          message: "A recipe cannot use the SKU it builds.",
+          path: ["lines", index, "itemId"],
+          input: line.itemId,
+        });
+      }
+    });
+  })
+  .transform((value) => ({ itemId: value.itemId, lines: uniqueLinesSchema.parse(value.lines) }));
 type StepDraft = {
   id?: string;
   title: string;
@@ -116,7 +148,12 @@ export function BomsPage({ me }: { me: Me }) {
       <PageHeader
         eyebrow="Make"
         title="Recipes"
-        description="One recipe per finished or WIP SKU. Numbered steps guide the bench; complete still explodes qty."
+        description={
+          <>
+            One <Term id="recipe">recipe</Term> per finished or <Term id="wip">WIP</Term> SKU. Numbered steps guide the
+            bench; complete still explodes qty.
+          </>
+        }
       />
       <DataTable
         id="recipes"
@@ -142,7 +179,7 @@ export function BomsPage({ me }: { me: Me }) {
         }
         empty={
           <EmptyState
-            icon={BookOpen}
+            icon={ListTree}
             title="No recipes yet."
             body="A recipe lists the components one finished or WIP SKU consumes. Work orders and kits need one."
             action={
@@ -186,35 +223,40 @@ function NewRecipeSheet({
   onCreated: (bom: Bom) => void;
 }) {
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
-  const [itemId, setItemId] = useState("");
-  const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
+  const form = useZodForm(recipeFormSchema, { itemId: "", lines: [blankLine()] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const all = items.data ?? [];
   const parents = useMemo(() => all.filter((item) => item.type === "finished" || item.type === "wip"), [all]);
 
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues, setValue, watch } = form;
   useEffect(() => {
-    if (!itemId && parents[0]) setItemId(parents[0].id);
-  }, [parents, itemId]);
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
 
-  async function create() {
+  const itemId = watch("itemId");
+  useEffect(() => {
+    if (!itemId && parents[0]) setValue("itemId", parents[0].id);
+  }, [parents, itemId, setValue]);
+
+  async function create(values: ZodFormOutput<typeof recipeFormSchema>) {
     setError(null);
     setBusy(true);
     try {
+      // Same body as before: blank rows are already dropped and qty is a number.
       const created = await apiMutate<Bom>("/api/boms", {
         body: JSON.stringify({
-          itemId,
-          lines: lines
-            .filter((line) => line.itemId)
-            .map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
+          itemId: values.itemId,
+          lines: values.lines.map((line) => ({ itemId: line.itemId, qty: line.qty })),
         }),
       });
-      setLines([{ itemId: "", qty: "1" }]);
+      reset({ itemId: values.itemId, lines: [blankLine()] }, { keepDefaultValues: true });
       toast.success(`Recipe saved for ${created.sku}. Add bench steps next.`);
       onCreated(created);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create BOM");
+      setError(errorText(err, "Could not save the recipe."));
     } finally {
       setBusy(false);
     }
@@ -227,57 +269,18 @@ function NewRecipeSheet({
       title="New recipe"
       description="What one unit of a finished or WIP SKU consumes. Steps come after you save."
       submitLabel="Save recipe"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <Field label="Parent item">
-        <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
-          <option value="">Select parent</option>
-          {parents.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.sku} — {item.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <div className="space-y-2">
-        <div className="grid grid-cols-[1fr_96px] gap-2 text-sm font-medium">
-          <span>Component</span>
-          <span>Qty each</span>
-        </div>
-        {lines.map((line, index) => (
-          <div key={index} className="grid grid-cols-[1fr_96px] gap-2">
-            <Select
-              aria-label={`Component ${index + 1}`}
-              value={line.itemId}
-              onChange={(e) =>
-                setLines((current) => current.map((row, i) => (i === index ? { ...row, itemId: e.target.value } : row)))
-              }
-            >
-              <option value="">Component</option>
-              {all.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.sku} — {item.name}
-                </option>
-              ))}
-            </Select>
-            <Input
-              type="number"
-              min={1}
-              aria-label={`Qty for component ${index + 1}`}
-              value={line.qty}
-              onChange={(e) =>
-                setLines((current) => current.map((row, i) => (i === index ? { ...row, qty: e.target.value } : row)))
-              }
-            />
-          </div>
-        ))}
-        <Button variant="ghost" size="sm" onClick={() => setLines((current) => [...current, { itemId: "", qty: "1" }])}>
-          <Plus className="size-4" />
-          Add component
-        </Button>
-      </div>
+      <SelectField
+        form={form}
+        name="itemId"
+        label="Parent item"
+        placeholder="Select parent"
+        options={parents.map((item) => ({ value: item.id, label: `${item.sku} — ${item.name}` }))}
+      />
+      <LinesField form={form} name="lines" label="Components" items={all} />
     </FormSheet>
   );
 }
@@ -341,7 +344,7 @@ function RecipeSheet({
       void refreshApi();
       toast.success(`Saved ${payload.length} ${payload.length === 1 ? "step" : "steps"} for ${bom.sku}.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save steps");
+      setError(errorText(err, "Could not save the steps."));
     } finally {
       setSaving(false);
     }
@@ -364,7 +367,7 @@ function RecipeSheet({
       toast.success(`${bom.sku} recipe deleted.`);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not delete BOM");
+      setError(errorText(err, "Could not delete the recipe."));
     } finally {
       setDeleting(false);
     }

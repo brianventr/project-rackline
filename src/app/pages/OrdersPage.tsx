@@ -25,6 +25,7 @@ import {
 import { toast } from "sonner";
 import {
   api,
+  errorText,
   type CarrierHub,
   type CarrierRate,
   type CarrierServiceOption,
@@ -50,6 +51,7 @@ import { DataTable, type BulkAction, type DataColumn, type FacetDef, type TabDef
 import { DocLink, LineChips, Muted, ProgressCell, RelativeTime, SkuCell, ProgressRow } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
 import { LinesField, TextField, TextareaField, useZodForm } from "../components/form-kit";
+import { Term } from "../components/term";
 import { blankLine, orderFormSchema, type OrderFormValues } from "@/domain/form-schemas";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -246,7 +248,10 @@ function OrderList() {
         const failed = results.filter((result) => result.status === "rejected") as PromiseRejectedResult[];
         void refreshApi();
         if (failed.length) {
-          toast.error(`${failed.length} could not start: ${failed[0]!.reason instanceof Error ? failed[0]!.reason.message : "error"}`);
+          // The count leads; the server's own sentence (and its fix) goes underneath, unwrapped.
+          toast.error(`${failed.length} could not start.`, {
+            description: errorText(failed[0]!.reason, "Something went wrong. Try again."),
+          });
         }
         const started = selected.length - failed.length;
         if (started) toast.success(`Started pick on ${started} ${started === 1 ? "order" : "orders"}. Stock is reserved.`);
@@ -281,9 +286,13 @@ function OrderList() {
           selected.map((order) => api(`/api/orders/${order.id}/cancel`, { method: "POST" })),
         );
         void refreshApi();
-        const failed = results.filter((result) => result.status === "rejected").length;
-        if (failed) toast.error(`${failed} could not be cancelled.`);
-        if (selected.length - failed) toast.success(`Cancelled ${selected.length - failed} orders.`);
+        const failed = results.filter((result) => result.status === "rejected") as PromiseRejectedResult[];
+        if (failed.length) {
+          toast.error(`${failed.length} could not be cancelled.`, {
+            description: errorText(failed[0]!.reason, "Something went wrong. Try again."),
+          });
+        }
+        if (selected.length - failed.length) toast.success(`Cancelled ${selected.length - failed.length} orders.`);
       },
     },
   ];
@@ -293,7 +302,12 @@ function OrderList() {
       <PageHeader
         eyebrow="Outbound"
         title="Orders"
-        description="Shopify checkouts and floor orders. Start pick to reserve stock, then pick from the suggested bay."
+        description={
+          <>
+            Shopify checkouts and floor orders. Start pick to <Term id="allocation">reserve stock</Term>, then pick from
+            the suggested bay.
+          </>
+        }
       />
       <DataTable
         id="orders"
@@ -377,7 +391,7 @@ function NewOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o
       onOpenChange(false);
       navigate(`/outbound/orders/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create order");
+      setError(errorText(err, "Could not create the order."));
     } finally {
       setBusy(false);
     }
@@ -452,7 +466,7 @@ function OrderDetail({ id }: { id: string }) {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err: unknown) => setError(errorText(err, "Could not load this order.")));
   }, [id]);
 
   function resetQtys(next: Order, bays: Location[] = locations) {
@@ -474,7 +488,7 @@ function OrderDetail({ id }: { id: string }) {
       void refreshApi();
       if (success) toast.success(success(next ?? null));
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${label} failed`);
+      setError(errorText(err, `${label} failed. Try again.`));
     }
   }
 
@@ -675,7 +689,7 @@ function OrderDetail({ id }: { id: string }) {
       });
       setRates(result.rates);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not shop rates");
+      setError(errorText(err, "Could not get rates. Try again."));
     }
   }
 
@@ -911,7 +925,9 @@ function OrderDetail({ id }: { id: string }) {
             {unpickMode ? (
               <div className="flex flex-wrap items-center gap-2 rounded-lg border border-tone-warning/30 bg-tone-warning-bg px-3 py-2 text-sm text-tone-warning">
                 <Undo2 className="size-4" />
-                <span className="flex-1">Enter how many units go back to the bay, then confirm.</span>
+                <span className="flex-1">
+                  Enter how many units go <Term id="unpick">back to the bay</Term>, then confirm.
+                </span>
                 <Button size="sm" variant="outline" onClick={() => setUnpickMode(false)}>
                   Cancel
                 </Button>

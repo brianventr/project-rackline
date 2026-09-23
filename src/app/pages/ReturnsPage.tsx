@@ -2,20 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowDownToLine, Play, Plus, ScanLine, Undo2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type Item, type Location, type Order, type Rma, type RmaLine } from "../api";
-import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorBanner,
-  Field,
-  Input,
-  PageHeader,
-  Select,
-  StatusBadge,
-  Table,
-  summarizeLines,
-} from "../components/ui";
+import { api, errorText, type Item, type Location, type Order, type Rma, type RmaLine } from "../api";
+import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, StatusBadge, Table, summarizeLines } from "../components/ui";
 import { BayCombobox } from "../components/BayCombobox";
 import {
   DetailSkeleton,
@@ -29,6 +17,8 @@ import {
 import { DataTable, type DataColumn, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, LineChips, Muted, ProgressCell, RelativeTime, SkuCell, ProgressRow } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { LinesField, SelectField, TextField, useZodForm, type ZodFormOutput } from "../components/form-kit";
+import { Term } from "../components/term";
 import { apiMutate, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { cn } from "@/lib/utils";
@@ -36,13 +26,11 @@ import { STEP_RULES } from "@/domain/step-stamps";
 import { RETURN_STEPS, canReceiveReturn } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
 import { useWarehouse, inWarehouse } from "../warehouse";
-import { LineFields } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { ExpiryInput, parseExpiryInput } from "../components/expiry-field";
 import { DispositionSelect } from "../components/disposition-field";
 import { dispositionLabel, parseDisposition, type ReturnDisposition } from "@/domain/return-disposition";
-
-type Line = { itemId: string; qty: string };
+import { blankLine, returnFormSchema } from "@/domain/form-schemas";
 
 export function ReturnsPage() {
   const { id } = useParams();
@@ -146,7 +134,12 @@ function ReturnList() {
       <PageHeader
         eyebrow="Outbound"
         title="Returns"
-        description="Customer RMAs. Receive back into a bay as restock, scrap, or hold."
+        description={
+          <>
+            Customer <Term id="rma">RMAs</Term>. Receive back into a bay as{" "}
+            <Term id="disposition">restock, scrap, or hold</Term>.
+          </>
+        }
       />
       <DataTable
         id="returns"
@@ -196,31 +189,35 @@ function NewReturnSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
   const { warehouseId } = useWarehouse();
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
   const orders = useApiQuery<Order[]>(open ? "/api/orders" : null);
-  const [customerName, setCustomerName] = useState("");
-  const [orderId, setOrderId] = useState("");
-  const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<Line[]>([{ itemId: "", qty: "1" }]);
+  const form = useZodForm(returnFormSchema, { customerName: "", orderId: "", notes: "", lines: [blankLine()] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function create() {
+  // Keep what was typed between opens, but start each open without stale inline errors.
+  const { reset, getValues } = form;
+  useEffect(() => {
+    if (open) reset(getValues(), { keepDefaultValues: true });
+  }, [open, reset, getValues]);
+
+  async function create(values: ZodFormOutput<typeof returnFormSchema>) {
     setError(null);
     setBusy(true);
     try {
+      // Same body as before: no order sends null, blank rows are already dropped, qty is a number.
       const created = await apiMutate<Rma>("/api/returns", {
         body: JSON.stringify({
           warehouseId,
-          customerName,
-          orderId: orderId || null,
-          notes,
-          lines: lines.filter((line) => line.itemId).map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
+          customerName: values.customerName,
+          orderId: values.orderId || null,
+          notes: values.notes,
+          lines: values.lines.map((line) => ({ itemId: line.itemId, qty: line.qty })),
         }),
       });
       toast.success(`Return ${created.number} opened.`);
       onOpenChange(false);
       navigate(`/outbound/returns/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create return");
+      setError(errorText(err, "Could not create the return."));
     } finally {
       setBusy(false);
     }
@@ -233,30 +230,23 @@ function NewReturnSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
       title="New return"
       description="What the customer is sending back. Receive it on the record when the box arrives."
       submitLabel="Create return"
-      onSubmit={create}
+      onSubmit={form.handleSubmit(create)}
       busy={busy}
       error={error}
     >
-      <Field label="Customer">
-        <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required autoFocus />
-      </Field>
-      <Field label="Original order">
-        <Select value={orderId} onChange={(e) => setOrderId(e.target.value)}>
-          <option value="">None</option>
-          {inWarehouse(orders.data ?? [], warehouseId).map((order) => (
-            <option key={order.id} value={order.id}>
-              {order.number} · {order.customerName}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Notes">
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Wrong color, damaged carton…" />
-      </Field>
-      <div className="space-y-1.5">
-        <p className="text-sm font-medium">Lines</p>
-        <LineFields items={items.data ?? []} lines={lines} setLines={setLines} />
-      </div>
+      <TextField form={form} name="customerName" label="Customer" autoFocus />
+      <SelectField
+        form={form}
+        name="orderId"
+        label="Original order"
+        placeholder="None"
+        options={inWarehouse(orders.data ?? [], warehouseId).map((order) => ({
+          value: order.id,
+          label: `${order.number} · ${order.customerName}`,
+        }))}
+      />
+      <TextField form={form} name="notes" label="Notes" placeholder="Wrong color, damaged carton…" />
+      <LinesField form={form} name="lines" items={items.data ?? []} />
     </FormSheet>
   );
 }
@@ -313,7 +303,7 @@ function ReturnDetail({ id }: { id: string }) {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setLoadError(err.message));
+    load().catch((err: unknown) => setLoadError(errorText(err, "Could not load this return.")));
   }, [id]);
 
   if (!rma) {
