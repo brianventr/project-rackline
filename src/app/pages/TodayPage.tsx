@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Boxes,
   ChevronDown,
+  Clock,
   Factory,
   Hourglass,
   LayoutGrid,
@@ -23,7 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api, type Dashboard, type FloorJob, type Purchase, type TeamMember } from "../api";
-import { EmptyState, ErrorBanner, PageHeader, StatusBadge } from "../components/ui";
+import { EmptyState, ErrorBanner, PageHeader, StatusBadge, ToneBadge } from "../components/ui";
 import { PersonAvatar } from "../components/cells";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
@@ -38,6 +39,7 @@ import { ageInDays, relativeTime } from "@/domain/relative-time";
 import { jobForRef, jobForSuggestion } from "../jobs";
 import { cn } from "@/lib/utils";
 import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
+import { formatPickupLabel, type PromiseBoard } from "@/domain/promise";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -103,6 +105,11 @@ export function TodayPage() {
   const dashboard = useDashboard();
   const jobsQuery = useApiQuery<FloorJob[]>(`/api/jobs${query}${query ? "&" : "?"}open=1`, { refetchInterval: 60_000 });
   const teamQuery = useApiQuery<TeamMember[]>("/api/team");
+  const promiseQuery = useApiQuery<PromiseBoard>(
+    warehouseId ? `/api/analytics/promises?warehouseId=${encodeURIComponent(warehouseId)}` : null,
+    { refetchInterval: 60_000 },
+  );
+  const promise = promiseQuery.data ?? null;
   const data = dashboard.data ?? null;
   const jobs = jobsQuery.data ?? EMPTY_JOBS;
   const team = teamQuery.data ?? EMPTY_TEAM;
@@ -266,6 +273,7 @@ export function TodayPage() {
     { label: "Out of service", value: data?.outOfService, to: "/equipment" },
     { label: "Certs due", value: data?.expiringCerts, to: "/setup/team" },
     { label: "Runs out this week", value: data?.runwayThisWeek?.length, to: "/analytics/runway" },
+    { label: "This pickup", value: promise?.kpis.leavesToday, to: "/analytics/promise" },
     { label: "On hand units", value: data?.onHandUnits, to: "/stock" },
     { label: "SKUs", value: data?.skuCount, to: "/stock/items" },
   ].filter((item) => allow(item.to));
@@ -412,6 +420,46 @@ export function TodayPage() {
               />
             ))}
           </RailCard>
+          {allow("/analytics/promise") ? (
+            <RailCard
+              title="Promise"
+              icon={Clock}
+              action={
+                <Link className="text-sm font-medium text-muted-foreground hover:text-foreground" to="/analytics/promise">
+                  Promise →
+                </Link>
+              }
+              empty="Every open order leaves on the next pickup."
+              loading={promiseQuery.isLoading}
+            >
+              {(promise?.orders ?? [])
+                .filter((row) => row.code !== "leaves_today")
+                .slice(0, 6)
+                .map((row) => (
+                  <Link
+                    key={row.orderId}
+                    to={`/outbound/orders/${row.orderId}`}
+                    className="flex items-center justify-between gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted/60"
+                  >
+                    <span className="min-w-0 truncate">
+                      <span className="font-mono">{row.number}</span>{" "}
+                      <span className="text-muted-foreground">{row.customerName}</span>
+                    </span>
+                    {row.code === "short" ? (
+                      <ToneBadge tone="danger">Short</ToneBadge>
+                    ) : (
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {row.waitingOn
+                          ? row.waitingOn
+                          : row.promisedAt
+                            ? formatPickupLabel(row.promisedAt, promise?.timeZone ?? "UTC")
+                            : "—"}
+                      </span>
+                    )}
+                  </Link>
+                ))}
+            </RailCard>
+          ) : null}
           <RailCard
             title="Runs out this week"
             icon={Hourglass}

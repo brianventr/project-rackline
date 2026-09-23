@@ -8,6 +8,7 @@ import {
   Building2,
   Calculator,
   ClipboardList,
+  Clock,
   Container,
   FileInput,
   Forklift,
@@ -109,6 +110,7 @@ export const OFFICE_NAV: NavGroup[] = [
     items: [
       { title: "Traffic", url: "/analytics/traffic", icon: Radar, keywords: "shipments map tracker" },
       { title: "Runway", url: "/analytics/runway", icon: Hourglass, keywords: "stockout days of cover" },
+      { title: "Promise", url: "/analytics/promise", icon: Clock, keywords: "leave by pickup cutoff quote ship date" },
     ],
   },
   {

@@ -25,6 +25,7 @@ describe("operating mode", () => {
     expect(garageAllowsPath("/outbound/orders/o1/pack-slip")).toBe(true);
     expect(garageAllowsPath("/map?edit=1")).toBe(true);
     expect(garageAllowsPath("/analytics/runway")).toBe(true);
+    expect(garageAllowsPath("/analytics/promise")).toBe(true);
     expect(garageAllowsPath("/stock")).toBe(true);
     expect(garageAllowsPath("/setup/team")).toBe(true);
     expect(garageAllowsPath("/setup/audit")).toBe(true);
@@ -61,6 +62,7 @@ describe("operating mode", () => {
       "/stock",
       "/stock/items",
       "/analytics/runway",
+      "/analytics/promise",
       "/setup/shopify",
       "/setup/carriers",
       "/setup/team",

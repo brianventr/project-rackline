@@ -37,6 +37,7 @@ const GARAGE_PATHS: { prefix: string; exact?: boolean }[] = [
   { prefix: "/map" },
   { prefix: "/move", exact: true },
   { prefix: "/analytics/runway" },
+  { prefix: "/analytics/promise" },
   { prefix: "/stock", exact: true },
   { prefix: "/stock/items" },
   { prefix: "/stock/locations" },
@@ -126,7 +127,10 @@ export const GARAGE_NAV: GarageNavGroup[] = [
   },
   {
     label: "Runway",
-    items: [{ title: "Runway", url: "/analytics/runway" }],
+    items: [
+      { title: "Runway", url: "/analytics/runway" },
+      { title: "Promise", url: "/analytics/promise" },
+    ],
   },
   {
     label: "Shop",

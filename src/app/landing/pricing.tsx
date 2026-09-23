@@ -33,6 +33,7 @@ const plans = [
       "Floor map and scan-to-move",
       "Gun scanners on every screen",
       "Receive, pick, pack, and ship",
+      "Promise — when the order actually leaves",
     ],
   },
   {
