@@ -53,7 +53,7 @@ Iteration 23 adds unpick and office/floor cancel: unpacked qty returns to the ba
 
 Iteration 24 opens the parked logistics set on the same location:item ledger:
 
-- **Zones** — aisle/area zones; bays can join a zone for wave scoping
+- **Zones** — aisle/area zones; bays can join a zone for wave scoping. Since iteration 60 a zone can also be drawn as a rectangle in Build floor, and bays placed inside it join automatically
 - **Waves / batch** — group open orders into `WAV-` (`wave` or `batch`). Batch release consolidates SKU qty; floor batch-pick spreads across orders (over-batch 409)
 - **ASN** — vendor advance notices (`ASN-`) receive like a PO (partial qty, over-receive 409)
 - **3PL clients** — client codes tag orders, ASNs, and waves (qty stays on location:item)
@@ -129,6 +129,8 @@ Iteration 58 adds Promise: a leave-by for every open order, and for a new qty of
 
 Iteration 59 locates the selected Today row on the racks. Click a row and the rail widens into a card with the document, its action, and where the work is: a rack front view (bays × levels) over a floor plan, or the 3D racks with the camera flown to the bay. A crosshair marks the bay the work points at; the bay stock comes from is a green ring. Receipts, POs, and ASNs point at where each SKU is going — the dock it lands on, then the bay directed putaway sends it to from there. Putaway, replenish, kit, and work order point at the destination; orders at their pick bays (allocations first); RTV, holds, counts, variances, and FEFO at their bay; runway at every bay holding the SKU. Flat or 3D is remembered per browser. Below 1280px the card opens as a side sheet. Nothing is reserved or moved.
 
+Iteration 60 makes Build floor an editor for what is already on the floor. Racks and dock / bench / staging areas select with one click in Plan or Orbit and drag on the grid (areas could not move before). The selection is outlined at the top of the object so it shows from above, a hovered object outlines too, and a click on bare floor clears it. `R` turns the selected object or the one in hand (a quarter turn swaps an area's sides), arrows nudge a selected object and `Enter` or a floor click drops it, `Esc` cancels, `Delete` removes. Docks, benches, and staging areas are solid slabs in their type colour with an edge and a label instead of a near-floor tint, and the inspector renames, re-codes, resizes, and turns them through `PATCH /api/layout/areas` with the same bounds, overlap, and duplicate-code checks as a placement. Zones are drawn first: the Zone tool drags a rectangle on the floor and names it (or attaches it to a tag-only zone from Setup → Zones). From then on a rack or area placed or moved inside the rectangle joins the zone and one moved out leaves it; drawing or moving a rectangle re-syncs the bays under it, and a tag set by hand on a bay outside every rectangle stays. Rectangles show on the floor plan and the 3D racks. A rectangle that leaves the building is HTTP 400; one that overlaps another zone is 409 (`ZONE_OVERLAP`). The 3D floor stays on three.js / WebGL; see Stack for why not a game engine.
+
 Iteration 54 adds one photo per SKU and numbered kitting steps on the recipe. Floor Kit and Assemble show the photo, steps, and components; Pick and Lookup use the same thumbnail. Paste a URL or upload to R2 (`MEDIA`). Shopify copies a line image onto a new or photo-less SKU only. Complete is still one-step explode. Qty stays integer pieces on location:item.
 
 Shopify checkouts land as pick tickets; after ship, Rackline posts fulfillment back to Shopify. Locations can sit on a warehouse map with barcodes and scan-to-move.
@@ -167,6 +169,13 @@ The hierarchy both flows teach, top to bottom: organization → warehouse (build
 - Vite + React + Tailwind v4 + shadcn/ui, served as Workers static assets
 - Better Auth email/password
 - Shopify Admin GraphQL + HMAC-signed webhooks
+- 3D floor: [three.js](https://threejs.org) through `@react-three/fiber` and `drei`, rendering with WebGL in the browser
+
+### Why the floor is three.js and not a game engine
+
+The question comes up, so the trade-off is written down. Unreal has had no supported browser build since the HTML5 target left the engine in 4.24; the way Unreal reaches a browser today is Pixel Streaming, where the engine runs on a GPU host and streams video over WebRTC while the page sends input back. That means a GPU machine per concurrent viewer, input latency of a video call, a second deploy pipeline beside the Worker, and the inspector, selection, scan, and barcode flows talking to the scene through a message channel instead of sharing React state. Unity's WebGL export runs in the page but ships tens of megabytes, starts in seconds, and puts the floor in a separate C# codebase with the same integration wall. Neither fits static assets on Cloudflare Workers or a free demo.
+
+three.js keeps the scene in the same component tree as the rest of the app and still has headroom: the racks are instanced meshes (one draw per part type, thousands of bays), tone mapping and hemisphere / directional lighting are already on, and the next visual steps — soft shadows, an environment map, ambient occlusion and other post-processing through `@react-three/postprocessing`, and three's `WebGPURenderer` where the browser has WebGPU with WebGL as the fallback — are library upgrades, not a rewrite. Revisit a streamed engine only if the floor needs photoreal materials or physics that a browser cannot carry.
 
 ## Local development
 
@@ -263,7 +272,7 @@ All quantity changes go through one engine (`src/domain/inventory.ts`) and an ap
 - **Reorder point** flags SKUs at or below the threshold on the floor board. **Draft PO** on Today opens a draft purchase for `max(1, ROP − on-hand)` using the last vendor, skipping SKUs already on an open PO
 - **Runway** projects days until stockout from a SKU baseline ship rate (or observed velocity). Cover is sellable qty plus dated inbound, minus BOM burn and lots that expire before they would ship. **Draft PO** on Analytics → Runway orders lead time + 14 days of burn for order-today SKUs
 - **Promise** quotes when an open order, or a new qty of a SKU, leaves on the carrier cutoff. Shelf, queue, live pace, and dated inbound (ASN / ordered PO) decide the day. Lots that expire before that pickup do not count. The quote does not allocate — pick start still owns ATP. `GET /api/analytics/promises/ask` returns the same JSON a buying agent would read (`reservesStock: false`)
-- **Zone** tags bays on a warehouse for wave scoping. Qty stays on location:item
+- **Zone** tags bays on a warehouse for wave scoping. Draw it as a rectangle in Build floor and bays whose centre sits inside join it; a bay moved out is cleared, a tag set by hand elsewhere stays. Qty stays on location:item
 - **Wave / batch** groups open orders. Batch release consolidates remaining SKU qty; floor batch-pick posts picks across those orders and returns HTTP 409 (`OVER_BATCH_PICK`) when over. Qty stays integer pieces on location:item
 - **ASN** is a vendor advance notice that receives like a purchase (partial qty, over-receive 409). Vendor `BOX-n` / SSCC cartons receive one at a time onto the dock. Unreceive reverses dock qty for a carton that is not put away (`unreceive` movement) and reopens the ASN. Put-away cartons cannot be unreceived (409 `ALREADY_PUTAWAY`)
 - **3PL client** tags documents (orders, ASNs, waves). Inventory is not split by client on the ledger

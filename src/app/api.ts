@@ -304,6 +304,8 @@ export type WarehouseMapData = {
   warehouse: WarehouseMapInfo;
   warehouses: WarehouseMapInfo[];
   locations: MapLocation[];
+  /** Zones on this floor; a zero size means the zone is a tag only and is not drawn. */
+  zones?: Zone[];
 };
 
 export type ScanLocationHit = {
@@ -1239,6 +1241,11 @@ export type Zone = {
   code: string;
   name: string;
   createdAt: number;
+  /** The rectangle drawn on the floor; sizes of 0 mean none. */
+  posX: number;
+  posY: number;
+  sizeX: number;
+  sizeY: number;
 };
 
 export type WaveOrder = {

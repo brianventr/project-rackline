@@ -1,6 +1,7 @@
 import { lazy, Suspense, useMemo, useRef, useState, type PointerEvent } from "react";
-import type { MapLocation, WarehouseMapInfo } from "../api";
+import type { MapLocation, WarehouseMapInfo, Zone } from "../api";
 import { groupFloorObjects } from "@/domain/rack-builder";
+import { countZoneBays, hasFootprint } from "@/domain/zones";
 import type { PickMapMarker } from "@/domain/pick-map";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +20,8 @@ type Props = {
   pickIds?: string[];
   pickMarkers?: PickMapMarker[];
   pins?: MapPin[];
+  /** Zones drawn in Build floor; tag-only zones (zero size) are skipped. */
+  zones?: Zone[];
   view: MapView;
   levelFilter: "all" | number;
   canDrag?: boolean;
@@ -64,6 +67,9 @@ function floorCells(locations: MapLocation[]) {
   });
 }
 
+/** One stroke per drawn zone, in code order, matching the 3D scene's palette. */
+const ZONE_STROKES = ["#6d4fb3", "#1f8a7d", "#b04a6d", "#4a6fa8", "#7a8a22", "#b76a2e"];
+
 function locationFill(
   location: Pick<MapLocation, "type" | "unitsOnHand">,
   selected: boolean,
@@ -91,6 +97,7 @@ export function WarehouseMap({
   pickIds,
   pickMarkers,
   pins,
+  zones,
   view,
   levelFilter,
   canDrag,
@@ -217,6 +224,35 @@ export function WarehouseMap({
       {Array.from({ length: warehouse.mapDepth + 1 }, (_, i) => (
         <line key={`hz-${i}`} x1={0} y1={i} x2={warehouse.mapWidth} y2={i} stroke="rgba(90,70,40,0.12)" strokeWidth="0.04" />
       ))}
+      {(zones ?? []).filter(hasFootprint).map((zone, index) => {
+        const stroke = ZONE_STROKES[index % ZONE_STROKES.length]!;
+        return (
+          <g key={zone.id} pointerEvents="none">
+            <rect
+              x={zone.posX}
+              y={zone.posY}
+              width={zone.sizeX}
+              height={zone.sizeY}
+              fill={stroke}
+              fillOpacity="0.12"
+              stroke={stroke}
+              strokeWidth="0.14"
+              strokeDasharray="0.6 0.3"
+            />
+            <text
+              x={zone.posX + zone.sizeX - 0.4}
+              y={zone.posY + zone.sizeY - 0.5}
+              textAnchor="end"
+              fontSize="0.8"
+              fill={stroke}
+              fontFamily="ui-monospace, monospace"
+              fontWeight="600"
+            >
+              Zone {zone.code} · {countZoneBays(zone.id, locations)} bays
+            </text>
+          </g>
+        );
+      })}
       {areas.map((area) => (
         <g key={area.name}>
           <rect

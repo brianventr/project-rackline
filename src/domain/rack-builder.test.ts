@@ -12,6 +12,11 @@ import {
   nextAreaCode,
   nextRackAddress,
   RACK_PRESETS,
+  nextRotation,
+  objectFootprint,
+  objectLocationIds,
+  rotateAreaSpec,
+  translateAreaSpec,
   validateDrafts,
 } from "./rack-builder";
 
@@ -160,5 +165,40 @@ describe("rack builder", () => {
     expect(open).not.toBeNull();
     expect(open).not.toEqual({ posX: 2, posY: 1 });
     expect(validateDrafts([expandArea({ ...spec, ...open! })], existing, warehouse)).toBeNull();
+  });
+
+  it("moves and quarter-turns an area by swapping its sides", () => {
+    const dock = expandArea({
+      type: "receiving",
+      code: "RECV",
+      name: "Receiving dock",
+      posX: 2,
+      posY: 1,
+      posZ: 0,
+      sizeX: 16,
+      sizeY: 4,
+      sizeZ: 3,
+    });
+    const [object] = groupFloorObjects([{ ...dock, id: "recv" }]);
+    expect(object?.kind).toBe("area");
+    if (object?.kind !== "area") return;
+    expect(translateAreaSpec(object.spec, 10, 12)).toMatchObject({ posX: 10, posY: 12, sizeX: 16, sizeY: 4 });
+    expect(rotateAreaSpec(object.spec)).toMatchObject({ sizeX: 4, sizeY: 16 });
+    expect(rotateAreaSpec(rotateAreaSpec(object.spec))).toMatchObject({ sizeX: 16, sizeY: 4 });
+    expect(objectFootprint(object)).toMatchObject({ posX: 2, posY: 1, sizeX: 16, sizeY: 4, sizeZ: 3 });
+    expect([...objectLocationIds(object)]).toEqual(["recv"]);
+    expect(nextRotation(270)).toBe(0);
+    expect(nextRotation(90)).toBe(180);
+  });
+
+  it("reports a rack's footprint and every bin it owns", () => {
+    const bins = expandRack(defaultRackSpec({ aisle: "C", rack: "01", posX: 4, posY: 4, bays: 2, levels: 2 })).map(
+      (row, index) => ({ ...row, id: `c${index}` }),
+    );
+    const [rack] = groupFloorObjects(bins);
+    expect(rack?.kind).toBe("rack");
+    if (rack?.kind !== "rack") return;
+    expect(objectFootprint(rack)).toMatchObject({ posX: 4, posY: 4, posZ: 0, sizeZ: 4 });
+    expect(objectLocationIds(rack).size).toBe(4);
   });
 });

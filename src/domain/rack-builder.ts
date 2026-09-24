@@ -479,6 +479,30 @@ export function rotateSpec(spec: RackSpec, rotation: Rotation): RackSpec {
   return { ...spec, rotation };
 }
 
+export function nextRotation(rotation: Rotation): Rotation {
+  return ((rotation + 90) % 360) as Rotation;
+}
+
+export function translateAreaSpec(spec: AreaSpec, posX: number, posY: number): AreaSpec {
+  return { ...spec, posX, posY };
+}
+
+/** Areas have no bays to re-address, so a quarter turn just swaps the footprint's sides. */
+export function rotateAreaSpec(spec: AreaSpec): AreaSpec {
+  return { ...spec, sizeX: spec.sizeY, sizeY: spec.sizeX };
+}
+
+/** The floor rectangle (and height) one object covers. */
+export function objectFootprint(object: FloorObject): Box3 | null {
+  return object.kind === "rack" ? footprint(object.locations) : footprint([object.location]);
+}
+
+/** Ids of the bays an object owns, so a validation can ignore the object's own bins while it moves. */
+export function objectLocationIds(object: FloorObject): Set<string> {
+  const rows = object.kind === "rack" ? object.locations : [object.location];
+  return new Set(rows.map((row) => row.id).filter((id): id is string => Boolean(id)));
+}
+
 export function worldCenter(box: Box3): { x: number; y: number; z: number } {
   return {
     x: box.posX + box.sizeX / 2,

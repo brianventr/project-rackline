@@ -14,10 +14,12 @@ import {
   normalizeAisle,
   normalizeRack,
   padBay,
+  type AreaSpec,
   type LocationDraft,
   type RackSpec,
   validateDrafts,
 } from "../domain/rack-builder";
+import { resolveZoneId, type ZoneFootprint } from "../domain/zones";
 
 export const layoutRoute = new Hono<AppEnv>();
 
@@ -46,6 +48,23 @@ async function locationsInWarehouse(c: LayoutContext, warehouseId: string) {
         eq(schema.locations.warehouseId, warehouseId),
       ),
     );
+}
+
+/** Drawn zones in this warehouse, so a bay that lands inside one joins it. */
+async function zonesInWarehouse(c: LayoutContext, warehouseId: string): Promise<ZoneFootprint[]> {
+  const db = c.get("db");
+  return db
+    .select({
+      id: schema.zones.id,
+      code: schema.zones.code,
+      name: schema.zones.name,
+      posX: schema.zones.posX,
+      posY: schema.zones.posY,
+      sizeX: schema.zones.sizeX,
+      sizeY: schema.zones.sizeY,
+    })
+    .from(schema.zones)
+    .where(and(eq(schema.zones.organizationId, c.get("organizationId")!), eq(schema.zones.warehouseId, warehouseId)));
 }
 
 async function occupiedIds(c: LayoutContext, locationIds: string[]): Promise<Set<string>> {
@@ -83,7 +102,7 @@ function specFromBody(body: Record<string, unknown>, base?: Partial<RackSpec>): 
   });
 }
 
-async function insertDrafts(c: LayoutContext, warehouseId: string, drafts: LocationDraft[]) {
+async function insertDrafts(c: LayoutContext, warehouseId: string, drafts: LocationDraft[], zones: ZoneFootprint[]) {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const created = [];
@@ -94,6 +113,7 @@ async function insertDrafts(c: LayoutContext, warehouseId: string, drafts: Locat
         id: newId(),
         organizationId,
         warehouseId,
+        zoneId: resolveZoneId(zones, draft, null),
         code: draft.code,
         name: draft.name,
         type: draft.type,
@@ -129,8 +149,9 @@ layoutRoute.post("/layout/racks", async (c) => {
     if (issue.code === "collision-code") conflict(issue.message);
     badRequest(issue.message);
   }
+  const zones = await zonesInWarehouse(c, warehouseId);
   try {
-    const created = await insertDrafts(c, warehouseId, drafts);
+    const created = await insertDrafts(c, warehouseId, drafts, zones);
     return c.json({ spec, locations: created, count: created.length }, 201);
   } catch {
     return c.json({ error: "A bay code on that rack already exists" }, 409);
@@ -187,6 +208,7 @@ layoutRoute.patch("/layout/racks", async (c) => {
     conflict("Empty those bays before shrinking the rack.");
   }
 
+  const zones = await zonesInWarehouse(c, warehouseId);
   for (const draft of drafts) {
     const key = `${padBay(draft.bay ?? "01")}:${draft.level}`;
     const match = bySlot.get(key);
@@ -194,6 +216,7 @@ layoutRoute.patch("/layout/racks", async (c) => {
       await db
         .update(schema.locations)
         .set({
+          zoneId: resolveZoneId(zones, draft, match.zoneId),
           code: draft.code,
           name: draft.name,
           barcode: draft.barcode,
@@ -211,7 +234,7 @@ layoutRoute.patch("/layout/racks", async (c) => {
         })
         .where(and(eq(schema.locations.id, match.id), eq(schema.locations.organizationId, organizationId)));
     } else {
-      await insertDrafts(c, warehouseId, [draft]);
+      await insertDrafts(c, warehouseId, [draft], zones);
     }
   }
   for (const row of removed) {
@@ -271,6 +294,64 @@ layoutRoute.post("/layout/areas", async (c) => {
     if (issue.code === "collision-code") conflict(issue.message);
     badRequest(issue.message);
   }
-  const [created] = await insertDrafts(c, warehouseId, [draft]);
+  const zones = await zonesInWarehouse(c, warehouseId);
+  const [created] = await insertDrafts(c, warehouseId, [draft], zones);
   return c.json({ spec, location: created }, 201);
+});
+
+/**
+ * Move, resize, rename, or re-code one dock / bench / staging area. The new footprint is checked the same way a
+ * placement is (inside the building, no overlap, no duplicate code), and the area joins the drawn zone it lands in.
+ */
+layoutRoute.patch("/layout/areas", async (c) => {
+  requireOwner(c.get("role"));
+  const body = (await c.req.json()) as Record<string, unknown>;
+  const warehouseId = requireString(body.warehouseId, "warehouseId");
+  const locationId = requireString(body.locationId, "locationId");
+  const warehouse = await warehouseFor(c, warehouseId);
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const existing = await locationsInWarehouse(c, warehouseId);
+  const current = existing.find((row) => row.id === locationId);
+  if (!current) notFound("Area not found");
+  if (!isLocationType(current.type) || current.type === "storage") badRequest("Only a dock, bench, or staging area can be edited here");
+
+  const spec: AreaSpec = {
+    type: current.type,
+    code: (optionalString(body.code) ?? current.code).toUpperCase(),
+    name: optionalString(body.name) ?? current.name,
+    posX: optionalInt(body.posX, "posX") ?? current.posX,
+    posY: optionalInt(body.posY, "posY") ?? current.posY,
+    posZ: current.posZ,
+    sizeX: optionalInt(body.sizeX, "sizeX") ?? current.sizeX,
+    sizeY: optionalInt(body.sizeY, "sizeY") ?? current.sizeY,
+    sizeZ: optionalInt(body.sizeZ, "sizeZ") ?? current.sizeZ,
+  };
+  if (spec.sizeX < 1 || spec.sizeY < 1 || spec.sizeZ < 1) badRequest("An area needs at least one grid cell each way");
+  const draft = expandArea(spec);
+  const issue = validateDrafts([draft], existing, warehouse, new Set([current.id]));
+  if (issue) {
+    if (issue.code === "collision-code") conflict(issue.message);
+    badRequest(issue.message);
+  }
+  const zones = await zonesInWarehouse(c, warehouseId);
+  // A barcode that simply mirrored the code follows a re-code; a custom barcode is left alone.
+  const barcode = current.barcode === current.code ? draft.code : current.barcode;
+  const [row] = await db
+    .update(schema.locations)
+    .set({
+      code: draft.code,
+      name: draft.name,
+      barcode,
+      posX: draft.posX,
+      posY: draft.posY,
+      posZ: draft.posZ,
+      sizeX: draft.sizeX,
+      sizeY: draft.sizeY,
+      sizeZ: draft.sizeZ,
+      zoneId: resolveZoneId(zones, draft, current.zoneId),
+    })
+    .where(and(eq(schema.locations.id, current.id), eq(schema.locations.organizationId, organizationId)))
+    .returning();
+  return c.json({ spec, location: row });
 });
