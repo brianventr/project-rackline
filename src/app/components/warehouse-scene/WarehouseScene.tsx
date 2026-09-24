@@ -7,27 +7,31 @@ import {
   expandArea,
   expandRack,
   footprint,
+  objectFootprint,
   objectForLocation,
   snap,
   worldCenter,
   type AreaSpec,
+  type Box3,
   type FloorObject,
   type LocationDraft,
   type LocationLike,
   type RackSpec,
 } from "@/domain/rack-builder";
+import { countZoneBays, hasFootprint, type ZoneFootprint, type ZoneRect } from "@/domain/zones";
 import type { PickMapMarker } from "@/domain/pick-map";
 import { cn } from "@/lib/utils";
 import { Reticle, type TargetTone } from "../rack-locator/reticle";
-import { readSceneTheme, type SceneTheme } from "./theme";
+import { readSceneTheme, zoneColor, type SceneTheme } from "./theme";
 import { cartonGeometry, PALLET_HEIGHT, PALLET_LIFT, RackFrames, RackPallets, loadFootprint } from "./rack-meshes";
 
 export type CameraMode = "top" | "orbit";
 /** A bay the current work points at: `target` gets the crosshair, `origin` is where stock comes from. */
 export type SceneTarget = { locationId: string; tone: TargetTone; label: string };
 export type Ghost =
-  | { kind: "rack"; spec: RackSpec; valid: boolean; message?: string | null }
-  | { kind: "area"; spec: AreaSpec; valid: boolean; message?: string | null };
+  | { kind: "rack"; spec: RackSpec; valid: boolean; message?: string | null; zoneLabel?: string | null }
+  | { kind: "area"; spec: AreaSpec; valid: boolean; message?: string | null; zoneLabel?: string | null }
+  | { kind: "zone"; spec: ZoneRect & { code?: string | null }; valid: boolean; message?: string | null };
 
 type Props = {
   warehouse: WarehouseMapInfo;
@@ -48,21 +52,60 @@ type Props = {
   className?: string;
   mode: "view" | "build";
   cameraMode: CameraMode;
+  /** A rack or area ghost follows the cursor; objects are not pickable. */
   placing?: boolean;
+  /** An object is being dragged (pointer or arrow keys). */
   translating?: boolean;
+  /** The zone tool is active: objects are not pickable and a pointer-down on the floor starts a rectangle. */
+  drawing?: boolean;
+  /** A zone rectangle is being dragged out right now. */
+  sketching?: boolean;
   explode?: boolean;
   levelFilter?: "all" | number;
   hiddenObjectId?: string | null;
   ghost?: Ghost | null;
   cursor?: { x: number; y: number } | null;
+  /** Zones drawn on this floor, in code order; tag-only zones are skipped. */
+  zones?: ZoneFootprint[];
+  selectedZoneId?: string | null;
   onSelectLocation: (location: MapLocation | null) => void;
   onSelectObject: (id: string | null) => void;
+  onSelectZone?: (id: string | null) => void;
   onFloorMove?: (x: number, y: number) => void;
+  /** A left button went down on bare floor (used to start a zone rectangle). */
+  onFloorDown?: (x: number, y: number) => void;
+  /** A clean click (no drag) that began on bare floor, not on an object or zone. */
   onFloorClick?: (x: number, y: number) => void;
   onTranslateBegin?: (objectId: string, x: number, y: number) => void;
   onTranslateMove?: (x: number, y: number) => void;
   onTranslateEnd?: () => void;
+  onDrawEnd?: () => void;
 };
+
+/** How far (px) a pointer may travel between down and up and still count as a click. */
+const CLICK_SLOP = 3;
+type Ring = [number, number, number][];
+
+function ring(box: { posX: number; posY: number; sizeX: number; sizeY: number }, y: number): Ring {
+  const x0 = box.posX;
+  const z0 = box.posY;
+  const x1 = box.posX + box.sizeX;
+  const z1 = box.posY + box.sizeY;
+  return [
+    [x0, y, z0],
+    [x1, y, z0],
+    [x1, y, z1],
+    [x0, y, z1],
+    [x0, y, z0],
+  ];
+}
+
+/** Where a dock / bench / staging box sits and how tall it is drawn, so labels and outlines can find its top. */
+function areaBoxDims(location: { posZ: number; sizeZ: number }) {
+  const h = Math.max(0.4, location.sizeZ * 0.45);
+  const y = Math.max(0.08, location.posZ + location.sizeZ / 2);
+  return { y, h, top: y + h / 2 };
+}
 
 const PLAN_TILT = 0.05;
 const EMPTY_ROWS: Array<LocationLike & { id?: string }> = [];
@@ -238,6 +281,10 @@ function InstancedBins({
   );
 }
 
+/**
+ * A dock, bench, or staging area: a solid slab in its type colour with a dark edge and a label, so it reads
+ * against the floor from straight above. Selection and hover glow rather than recolour, since orange means stock.
+ */
 function AreaBox({
   location,
   theme,
@@ -247,6 +294,7 @@ function AreaBox({
   tone,
   pickable,
   ghost,
+  label,
   onHover,
   onPointerDown,
 }: {
@@ -258,41 +306,183 @@ function AreaBox({
   tone?: TargetTone | null;
   pickable: boolean;
   ghost?: boolean;
+  label?: string | null;
   onHover?: (id: string | null) => void;
   onPointerDown?: (event: ThreeEvent<PointerEvent>) => void;
 }) {
   const center = worldCenter(location);
+  const dims = areaBoxDims(location);
+  const glow = selected ? theme.selected : hovered ? theme.hover : null;
   return (
-    <mesh
-      position={[center.x, Math.max(0.08, center.y), center.z]}
-      raycast={pickable ? undefined : () => undefined}
-      onPointerMove={
-        pickable
-          ? (event) => {
-              event.stopPropagation();
-              onHover?.(location.id ?? null);
-            }
-          : undefined
-      }
-      onPointerOut={pickable ? () => onHover?.(null) : undefined}
-      onPointerDown={
-        pickable
-          ? (event) => {
-              event.stopPropagation();
-              onPointerDown?.(event);
-            }
-          : undefined
-      }
-    >
-      <boxGeometry args={[location.sizeX, Math.max(0.4, location.sizeZ * 0.45), location.sizeY]} />
-      <meshStandardMaterial
-        color={binColor(location, theme, selected, hovered, false, false, false, pick, tone)}
-        roughness={0.7}
-        metalness={0.04}
-        transparent={ghost || !(selected || tone)}
-        opacity={ghost ? 0.4 : selected || tone ? 1 : 0.92}
-      />
-    </mesh>
+    <group>
+      <mesh
+        position={[center.x, dims.y, center.z]}
+        raycast={pickable ? undefined : () => undefined}
+        onPointerMove={
+          pickable
+            ? (event) => {
+                event.stopPropagation();
+                onHover?.(location.id ?? null);
+              }
+            : undefined
+        }
+        onPointerOut={pickable ? () => onHover?.(null) : undefined}
+        onPointerDown={
+          pickable
+            ? (event) => {
+                event.stopPropagation();
+                onPointerDown?.(event);
+              }
+            : undefined
+        }
+      >
+        <boxGeometry args={[location.sizeX, dims.h, location.sizeY]} />
+        <meshStandardMaterial
+          color={binColor(location, theme, false, false, false, false, false, pick, tone)}
+          roughness={0.62}
+          metalness={0.05}
+          transparent={Boolean(ghost)}
+          opacity={ghost ? 0.4 : 1}
+          emissive={glow ?? "#000000"}
+          emissiveIntensity={glow ? (selected ? 0.32 : 0.18) : 0}
+        />
+      </mesh>
+      {ghost ? null : (
+        <Line points={ring(location, dims.top + 0.01)} color={theme.areaEdge} lineWidth={1.2} transparent opacity={0.85} />
+      )}
+      {label ? (
+        <Html position={[center.x, dims.top + 0.05, center.z]} center zIndexRange={[20, 0]} style={{ pointerEvents: "none" }}>
+          <div className="max-w-[12rem] truncate rounded bg-background/85 px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap text-foreground shadow-sm ring-1 ring-border">
+            {label}
+          </div>
+        </Html>
+      ) : null}
+    </group>
+  );
+}
+
+/** Selection and hover feedback: a ring on the floor, a ring on top, and the four corner posts between them. */
+function ObjectOutline({
+  box,
+  top,
+  color,
+  lineWidth,
+  opacity = 1,
+  posts = true,
+}: {
+  box: Box3;
+  top: number;
+  color: string;
+  lineWidth: number;
+  opacity?: number;
+  posts?: boolean;
+}) {
+  const floor = 0.06;
+  const corners: [number, number][] = [
+    [box.posX, box.posY],
+    [box.posX + box.sizeX, box.posY],
+    [box.posX + box.sizeX, box.posY + box.sizeY],
+    [box.posX, box.posY + box.sizeY],
+  ];
+  return (
+    <group>
+      <Line points={ring(box, floor)} color={color} lineWidth={lineWidth} transparent opacity={opacity} />
+      <Line points={ring(box, top)} color={color} lineWidth={lineWidth} transparent opacity={opacity} />
+      {posts
+        ? corners.map(([x, z], index) => (
+            <Line
+              key={index}
+              points={[
+                [x, floor, z],
+                [x, top, z],
+              ]}
+              color={color}
+              lineWidth={Math.max(1, lineWidth * 0.7)}
+              transparent
+              opacity={opacity * 0.8}
+            />
+          ))
+        : null}
+    </group>
+  );
+}
+
+/** A drawn zone: a tinted patch on the floor under everything else, its outline, and a corner label. */
+function ZoneFloor({
+  zone,
+  color,
+  selected,
+  pickable,
+  bays,
+  compact,
+  onPointerDown,
+}: {
+  zone: ZoneFootprint;
+  color: string;
+  selected: boolean;
+  pickable: boolean;
+  bays: number;
+  compact?: boolean;
+  onPointerDown?: (event: ThreeEvent<PointerEvent>) => void;
+}) {
+  const cx = zone.posX + zone.sizeX / 2;
+  const cz = zone.posY + zone.sizeY / 2;
+  return (
+    <group>
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[cx, 0.03, cz]}
+        raycast={pickable ? undefined : () => undefined}
+        onPointerDown={
+          pickable
+            ? (event) => {
+                event.stopPropagation();
+                onPointerDown?.(event);
+              }
+            : undefined
+        }
+      >
+        <planeGeometry args={[zone.sizeX, zone.sizeY]} />
+        <meshBasicMaterial color={color} transparent opacity={selected ? 0.34 : 0.18} depthWrite={false} />
+      </mesh>
+      <Line points={ring(zone, 0.05)} color={color} lineWidth={selected ? 2.6 : 1.4} transparent opacity={selected ? 1 : 0.85} />
+      {compact ? null : (
+        <Html position={[zone.posX + 0.3, 0.06, zone.posY + 0.3]} zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
+          <div
+            className="flex items-center gap-1 rounded bg-background/85 px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap text-foreground shadow-sm ring-1 ring-border"
+            style={{ borderLeft: `3px solid ${color}` }}
+          >
+            <span className="font-mono">Zone {zone.code}</span>
+            <span className="text-muted-foreground">
+              · {zone.name} · {bays} {bays === 1 ? "bay" : "bays"}
+            </span>
+          </div>
+        </Html>
+      )}
+    </group>
+  );
+}
+
+/** The rectangle being dragged out (or waiting to be named) by the zone tool. */
+function ZoneGhost({ rect, color, label }: { rect: ZoneRect; color: string; label: string }) {
+  if (rect.sizeX <= 0 || rect.sizeY <= 0) {
+    return (
+      <Html position={[rect.posX, 0.1, rect.posY]} center zIndexRange={[30, 0]} style={{ pointerEvents: "none" }}>
+        <div className="rounded bg-background/85 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ring-1 ring-border">drag to size</div>
+      </Html>
+    );
+  }
+  return (
+    <group>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[rect.posX + rect.sizeX / 2, 0.04, rect.posY + rect.sizeY / 2]} raycast={() => undefined}>
+        <planeGeometry args={[rect.sizeX, rect.sizeY]} />
+        <meshBasicMaterial color={color} transparent opacity={0.24} depthWrite={false} />
+      </mesh>
+      <Line points={ring(rect, 0.07)} color={color} lineWidth={2.2} />
+      <Html position={[rect.posX + rect.sizeX / 2, 0.1, rect.posY + rect.sizeY / 2]} center zIndexRange={[30, 0]} style={{ pointerEvents: "none" }}>
+        <div className="rounded bg-background/90 px-1.5 py-0.5 font-mono text-[10px] font-medium text-foreground shadow-sm ring-1 ring-border">{label}</div>
+      </Html>
+    </group>
   );
 }
 
@@ -317,11 +507,13 @@ function RackHitVolume({
   spec,
   explode,
   pickable,
+  onHover,
   onPointerDown,
 }: {
   spec: RackSpec;
   explode: boolean;
   pickable: boolean;
+  onHover?: (over: boolean) => void;
   onPointerDown: (event: ThreeEvent<PointerEvent>) => void;
 }) {
   const extra = explode ? spec.levelHeight * 0.55 * Math.max(0, spec.levels - 1) : 0;
@@ -333,6 +525,8 @@ function RackHitVolume({
       position={[center.x, center.y, center.z]}
       visible={false}
       raycast={pickable ? undefined : () => undefined}
+      onPointerMove={pickable ? () => onHover?.(true) : undefined}
+      onPointerOut={pickable ? () => onHover?.(false) : undefined}
       onPointerDown={(event) => {
         event.stopPropagation();
         onPointerDown(event);
@@ -501,15 +695,23 @@ function WarehouseCurb({ warehouse, theme }: { warehouse: WarehouseMapInfo; them
   );
 }
 
+/** What the last pointer press landed on. Objects stop pointer-down propagation, so the floor only sees its own presses. */
+type PressTarget = "floor" | "object" | null;
+
 function Ground({
   warehouse,
   theme,
+  press,
   onMove,
+  onDown,
   onClick,
 }: {
   warehouse: WarehouseMapInfo;
   theme: SceneTheme;
+  press: React.MutableRefObject<PressTarget>;
   onMove?: (x: number, y: number) => void;
+  onDown?: (x: number, y: number) => void;
+  /** Fires for a clean click that began on the floor itself; clicks that began on an object never reach it. */
   onClick?: (x: number, y: number) => void;
 }) {
   const { invalidate } = useThree();
@@ -523,6 +725,12 @@ function Ground({
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
         position={[w / 2, 0, d / 2]}
+        onPointerDown={(event) => {
+          press.current = event.button === 0 ? "floor" : null;
+          if (event.button !== 0) return;
+          const cell = toCell(event);
+          onDown?.(cell.x, cell.y);
+        }}
         onPointerMove={(event) => {
           const cell = toCell(event);
           onMove?.(cell.x, cell.y);
@@ -530,6 +738,9 @@ function Ground({
         }}
         onClick={(event) => {
           event.stopPropagation();
+          const pressed = press.current;
+          press.current = null;
+          if (pressed !== "floor" || event.delta > CLICK_SLOP) return;
           const cell = toCell(event);
           onClick?.(cell.x, cell.y);
         }}
@@ -583,26 +794,71 @@ function DragPlane({
   );
 }
 
+/** The top of an object as drawn, so an outline can sit just above it. */
+function objectTop(object: FloorObject, explode: boolean): number {
+  if (object.kind === "rack") {
+    return object.spec.levels * object.spec.levelHeight + explodeLift(object.spec.levels, object.spec, explode) + 0.12;
+  }
+  return areaBoxDims(object.location).top + 0.08;
+}
+
 function SceneContents(
   props: Props & {
     theme: SceneTheme;
     hoveredId: string | null;
     setHoveredId: (id: string | null) => void;
+    hoveredObjectId: string | null;
+    setHoveredObjectId: (id: string | null) => void;
     pickIdSet?: ReadonlySet<string>;
     targetTones?: ReadonlyMap<string, TargetTone>;
   },
 ) {
   const w = props.warehouse.mapWidth;
   const d = props.warehouse.mapDepth;
-  const pickable = !props.placing && !props.translating;
+  const build = props.mode === "build";
+  const drawing = Boolean(props.drawing);
+  const pickable = !props.placing && !props.translating && !drawing;
+  const zonesPickable = pickable && build && Boolean(props.onSelectZone);
   const explode = Boolean(props.explode);
   const levelFilter = props.levelFilter ?? "all";
-  const selectedFootprint = useMemo(() => {
-    const object = props.objects.find((row) => row.id === props.selectedObjectId);
-    if (!object) return null;
-    if (object.kind === "rack") return footprint(object.locations);
-    return footprint([object.location]);
-  }, [props.objects, props.selectedObjectId]);
+  const gl = useThree((state) => state.gl);
+  const press = useRef<PressTarget>(null);
+  const drawnZones = useMemo(() => (props.zones ?? []).filter(hasFootprint), [props.zones]);
+
+  const selectedObject = useMemo(
+    () => props.objects.find((row) => row.id === props.selectedObjectId) ?? null,
+    [props.objects, props.selectedObjectId],
+  );
+  const hoveredObject = useMemo(() => {
+    if (props.hoveredObjectId) return props.objects.find((row) => row.id === props.hoveredObjectId) ?? null;
+    if (props.hoveredId) return objectForLocation(props.objects, props.hoveredId);
+    return null;
+  }, [props.objects, props.hoveredObjectId, props.hoveredId]);
+  const selectedBox = selectedObject ? objectFootprint(selectedObject) : null;
+  const hoveredBox = hoveredObject && hoveredObject.id !== props.selectedObjectId ? objectFootprint(hoveredObject) : null;
+
+  // The pointer says what a press would do: grab an object, place or draw, or just point.
+  useEffect(() => {
+    const element = gl.domElement;
+    element.style.cursor = props.translating
+      ? "grabbing"
+      : props.placing || drawing
+        ? "crosshair"
+        : build && hoveredObject && props.onTranslateBegin
+          ? "grab"
+          : hoveredObject
+            ? "pointer"
+            : "";
+    return () => {
+      element.style.cursor = "";
+    };
+  }, [gl, props.translating, props.placing, drawing, build, hoveredObject, props.onTranslateBegin]);
+
+  function beginTranslate(objectId: string, event: ThreeEvent<PointerEvent>) {
+    press.current = "object";
+    if (!build || !props.onTranslateBegin || event.button !== 0) return;
+    props.onTranslateBegin(objectId, snap(event.point.x), snap(event.point.z));
+  }
 
   return (
     <>
@@ -612,8 +868,35 @@ function SceneContents(
       <directionalLight position={[-16, 22, d * 0.45]} intensity={0.42} />
       <directionalLight position={[w + 14, 11, -10]} intensity={0.34} />
       <directionalLight position={[w * 0.5, 5.5, d * 0.55]} intensity={0.16} />
-      <Ground warehouse={props.warehouse} theme={props.theme} onMove={props.onFloorMove} onClick={props.onFloorClick} />
-      <DragPlane warehouse={props.warehouse} enabled={Boolean(props.translating)} onMove={props.onTranslateMove} />
+      <Ground
+        warehouse={props.warehouse}
+        theme={props.theme}
+        press={press}
+        onMove={props.onFloorMove}
+        onDown={props.onFloorDown}
+        onClick={props.onFloorClick}
+      />
+      <DragPlane
+        warehouse={props.warehouse}
+        enabled={Boolean(props.translating) || Boolean(props.sketching)}
+        onMove={props.translating ? props.onTranslateMove : props.onFloorMove}
+      />
+      {drawnZones.map((zone, index) => (
+        <ZoneFloor
+          key={zone.id}
+          zone={zone}
+          color={zoneColor(props.theme, index)}
+          selected={zone.id === props.selectedZoneId}
+          pickable={zonesPickable}
+          bays={countZoneBays(zone.id, props.locations)}
+          compact={props.compact}
+          onPointerDown={(event) => {
+            press.current = "object";
+            if (event.button !== 0) return;
+            props.onSelectZone?.(zone.id);
+          }}
+        />
+      ))}
       {props.objects.map((object) => {
         if (object.id === props.hiddenObjectId) return null;
         if (object.kind === "rack") {
@@ -640,23 +923,20 @@ function SceneContents(
                 onPointerDown={(event, location) => {
                   props.onSelectObject(object.id);
                   props.onSelectLocation(location);
-                  if (props.mode === "build" && props.cameraMode === "top" && props.onTranslateBegin) {
-                    props.onTranslateBegin(object.id, snap(event.point.x), snap(event.point.z));
-                  }
+                  beginTranslate(object.id, event);
                 }}
               />
               <RackHitVolume
                 spec={object.spec}
                 explode={explode}
                 pickable={pickable}
+                onHover={(over) => props.setHoveredObjectId(over ? object.id : null)}
                 onPointerDown={(event) => {
                   const location = nearestLocation(locs, event.point);
                   if (!location) return;
                   props.onSelectObject(object.id);
                   props.onSelectLocation(location);
-                  if (props.mode === "build" && props.cameraMode === "top" && props.onTranslateBegin) {
-                    props.onTranslateBegin(object.id, snap(event.point.x), snap(event.point.z));
-                  }
+                  beginTranslate(object.id, event);
                 }}
               />
               {selected ? (
@@ -679,6 +959,11 @@ function SceneContents(
         }
         const loc = props.locations.find((row) => row.id === object.location.id);
         if (!loc) return null;
+        const label = props.compact
+          ? null
+          : [loc.code, loc.name && loc.name !== loc.code ? loc.name : null, loc.unitsOnHand > 0 ? `${loc.unitsOnHand} u` : null]
+              .filter(Boolean)
+              .join(" · ");
         return (
           <AreaBox
             key={object.id}
@@ -689,15 +974,22 @@ function SceneContents(
             pick={Boolean(props.pickIdSet?.has(loc.id))}
             tone={props.targetTones?.get(loc.id) ?? null}
             pickable={pickable}
+            label={label}
             onHover={props.setHoveredId}
-            onPointerDown={() => {
+            onPointerDown={(event) => {
               props.onSelectObject(object.id);
               props.onSelectLocation(loc);
+              beginTranslate(object.id, event);
             }}
           />
         );
       })}
-      {selectedFootprint && !props.ghost ? <FootprintLine box={selectedFootprint} color={props.theme.outline} /> : null}
+      {hoveredBox && hoveredObject && pickable && hoveredObject.id !== props.hiddenObjectId ? (
+        <ObjectOutline box={hoveredBox} top={objectTop(hoveredObject, explode)} color={props.theme.hover} lineWidth={1.4} opacity={0.75} posts={false} />
+      ) : null}
+      {selectedBox && selectedObject && selectedObject.id !== props.hiddenObjectId ? (
+        <ObjectOutline box={selectedBox} top={objectTop(selectedObject, explode)} color={props.theme.outline} lineWidth={2.4} />
+      ) : null}
       <PickMarkers
         locations={props.locations}
         markers={props.pickMarkers}
@@ -738,8 +1030,15 @@ function SceneContents(
           <FootprintLine box={props.ghost.spec} color={props.ghost.valid ? props.theme.ghost : props.theme.invalid} />
         </group>
       ) : null}
+      {props.ghost?.kind === "zone" ? (
+        <ZoneGhost
+          rect={props.ghost.spec}
+          color={props.ghost.valid ? props.theme.ghost : props.theme.invalid}
+          label={`${props.ghost.spec.code ? `Zone ${props.ghost.spec.code} · ` : ""}${props.ghost.spec.sizeX} × ${props.ghost.spec.sizeY}`}
+        />
+      ) : null}
       {props.cameraMode === "top" ? (
-        <Html position={[1.1, 0.2, 1.1]} center>
+        <Html position={[1.1, 0.2, 1.1]} center style={{ pointerEvents: "none" }}>
           <div className="rounded bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ring-1 ring-border">N</div>
         </Html>
       ) : null}
@@ -749,7 +1048,7 @@ function SceneContents(
 
 /** A bay's centre plus the horizontal direction its face looks out on, so the camera can stand in the aisle. */
 type CameraFocus = { x: number; y: number; z: number; nx: number; nz: number };
-type OrbitControlsLike = { target: THREE.Vector3; update: () => void };
+type OrbitControlsLike = { target: THREE.Vector3; update: () => void; enabled: boolean };
 
 const FLIGHT_MS = 650;
 
@@ -840,6 +1139,19 @@ function CameraRig({
   return null;
 }
 
+/** The chip under a valid ghost: what a click or key does next, and which zone the object would join. */
+function ghostCaption(ghost: Ghost, translating: boolean): string {
+  if (ghost.kind === "zone") {
+    return ghost.spec.code
+      ? `Zone ${ghost.spec.code} · ${ghost.spec.sizeX} × ${ghost.spec.sizeY} · Enter saves, Esc cancels`
+      : `${ghost.spec.sizeX} × ${ghost.spec.sizeY} · release to finish`;
+  }
+  const zone = ghost.zoneLabel ? ` · joins zone ${ghost.zoneLabel}` : "";
+  if (translating) return `Release to drop · R rotates · Esc cancels${zone}`;
+  if (ghost.kind === "rack") return `Click to place ${ghost.spec.bays * ghost.spec.levels} bins · R rotates${zone}`;
+  return `Click to place ${ghost.spec.name}${zone}`;
+}
+
 class WebGLBoundary extends Component<{ children: ReactNode; className?: string }, { message: string | null }> {
   state = { message: null as string | null };
   static getDerivedStateFromError(error: Error) {
@@ -868,7 +1180,11 @@ class WebGLBoundary extends Component<{ children: ReactNode; className?: string 
 export function WarehouseScene(props: Props) {
   const [theme, setTheme] = useState<SceneTheme>(() => readSceneTheme());
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
   const dragging = useRef(false);
+  const sketching = useRef(false);
+  // The camera controls are switched off for the length of a drag so orbit mode does not spin while an object moves.
+  const controlsRef = useRef<OrbitControlsLike | null>(null);
   useEffect(() => {
     const sync = () => setTheme(readSceneTheme());
     sync();
@@ -877,15 +1193,26 @@ export function WarehouseScene(props: Props) {
     return () => obs.disconnect();
   }, []);
 
+  const { onTranslateEnd, onDrawEnd } = props;
   useEffect(() => {
     function onUp() {
-      if (!dragging.current) return;
-      dragging.current = false;
-      props.onTranslateEnd?.();
+      if (controlsRef.current) controlsRef.current.enabled = true;
+      if (dragging.current) {
+        dragging.current = false;
+        onTranslateEnd?.();
+      }
+      if (sketching.current) {
+        sketching.current = false;
+        onDrawEnd?.();
+      }
     }
     window.addEventListener("pointerup", onUp);
-    return () => window.removeEventListener("pointerup", onUp);
-  }, [props.onTranslateEnd]);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [onTranslateEnd, onDrawEnd]);
 
   const hovered = props.locations.find((row) => row.id === hoveredId) ?? null;
   const w = props.warehouse.mapWidth;
@@ -934,9 +1261,10 @@ export function WarehouseScene(props: Props) {
           }}
           frameloop="always"
           onPointerMissed={() => {
-            if (props.placing || props.translating) return;
+            if (props.placing || props.translating || props.drawing) return;
             props.onSelectLocation(null);
             props.onSelectObject(null);
+            props.onSelectZone?.(null);
           }}
         >
           <color attach="background" args={[theme.background]} />
@@ -947,9 +1275,12 @@ export function WarehouseScene(props: Props) {
           )}
           <CameraRig warehouse={props.warehouse} cameraMode={props.cameraMode} focus={focus} />
           <OrbitControls
+            ref={(instance) => {
+              controlsRef.current = instance as unknown as OrbitControlsLike | null;
+            }}
             makeDefault
             target={[w / 2, 0, d / 2]}
-            enableRotate={props.cameraMode === "orbit" && !props.placing && !props.translating}
+            enableRotate={props.cameraMode === "orbit" && !props.placing && !props.translating && !props.drawing}
             enableDamping
             dampingFactor={0.12}
             screenSpacePanning
@@ -960,7 +1291,10 @@ export function WarehouseScene(props: Props) {
             maxDistance={110}
             minDistance={2.4}
             mouseButtons={{
-              LEFT: props.cameraMode === "orbit" && !props.placing ? THREE.MOUSE.ROTATE : (undefined as unknown as THREE.MOUSE),
+              LEFT:
+                props.cameraMode === "orbit" && !props.placing && !props.drawing
+                  ? THREE.MOUSE.ROTATE
+                  : (undefined as unknown as THREE.MOUSE),
               MIDDLE: THREE.MOUSE.PAN,
               RIGHT: THREE.MOUSE.PAN,
             }}
@@ -970,16 +1304,33 @@ export function WarehouseScene(props: Props) {
             theme={theme}
             hoveredId={hoveredId}
             setHoveredId={setHoveredId}
+            hoveredObjectId={hoveredObjectId}
+            setHoveredObjectId={setHoveredObjectId}
             pickIdSet={pickIdSet}
             targetTones={targetTones}
-            onTranslateBegin={(id, x, y) => {
-              dragging.current = true;
-              props.onTranslateBegin?.(id, x, y);
-            }}
+            onTranslateBegin={
+              props.onTranslateBegin
+                ? (id, x, y) => {
+                    dragging.current = true;
+                    if (controlsRef.current) controlsRef.current.enabled = false;
+                    props.onTranslateBegin?.(id, x, y);
+                  }
+                : undefined
+            }
             onTranslateMove={(x, y) => {
               if (!dragging.current) return;
               props.onTranslateMove?.(x, y);
             }}
+            onFloorDown={
+              props.onFloorDown
+                ? (x, y) => {
+                    if (!props.drawing) return;
+                    sketching.current = true;
+                    if (controlsRef.current) controlsRef.current.enabled = false;
+                    props.onFloorDown?.(x, y);
+                  }
+                : undefined
+            }
           />
           {props.cameraMode === "orbit" && !props.compact ? (
             <GizmoHelper alignment="bottom-right" margin={[56, 56]}>
@@ -1003,11 +1354,7 @@ export function WarehouseScene(props: Props) {
               : "bg-destructive/90 text-white ring-destructive"
           }`}
         >
-          {props.ghost.valid
-            ? props.ghost.kind === "rack"
-              ? `Click to place ${props.ghost.spec.bays * props.ghost.spec.levels} bins · R rotates`
-              : `Click to place ${props.ghost.spec.name}`
-            : props.ghost.message || "That footprint overlaps another bay or leaves the warehouse."}
+          {props.ghost.valid ? ghostCaption(props.ghost, Boolean(props.translating)) : props.ghost.message || "That footprint overlaps another bay or leaves the warehouse."}
         </div>
       ) : null}
     </div>

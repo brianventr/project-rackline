@@ -739,6 +739,12 @@ floorRoute.get("/map", async (c) => {
     byLocation.set(row.locationId, list);
   }
 
+  const zoneRows = await db
+    .select()
+    .from(schema.zones)
+    .where(and(eq(schema.zones.organizationId, organizationId), eq(schema.zones.warehouseId, warehouse.id)))
+    .orderBy(schema.zones.code);
+
   return c.json({
     warehouse: {
       id: warehouse.id,
@@ -748,6 +754,17 @@ floorRoute.get("/map", async (c) => {
       mapHeight: warehouse.mapHeight,
       timeZone: warehouse.timeZone,
     },
+    zones: zoneRows.map((zone) => ({
+      id: zone.id,
+      warehouseId: zone.warehouseId,
+      code: zone.code,
+      name: zone.name,
+      createdAt: zone.createdAt,
+      posX: zone.posX,
+      posY: zone.posY,
+      sizeX: zone.sizeX,
+      sizeY: zone.sizeY,
+    })),
     warehouses: warehouses.map((row) => ({
       id: row.id,
       name: row.name,

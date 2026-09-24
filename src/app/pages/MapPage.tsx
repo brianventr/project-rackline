@@ -180,6 +180,7 @@ export function MapPage({ me }: { me: Me }) {
             objects={groupFloorObjects(
               data.locations.filter((location) => levelFilter === "all" || location.level === levelFilter),
             )}
+            zones={data.zones}
             selectedLocationId={selectedId}
             selectedObjectId={selected ? objectForLocation(groupFloorObjects(data.locations), selected.id)?.id ?? null : null}
             highlightBay={selected?.bay ?? null}
@@ -201,6 +202,7 @@ export function MapPage({ me }: { me: Me }) {
             warehouse={data.warehouse}
             locations={data.locations}
             selectedId={selectedId}
+            zones={data.zones}
             view={view}
             levelFilter={levelFilter}
             canDrag={me.role === "owner"}

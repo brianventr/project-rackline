@@ -992,6 +992,11 @@ export const zones = sqliteTable(
     code: text("code").notNull(),
     name: text("name").notNull(),
     createdAt: integer("created_at").notNull(),
+    // The rectangle the zone owns on the floor. A zero size means the zone is a tag only.
+    posX: integer("pos_x").notNull().default(0),
+    posY: integer("pos_y").notNull().default(0),
+    sizeX: integer("size_x").notNull().default(0),
+    sizeY: integer("size_y").notNull().default(0),
   },
   (t) => [uniqueIndex("zones_org_wh_code").on(t.organizationId, t.warehouseId, t.code)],
 );

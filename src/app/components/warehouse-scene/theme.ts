@@ -25,6 +25,10 @@ export type SceneTheme = {
   areaRecv: string;
   areaProd: string;
   areaShip: string;
+  /** Dark edge drawn round a dock / bench / staging box so it reads against the floor from above. */
+  areaEdge: string;
+  /** Fills for drawn zones, picked by the zone's position in code order. */
+  zonePalette: string[];
   text: string;
 };
 
@@ -52,9 +56,11 @@ const light: SceneTheme = {
   invalid: "#ef4444",
   bayHighlight: "#f3c4ae",
   outline: "#e05d38",
-  areaRecv: "#d6e4f0",
-  areaProd: "#cfe0d2",
-  areaShip: "#e8d3ae",
+  areaRecv: "#4f86c6",
+  areaProd: "#3f9a6a",
+  areaShip: "#d29a3a",
+  areaEdge: "#1b2433",
+  zonePalette: ["#7c5cbf", "#2a9d8f", "#c2557a", "#5b7fb8", "#8a9a2b", "#c97b3b"],
   text: "#333333",
 };
 
@@ -82,11 +88,18 @@ const dark: SceneTheme = {
   invalid: "#ef4444",
   bayHighlight: "#8a4630",
   outline: "#e05d38",
-  areaRecv: "#2a3656",
-  areaProd: "#1f3a2c",
-  areaShip: "#3a3228",
+  areaRecv: "#3d6fb3",
+  areaProd: "#2f7f57",
+  areaShip: "#b98430",
+  areaEdge: "#e6ebf2",
+  zonePalette: ["#a78bfa", "#5eead4", "#f0abfc", "#93c5fd", "#bef264", "#fdba74"],
   text: "#e5e5e5",
 };
+
+/** A stable colour per zone: zones sorted by code share the palette in order, wrapping when there are many. */
+export function zoneColor(theme: SceneTheme, index: number): string {
+  return theme.zonePalette[((index % theme.zonePalette.length) + theme.zonePalette.length) % theme.zonePalette.length]!;
+}
 
 export function readSceneTheme(): SceneTheme {
   if (typeof document === "undefined") return light;
