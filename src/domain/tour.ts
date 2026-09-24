@@ -66,7 +66,11 @@ export const TOUR_STEPS: readonly TourStep[] = [
     title: "Office and floor",
     body: [
       "The office is the sidebar: Today, Inbound, Stock, Make, Outbound, Analytics, and Settings. It is where documents are created, the map is drawn, and numbers are read.",
-      "The floor is the handheld view at /floor: one verb per screen, big buttons, and a scan box that is always listening. A barcode gun, the camera, or typing all count as a scan. Search everything with ⌘K, or type a word with a question mark to look it up in the glossary.",
+      "The floor is the handheld view at /floor: one verb per screen, big buttons, and a scan box that is always listening. A barcode gun, the camera, or typing all count as a scan. Search everything with the command palette (⌘K, or Ctrl K on Windows), or type a word with a question mark to look it up in the glossary.",
+    ],
+    garageBody: [
+      "The office is the sidebar: Bench, Parts, Build, Ship, Shelf, Runway, and Shop. It is where documents are created, the map is drawn, and numbers are read.",
+      "The floor is the handheld view at /floor: one verb per screen, big buttons, and a scan box that is always listening. A barcode gun, the camera, or typing all count as a scan. Search everything with the command palette (⌘K, or Ctrl K on Windows), or type a word with a question mark to look it up in the glossary.",
     ],
     audience: "owner",
   },
@@ -77,6 +81,10 @@ export const TOUR_STEPS: readonly TourStep[] = [
     body: [
       "Next job is the top card: the best open piece of work for you, ranked from the ledger. Start it and the verb screen opens with the bay and the qty already filled in.",
       "Or pick a verb yourself. Receive, put away, pick, pack, ship, count, and the rest each have one screen. Scan a bay, a SKU, or a document number anywhere and Rackline works out what you meant. Your first scan or post claims the job so nobody doubles up.",
+    ],
+    garageBody: [
+      "Next job is the top card: the best open piece of work for you, ranked from the ledger. Start it and the verb screen opens with the bay and the qty already filled in.",
+      "Or pick a verb yourself. Receive, put away, pick, pack, ship, assemble, and kit each have one screen. Scan a bay, a SKU, or a document number anywhere and Rackline works out what you meant. Your first scan or post claims the job so nobody doubles up.",
     ],
     audience: "operator",
   },
@@ -137,6 +145,9 @@ export type FlowStop = {
   /** Document prefix or object the verb works on. */
   doc?: string;
   note: string;
+  /** Different words in Garage Mode, where ASNs and the like are packed away. */
+  garageDoc?: string;
+  garageNote?: string;
   /** Packed away in Garage Mode. */
   manufacturerOnly?: boolean;
 };
@@ -156,8 +167,18 @@ export const FLOW_STAGES: readonly FlowStage[] = [
     garageTitle: "Parts",
     path: "/inbound/receipts",
     stops: [
-      { verb: "Buy", doc: "PO-", note: "Draft a purchase order; sending it mints an expected ASN." },
-      { verb: "Receive", doc: "RCP- · PO- · ASN-", note: "Post what arrived onto the dock. Partials are fine." },
+      {
+        verb: "Buy",
+        doc: "PO-",
+        note: "Draft a purchase order; sending it mints an expected ASN.",
+        garageNote: "Draft a purchase order and send it to the vendor.",
+      },
+      {
+        verb: "Receive",
+        doc: "RCP- · PO- · ASN-",
+        garageDoc: "RCP- · PO-",
+        note: "Post what arrived onto the dock. Partials are fine.",
+      },
       { verb: "Put away", doc: "XFR-", note: "Dock to a suggested bay: where the SKU already is, bulk first." },
     ],
   },
@@ -181,7 +202,7 @@ export const FLOW_STAGES: readonly FlowStage[] = [
     stops: [
       { verb: "Recipe", doc: "BOM", note: "What one finished unit consumes, plus numbered bench steps." },
       { verb: "Build", doc: "WO-", note: "A work order consumes parts from one bay and produces into another." },
-      { verb: "Kit", doc: "KIT-", note: "The same explode in one step. A finished kit can be dekitted." },
+      { verb: "Kit", doc: "KIT-", note: "Assemble a finished SKU from its recipe in one step. A finished kit can be dekitted." },
     ],
   },
   {
@@ -198,20 +219,26 @@ export const FLOW_STAGES: readonly FlowStage[] = [
   },
 ];
 
-/** Stages with the stops this shop can see: Manufacturer-only verbs drop in Garage Mode. */
+/** Stages with the stops this shop can see: Manufacturer-only verbs drop in Garage Mode, and the rest use its words. */
 export function flowStagesFor(viewer: { garage: boolean }): FlowStage[] {
   return FLOW_STAGES.map((stage) => ({
     ...stage,
     title: viewer.garage && stage.garageTitle ? stage.garageTitle : stage.title,
-    stops: stage.stops.filter((stop) => !viewer.garage || !stop.manufacturerOnly),
+    stops: stage.stops
+      .filter((stop) => !viewer.garage || !stop.manufacturerOnly)
+      .map((stop) =>
+        viewer.garage
+          ? { ...stop, doc: stop.garageDoc ?? stop.doc, note: stop.garageNote ?? stop.note }
+          : stop,
+      ),
   }));
 }
 
 /* ------------------------------------------------------------------ seen, and when to open on its own */
 
-/** Per person, per org, per browser; a new version starts fresh. */
-export function tourSeenKey(orgId: string, userId: string): string {
-  return `rackline.tour.seen:${orgId}:${userId}:v${TOUR_VERSION}`;
+/** Per person, per org, per audience, per browser; a new version starts fresh. An operator promoted to owner sees the owner tour. */
+export function tourSeenKey(orgId: string, userId: string, audience: TourAudience = "owner"): string {
+  return `rackline.tour.seen:${orgId}:${userId}:${audience}:v${TOUR_VERSION}`;
 }
 
 export type AutoOpenInput = {

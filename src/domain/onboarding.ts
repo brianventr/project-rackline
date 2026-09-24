@@ -35,7 +35,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStepMeta[] = [
     cta: "Set up",
     path: "/welcome",
     optional: false,
-    ownerOnly: false,
+    ownerOnly: true,
   },
   {
     id: "stock",

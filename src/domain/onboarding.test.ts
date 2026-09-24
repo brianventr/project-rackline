@@ -35,7 +35,8 @@ describe("onboarding steps", () => {
       "shipped",
     ]);
     for (const step of ONBOARDING_STEPS) {
-      expect(step.ownerOnly).toBe(step.optional);
+      // The optional extras are Settings pages; the building wizard is owner-only too.
+      expect(step.ownerOnly).toBe(step.optional || step.id === "bays");
     }
   });
 

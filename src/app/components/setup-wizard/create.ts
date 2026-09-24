@@ -1,6 +1,6 @@
 import { api } from "@/app/api";
 import { binKindLabel, slotRoleLabel } from "@/domain/hierarchy";
-import type { ExistingBin, SetupInput, SetupRequest } from "@/domain/setup-wizard";
+import type { ExistingBin, SetupRequest } from "@/domain/setup-wizard";
 
 export type CreateProgress = { index: number; total: number; label: string };
 
@@ -38,10 +38,13 @@ export async function runSetupRequests(input: {
   warehouseId: string;
   requests: SetupRequest[];
   existing: ExistingBin[];
+  /** Labels of what got made, for the "already created" line. */
   created: string[];
+  /** Every request that finished, so a retry knows what is still owed. */
+  completed: SetupRequest[];
   onProgress: (progress: CreateProgress) => void;
 }): Promise<void> {
-  const { warehouseId, requests, existing, created, onProgress } = input;
+  const { warehouseId, requests, existing, created, completed, onProgress } = input;
   const idByCode = new Map(existing.map((bin) => [bin.code.toUpperCase(), bin.id]));
   for (let index = 0; index < requests.length; index += 1) {
     const request = requests[index]!;
@@ -73,19 +76,6 @@ export async function runSetupRequests(input: {
         body: JSON.stringify({ slotRole: request.slotRole }),
       });
     }
+    completed.push(request);
   }
-}
-
-/**
- * After a partial failure the map is refetched and defaults are worked out again. Steps whose bin
- * now exists switch off; everything the person typed elsewhere is kept.
- */
-export function replanInput(prev: SetupInput, fresh: SetupInput): SetupInput {
-  return {
-    building: prev.building,
-    dock: fresh.dock.include ? prev.dock : fresh.dock,
-    racks: fresh.racks.include ? prev.racks : fresh.racks,
-    bench: fresh.bench.include ? prev.bench : fresh.bench,
-    ship: fresh.ship.include ? prev.ship : fresh.ship,
-  };
 }

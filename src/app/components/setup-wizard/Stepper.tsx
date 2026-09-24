@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Check } from "lucide-react";
 import { SETUP_STEPS, type SetupStepId } from "@/domain/setup-wizard";
 import { cn } from "@/lib/utils";
@@ -13,14 +14,31 @@ export function SetupStepper({
   current,
   status,
   onSelect,
+  disabled,
   className,
 }: {
   current: SetupStepId;
   status: Record<SetupStepId, StepStatus>;
   onSelect: (id: SetupStepId) => void;
+  /** While Create runs: the steps stay visible but cannot be opened. */
+  disabled?: boolean;
   className?: string;
 }) {
   const currentIndex = SETUP_STEPS.findIndex((step) => step.id === current);
+  const activeRef = useRef<HTMLButtonElement>(null);
+
+  // On phones the row scrolls sideways; keep the current step on screen when it changes.
+  useEffect(() => {
+    const node = activeRef.current;
+    if (!node) return;
+    let reduce = false;
+    try {
+      reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+      /* Old browsers: scroll without animating. */
+    }
+    node.scrollIntoView({ block: "nearest", inline: "center", behavior: reduce ? "auto" : "smooth" });
+  }, [current]);
   return (
     <ol
       aria-label="Setup steps"
@@ -40,11 +58,13 @@ export function SetupStepper({
         return (
           <li key={step.id} className="shrink-0 lg:shrink">
             <button
+              ref={active ? activeRef : undefined}
               type="button"
               aria-current={active ? "step" : undefined}
+              disabled={disabled}
               onClick={() => onSelect(step.id)}
               className={cn(
-                "flex min-h-11 w-full items-center gap-2.5 rounded-lg border px-2.5 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+                "flex min-h-11 w-full items-center gap-2.5 rounded-lg border px-2.5 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-default disabled:opacity-70",
                 active ? "border-primary/50 bg-primary/5 ring-2 ring-primary/10" : "border-transparent hover:bg-muted",
               )}
             >

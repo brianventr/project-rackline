@@ -43,12 +43,16 @@ export function RackPreview({
   const bayLabels = Array.from({ length: bayCount }, (_, index) => index + 1);
   const levelRows = Array.from({ length: levelCount }, (_, index) => levelCount - index);
 
+  // Narrow panels and phones scroll the face sideways rather than shrinking the codes past reading size.
+  const minWidth = Math.round(width * 0.8);
+
   return (
     <div className={cn("space-y-2", className)}>
+      <div className="overflow-x-auto pb-1">
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="mx-auto block h-auto w-full"
-        style={{ maxWidth: width * 1.1 }}
+        style={{ maxWidth: width * 1.1, minWidth }}
         role="img"
         aria-label={`Rack ${rackCode} front view, ${bayCount} ${bayCount === 1 ? "bay" : "bays"} by ${levelCount} ${levelCount === 1 ? "level" : "levels"}${roles ? ", level 1 pick faces, upper levels bulk" : ""}`}
       >
@@ -86,6 +90,7 @@ export function RackPreview({
                 const code = binCode(aisle, rack, bay, level);
                 return (
                   <g key={code}>
+                    <title>{`${code}${pick ? " · pick face" : bulk ? " · bulk" : ""}`}</title>
                     <rect
                       x={x + 1}
                       y={y + 1}
@@ -129,6 +134,7 @@ export function RackPreview({
         <rect x={LABEL_W + POST + bayCount * cellW} y={HEADER_H} width={POST} height={levelCount * CELL_H} fill="var(--border)" />
         <rect x={LABEL_W - 6} y={HEADER_H + levelCount * CELL_H} width={bayCount * cellW + POST * 2 + 12} height={BASE_H} rx="1" fill="var(--border)" />
       </svg>
+      </div>
       {roles ? (
         <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Legend">
           <li className="flex items-center gap-1.5">

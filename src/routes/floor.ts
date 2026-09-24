@@ -746,6 +746,7 @@ floorRoute.get("/map", async (c) => {
       mapWidth: warehouse.mapWidth,
       mapDepth: warehouse.mapDepth,
       mapHeight: warehouse.mapHeight,
+      timeZone: warehouse.timeZone,
     },
     warehouses: warehouses.map((row) => ({
       id: row.id,
@@ -753,6 +754,7 @@ floorRoute.get("/map", async (c) => {
       mapWidth: row.mapWidth,
       mapDepth: row.mapDepth,
       mapHeight: row.mapHeight,
+      timeZone: row.timeZone,
     })),
     locations: locationRows.map((location) => {
       const contents = byLocation.get(location.id) ?? [];

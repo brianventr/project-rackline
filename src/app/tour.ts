@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { useLocation } from "react-router-dom";
-import { shouldAutoOpenTour, tourSeenKey, type TourStepId } from "@/domain/tour";
-import { isGarageMode } from "@/domain/operating-mode";
+import { shouldAutoOpenTour, tourAudience, tourSeenKey, type TourStepId } from "@/domain/tour";
+import { isGarageMode, pathOnly } from "@/domain/operating-mode";
+import { homePath } from "@/domain/home-path";
 import { useOnboarding } from "./onboarding";
 import { useSession } from "./session";
 
@@ -40,10 +41,10 @@ function writeSeen(key: string) {
   }
 }
 
-/** `[seen, markSeen]` for this person's tour in this org. */
+/** `[seen, markSeen]` for this person's tour in this org. Keyed by audience, so a promoted operator sees the owner tour. */
 export function useTourSeen(): [boolean, () => void] {
   const me = useSession();
-  const key = tourSeenKey(me.organization.id, me.user.id);
+  const key = tourSeenKey(me.organization.id, me.user.id, tourAudience(me.role));
   const seen = useSyncExternalStore(
     subscribe,
     () => readSeen(key),
@@ -101,7 +102,9 @@ export function useTourAutoOpen(): void {
   const location = useLocation();
   const [seen] = useTourSeen();
   const owner = me.role === "owner";
-  const onboarding = useOnboarding({ enabled: owner });
+  const onHome = pathOnly(location.pathname) === homePath(me.role);
+  // The Getting started read is only needed to decide the first open, so it is not fetched on every page.
+  const onboarding = useOnboarding({ enabled: owner && !seen && onHome });
   const loaded = !!onboarding.data;
   const incomplete = onboarding.incomplete;
 
@@ -118,7 +121,10 @@ export function useTourAutoOpen(): void {
     }
     if (request.open) return;
     // Let the page paint first, so the dialog opens over Today or the floor rather than a blank shell.
-    const handle = window.setTimeout(() => openTour(), 400);
+    const handle = window.setTimeout(() => {
+      // Something else may have opened it (or another dialog) in the meantime.
+      if (!request.open && !document.querySelector("[role='dialog']")) openTour();
+    }, 400);
     return () => window.clearTimeout(handle);
   }, [seen, me.role, owner, loaded, incomplete, location.pathname]);
 }
