@@ -9,6 +9,7 @@ import {
   Boxes,
   ClipboardList,
   Clock,
+  Compass,
   Container,
   FileInput,
   Forklift,
@@ -17,6 +18,7 @@ import {
   Keyboard,
   ListChecks,
   Loader2,
+  LayoutTemplate,
   Lock,
   MapPin,
   Moon,
@@ -55,6 +57,7 @@ import { useDensity } from "@/app/density";
 import { destinationsForSession } from "@/app/navigation";
 import { refreshApi } from "@/app/query";
 import { reopenOnboarding } from "@/app/onboarding";
+import { openTour } from "@/app/tour";
 import { GETTING_STARTED_HASH } from "@/app/components/onboarding";
 import { StatusBadge } from "@/app/components/ui";
 import { garageAllowsPath, isGarageMode, pathOnly } from "@/domain/operating-mode";
@@ -284,8 +287,27 @@ export function CommandPalette({
         close();
       },
     },
+    {
+      id: "action:tour",
+      label: "How Rackline works",
+      icon: Compass,
+      keywords: "tour help guide welcome hierarchy aisle rack bay level bin learn new here",
+      path: "/today",
+      run: () => {
+        close();
+        openTour();
+      },
+    },
     ...(me.role === "owner"
       ? [
+          {
+            id: "action:setup-building",
+            label: "Set up your building",
+            icon: LayoutTemplate,
+            keywords: "wizard warehouse dock rack bays shelves aisle bench outbound setup start",
+            path: "/welcome",
+            run: () => go("/welcome"),
+          },
           {
             id: "action:getting-started",
             label: "Getting started checklist",

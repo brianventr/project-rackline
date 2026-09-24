@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { useSession } from "./session";
+import { homePath } from "@/domain/home-path";
 
 const STORAGE_KEY = "rackline.warehouseId";
 
@@ -43,9 +44,7 @@ export function useWarehouse(): WarehouseState {
   return ctx;
 }
 
-export function homePath(role: string): string {
-  return role === "operator" ? "/floor" : "/today";
-}
+export { homePath };
 
 export function inWarehouse<T extends { warehouseId?: string }>(rows: T[], warehouseId: string): T[] {
   if (!warehouseId) return rows;

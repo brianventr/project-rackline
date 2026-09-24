@@ -10,6 +10,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { useSession } from "@/app/session";
 import { FLOOR_TAB_BAR_HEIGHT, FloorTabBar } from "@/app/components/floor-tab-bar";
 import { isGarageMode } from "@/domain/operating-mode";
+import { TourDialog } from "@/app/components/tour/TourDialog";
+import { useTourAutoOpen } from "@/app/tour";
 
 interface BaseLayoutProps {
   children: ReactNode;
@@ -66,6 +68,7 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
         </div>
       </SidebarInset>
       {floor ? <FloorTabBar /> : null}
+      <TourMount />
       <Toaster
         mobileOffset={
           floor ? { bottom: `calc(${FLOOR_TAB_BAR_HEIGHT} + 1rem + env(safe-area-inset-bottom))` } : undefined
@@ -73,4 +76,10 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
       />
     </SidebarProvider>
   );
+}
+
+/** The one tour dialog for the whole app, and the once-per-person auto-open on the home screen. */
+function TourMount() {
+  useTourAutoOpen();
+  return <TourDialog />;
 }
