@@ -62,6 +62,22 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/stock/ledger",
   },
   {
+    id: "bin",
+    term: "Bin",
+    aliases: ["location", "bay", "slot", "storage location", "bin code", "location code"],
+    short: "The scannable spot stock sits in: a bay at one level, or a dock, bench, or outbound bay. Its code is its barcode.",
+    long: "Every bin has a type (receiving, storage, production, shipping) and a slot role (pick face or bulk). Qty always lives on a SKU in a bin, never on the SKU alone.",
+    path: "/stock/locations",
+  },
+  {
+    id: "bin-address",
+    term: "Bin address",
+    aliases: ["aisle", "rack", "level", "address", "aisle rack bay level", "bay code", "a-01-02"],
+    short: "A storage code reads aisle, rack, bay, level: A-01-02-2 is aisle A, rack 01, bay 02, second shelf up. Level 1 is left off.",
+    long: "Pick lists walk that order: aisle, then rack, then bay, then level. Build floor adds a whole rack of bays at once.",
+    path: "/map",
+  },
+  {
     id: "dock",
     term: "Dock",
     aliases: ["receiving dock", "dock door", "receiving bay", "dock bay"],

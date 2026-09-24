@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ArrowRight, Check, EyeOff, Loader2, PackageOpen } from "lucide-react";
+import { ArrowRight, Check, Compass, EyeOff, Loader2, PackageOpen } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
@@ -19,6 +19,7 @@ import {
   type SampleDataResult,
 } from "../onboarding";
 import { useConfirm } from "./confirm";
+import { openTour } from "../tour";
 
 export const GETTING_STARTED_HASH = "#getting-started";
 
@@ -320,10 +321,17 @@ export function OnboardingChecklist({ className }: { className?: string }) {
                 : "Four steps from an empty warehouse to a shipped order. Each one ticks itself off when the work lands."}
           </p>
         </div>
-        <Button type="button" variant="ghost" size="sm" onClick={hide} className="-mr-2 shrink-0 text-muted-foreground">
-          <EyeOff />
-          Hide
-        </Button>
+        <div className="-mr-2 flex shrink-0 items-center gap-1">
+          <Button type="button" variant="ghost" size="sm" onClick={() => openTour()} className="text-muted-foreground">
+            <Compass />
+            <span className="hidden sm:inline">How it works</span>
+            <span className="sr-only sm:hidden">How Rackline works</span>
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={hide} className="text-muted-foreground">
+            <EyeOff />
+            Hide
+          </Button>
+        </div>
       </div>
 
       {onboarding.sampleAvailable ? (

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ChevronsUpDown,
+  Compass,
   Factory,
   Keyboard,
   LayoutDashboard,
@@ -40,6 +41,7 @@ import { useScanner } from "@/app/scanner/ScannerProvider";
 import { useSession } from "@/app/session";
 import { useOperatingMode } from "@/app/use-operating-mode";
 import { useDensity } from "@/app/density";
+import { openTour } from "@/app/tour";
 import { homePath, useWarehouse } from "@/app/warehouse";
 import {
   GARAGE_MODE_LABEL,
@@ -271,15 +273,18 @@ function DisplayMenu({ onFloor, onShowShortcuts }: { onFloor: boolean; onShowSho
             Compact
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Help</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => openTour()}>
+          <Compass />
+          How Rackline works
+        </DropdownMenuItem>
         {onFloor ? null : (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onShowShortcuts}>
-              <Keyboard />
-              Keyboard shortcuts
-              <DropdownMenuShortcut>?</DropdownMenuShortcut>
-            </DropdownMenuItem>
-          </>
+          <DropdownMenuItem onSelect={onShowShortcuts}>
+            <Keyboard />
+            Keyboard shortcuts
+            <DropdownMenuShortcut>?</DropdownMenuShortcut>
+          </DropdownMenuItem>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

@@ -24,6 +24,7 @@ import { useWrite } from "../use-write";
 import { toast } from "sonner";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { usePrint } from "../print/PrintProvider";
+import { openTour } from "../tour";
 import { FORM_LOCATION_TYPES, locationFormSchema, wholeNumber } from "@/domain/form-schemas";
 
 const types = ["receiving", "storage", "production", "shipping"];
@@ -344,10 +345,27 @@ function LocationList({ me }: { me: Me }) {
           <EmptyState
             icon={MapPin}
             title="No locations yet."
-            body="Add the docks and bays stock sits in, or draw them on the map with Build floor."
+            body={
+              <>
+                Add the docks and bays stock sits in, or draw them on the map with Build floor. A storage code reads aisle,
+                rack, bay, level.{" "}
+                <button
+                  type="button"
+                  onClick={() => openTour("hierarchy")}
+                  className="rounded-sm font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                >
+                  How addresses work
+                </button>
+              </>
+            }
             action={
               <div className="flex flex-wrap justify-center gap-2">
-                <Button size="sm" onClick={() => setCreating(true)}>
+                {me.role === "owner" ? (
+                  <Button size="sm" asChild>
+                    <Link to="/welcome">Set up your building</Link>
+                  </Button>
+                ) : null}
+                <Button size="sm" variant={me.role === "owner" ? "outline" : "primary"} onClick={() => setCreating(true)}>
                   New location
                 </Button>
                 <SampleDataButton />
