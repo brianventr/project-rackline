@@ -752,6 +752,7 @@ floorRoute.get("/map", async (c) => {
       mapWidth: warehouse.mapWidth,
       mapDepth: warehouse.mapDepth,
       mapHeight: warehouse.mapHeight,
+      mapNorth: warehouse.mapNorth,
       timeZone: warehouse.timeZone,
     },
     zones: zoneRows.map((zone) => ({
@@ -771,6 +772,7 @@ floorRoute.get("/map", async (c) => {
       mapWidth: row.mapWidth,
       mapDepth: row.mapDepth,
       mapHeight: row.mapHeight,
+      mapNorth: row.mapNorth,
       timeZone: row.timeZone,
     })),
     locations: locationRows.map((location) => {

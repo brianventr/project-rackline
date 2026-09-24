@@ -90,6 +90,8 @@ export const warehouses = sqliteTable("warehouses", {
   lat: real("lat"),
   lng: real("lng"),
   timeZone: text("time_zone").notNull().default("UTC"),
+  /** Where north points on the map, in degrees clockwise from the top edge. */
+  mapNorth: integer("map_north").notNull().default(0),
 });
 
 export const locations = sqliteTable(

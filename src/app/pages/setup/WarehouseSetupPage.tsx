@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 import { optionalText, wholeNumber } from "@/domain/form-schemas";
 import { GARAGE_MODE_LABEL, GARAGE_SWITCH_LABEL, MANUFACTURER_MODE_LABEL, type OperatingMode } from "@/domain/operating-mode";
 import { isValidTimeZone } from "@/domain/time-zone";
+import { describeNorth, NORTH_PRESETS, normalizeHeading } from "@/domain/compass";
+import { CompassRose } from "../../components/CompassRose";
 
 function mapSize(label: string) {
   return wholeNumber(1, {
@@ -42,6 +44,11 @@ const buildingFormSchema = z.object({
   mapWidth: mapSize("width"),
   mapDepth: mapSize("depth"),
   mapHeight: mapSize("height"),
+  mapNorth: wholeNumber(0, {
+    empty: "Enter where north points, 0–359.",
+    notWhole: "North must be a whole number of degrees.",
+    tooSmall: "North must be 0 or more.",
+  }).refine((value) => value <= 359, { message: "North must be 359 or less." }),
 });
 
 export function WarehouseSetupPage() {
@@ -60,6 +67,7 @@ export function WarehouseSetupPage() {
     mapWidth: "42",
     mapDepth: "28",
     mapHeight: "8",
+    mapNorth: "0",
   });
   const [newName, setNewName] = useState("");
   const currentId = warehouse.warehouseId;
@@ -82,6 +90,7 @@ export function WarehouseSetupPage() {
           mapWidth: String(current.mapWidth),
           mapDepth: String(current.mapDepth),
           mapHeight: String(current.mapHeight),
+          mapNorth: String(current.mapNorth ?? 0),
         });
       })
       .catch((err: unknown) => write.setError(errorText(err, "Could not load this warehouse.")));
@@ -108,6 +117,7 @@ export function WarehouseSetupPage() {
             mapWidth: values.mapWidth,
             mapDepth: values.mapDepth,
             mapHeight: values.mapHeight,
+            mapNorth: values.mapNorth,
             shipFromAddress: values.shipFromAddress,
             city: values.city,
             region: values.region,
@@ -222,6 +232,42 @@ export function WarehouseSetupPage() {
               <NumberField form={form} name="mapWidth" label="Map width" min={1} />
               <NumberField form={form} name="mapDepth" label="Map depth" min={1} />
               <NumberField form={form} name="mapHeight" label="Map height" min={1} />
+            </div>
+          </div>
+
+          <div className="space-y-3 border-t pt-4">
+            <SectionHeading
+              title="Compass"
+              description="Which way north points on the map, so the floor plan, the 3D racks, and Build floor can label the north, south, east, and west walls."
+            />
+            <div className="flex flex-wrap items-start gap-4">
+              <div className="text-foreground">
+                <CompassRose mapNorth={normalizeHeading(form.watch("mapNorth"))} size={72} />
+              </div>
+              <div className="min-w-[14rem] flex-1 space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  {NORTH_PRESETS.map((preset) => (
+                    <Button
+                      key={preset.deg}
+                      type="button"
+                      size="sm"
+                      variant={normalizeHeading(form.watch("mapNorth")) === preset.deg ? "primary" : "secondary"}
+                      onClick={() => form.setValue("mapNorth", String(preset.deg), { shouldDirty: true, shouldValidate: true })}
+                    >
+                      {preset.label}
+                    </Button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 items-start gap-3">
+                  <NumberField
+                    form={form}
+                    name="mapNorth"
+                    label="North, degrees clockwise from the top edge"
+                    min={0}
+                    description={describeNorth(normalizeHeading(form.watch("mapNorth")))}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 

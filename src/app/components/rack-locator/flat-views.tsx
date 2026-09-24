@@ -3,6 +3,7 @@ import type { MapLocation, WarehouseMapInfo } from "../../api";
 import { footprint, groupFloorObjects, objectForLocation } from "@/domain/rack-builder";
 import type { RackFace } from "@/domain/rack-targets";
 import { cn } from "@/lib/utils";
+import { edgeLabels } from "@/domain/compass";
 import { ReticleMark, TONE_STROKE, type TargetTone } from "./reticle";
 
 /** Drawing width the rack face aims for, so text stays near 1:1 in the card whatever the bay count. */
@@ -227,6 +228,7 @@ export function FloorLocator({
     return object?.kind === "rack" ? footprint(object.locations) : null;
   }, [locations, focusId]);
   const pad = 1;
+  const walls = edgeLabels(warehouse.mapNorth ?? 0);
   const focusCode = locations.find((row) => row.id === focusId)?.code ?? null;
   const marked = cells
     .map((cell) => {
@@ -256,6 +258,27 @@ export function FloorLocator({
         stroke="var(--border)"
         strokeWidth="0.12"
       />
+      {(
+        [
+          ["top", warehouse.mapWidth / 2, -0.3],
+          ["right", warehouse.mapWidth + 0.5, warehouse.mapDepth / 2 + 0.25],
+          ["bottom", warehouse.mapWidth / 2, warehouse.mapDepth + 0.75],
+          ["left", -0.5, warehouse.mapDepth / 2 + 0.25],
+        ] as const
+      ).map(([edge, x, y]) => (
+        <text
+          key={edge}
+          x={x}
+          y={y}
+          textAnchor="middle"
+          fontSize="0.7"
+          fontWeight={walls[edge] === "N" ? 700 : 500}
+          fill={walls[edge] === "N" ? "var(--primary)" : "var(--muted-foreground)"}
+          fontFamily="ui-monospace, monospace"
+        >
+          {walls[edge]}
+        </text>
+      ))}
       {cells.map((cell) => {
         const area = AREA_FILL[cell.type];
         return (
