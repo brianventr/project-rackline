@@ -225,6 +225,8 @@ export type WarehouseMapInfo = {
   mapWidth: number;
   mapDepth: number;
   mapHeight: number;
+  /** Where north points on the map, degrees clockwise from the top edge; missing means 0. */
+  mapNorth?: number;
   shipFromAddress?: string | null;
   city?: string | null;
   region?: string | null;

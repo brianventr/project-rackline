@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { isHeading } from "../domain/compass";
 import { and, desc, eq, gt, inArray, lte, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "../db/schema";
@@ -76,6 +77,7 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     region?: string | null;
     country?: string | null;
     timeZone?: string | null;
+    mapNorth?: number;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -99,6 +101,7 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     lat?: number | null;
     lng?: number | null;
     timeZone?: string;
+    mapNorth?: number;
   } = {};
   const name = optionalString(body.name);
   if (name) patch.name = name;
@@ -120,6 +123,11 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
   if (mapHeight !== undefined) {
     if (mapHeight <= 0) badRequest("mapHeight must be positive");
     patch.mapHeight = mapHeight;
+  }
+  const mapNorth = optionalInt(body.mapNorth, "mapNorth");
+  if (mapNorth !== undefined) {
+    if (!isHeading(mapNorth)) badRequest("mapNorth must be 0–359 degrees clockwise from the top of the map");
+    patch.mapNorth = mapNorth;
   }
   if ("city" in body) patch.city = optionalString(body.city) ?? null;
   if ("region" in body) patch.region = optionalString(body.region) ?? null;

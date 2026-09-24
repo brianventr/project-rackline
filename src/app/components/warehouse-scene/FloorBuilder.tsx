@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BoxSelect,
+  Compass,
   Factory,
   Grid3x3,
   Layers,
@@ -55,6 +56,7 @@ import {
   zoneForBox,
   type ZoneRect,
 } from "@/domain/zones";
+import { describeNorth, NORTH_PRESETS, normalizeHeading } from "@/domain/compass";
 import { WarehouseScene, type CameraMode, type Ghost } from "./WarehouseScene";
 
 type Tool = "select" | "zone" | "rack" | "receiving" | "production" | "shipping";
@@ -739,6 +741,15 @@ export function FloorBuilder({
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  const mapNorth = normalizeHeading(data.warehouse.mapNorth ?? 0);
+  const northIsPreset = NORTH_PRESETS.some((row) => row.deg === mapNorth);
+
+  async function setMapNorth(next: number) {
+    await runWrite("Could not save the compass setting", () =>
+      api(`/api/warehouses/${warehouseId}`, { method: "PATCH", body: JSON.stringify({ mapNorth: normalizeHeading(next) }) }),
+    );
+  }
+
   const selectedRack = activeObject?.kind === "rack" ? activeObject : null;
   const selectedArea = activeObject?.kind === "area" ? activeObject : null;
   const selectedAreaLocation = selectedArea ? (data.locations.find((row) => row.id === selectedArea.location.id) ?? null) : null;
@@ -871,6 +882,28 @@ export function FloorBuilder({
           <Button variant={explode ? "default" : "outline"} size="sm" onClick={() => setExplode((value) => !value)}>
             <Move className="size-3.5" /> Explode levels
           </Button>
+          <span className="mx-1 h-4 w-px bg-border" />
+          <label className="flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-2 text-xs" title={describeNorth(mapNorth)}>
+            <Compass className="size-3.5 text-muted-foreground" />
+            <span className="text-muted-foreground">North</span>
+            <select
+              className="bg-transparent text-xs outline-none disabled:opacity-60"
+              value={northIsPreset ? String(mapNorth) : "custom"}
+              disabled={!canEdit || busy}
+              aria-label="Which edge of the map faces north"
+              onChange={(event) => {
+                if (event.target.value === "custom") return;
+                void setMapNorth(Number(event.target.value));
+              }}
+            >
+              {NORTH_PRESETS.map((preset) => (
+                <option key={preset.deg} value={String(preset.deg)}>
+                  {preset.label}
+                </option>
+              ))}
+              {northIsPreset ? null : <option value="custom">{mapNorth}° (set in Setup → Warehouse)</option>}
+            </select>
+          </label>
           <span className="mx-1 h-4 w-px bg-border" />
           <button
             type="button"

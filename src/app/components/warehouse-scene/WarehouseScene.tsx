@@ -21,6 +21,8 @@ import {
 import { countZoneBays, hasFootprint, type ZoneFootprint, type ZoneRect } from "@/domain/zones";
 import type { PickMapMarker } from "@/domain/pick-map";
 import { cn } from "@/lib/utils";
+import { edgeLabels, needleRotation } from "@/domain/compass";
+import { CompassRose } from "../CompassRose";
 import { Reticle, type TargetTone } from "../rack-locator/reticle";
 import { readSceneTheme, zoneColor, type SceneTheme } from "./theme";
 import { cartonGeometry, PALLET_HEIGHT, PALLET_LIFT, RackFrames, RackPallets, loadFootprint } from "./rack-meshes";
@@ -668,6 +670,62 @@ function TargetMarkers({
   );
 }
 
+/** N / E / S / W chips just outside each wall, so "the north wall" means the same thing on every view. */
+function WallLabels({ warehouse }: { warehouse: WarehouseMapInfo }) {
+  const w = warehouse.mapWidth;
+  const d = warehouse.mapDepth;
+  const walls = edgeLabels(warehouse.mapNorth ?? 0);
+  const spots: Array<[keyof typeof walls, number, number]> = [
+    ["top", w / 2, -1.1],
+    ["right", w + 1.1, d / 2],
+    ["bottom", w / 2, d + 1.1],
+    ["left", -1.1, d / 2],
+  ];
+  return (
+    <>
+      {spots.map(([edge, x, z]) => {
+        const label = walls[edge];
+        const north = label === "N";
+        return (
+          <Html key={edge} position={[x, 0.25, z]} center zIndexRange={[15, 0]} style={{ pointerEvents: "none" }}>
+            <div
+              className={cn(
+                "rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold shadow-sm ring-1 backdrop-blur",
+                north ? "bg-primary text-primary-foreground ring-primary" : "bg-background/85 text-muted-foreground ring-border",
+              )}
+              title={`${label} wall`}
+            >
+              {label}
+            </div>
+          </Html>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * Turns the on-screen compass rose to match the camera: the map direction that reads as screen-up is the
+ * horizontal part of the camera's up vector, which for a downward-looking camera points away from the viewer.
+ */
+function CameraCompass({ rotor, mapNorth }: { rotor: React.RefObject<HTMLDivElement | null>; mapNorth: number }) {
+  const { camera } = useThree();
+  const up = useMemo(() => new THREE.Vector3(), []);
+  const last = useRef<number | null>(null);
+  useFrame(() => {
+    const element = rotor.current;
+    if (!element) return;
+    up.set(0, 1, 0).applyQuaternion(camera.quaternion);
+    const flat = Math.hypot(up.x, up.z);
+    const screenUp = flat < 1e-4 ? 0 : THREE.MathUtils.radToDeg(Math.atan2(up.x, -up.z));
+    const rotation = needleRotation(mapNorth, screenUp);
+    if (last.current !== null && Math.abs(rotation - last.current) < 0.1) return;
+    last.current = rotation;
+    element.style.transform = `rotate(${rotation}deg)`;
+  });
+  return null;
+}
+
 function WarehouseCurb({ warehouse, theme }: { warehouse: WarehouseMapInfo; theme: SceneTheme }) {
   const w = warehouse.mapWidth;
   const d = warehouse.mapDepth;
@@ -1037,11 +1095,7 @@ function SceneContents(
           label={`${props.ghost.spec.code ? `Zone ${props.ghost.spec.code} · ` : ""}${props.ghost.spec.sizeX} × ${props.ghost.spec.sizeY}`}
         />
       ) : null}
-      {props.cameraMode === "top" ? (
-        <Html position={[1.1, 0.2, 1.1]} center style={{ pointerEvents: "none" }}>
-          <div className="rounded bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ring-1 ring-border">N</div>
-        </Html>
-      ) : null}
+      {props.compact ? null : <WallLabels warehouse={props.warehouse} />}
     </>
   );
 }
@@ -1185,6 +1239,8 @@ export function WarehouseScene(props: Props) {
   const sketching = useRef(false);
   // The camera controls are switched off for the length of a drag so orbit mode does not spin while an object moves.
   const controlsRef = useRef<OrbitControlsLike | null>(null);
+  const compassRotor = useRef<HTMLDivElement | null>(null);
+  const mapNorth = props.warehouse.mapNorth ?? 0;
   useEffect(() => {
     const sync = () => setTheme(readSceneTheme());
     sync();
@@ -1274,6 +1330,7 @@ export function WarehouseScene(props: Props) {
             <PerspectiveCamera makeDefault fov={42} near={0.1} far={500} />
           )}
           <CameraRig warehouse={props.warehouse} cameraMode={props.cameraMode} focus={focus} />
+          <CameraCompass rotor={compassRotor} mapNorth={mapNorth} />
           <OrbitControls
             ref={(instance) => {
               controlsRef.current = instance as unknown as OrbitControlsLike | null;
@@ -1346,6 +1403,9 @@ export function WarehouseScene(props: Props) {
           {hovered ? ` · ${hovered.code}` : ""}
         </div>
       )}
+      <div className="pointer-events-none absolute right-3 top-3 text-foreground">
+        <CompassRose mapNorth={mapNorth} size={props.compact ? 40 : 56} rotorRef={compassRotor} />
+      </div>
       {props.ghost ? (
         <div
           className={`pointer-events-none absolute bottom-3 left-1/2 max-w-[min(36rem,calc(100%-1.5rem))] -translate-x-1/2 rounded-md px-3 py-1.5 text-center text-[11px] shadow-sm ring-1 backdrop-blur ${

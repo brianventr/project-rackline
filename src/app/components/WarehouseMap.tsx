@@ -2,6 +2,8 @@ import { lazy, Suspense, useMemo, useRef, useState, type PointerEvent } from "re
 import type { MapLocation, WarehouseMapInfo, Zone } from "../api";
 import { groupFloorObjects } from "@/domain/rack-builder";
 import { countZoneBays, hasFootprint } from "@/domain/zones";
+import { edgeLabels } from "@/domain/compass";
+import { CompassRose } from "./CompassRose";
 import type { PickMapMarker } from "@/domain/pick-map";
 import { cn } from "@/lib/utils";
 
@@ -199,6 +201,8 @@ export function WarehouseMap({
   }
 
   const pad = 1.5;
+  const mapNorth = warehouse.mapNorth ?? 0;
+  const walls = edgeLabels(mapNorth);
   const cells = floorCells(visible);
   const cellByLocation = new Map<string, { x: number; y: number; sizeX: number; sizeY: number }>();
   for (const cell of cells) {
@@ -207,6 +211,7 @@ export function WarehouseMap({
     }
   }
   return (
+    <div className="relative w-full">
     <svg
       ref={svgRef}
       viewBox={`${-pad} ${-pad} ${warehouse.mapWidth + pad * 2} ${warehouse.mapDepth + pad * 2}`}
@@ -215,9 +220,31 @@ export function WarehouseMap({
       onPointerUp={onPointerUp}
       onPointerLeave={onPointerUp}
       role="img"
-      aria-label="Warehouse floor plan"
+      aria-label={`Warehouse floor plan, ${walls.top} wall at the top`}
     >
       <rect x="0" y="0" width={warehouse.mapWidth} height={warehouse.mapDepth} fill="#d8c49a" stroke="#8d7349" strokeWidth="0.12" />
+      {(
+        [
+          ["top", warehouse.mapWidth / 2, -0.45, "middle"],
+          ["right", warehouse.mapWidth + 0.75, warehouse.mapDepth / 2 + 0.3, "middle"],
+          ["bottom", warehouse.mapWidth / 2, warehouse.mapDepth + 1.05, "middle"],
+          ["left", -0.75, warehouse.mapDepth / 2 + 0.3, "middle"],
+        ] as const
+      ).map(([edge, x, y, anchor]) => (
+        <text
+          key={edge}
+          x={x}
+          y={y}
+          textAnchor={anchor}
+          fontSize="0.85"
+          fontWeight={walls[edge] === "N" ? 700 : 500}
+          fill={walls[edge] === "N" ? "#df6035" : "#5c4a32"}
+          fontFamily="ui-monospace, monospace"
+          pointerEvents="none"
+        >
+          {walls[edge]}
+        </text>
+      ))}
       {Array.from({ length: warehouse.mapWidth + 1 }, (_, i) => (
         <line key={`vx-${i}`} x1={i} y1={0} x2={i} y2={warehouse.mapDepth} stroke="rgba(90,70,40,0.12)" strokeWidth="0.04" />
       ))}
@@ -387,6 +414,10 @@ export function WarehouseMap({
         );
       })}
     </svg>
+    <div className="pointer-events-none absolute right-3 top-3 text-foreground">
+      <CompassRose mapNorth={mapNorth} size={52} />
+    </div>
+    </div>
   );
 }
 
