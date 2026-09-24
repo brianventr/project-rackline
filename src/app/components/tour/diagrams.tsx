@@ -198,10 +198,11 @@ const FLOOR_TABS: { label: string; icon: Icon }[] = [
 
 const MAX_TILES = 8;
 
-/** Which verbs to draw: the person's own, or every verb when none are set. */
-function verbTiles(verbs: readonly string[] | undefined): FloorVerb[] {
+/** Which verbs to draw: the person's own (or every verb when none are set), minus what Garage Mode packs away. */
+function verbTiles(verbs: readonly string[] | undefined, garage: boolean): FloorVerb[] {
   const own = verbs?.length ? FLOOR_VERBS.filter((verb) => verbs.includes(verb)) : [];
-  return own.length ? own : [...FLOOR_VERBS];
+  const base = own.length ? own : [...FLOOR_VERBS];
+  return garage ? base.filter((verb) => garageAllowsPath(`/floor/${verb}`)) : base;
 }
 
 function MiniNextJob({ start }: { start?: boolean }) {
@@ -261,8 +262,8 @@ function MiniTabBar() {
  * The operator's own screen: Next job, then the verb tiles they were given (all of them when none
  * were set), then the bottom bar.
  */
-export function FloorDiagram({ verbs, className }: { verbs?: readonly string[]; className?: string }) {
-  const tiles = verbTiles(verbs);
+export function FloorDiagram({ verbs, garage = false, className }: { verbs?: readonly string[]; garage?: boolean; className?: string }) {
+  const tiles = verbTiles(verbs, garage);
   const shown = tiles.slice(0, MAX_TILES);
   const more = tiles.length - shown.length;
   const labels = shown.map((verb) => VERB_LABELS[verb]).join(", ");

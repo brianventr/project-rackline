@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Button as UiButton } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { errorText, type MapLocation, type WarehouseMapData } from "@/app/api";
+import { errorText, type Location, type MapLocation, type WarehouseMapData } from "@/app/api";
 import { Button, Card, EmptyState, ErrorBanner, PageHeader } from "@/app/components/ui";
 import { FloorLocator } from "@/app/components/rack-locator/flat-views";
 import type { TargetTone } from "@/app/components/rack-locator/reticle";
@@ -13,7 +13,7 @@ import { HierarchyTree } from "@/app/components/setup-wizard/HierarchyTree";
 import { LivePanel, type RackPreviewShape } from "@/app/components/setup-wizard/LivePanel";
 import { SetupStepper, type StepStatus } from "@/app/components/setup-wizard/Stepper";
 import { AreaStep, BuildingStep, LevelLesson, RacksStep, ReviewIssues } from "@/app/components/setup-wizard/steps";
-import { replanInput, runSetupRequests, type CreateProgress } from "@/app/components/setup-wizard/create";
+import { runSetupRequests, type CreateProgress } from "@/app/components/setup-wizard/create";
 import { useMinWidth } from "@/app/components/setup-wizard/use-min-width";
 import { apiKey, queryClient, refreshApi, useApiQuery } from "@/app/query";
 import { openTour } from "@/app/tour";
@@ -28,16 +28,21 @@ import {
   defaultSetupInput,
   existingHierarchy,
   issuesForStep,
+  mergeSetupInput,
   nextSetupStep,
+  pendingSlotRoles,
   plannedHierarchy,
   planSetup,
   previewRackCodes,
   previousSetupStep,
   setupStep,
   stepIncluded,
+  summarizeCompleted,
+  withCarriedRequests,
   type ExistingBin,
   type PlannedBin,
   type SetupInput,
+  type SetupRequest,
   type SetupStepId,
 } from "@/domain/setup-wizard";
 import { cn } from "@/lib/utils";
@@ -96,6 +101,13 @@ function WelcomeWizard() {
   const mapPath = warehouseId ? `/api/map?warehouseId=${encodeURIComponent(warehouseId)}` : null;
   const map = useApiQuery<WarehouseMapData>(mapPath);
   const data = map.data;
+  // Barcodes are unique per organization, so codes in the other buildings are taken here too.
+  const orgLocations = useApiQuery<Location[]>("/api/locations");
+  const orgReady = orgLocations.data !== undefined || orgLocations.isError;
+  const takenCodes = useMemo(
+    () => (orgLocations.data ?? []).filter((row) => row.warehouseId !== warehouseId).map((row) => row.code),
+    [orgLocations.data, warehouseId],
+  );
 
   const [step, setStep] = useState<SetupStepId>(() => (isStepId(params.get("step")) ? (params.get("step") as SetupStepId) : "building"));
   const [input, setInput] = useState<SetupInput | null>(null);
@@ -104,24 +116,35 @@ function WelcomeWizard() {
   const [progress, setProgress] = useState<CreateProgress | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createdSoFar, setCreatedSoFar] = useState<string[]>([]);
+  /** Slot roles a failed run still owes (its racks exist, their roles do not). Run with the next Create. */
+  const [carried, setCarried] = useState<SetupRequest[]>([]);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const zone = useMemo(browserTimeZone, []);
 
-  // One SetupInput per warehouse: built when its map first loads, kept through refetches.
+  // One SetupInput per warehouse: built when its map (and the org's codes) first load, kept through refetches.
   useEffect(() => {
-    if (!data || !warehouseId || inputFor === warehouseId) return;
-    setInput(defaultSetupInput({ warehouse: data.warehouse, existing: data.locations, garage, browserTimeZone: zone }));
+    if (!data || !orgReady || !warehouseId || inputFor === warehouseId) return;
+    setInput(defaultSetupInput({ warehouse: data.warehouse, existing: data.locations, garage, browserTimeZone: zone, takenCodes }));
     setInputFor(warehouseId);
     setPhase("edit");
     setCreateError(null);
     setCreatedSoFar([]);
-  }, [data, warehouseId, inputFor, garage, zone]);
+    setCarried([]);
+  }, [data, orgReady, warehouseId, inputFor, garage, zone, takenCodes]);
 
   const existing: ExistingBin[] = data?.locations ?? NO_BINS;
   const plan = useMemo(
-    () => (input && data ? planSetup(input, { existing: data.locations, warehouse: data.warehouse }) : null),
-    [input, data],
+    () => (input && data ? planSetup(input, { existing: data.locations, warehouse: data.warehouse, takenCodes, garage }) : null),
+    [input, data, takenCodes, garage],
   );
+  const requests = useMemo(() => (plan ? withCarriedRequests(plan.requests, carried) : []), [plan, carried]);
+
+  // After Create, keyboard focus lands on the done heading rather than falling to the page body.
+  useEffect(() => {
+    if (phase !== "done") return;
+    const frame = window.requestAnimationFrame(() => headingRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [phase]);
 
   const treeName = input?.building.name.trim() || data?.warehouse.name || "Your building";
   const tree = useMemo(
@@ -172,20 +195,24 @@ function WelcomeWizard() {
   }
 
   async function create() {
-    if (!plan || !data || !input || !warehouseId || !mapPath || !plan.requests.length) return;
+    if (!plan || !data || !input || !warehouseId || !mapPath || !requests.length) return;
     setPhase("creating");
     setCreateError(null);
     setProgress(null);
     const created: string[] = [];
+    const completed: SetupRequest[] = [];
     const description = plan.description;
     try {
-      await runSetupRequests({ warehouseId, requests: plan.requests, existing: data.locations, created, onProgress: setProgress });
+      await runSetupRequests({ warehouseId, requests, existing: data.locations, created, completed, onProgress: setProgress });
       await refreshApi();
       toast.success(description ? `Created ${description}.` : "Building saved.");
       setCreatedSoFar([]);
+      setCarried([]);
       setPhase("done");
     } catch (err) {
-      setCreateError(errorText(err, "Could not create that."));
+      const message = errorText(err, "Could not create that.");
+      setCreateError(message);
+      toast.error(message);
       setCreatedSoFar(created);
       setPhase("edit");
       try {
@@ -195,9 +222,17 @@ function WelcomeWizard() {
       }
       const fresh = queryClient.getQueryData<WarehouseMapData>(apiKey(mapPath));
       if (fresh) {
+        // Steps this run finished switch off, a rack step that got some racks asks for the rest, and
+        // the slot roles it still owes ride along with the next Create.
+        const summary = summarizeCompleted(completed);
+        setCarried(pendingSlotRoles(requests, completed, fresh.locations));
         setInput((prev) =>
           prev
-            ? replanInput(prev, defaultSetupInput({ warehouse: fresh.warehouse, existing: fresh.locations, garage, browserTimeZone: zone }))
+            ? mergeSetupInput(
+                prev,
+                defaultSetupInput({ warehouse: fresh.warehouse, existing: fresh.locations, garage, browserTimeZone: zone, takenCodes }),
+                summary,
+              )
             : prev,
         );
       }
@@ -344,7 +379,7 @@ function WelcomeWizard() {
   const previous = previousSetupStep(step);
   const next = nextSetupStep(step);
   const busy = phase === "creating";
-  const nothingToCreate = plan.requests.length === 0 && plan.issues.length === 0;
+  const nothingToCreate = requests.length === 0 && plan.issues.length === 0;
   const suggestedZone =
     (data.warehouse.timeZone?.trim() || "UTC") === "UTC" && !!zone && input.building.timeZone === zone;
 
@@ -354,7 +389,7 @@ function WelcomeWizard() {
     <div className="space-y-(--density-gap)">
       {header}
       <div className="grid gap-(--density-gap) lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-start">
-        <SetupStepper current={step} status={status} onSelect={goTo} />
+        <SetupStepper current={step} status={status} onSelect={goTo} disabled={busy} />
         <div className="grid gap-(--density-gap) md:grid-cols-[minmax(0,1fr)_minmax(0,19rem)] md:items-start xl:grid-cols-[minmax(0,1fr)_minmax(0,23rem)]">
           <Card className="space-y-4">
             <div>
@@ -414,9 +449,12 @@ function WelcomeWizard() {
                   intro="Read the tree top to bottom: that is the address of every bin. Nothing is created until you press Create."
                 />
                 <div className="rounded-lg border bg-primary/5 p-3">
-                  {plan.description ? (
+                  {plan.description || carried.length ? (
                     <>
-                      <p className="text-base font-semibold">{plan.description}</p>
+                      <p className="text-base font-semibold">
+                        {plan.description ||
+                          `${carried.length} pick face and bulk ${carried.length === 1 ? "mark" : "marks"} still owed from the last run`}
+                      </p>
                       <p className="text-sm text-muted-foreground">
                         {plan.requests.some((request) => request.kind === "warehouse")
                           ? "Plus the building's name and timezone."
@@ -443,6 +481,9 @@ function WelcomeWizard() {
                       <p className="text-sm text-muted-foreground">
                         Already created: <span className="font-mono text-foreground">{createdSoFar.join(", ")}</span>. The plan
                         below now starts after them.
+                        {carried.length
+                          ? ` ${carried.length} pick face and bulk ${carried.length === 1 ? "mark" : "marks"} from that run ${carried.length === 1 ? "is" : "are"} still owed and will run with the next Create.`
+                          : ""}
                       </p>
                     ) : null}
                   </div>
@@ -452,7 +493,7 @@ function WelcomeWizard() {
                     <p className="text-sm">
                       {progress.label} · <span className="tabular-nums">{progress.index} of {progress.total}</span>
                     </p>
-                    <Progress value={(progress.index / progress.total) * 100} />
+                    <Progress value={(progress.index / progress.total) * 100} aria-label="Create progress" />
                   </div>
                 ) : null}
                 <section className="space-y-2">

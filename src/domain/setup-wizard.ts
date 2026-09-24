@@ -107,12 +107,36 @@ const AREA_NAME: Record<AreaSpec["type"], string> = {
   shipping: "Shipping bay",
 };
 
-/** "DOCK" when it is free, else the map builder's own next code (RECV, RECV-2, …). */
-export function suggestAreaCode(existing: { code?: string }[], type: AreaSpec["type"]): string {
-  const taken = new Set(existing.map((row) => row.code?.toUpperCase()).filter(Boolean));
+/**
+ * "DOCK" when it is free, else the map builder's own next code (RECV, RECV-2, …). Barcodes are unique
+ * across the organization, so `takenCodes` (bins in other buildings) count as taken too.
+ */
+export function suggestAreaCode(
+  existing: { code?: string }[],
+  type: AreaSpec["type"],
+  takenCodes: Iterable<string> = [],
+): string {
+  const taken = new Set([...existing.map((row) => row.code?.toUpperCase()).filter(Boolean), ...[...takenCodes].map(normalizeCode)]);
   const preferred = PREFERRED_CODE[type];
   if (!taken.has(preferred)) return preferred;
-  return nextAreaCode(existing as LocationLike[], type);
+  const others = [...takenCodes].map((code) => ({ code: normalizeCode(code) }));
+  return nextAreaCode([...(existing as LocationLike[]), ...(others as LocationLike[])], type);
+}
+
+/**
+ * The first aisle letter whose next rack would not collide with a bin anywhere in the organization
+ * (a second building cannot reuse A-01-01, since barcodes are unique per organization).
+ */
+export function suggestAisle(existing: ExistingBin[], takenCodes: Iterable<string> = []): string {
+  const taken = new Set([...takenCodes].map(normalizeCode));
+  const objects = groupFloorObjects(existing);
+  for (let index = 0; index < 26; index += 1) {
+    const aisle = String.fromCharCode(65 + index);
+    const rack = nextRackAddress(objects, aisle).rack;
+    const prefix = `${aisle}-${rack}-`;
+    if (![...taken].some((code) => code.startsWith(prefix))) return aisle;
+  }
+  return "A";
 }
 
 /**
@@ -125,27 +149,29 @@ export function defaultSetupInput(input: {
   garage: boolean;
   /** The browser's zone, used while the building is still on UTC. */
   browserTimeZone?: string | null;
+  /** Codes of bins in the organization's other buildings; barcodes are unique per organization. */
+  takenCodes?: Iterable<string>;
 }): SetupInput {
   const { existing, garage } = input;
+  const taken = input.takenCodes ?? [];
   const has = (type: string) => existing.some((row) => row.type === type);
   const shape = defaultRackShape(garage);
   const currentZone = input.warehouse.timeZone?.trim() || "UTC";
   const browserZone = input.browserTimeZone?.trim() || "";
   const timeZone = currentZone === "UTC" && browserZone && isValidTimeZone(browserZone) ? browserZone : currentZone;
-  const address = nextRackAddress(groupFloorObjects(existing), "A");
   return {
     building: { name: input.warehouse.name, timeZone },
-    dock: { include: !has("receiving"), code: suggestAreaCode(existing, "receiving"), name: AREA_NAME.receiving },
+    dock: { include: !has("receiving"), code: suggestAreaCode(existing, "receiving", taken), name: AREA_NAME.receiving },
     racks: {
       include: !has("storage"),
-      aisle: address.aisle,
+      aisle: suggestAisle(existing, taken),
       racks: shape.racks,
       bays: shape.bays,
       levels: shape.levels,
       pickFaces: shape.levels > 1,
     },
-    bench: { include: !has("production"), code: suggestAreaCode(existing, "production"), name: AREA_NAME.production },
-    ship: { include: !has("shipping"), code: suggestAreaCode(existing, "shipping"), name: AREA_NAME.shipping },
+    bench: { include: !has("production"), code: suggestAreaCode(existing, "production", taken), name: AREA_NAME.production },
+    ship: { include: !has("shipping"), code: suggestAreaCode(existing, "shipping", taken), name: AREA_NAME.shipping },
   };
 }
 
@@ -181,9 +207,19 @@ export type SetupPlan = {
 };
 
 export type SetupContext = {
+  /** Bins in this building: they are obstacles on the map and their codes are taken. */
   existing: ExistingBin[];
   warehouse: WarehouseMapSize & { name: string; timeZone?: string | null };
+  /** Codes of bins in the organization's other buildings. Barcodes are unique per organization, not per building. */
+  takenCodes?: Iterable<string>;
+  /** Garage Mode names its menus differently (Shop → Bench setup rather than Settings → Warehouse). */
+  garage?: boolean;
 };
+
+/** Where the map size lives, in the words of this shop's menu. */
+export function warehouseSettingsLabel(garage: boolean | undefined): string {
+  return garage ? "Shop → Bench setup" : "Settings → Warehouse";
+}
 
 const CODE_PATTERN = /^[A-Z0-9][A-Z0-9_-]*$/;
 
@@ -248,7 +284,7 @@ export function planSetup(input: SetupInput, ctx: SetupContext): SetupPlan {
   const bins: PlannedBin[] = [];
   const requests: SetupRequest[] = [];
   const existing = ctx.existing;
-  const taken = new Set(existing.map((row) => normalizeCode(row.code)));
+  const taken = new Set([...existing.map((row) => normalizeCode(row.code)), ...[...(ctx.takenCodes ?? [])].map(normalizeCode)]);
   const obstacles: LocationLike[] = existing.map(obstacleOf);
 
   // Building
@@ -278,7 +314,7 @@ export function planSetup(input: SetupInput, ctx: SetupContext): SetupPlan {
     if (!spot) {
       issues.push({
         step: source,
-        message: `There is no room on the map for ${code}. Enlarge the map under Settings → Warehouse, or leave this step for later.`,
+        message: `There is no room on the map for ${code}. Enlarge the map under ${warehouseSettingsLabel(ctx.garage)}, or leave this step for later.`,
       });
       return;
     }
@@ -332,7 +368,7 @@ export function planSetup(input: SetupInput, ctx: SetupContext): SetupPlan {
       if (!spot) {
         issues.push({
           step: "racks",
-          message: `There is no room on the map for rack ${aisle}-${rack} with ${bays} bays. Try fewer bays, or enlarge the map under Settings → Warehouse.`,
+          message: `There is no room on the map for rack ${aisle}-${rack} (${bays} bays, ${levels} levels). Try fewer bays or levels, or enlarge the map's width, depth, or height under ${warehouseSettingsLabel(ctx.garage)}.`,
         });
         return;
       }
@@ -455,4 +491,77 @@ export function previewRackCodes(racks: SetupRacksInput, existing: ExistingBin[]
     codes.push(...expandRack(spec).map((draft) => draft.code));
   }
   return codes;
+}
+
+/* ------------------------------------------------------------------ after a failed create */
+
+/** What a create run managed before it stopped, from the requests that completed. */
+export type SetupCreated = { dock: boolean; racks: number; bench: boolean; ship: boolean };
+
+/** Read `SetupCreated` off the requests that completed. */
+export function summarizeCompleted(completed: readonly SetupRequest[]): SetupCreated {
+  const created: SetupCreated = { dock: false, racks: 0, bench: false, ship: false };
+  for (const request of completed) {
+    if (request.kind === "area") created[request.source] = true;
+    if (request.kind === "rack") created.racks += 1;
+  }
+  return created;
+}
+
+function count(value: number | string): number {
+  const n = Number(String(value).trim());
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}
+
+/**
+ * The form after a partial create: what the person typed stays, but a step whose bin this run
+ * already made switches off, and a rack step that got some of its racks asks only for the rest
+ * (numbering continues from the next free rack). `fresh` is the default form for the refetched map.
+ */
+export function mergeSetupInput(prev: SetupInput, fresh: SetupInput, created: SetupCreated): SetupInput {
+  const requested = count(prev.racks.racks);
+  const racks: SetupRacksInput = !prev.racks.include
+    ? fresh.racks
+    : created.racks >= requested && requested > 0
+      ? { ...prev.racks, include: false }
+      : created.racks > 0
+        ? { ...prev.racks, racks: requested - created.racks }
+        : prev.racks;
+  const area = (previous: SetupAreaInput, next: SetupAreaInput, done: boolean): SetupAreaInput =>
+    !previous.include ? next : done ? { ...previous, include: false } : previous;
+  return {
+    building: prev.building,
+    dock: area(prev.dock, fresh.dock, created.dock),
+    racks,
+    bench: area(prev.bench, fresh.bench, created.bench),
+    ship: area(prev.ship, fresh.ship, created.ship),
+  };
+}
+
+/**
+ * Slot-role patches a failed run still owes: the roles it planned for bins that now exist but do not
+ * carry that role yet. A retry runs these after its own requests, so a half-labelled rack gets finished.
+ */
+export function pendingSlotRoles(
+  requests: readonly SetupRequest[],
+  completed: readonly SetupRequest[],
+  bins: readonly ExistingBin[],
+): SetupRequest[] {
+  const done = new Set(completed);
+  const byCode = new Map(bins.map((bin) => [normalizeCode(bin.code), bin]));
+  const pending: SetupRequest[] = [];
+  for (const request of requests) {
+    if (request.kind !== "slotRole" || done.has(request)) continue;
+    const bin = byCode.get(normalizeCode(request.code));
+    if (!bin || (bin.slotRole ?? "none") === request.slotRole) continue;
+    pending.push(request);
+  }
+  return pending;
+}
+
+/** Requests for a run: the plan's own, then any carried-over slot roles not already in it. */
+export function withCarriedRequests(requests: readonly SetupRequest[], carried: readonly SetupRequest[]): SetupRequest[] {
+  const seen = new Set(requests.filter((request) => request.kind === "slotRole").map((request) => (request.kind === "slotRole" ? normalizeCode(request.code) : "")));
+  const extra = carried.filter((request) => request.kind === "slotRole" && !seen.has(normalizeCode(request.code)));
+  return [...requests, ...extra];
 }

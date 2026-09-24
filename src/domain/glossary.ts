@@ -66,7 +66,7 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     term: "Bin",
     aliases: ["location", "bay", "slot", "storage location", "bin code", "location code"],
     short: "The scannable spot stock sits in: a bay at one level, or a dock, bench, or outbound bay. Its code is its barcode.",
-    long: "Every bin has a type (receiving, storage, production, shipping) and a slot role (pick face or bulk). Qty always lives on a SKU in a bin, never on the SKU alone.",
+    long: "Every bin has a type (receiving, storage, production, shipping) and can carry a slot role: pick face (where pickers take from) or bulk (the reserve that refills it). Qty always lives on a SKU in a bin, never on the SKU alone.",
     path: "/stock/locations",
   },
   {

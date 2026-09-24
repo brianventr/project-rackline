@@ -1,4 +1,5 @@
-import { useId, type ReactNode } from "react";
+import { useId, type ComponentProps, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { Wrench } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button, Field, Input } from "@/app/components/ui";
@@ -87,19 +88,24 @@ export function SwitchRow({
   );
 }
 
+/** `Field` hands its child an `id` for the label; the rest (aria-describedby) comes from the step. */
+type FieldInputProps = Omit<ComponentProps<typeof Input>, "value" | "onChange">;
+
 function CodeInput({
   value,
   onChange,
   invalid,
   placeholder,
+  ...rest
 }: {
   value: string;
   onChange: (value: string) => void;
   invalid: boolean;
   placeholder?: string;
-}) {
+} & FieldInputProps) {
   return (
     <Input
+      {...rest}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       onBlur={() => onChange(normalizeCode(value))}
@@ -149,6 +155,11 @@ export function BuildingStep({
   /** The timezone came from this browser because the building was still on UTC. */
   suggestedZone: boolean;
 }) {
+  const nameIssueId = useId();
+  const zoneIssueId = useId();
+  const zoneHintId = useId();
+  const nameIssues = issuesFor(issues, "name");
+  const zoneIssues = issuesFor(issues, "timeZone");
   return (
     <div className="space-y-4">
       <LevelLesson
@@ -169,10 +180,11 @@ export function BuildingStep({
               onChange={(event) => onChange({ ...value, name: event.target.value })}
               placeholder="Main warehouse"
               autoComplete="organization"
-              aria-invalid={issuesFor(issues, "name").length > 0 || undefined}
+              aria-invalid={nameIssues.length > 0 || undefined}
+              aria-describedby={nameIssues.length ? nameIssueId : undefined}
             />
           </Field>
-          <IssueText issues={issues} field="name" />
+          <IssueText id={nameIssueId} issues={issues} field="name" />
         </div>
         <div>
           <Field label="Timezone">
@@ -183,11 +195,12 @@ export function BuildingStep({
               placeholder="America/Los_Angeles"
               autoCorrect="off"
               spellCheck={false}
-              aria-invalid={issuesFor(issues, "timeZone").length > 0 || undefined}
+              aria-invalid={zoneIssues.length > 0 || undefined}
+              aria-describedby={[zoneIssues.length ? zoneIssueId : null, zoneHintId].filter(Boolean).join(" ")}
             />
           </Field>
-          <IssueText issues={issues} field="timeZone" />
-          <p className="mt-1 text-xs text-muted-foreground">
+          <IssueText id={zoneIssueId} issues={issues} field="timeZone" />
+          <p id={zoneHintId} className="mt-1 text-xs text-muted-foreground">
             An IANA name like America/Los_Angeles. The day on Live starts at local midnight.
             {suggestedZone ? " Suggested from this browser because the building was on UTC." : ""}
           </p>
@@ -195,7 +208,7 @@ export function BuildingStep({
       </div>
       <p className="text-xs text-muted-foreground">
         {garage
-          ? `${GARAGE_MODE_LABEL} has one building. ${MANUFACTURER_MODE_LABEL} can add more under Settings → Warehouse.`
+          ? `${GARAGE_MODE_LABEL} has one building. ${MANUFACTURER_MODE_LABEL} can add more (switch under Shop → Bench setup).`
           : "Need another building? Add it under Settings → Warehouse."}
       </p>
     </div>
@@ -245,8 +258,8 @@ const AREA_COPY: Record<
     namePlaceholder: "Shipping bay",
     intro: () => (
       <>
-        Packed <Term id="carton">cartons</Term> wait here for the carrier. Shipping posts from this bay, so it is the last
-        place stock is seen before it leaves.
+        Packed <Term id="carton">cartons</Term> wait here for the carrier. Stock leaves the <Term id="ledger">ledger</Term>{" "}
+        when it is picked, so this bay is a staging spot on the map: where the floor looks for boxes that are ready to go.
       </>
     ),
   },
@@ -267,6 +280,9 @@ export function AreaStep({
 }) {
   const copy = AREA_COPY[source];
   const already = existing.filter((row) => row.type === copy.type);
+  const codeIssueId = useId();
+  const codeHintId = useId();
+  const codeIssues = issuesFor(issues, "code");
   return (
     <div className="space-y-4">
       <LevelLesson ids={["area", "bin"]} intro={copy.intro()} />
@@ -284,12 +300,15 @@ export function AreaStep({
               <CodeInput
                 value={value.code}
                 onChange={(code) => onChange({ ...value, code })}
-                invalid={issuesFor(issues, "code").length > 0}
+                invalid={codeIssues.length > 0}
                 placeholder={copy.codePlaceholder}
+                aria-describedby={[codeIssues.length ? codeIssueId : null, codeHintId].filter(Boolean).join(" ")}
               />
             </Field>
-            <IssueText issues={issues} field="code" />
-            <p className="mt-1 text-xs text-muted-foreground">Becomes the barcode on the bay.</p>
+            <IssueText id={codeIssueId} issues={issues} field="code" />
+            <p id={codeHintId} className="mt-1 text-xs text-muted-foreground">
+              Becomes the barcode on the bay.
+            </p>
           </div>
           <div>
             <Field label="Name">
@@ -303,7 +322,13 @@ export function AreaStep({
           </div>
         </div>
       ) : (
-        <p className="text-sm text-muted-foreground">Skipped. You can add one later under Stock → Locations.</p>
+        <p className="text-sm text-muted-foreground">
+          Skipped. You can add one later on the{" "}
+          <Link to="/stock/locations" className="font-medium text-foreground underline-offset-4 hover:underline">
+            Locations page
+          </Link>
+          .
+        </p>
       )}
       <IssueText issues={issues} />
     </div>
@@ -320,15 +345,17 @@ function NumberInput({
   min,
   max,
   invalid,
+  ...rest
 }: {
   value: number | string;
   onChange: (value: string) => void;
   min: number;
   max: number;
   invalid: boolean;
-}) {
+} & FieldInputProps) {
   return (
     <Input
+      {...rest}
       type="number"
       inputMode="numeric"
       min={min}
@@ -360,6 +387,8 @@ export function RacksStep({
   const singleLevel = !Number.isInteger(levels) || levels <= 1;
   const already = existing.filter((row) => row.type === "storage");
   const lastCode = codes[codes.length - 1];
+  const issueIds = { aisle: useId(), racks: useId(), bays: useId(), levels: useId() };
+  const describedBy = (field: keyof typeof issueIds) => (issuesFor(issues, field).length ? issueIds[field] : undefined);
   return (
     <div className="space-y-4">
       <LevelLesson
@@ -403,9 +432,11 @@ export function RacksStep({
                   autoCorrect="off"
                   spellCheck={false}
                   aria-invalid={issuesFor(issues, "aisle").length > 0 || undefined}
+                  aria-describedby={describedBy("aisle")}
                 />
               </Field>
               <p className="mt-1 text-xs text-muted-foreground">1 to 3 letters</p>
+              <IssueText id={issueIds.aisle} issues={issues} field="aisle" />
             </div>
             <div>
               <Field label="Racks">
@@ -415,11 +446,13 @@ export function RacksStep({
                   min={SETUP_LIMITS.racks.min}
                   max={SETUP_LIMITS.racks.max}
                   invalid={issuesFor(issues, "racks").length > 0}
+                  aria-describedby={describedBy("racks")}
                 />
               </Field>
               <p className="mt-1 text-xs text-muted-foreground">
                 {SETUP_LIMITS.racks.min} to {SETUP_LIMITS.racks.max}
               </p>
+              <IssueText id={issueIds.racks} issues={issues} field="racks" />
             </div>
             <div>
               <Field label="Bays per rack">
@@ -429,11 +462,13 @@ export function RacksStep({
                   min={SETUP_LIMITS.bays.min}
                   max={SETUP_LIMITS.bays.max}
                   invalid={issuesFor(issues, "bays").length > 0}
+                  aria-describedby={describedBy("bays")}
                 />
               </Field>
               <p className="mt-1 text-xs text-muted-foreground">
                 {SETUP_LIMITS.bays.min} to {SETUP_LIMITS.bays.max}
               </p>
+              <IssueText id={issueIds.bays} issues={issues} field="bays" />
             </div>
             <div>
               <Field label="Levels">
@@ -443,16 +478,15 @@ export function RacksStep({
                   min={SETUP_LIMITS.levels.min}
                   max={SETUP_LIMITS.levels.max}
                   invalid={issuesFor(issues, "levels").length > 0}
+                  aria-describedby={describedBy("levels")}
                 />
               </Field>
               <p className="mt-1 text-xs text-muted-foreground">
                 {SETUP_LIMITS.levels.min} to {SETUP_LIMITS.levels.max}
               </p>
+              <IssueText id={issueIds.levels} issues={issues} field="levels" />
             </div>
           </div>
-          {["aisle", "racks", "bays", "levels"].map((field) => (
-            <IssueText key={field} issues={issues} field={field} />
-          ))}
           <SwitchRow
             label="Level 1 is the pick face, upper levels are bulk"
             hint={
@@ -513,7 +547,13 @@ export function ReviewIssues({ issues, onFix }: { issues: SetupIssue[]; onFix: (
           <li key={`${issue.step}:${issue.field ?? ""}:${index}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
             <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-tone-danger" />
             <span className="min-w-0 flex-1 basis-48 text-foreground">{issue.message}</span>
-            <Button size="xs" variant="outline" onClick={() => onFix(issue)}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="min-h-11 sm:min-h-8"
+              aria-label={`Fix: ${issue.message}`}
+              onClick={() => onFix(issue)}
+            >
               <Wrench className="size-3.5" />
               Fix
             </Button>

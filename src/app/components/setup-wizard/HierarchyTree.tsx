@@ -89,7 +89,7 @@ function TreeNode({
     <li className="m-0 p-0">
       <div
         className={cn(
-          "flex min-h-8 items-center gap-1.5 rounded-md pr-1.5",
+          "flex min-h-10 items-center gap-1.5 rounded-md pr-1.5 sm:min-h-8",
           node.kind === "warehouse" && "font-medium",
         )}
       >
@@ -98,7 +98,7 @@ function TreeNode({
             type="button"
             aria-expanded={open}
             onClick={() => toggle(node, depth)}
-            className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="flex size-10 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 sm:size-8"
           >
             <ChevronRight
               aria-hidden
@@ -109,7 +109,7 @@ function TreeNode({
             </span>
           </button>
         ) : (
-          <span aria-hidden className="size-8 shrink-0" />
+          <span aria-hidden className="size-10 shrink-0 sm:size-8" />
         )}
         <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 truncate">{node.label}</span>

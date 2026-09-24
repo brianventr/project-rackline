@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Building2, Compass, ListChecks, Map as MapIcon, ScanLine, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -42,6 +42,7 @@ function OpenTour({ requested, nonce }: { requested: TourStepId | null; nonce: n
   const me = useSession();
   const viewer = useTourViewer();
   const navigate = useNavigate();
+  const location = useLocation();
   const [, markSeen] = useTourSeen();
   // Owners only by default; operators never fetch. Already cached by the Getting started card.
   const onboarding = useOnboarding();
@@ -71,6 +72,13 @@ function OpenTour({ requested, nonce }: { requested: TourStepId | null; nonce: n
     finish();
     navigate(path);
   };
+
+  // A glossary card's "Learn more" (or anything else) that changes the page closes the tour, so the
+  // person never lands on a page under a still-open dialog.
+  const openedAt = useRef(location.key);
+  useEffect(() => {
+    if (location.key !== openedAt.current) finish();
+  }, [location.key, finish]);
 
   function goTo(next: number) {
     setIndex(Math.max(0, Math.min(next, steps.length - 1)));
@@ -124,7 +132,7 @@ function OpenTour({ requested, nonce }: { requested: TourStepId | null; nonce: n
             <StepDots steps={steps} current={current} onSelect={goTo} />
 
             <DialogHeader className="gap-1 px-4 pt-3 pr-12 text-left sm:px-6 md:pt-6">
-              <DialogDescription className="text-[11px] font-medium uppercase tracking-wider">
+              <DialogDescription aria-live="polite" className="text-[11px] font-medium uppercase tracking-wider">
                 {step.eyebrow} · Step {current + 1} of {steps.length}
               </DialogDescription>
               <DialogTitle className="text-xl leading-tight tracking-tight">{step.title}</DialogTitle>
@@ -302,7 +310,7 @@ function StepPicture({
     case "workspaces":
       return <WorkspacesDiagram garage={viewer.garage} />;
     case "floor":
-      return <FloorDiagram verbs={floorVerbs} />;
+      return <FloorDiagram verbs={floorVerbs} garage={viewer.garage} />;
     case "modes":
       return <ModesDiagram garage={viewer.garage} onNavigate={go} />;
     case "finish":

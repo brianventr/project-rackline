@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   SETUP_LIMITS,
+  mergeSetupInput,
+  pendingSlotRoles,
+  suggestAisle,
+  summarizeCompleted,
+  warehouseSettingsLabel,
+  withCarriedRequests,
   SETUP_STEPS,
   SETUP_STEP_IDS,
   defaultRackShape,
@@ -327,5 +333,98 @@ describe("helpers", () => {
   it("reads existing bins for the tree, units included", () => {
     const rows = existingHierarchy([{ ...DOCK, name: "Receiving dock", unitsOnHand: 12, slotRole: "none" }]);
     expect(rows[0]).toMatchObject({ id: "d", code: "RECV", type: "receiving", units: 12, name: "Receiving dock" });
+  });
+});
+
+describe("codes across the organization", () => {
+  it("treats codes in other buildings as taken, since barcodes are unique per organization", () => {
+    const input = fresh(true);
+    const plan = planSetup(input, { existing: [], warehouse: WAREHOUSE, takenCodes: ["dock", "A-01-01"] });
+    expect(issuesForStep(plan, "dock")[0]!.message).toBe("DOCK already exists. Pick another code.");
+    expect(issuesForStep(plan, "racks")[0]!.message).toBe("A-01-01 already exists. Pick another aisle.");
+    expect(plan.requests).toEqual([]);
+  });
+
+  it("suggests codes and an aisle that are free everywhere", () => {
+    expect(suggestAreaCode([], "receiving", ["DOCK"])).toBe("RECV");
+    expect(suggestAreaCode([], "receiving", ["DOCK", "RECV"])).toBe("RECV-2");
+    expect(suggestAisle([], ["A-01-01", "A-01-02"])).toBe("B");
+    expect(suggestAisle([], [])).toBe("A");
+    // Racks already in this building push the next rack number along, so A stays usable.
+    expect(suggestAisle(RACK_A01, ["A-01-01"])).toBe("A");
+    const second = defaultSetupInput({ warehouse: WAREHOUSE, existing: [], garage: true, takenCodes: ["DOCK", "SHIP", "BENCH", "A-01-01"] });
+    expect(second.dock.code).toBe("RECV");
+    expect(second.ship.code).toBe("SHIP-2");
+    expect(second.bench.code).toBe("PROD");
+    expect(second.racks.aisle).toBe("B");
+  });
+
+  it("names the settings page in this shop's words", () => {
+    expect(warehouseSettingsLabel(true)).toBe("Shop → Bench setup");
+    expect(warehouseSettingsLabel(false)).toBe("Settings → Warehouse");
+    const input = fresh(false);
+    input.racks = { include: true, aisle: "A", racks: 8, bays: 12, levels: 3, pickFaces: true };
+    const small = { ...WAREHOUSE, mapWidth: 20, mapDepth: 20 };
+    expect(issuesForStep(planSetup(input, { existing: [], warehouse: small, garage: true }), "racks")[0]!.message).toContain(
+      "Shop → Bench setup",
+    );
+    expect(issuesForStep(planSetup(input, { existing: [], warehouse: small }), "racks")[0]!.message).toContain("Settings → Warehouse");
+  });
+});
+
+describe("after a failed create", () => {
+  const input = fresh(false);
+  input.racks = { ...input.racks, racks: 2 };
+  const plan = planSetup(input, { existing: [], warehouse: WAREHOUSE });
+  const firstRack = plan.requests.find((request) => request.kind === "rack")!;
+  const dockRequest = plan.requests.find((request) => request.kind === "area" && request.source === "dock")!;
+
+  it("reads what a run managed off its completed requests", () => {
+    expect(summarizeCompleted([])).toEqual({ dock: false, racks: 0, bench: false, ship: false });
+    expect(summarizeCompleted([dockRequest, firstRack])).toEqual({ dock: true, racks: 1, bench: false, ship: false });
+  });
+
+  it("switches off only what was made, and asks for the racks still missing", () => {
+    const freshInput = defaultSetupInput({ warehouse: WAREHOUSE, existing: RACK_A01, garage: false });
+    expect(freshInput.racks.include).toBe(false);
+    const merged = mergeSetupInput(input, freshInput, { dock: true, racks: 1, bench: false, ship: false });
+    expect(merged.dock.include).toBe(false);
+    expect(merged.racks).toEqual({ ...input.racks, include: true, racks: 1 });
+    expect(merged.bench).toEqual(input.bench);
+    expect(merged.ship).toEqual(input.ship);
+    expect(merged.building).toEqual(input.building);
+  });
+
+  it("keeps a rack step the run never reached, and closes one it finished", () => {
+    const freshInput = defaultSetupInput({ warehouse: WAREHOUSE, existing: RACK_A01, garage: false });
+    expect(mergeSetupInput(input, freshInput, { dock: true, racks: 0, bench: false, ship: false }).racks).toEqual(input.racks);
+    expect(mergeSetupInput(input, freshInput, { dock: true, racks: 2, bench: false, ship: false }).racks.include).toBe(false);
+    const off = { ...input, racks: { ...input.racks, include: false } };
+    expect(mergeSetupInput(off, freshInput, { dock: false, racks: 0, bench: false, ship: false }).racks).toEqual(freshInput.racks);
+  });
+
+  it("carries the slot roles a run still owes for bins that now exist", () => {
+    const roles = plan.requests.filter((request) => request.kind === "slotRole");
+    const completed = plan.requests.slice(0, plan.requests.indexOf(roles[2]!));
+    const freshBins: ExistingBin[] = plan.bins.map((bin, index) => ({
+      ...bin,
+      id: `new${index}`,
+      // The first two marks landed; the rest are still "none".
+      slotRole: roles.slice(0, 2).some((request) => request.kind === "slotRole" && request.code === bin.code) ? bin.slotRole : "none",
+    }));
+    const pending = pendingSlotRoles(plan.requests, completed, freshBins);
+    expect(pending).toEqual(roles.slice(2));
+    // Bins that never got created are not owed anything.
+    expect(pendingSlotRoles(plan.requests, completed, [])).toEqual([]);
+    // Nothing owed once every bin carries its role.
+    expect(pendingSlotRoles(plan.requests, plan.requests, plan.bins.map((bin, index) => ({ ...bin, id: `b${index}` })))).toEqual([]);
+  });
+
+  it("adds carried roles to a plan without doubling the ones it already has", () => {
+    const roles = plan.requests.filter((request) => request.kind === "slotRole");
+    expect(withCarriedRequests([], roles)).toEqual(roles);
+    expect(withCarriedRequests(plan.requests, roles)).toEqual(plan.requests);
+    const other = { kind: "slotRole" as const, code: "Z-01-01", slotRole: "pick" as const };
+    expect(withCarriedRequests(plan.requests, [other]).at(-1)).toEqual(other);
   });
 });
