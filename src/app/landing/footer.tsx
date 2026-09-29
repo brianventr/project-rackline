@@ -6,9 +6,11 @@ import { Separator } from "@/components/ui/separator";
 import { Logo } from "@/components/logo";
 
 const footerLinks = [
-  { name: "Features", href: "#features" },
-  { name: "Pricing", href: "#pricing" },
-  { name: "FAQ", href: "#faq" },
+  { name: "Features", href: "/#features" },
+  { name: "Pricing", href: "/#pricing" },
+  { name: "Makers", to: "/industries/makers" },
+  { name: "Shopify WMS", to: "/use-cases/shopify-wms" },
+  { name: "Kickstarter", to: "/use-cases/kickstarter-fulfillment" },
   { name: "Get started", to: "/signup" },
 ];
 

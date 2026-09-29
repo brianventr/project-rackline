@@ -66,14 +66,17 @@ function n(value: number | undefined | null, tone: NavCount["tone"] = "default")
 
 export const SETTINGS_ITEMS: NavItem[] = [
   { title: "Integrations", url: "/setup/integrations", icon: Plug, keywords: "connect apps" },
-  { title: "Shopify", url: "/setup/shopify", icon: Store, keywords: "store checkout channel" },
+  { title: "Shopify", url: "/setup/shopify", icon: Store, keywords: "store checkout channel stocky" },
+  { title: "Channels", url: "/setup/channels", icon: Store, keywords: "etsy faire marketplace csv" },
+  { title: "Imports", url: "/setup/imports", icon: FileInput, keywords: "backerkit kickstarter gamefound crowdfunding csv" },
+  { title: "Accounting", url: "/setup/accounting", icon: Calculator, keywords: "qbo xero cogs valuation export" },
   { title: "Carriers", url: "/setup/carriers", icon: Truck, keywords: "ups fedex usps dhl easypost shipengine postage" },
   { title: "Warehouse", url: "/setup/warehouse", icon: Warehouse, keywords: "building garage mode timezone bench" },
   { title: "Team", url: "/setup/team", icon: Users, keywords: "people invite operators roles certs" },
-  { title: "Clients", url: "/setup/clients", icon: Building2, keywords: "3pl customers" },
+  { title: "Clients", url: "/setup/clients", icon: Building2, keywords: "3pl customers portal" },
   { title: "Zones", url: "/setup/zones", icon: Grid3x3, keywords: "aisles areas" },
   { title: "Printers", url: "/setup/labels", icon: Printer, keywords: "labels zpl print station" },
-  { title: "Billing", url: "/setup/billing", icon: Receipt, keywords: "invoice 3pl" },
+  { title: "Billing", url: "/setup/billing", icon: Receipt, keywords: "invoice 3pl rates" },
   { title: "EDI", url: "/setup/edi", icon: FileCode2, keywords: "asn inbox supplier" },
   { title: "Audit", url: "/setup/audit", icon: Shield, keywords: "log history changes" },
 ];
@@ -111,6 +114,7 @@ export const OFFICE_NAV: NavGroup[] = [
       { title: "Traffic", url: "/analytics/traffic", icon: Radar, keywords: "shipments map tracker" },
       { title: "Runway", url: "/analytics/runway", icon: Hourglass, keywords: "stockout days of cover" },
       { title: "Promise", url: "/analytics/promise", icon: Clock, keywords: "leave by pickup cutoff quote ship date" },
+      { title: "Recall", url: "/analytics/recall", icon: Shield, keywords: "lot serial genealogy food beauty" },
     ],
   },
   {
@@ -158,6 +162,7 @@ export const OFFICE_NAV: NavGroup[] = [
     label: "Make",
     items: [
       { title: "Recipes", url: "/make/recipes", icon: ListTree, keywords: "bom bill of materials" },
+      { title: "Schedule", url: "/make/schedule", icon: ClipboardList, keywords: "production board kits work orders" },
       { title: "Work orders", url: "/make/work-orders", icon: Hammer, keywords: "assemble build", count: (d) => n(d.openWorkOrders) },
       { title: "Kits", url: "/make/kits", icon: Puzzle, keywords: "kitting", count: (d) => n(d.openKits) },
     ],

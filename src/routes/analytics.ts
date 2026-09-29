@@ -134,6 +134,35 @@ analyticsRoute.get("/analytics/runway", async (c) => {
   return c.json({ ...queue.board, draftLines: queue.draftLines });
 });
 
+/** Runway → PO assist: ranked suggestions with plain-language reasons (Prediko-class lite). */
+analyticsRoute.get("/analytics/runway/assist", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const warehouseId = c.req.query("warehouseId") || undefined;
+  const queue = await loadRunway(db, organizationId, {
+    warehouseId,
+    window: "30d",
+    multiplier: 1,
+  });
+  const suggestions = queue.draftLines.map((line) => ({
+    itemId: line.itemId,
+    sku: line.sku,
+    name: line.name,
+    suggestedQty: line.qty,
+    vendorName: line.vendorName ?? queue.orgVendor ?? null,
+    reason: `Order ${line.qty} to cover runway before stockout (lead + 14 days of burn).`,
+    action: "draft_po" as const,
+  }));
+  return c.json({
+    suggestions,
+    draftPath: "/api/purchases/from-runway",
+    summary:
+      suggestions.length === 0
+        ? "Nothing needs a PO right now — runway is clear or already covered by open purchases."
+        : `${suggestions.length} SKU${suggestions.length === 1 ? "" : "s"} should be drafted onto a PO from Runway.`,
+  });
+});
+
 function readCutoff(raw: string | undefined): number | undefined {
   if (!raw) return undefined;
   try {

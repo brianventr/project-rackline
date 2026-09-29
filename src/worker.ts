@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { createDb } from "./db/client";
 import { createAuth } from "./lib/auth";
 import { getMembership } from "./lib/org";
@@ -42,7 +43,7 @@ import { clientsRoute } from "./routes/clients";
 import { yardRoute } from "./routes/yard";
 import { laborRoute } from "./routes/labor";
 import { printersRoute } from "./routes/printers";
-import { billingRoute } from "./routes/billing";
+import { billingRoute, billingPublicRoute } from "./routes/billing";
 import { ediRoute } from "./routes/edi";
 import { equipmentRoute } from "./routes/equipment";
 import { analyticsRoute } from "./routes/analytics";
@@ -50,6 +51,13 @@ import { mediaRoute } from "./routes/media";
 import { auditRoute } from "./routes/audit";
 import { liveRoute } from "./routes/live";
 import { onboardingRoute } from "./routes/onboarding";
+import { importsRoute } from "./routes/imports";
+import { accountingRoute } from "./routes/accounting";
+import { channelsRoute } from "./routes/channels";
+import { recallRoute } from "./routes/recall";
+import { scheduleRoute } from "./routes/schedule";
+import { marketingPageByPath } from "./domain/marketing-pages";
+import { injectMarketingMeta, robotsTxt, sitemapXml } from "./domain/marketing-seo";
 
 const app = new Hono<AppEnv>();
 
@@ -59,6 +67,43 @@ app.onError((err, c) => {
   console.error(err);
   return c.json({ error: err instanceof Error ? err.message : "Internal error" }, 500);
 });
+
+/** Crawlable sitemap / robots (Worker-first; not SPA). */
+app.get("/sitemap.xml", (c) => {
+  const origin = originFrom(c.req.url);
+  return c.body(sitemapXml(origin), 200, {
+    "Content-Type": "application/xml; charset=utf-8",
+    "Cache-Control": "public, max-age=3600",
+  });
+});
+
+app.get("/robots.txt", (c) => {
+  const origin = originFrom(c.req.url);
+  return c.text(robotsTxt(origin), 200, {
+    "Cache-Control": "public, max-age=3600",
+  });
+});
+
+/** Marketing LPs: inject title/description into SPA index for crawlers. */
+app.get("/industries/:slug", (c) => serveMarketingHtml(c));
+app.get("/use-cases/:slug", (c) => serveMarketingHtml(c));
+app.get("/compare/:slug", (c) => serveMarketingHtml(c));
+
+async function serveMarketingHtml(c: Context<AppEnv>) {
+  const url = new URL(c.req.url);
+  const page = marketingPageByPath(url.pathname);
+  const origin = originFrom(c.req.url);
+  const assets = c.env.ASSETS;
+  if (!assets) {
+    return c.text("Assets binding unavailable", 500);
+  }
+  if (!page) {
+    return assets.fetch(c.req.raw);
+  }
+  const indexRes = await assets.fetch(new Request(new URL("/index.html", url.origin), c.req.raw));
+  const html = injectMarketingMeta(await indexRes.text(), page, origin);
+  return c.html(html);
+}
 
 app.use("/api/*", async (c, next) => {
   c.set("db", createDb(c.env.DB));
@@ -75,6 +120,7 @@ app.route("/api", registerRoute);
 app.route("/api", demoRoute);
 app.route("/api", shopifyPublicRoute);
 app.route("/api", carriersPublicRoute);
+app.route("/api", billingPublicRoute);
 
 app.use("/api/*", async (c, next) => {
   const path = new URL(c.req.url).pathname;
@@ -85,7 +131,8 @@ app.use("/api/*", async (c, next) => {
     path === "/api/shopify/webhooks" ||
     path === "/api/shopify/fulfillment_order_notification" ||
     path === "/api/shopify/oauth/callback" ||
-    path === "/api/carriers/trackers/webhooks"
+    path === "/api/carriers/trackers/webhooks" ||
+    path.startsWith("/api/billing/portal/")
   ) {
     return next();
   }
@@ -184,5 +231,10 @@ app.route("/api", analyticsRoute);
 app.route("/api", auditRoute);
 app.route("/api", liveRoute);
 app.route("/api", onboardingRoute);
+app.route("/api", importsRoute);
+app.route("/api", accountingRoute);
+app.route("/api", channelsRoute);
+app.route("/api", recallRoute);
+app.route("/api", scheduleRoute);
 
 export default app;
