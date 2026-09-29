@@ -26,7 +26,7 @@ type Invoice = {
 };
 
 type BillingPayload = {
-  account: { plan: string; status: string } | null;
+  account: { plan: string; status: string; portalEnabled?: boolean; portalToken?: string | null } | null;
   invoices: Invoice[];
   clientCount: number;
   rates: { storageCentsPerPiece: number; pickCentsPerUnit: number; cartonCents: number };
@@ -202,6 +202,54 @@ export function BillingPage() {
               {Array.from({ length: 6 }, (_, index) => (
                 <Skeleton key={index} className="h-5 w-full" />
               ))}
+            </div>
+          ) : null}
+          {data ? (
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={write.busy}
+                onClick={() => {
+                  const storage = window.prompt("Storage ¢ per piece", String(data.rates.storageCentsPerPiece));
+                  const pick = window.prompt("Pick ¢ per unit", String(data.rates.pickCentsPerUnit));
+                  const carton = window.prompt("Carton ¢", String(data.rates.cartonCents));
+                  if (storage == null || pick == null || carton == null) return;
+                  void write.run(
+                    "Save rates",
+                    () =>
+                      api("/api/billing/rates", {
+                        method: "PUT",
+                        body: JSON.stringify({
+                          storageCentsPerPiece: Number(storage),
+                          pickCentsPerUnit: Number(pick),
+                          cartonCents: Number(carton),
+                        }),
+                      }),
+                    "Rate card saved",
+                  );
+                }}
+              >
+                Edit rate card
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={write.busy}
+                onClick={() =>
+                  void write.run(
+                    "Portal token",
+                    async () => {
+                      const result = await api<{ portalToken: string }>("/api/billing/portal-token", { method: "POST" });
+                      window.prompt("Client portal token (share the /api/billing/portal/… URL)", result.portalToken);
+                      return result;
+                    },
+                    "Portal token minted",
+                  )
+                }
+              >
+                {data.account?.portalEnabled ? "Rotate portal token" : "Enable client portal"}
+              </Button>
             </div>
           ) : null}
         </div>

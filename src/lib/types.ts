@@ -11,6 +11,8 @@ export type Bindings = {
   SHOPIFY_API_KEY?: string;
   SHOPIFY_API_SECRET?: string;
   MEDIA?: R2Bucket;
+  /** Cloudflare Workers static assets (Vite plugin). */
+  ASSETS?: Fetcher;
 };
 
 export type Variables = {

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { Store, Truck, type LucideIcon } from "lucide-react";
+import { Calculator, FileInput, Store, Truck, type LucideIcon } from "lucide-react";
 import type { CarrierHub, ShopifyConnection } from "../../api";
 import { Button, PageHeader, StatusBadge, ToneBadge } from "../../components/ui";
 import { Term } from "../../components/term";
@@ -18,7 +18,6 @@ type Connection = {
 
 export function IntegrationsPage() {
   const { warehouseId } = useWarehouse();
-  // Same endpoints the Shopify and Carriers pages read.
   const shopify = useApiQuery<ShopifyConnection>("/api/shopify/connection");
   const carriers = useApiQuery<CarrierHub>(`/api/carriers?warehouseId=${encodeURIComponent(warehouseId)}`);
 
@@ -27,7 +26,7 @@ export function IntegrationsPage() {
       <PageHeader
         eyebrow="Setup"
         title="Integrations"
-        description="Connect checkout and shipping so customer orders, fulfillments, and labels stay in one workflow."
+        description="Connect checkout, marketplaces, pledges, shipping, and accounting exports."
       />
       <div className="grid gap-(--density-gap) md:grid-cols-2">
         <IntegrationCard
@@ -35,13 +34,53 @@ export function IntegrationsPage() {
           name="Shopify"
           summary={
             <>
-              Checkout → pick ticket. <Term id="sellable">Sellable qty</Term> and fulfillment post back.
+              Checkout → pick ticket. <Term id="sellable">Sellable qty</Term> and fulfillment post back. Stocky
+              replacement for POs and stocktakes lives on the same ledger.
             </>
           }
           to="/setup/shopify"
           loading={shopify.isLoading}
           error={shopify.error?.message}
           state={shopify.data ? shopifyState(shopify.data) : null}
+        />
+        <IntegrationCard
+          icon={Store}
+          name="Etsy & Faire"
+          summary="CSV order ingest for handmade and wholesale channels beside Shopify."
+          to="/setup/channels"
+          loading={false}
+          state={{
+            tone: "neutral",
+            label: "CSV import",
+            detail: "Connect a shop name, then paste an orders export.",
+            connected: false,
+          }}
+        />
+        <IntegrationCard
+          icon={FileInput}
+          name="Crowdfunding imports"
+          summary="BackerKit, Gamefound, and Kickstarter-style pledge CSV → orders and waves."
+          to="/setup/imports"
+          loading={false}
+          state={{
+            tone: "neutral",
+            label: "Pledge CSV",
+            detail: "Map reward SKUs to catalog items, then ship the wave.",
+            connected: false,
+          }}
+        />
+        <IntegrationCard
+          icon={Calculator}
+          name="Accounting exports"
+          summary="QBO/Xero-ready valuation and COGS CSVs. Set unit cost on each SKU."
+          to="/setup/accounting"
+          loading={false}
+          state={{
+            tone: "neutral",
+            label: "CSV export",
+            detail: "Live journal sync is next; export works today.",
+            connected: false,
+          }}
         />
         <IntegrationCard
           icon={Truck}

@@ -148,6 +148,7 @@ export type Item = {
   catchWeight?: boolean;
   trackExpiry?: boolean;
   imageUrl?: string | null;
+  unitCostCents?: number;
   onHand?: {
     locationId: string;
     locationCode: string;
