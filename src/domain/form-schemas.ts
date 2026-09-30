@@ -234,6 +234,18 @@ export const itemFormSchema = z.object({
   trackExpiry: z.boolean(),
 });
 
+/** Item ship weight (oz) and packed dims (in) for Garage quick ship. Blank or 0 clears the value. */
+function shipNumber(label: string) {
+  return wholeNumber(0, { blankAs: 0, notWhole: `${label} must be a whole number.`, tooSmall: `${label} cannot be below 0.` });
+}
+
+export const itemShipFields = {
+  shipWeightOz: shipNumber("Ship weight"),
+  shipLengthIn: shipNumber("Length"),
+  shipWidthIn: shipNumber("Width"),
+  shipHeightIn: shipNumber("Height"),
+};
+
 /**
  * POST /api/locations (`src/routes/catalog.ts`). Level: the server treats blank as 1 and clamps
  * anything lower to 1; the form says so instead of silently changing it.

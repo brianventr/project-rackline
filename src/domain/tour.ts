@@ -245,6 +245,7 @@ export type AutoOpenInput = {
   seen: boolean;
   role: string | null | undefined;
   pathname: string;
+  operatingMode?: string | null;
   /** Owners only: the Getting started read has landed. Operators pass null. */
   onboarding: { loaded: boolean; incomplete: boolean } | null;
 };
@@ -257,7 +258,7 @@ export type AutoOpenInput = {
 export function shouldAutoOpenTour(input: AutoOpenInput): boolean {
   if (input.seen) return false;
   const bare = input.pathname.split(/[?#]/)[0] ?? input.pathname;
-  const home = homePath(input.role ?? "operator");
+  const home = homePath(input.role ?? "operator", input.operatingMode);
   if (bare !== home && bare !== `${home}/`) return false;
   if (tourAudience(input.role) === "owner") {
     return !!input.onboarding && input.onboarding.loaded && input.onboarding.incomplete;

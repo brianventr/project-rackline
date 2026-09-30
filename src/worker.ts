@@ -53,9 +53,11 @@ import { liveRoute } from "./routes/live";
 import { onboardingRoute } from "./routes/onboarding";
 import { importsRoute } from "./routes/imports";
 import { accountingRoute } from "./routes/accounting";
-import { channelsRoute } from "./routes/channels";
+import { channelsPublicRoute, channelsRoute } from "./routes/channels";
+import { runChannelCron } from "./db/channel-sync";
 import { recallRoute } from "./routes/recall";
 import { scheduleRoute } from "./routes/schedule";
+import { shipRoute } from "./routes/ship";
 import { marketingPageByPath } from "./domain/marketing-pages";
 import { injectMarketingMeta, robotsTxt, sitemapXml } from "./domain/marketing-seo";
 
@@ -121,6 +123,7 @@ app.route("/api", demoRoute);
 app.route("/api", shopifyPublicRoute);
 app.route("/api", carriersPublicRoute);
 app.route("/api", billingPublicRoute);
+app.route("/api", channelsPublicRoute);
 
 app.use("/api/*", async (c, next) => {
   const path = new URL(c.req.url).pathname;
@@ -132,6 +135,8 @@ app.use("/api/*", async (c, next) => {
     path === "/api/shopify/fulfillment_order_notification" ||
     path === "/api/shopify/oauth/callback" ||
     path === "/api/carriers/trackers/webhooks" ||
+    path.startsWith("/api/channels/woocommerce/webhook/") ||
+    path === "/api/channels/etsy/oauth/callback" ||
     path.startsWith("/api/billing/portal/")
   ) {
     return next();
@@ -202,6 +207,7 @@ app.route("/api", mediaRoute);
 app.route("/api", catalogRoute);
 app.route("/api", receiptsRoute);
 app.route("/api", purchasesRoute);
+app.route("/api", shipRoute);
 app.route("/api", ordersRoute);
 app.route("/api", returnsRoute);
 app.route("/api", adjustmentsRoute);
@@ -237,4 +243,9 @@ app.route("/api", channelsRoute);
 app.route("/api", recallRoute);
 app.route("/api", scheduleRoute);
 
-export default app;
+export default {
+  fetch: app.fetch,
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(runChannelCron(createDb(env.DB), env).then(() => undefined));
+  },
+} satisfies ExportedHandler<AppEnv["Bindings"]>;

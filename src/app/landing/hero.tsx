@@ -23,9 +23,9 @@ export function LandingHero() {
             Warehouse software that starts with one aisle and stays with you.
           </h1>
           <p className="mx-auto max-w-2xl text-balance text-lg text-muted-foreground">
-            Start the way founders and inventors do: a bench, a few shelves, and a real ledger.
-            Receive parts, pick Shopify orders, and build finished goods. Open the full warehouse
-            when the garage runs out of room.
+            Start in Garage: orders from Shopify, Etsy, and WooCommerce land in one ship queue, and
+            labels print in a batch. Switch to Manufacturer when the product takes off — scan-verified
+            picking and cutoff waves on the same parts, orders, and builds.
           </p>
           <div className="flex w-full max-w-sm flex-col items-stretch justify-center gap-3 sm:max-w-none sm:flex-row sm:items-center">
             <Button asChild className="shadow-lg">

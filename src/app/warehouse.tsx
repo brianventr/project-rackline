@@ -53,6 +53,6 @@ export function inWarehouse<T extends { warehouseId?: string }>(rows: T[], wareh
 
 export function OwnerOnly({ children }: { children: ReactNode }) {
   const me = useSession();
-  if (me.role !== "owner") return <Navigate to={homePath(me.role)} replace />;
+  if (me.role !== "owner") return <Navigate to={homePath(me.role, me.organization.operatingMode)} replace />;
   return children;
 }
