@@ -33,7 +33,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link to={homePath(me.role)}>
+              <Link to={homePath(me.role, me.organization.operatingMode)}>
                 <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg shadow-xs">
                   <Logo className="size-4" />
                 </div>

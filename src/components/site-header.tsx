@@ -152,7 +152,7 @@ function WorkspaceToggle({ onFloor }: { onFloor: boolean }) {
       value={onFloor ? "floor" : "office"}
       onValueChange={(value) => {
         if (value === "floor") navigate("/floor");
-        if (value === "office") navigate(homePath(me.role) === "/floor" ? "/today" : homePath(me.role));
+        if (value === "office") navigate(homePath(me.role, me.organization.operatingMode) === "/floor" ? "/today" : homePath(me.role, me.organization.operatingMode));
       }}
       variant="outline"
       size="sm"
@@ -231,7 +231,7 @@ function DisplayMenu({ onFloor, onShowShortcuts }: { onFloor: boolean; onShowSho
       <DropdownMenuContent align="end" className="w-60">
         <div className="sm:hidden">
           <DropdownMenuLabel>Workspace</DropdownMenuLabel>
-          <DropdownMenuItem onSelect={() => navigate(onFloor ? (homePath(me.role) === "/floor" ? "/today" : homePath(me.role)) : "/floor")}>
+          <DropdownMenuItem onSelect={() => navigate(onFloor ? (homePath(me.role, me.organization.operatingMode) === "/floor" ? "/today" : homePath(me.role, me.organization.operatingMode)) : "/floor")}>
             {onFloor ? <LayoutDashboard /> : <ScanLine />}
             {onFloor ? "Go to the office" : "Go to the floor"}
           </DropdownMenuItem>

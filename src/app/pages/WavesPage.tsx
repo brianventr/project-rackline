@@ -29,6 +29,9 @@ import { cn } from "@/lib/utils";
 import { WAVE_STEPS, canCompleteWave, canReleaseWave, isOpenWave } from "@/domain/status";
 import { isBatchFullyPicked, waveOrdersComplete } from "@/domain/waves";
 import { useWarehouse, inWarehouse } from "../warehouse";
+import { useSession } from "../session";
+import { isGarageMode } from "@/domain/operating-mode";
+import { WavePlanner } from "./wave-planner";
 
 export function WavesPage() {
   const { id } = useParams();
@@ -107,6 +110,8 @@ const WAVE_COLUMNS: DataColumn<Wave>[] = [
 
 function WaveList() {
   const { warehouseId } = useWarehouse();
+  const me = useSession();
+  const planner = !isGarageMode(me.organization.operatingMode) && Boolean(warehouseId);
   const waves = useApiQuery<Wave[]>("/api/waves");
   const [creating, setCreating] = useState(false);
 
@@ -147,6 +152,7 @@ function WaveList() {
           </>
         }
       />
+      {planner ? <WavePlanner warehouseId={warehouseId} /> : null}
       <DataTable
         id="waves"
         data={rows}

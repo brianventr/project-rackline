@@ -1,9 +1,13 @@
 import { Hono } from "hono";
+import { loadWorkflowPolicy } from "../db/workflow";
+import { assertScanned, type ScanEvidence } from "../domain/workflow-policy";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
-import { getOrgLocation } from "../lib/org";
+import { getOrgItem, getOrgLocation, getOrgWarehouse, requireOwner } from "../lib/org";
+import { loadWavePlan } from "../db/wave-plan";
+import { cutoffsFromInput } from "../domain/wave-plan";
 import { docNumber, newId } from "../lib/ids";
 import {
   allocateBatchPick,
@@ -116,6 +120,31 @@ wavesRoute.get("/waves", async (c) => {
     countByWave.set(link.waveId, (countByWave.get(link.waveId) ?? 0) + 1);
   }
   return c.json(rows.map((row) => ({ ...row, orderCount: countByWave.get(row.id) ?? 0 })));
+});
+
+wavesRoute.get("/waves/plan", async (c) => {
+  const warehouseId = requireString(c.req.query("warehouseId"), "warehouseId");
+  return c.json(await loadWavePlan(c.get("db"), c.get("organizationId")!, warehouseId));
+});
+
+wavesRoute.put("/waves/cutoffs", async (c) => {
+  requireOwner(c.get("role"));
+  const body = await c.req.json<{ warehouseId?: string; cutoffs?: Record<string, unknown> }>();
+  const warehouseId = requireString(body.warehouseId, "warehouseId");
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  await getOrgWarehouse(db, organizationId, warehouseId);
+  let cutoffs;
+  try {
+    cutoffs = cutoffsFromInput(body.cutoffs ?? {});
+  } catch (err) {
+    badRequest(err instanceof Error ? err.message : "Cutoff must be HH:MM");
+  }
+  await db
+    .update(schema.warehouses)
+    .set({ carrierCutoffsJson: JSON.stringify(cutoffs) })
+    .where(eq(schema.warehouses.id, warehouseId));
+  return c.json(await loadWavePlan(db, organizationId, warehouseId));
 });
 
 wavesRoute.get("/waves/:id", async (c) => {
@@ -232,7 +261,7 @@ wavesRoute.post("/waves/:id/release", async (c) => {
 });
 
 wavesRoute.post("/waves/:id/batch-pick", async (c) => {
-  const body = await c.req.json<{ locationId?: string; itemId?: string; qty?: number }>();
+  const body = await c.req.json<{ locationId?: string; itemId?: string; qty?: number; scan?: ScanEvidence }>();
   const locationId = requireString(body.locationId, "locationId");
   const itemId = requireString(body.itemId, "itemId");
   const qty = requireInt(body.qty, "qty");
@@ -242,10 +271,18 @@ wavesRoute.post("/waves/:id/batch-pick", async (c) => {
   const wave = await waveDetail(db, organizationId, c.req.param("id"));
   if (wave.mode !== "batch") conflict("Wave is not in batch mode");
   if (!canPickWave(wave.status)) conflict("Wave is not released for picking");
-  await getOrgLocation(db, organizationId, locationId);
+  const bay = await getOrgLocation(db, organizationId, locationId);
 
   const batchLine = wave.batchLines.find((line) => line.itemId === itemId);
   if (!batchLine) badRequest("SKU is not on this wave batch");
+  const item = await getOrgItem(db, organizationId, itemId);
+  assertScanned(
+    await loadWorkflowPolicy(db, organizationId),
+    "pick",
+    [{ lineId: itemId, qty, sku: item.sku, barcode: item.barcode }],
+    body.scan,
+    bay,
+  );
   if (qty > batchLine.remaining) {
     throw new OverBatchPickError(batchLine.sku, batchLine.remaining, qty);
   }

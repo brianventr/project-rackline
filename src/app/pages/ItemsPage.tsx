@@ -28,7 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { FormField } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatExpiresOn } from "@/domain/expiry";
-import { FORM_ITEM_TYPES, itemFormSchema } from "@/domain/form-schemas";
+import { FORM_ITEM_TYPES, itemFormSchema, itemShipFields } from "@/domain/form-schemas";
 import { normalizeImageUrl } from "@/domain/media";
 import { formatAsBuiltPart } from "@/domain/as-built";
 import { isBelowReorder } from "@/domain/reorder";
@@ -455,6 +455,7 @@ const itemEditSchema = itemFormSchema
     trackExpiry: true,
   })
   .extend({
+    ...itemShipFields,
     imageUrl: z.string().refine((value) => {
       try {
         normalizeImageUrl(value);
@@ -478,8 +479,14 @@ const EMPTY_ITEM_FORM: ItemForm = {
   trackSerial: false,
   catchWeight: false,
   trackExpiry: false,
+  shipWeightOz: "",
+  shipLengthIn: "",
+  shipWidthIn: "",
+  shipHeightIn: "",
   imageUrl: "",
 };
+
+const shipText = (value: number | null | undefined) => (value ? String(value) : "");
 
 function formFromItem(item: Item): ItemForm {
   return {
@@ -492,6 +499,10 @@ function formFromItem(item: Item): ItemForm {
     trackSerial: Boolean(item.trackSerial),
     catchWeight: Boolean(item.catchWeight),
     trackExpiry: Boolean(item.trackExpiry),
+    shipWeightOz: shipText(item.shipWeightOz),
+    shipLengthIn: shipText(item.shipLengthIn),
+    shipWidthIn: shipText(item.shipWidthIn),
+    shipHeightIn: shipText(item.shipHeightIn),
     imageUrl: item.imageUrl ?? "",
   };
 }
@@ -540,6 +551,10 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
             trackSerial: next.trackSerial,
             catchWeight: next.catchWeight,
             trackExpiry: next.trackExpiry,
+            shipWeightOz: next.shipWeightOz || null,
+            shipLengthIn: next.shipLengthIn || null,
+            shipWidthIn: next.shipWidthIn || null,
+            shipHeightIn: next.shipHeightIn || null,
             imageUrl: next.imageUrl || null,
           }),
         }),
@@ -831,6 +846,18 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
                     placeholder="Auto from ships"
                   />
                   <NumberField form={form} name="pickMin" label="Pick min" min={0} />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Shipping</p>
+                  <p className="text-xs text-muted-foreground">
+                    One packed unit. Ship weight adds up on every label; size is used when this is the only thing in the box.
+                  </p>
+                  <div className="grid items-start gap-3 sm:grid-cols-4">
+                    <NumberField form={form} name="shipWeightOz" label="Ship weight (oz)" min={0} placeholder="—" />
+                    <NumberField form={form} name="shipLengthIn" label="Length (in)" min={0} placeholder="—" />
+                    <NumberField form={form} name="shipWidthIn" label="Width (in)" min={0} placeholder="—" />
+                    <NumberField form={form} name="shipHeightIn" label="Height (in)" min={0} placeholder="—" />
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Track</p>

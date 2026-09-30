@@ -5,6 +5,7 @@ import { api, ApiError, errorText, type ShippingLabel } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, EmptyState, ErrorBanner, PageHeader } from "../components/ui";
 import { usePrint } from "../print/PrintProvider";
+import { cn } from "@/lib/utils";
 
 export function ShippingLabelPage() {
   const { id, packageId } = useParams();
@@ -128,33 +129,39 @@ export function ShippingLabelPage() {
       />
       <ErrorBanner error={error} />
       {message ? <p className="print:hidden text-sm text-muted-foreground">{message}</p> : null}
-      <div className="rounded-2xl border bg-card p-6">
-        {label.shipFromAddress ? (
-          <div className="mb-4">
-            <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">Ship from</p>
-            <p className="whitespace-pre-line text-sm text-muted-foreground">{label.shipFromAddress}</p>
-          </div>
-        ) : null}
-        <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">Ship to</p>
-        <p className="mt-2 text-xl font-semibold">{label.customerName}</p>
-        <p className="whitespace-pre-line text-muted-foreground">{label.shipToAddress}</p>
-        <div className="mt-6 border-t pt-6">
-          <p className="text-sm text-muted-foreground">
-            {label.orderNumber} · {label.carrierCompany} {label.carrierService}
-          </p>
-          <p className="mt-1 font-mono text-2xl font-semibold tracking-wide">{label.trackingNumber}</p>
-          {label.trackingUrl ? (
-            <a
-              className="mt-1 inline-block text-sm underline print:hidden"
-              href={label.trackingUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Track shipment
-            </a>
-          ) : null}
-          <BarcodeLabel value={label.trackingNumber} className="mt-4 w-full" />
+      <ShippingLabelCard label={label} />
+    </div>
+  );
+}
+
+export function ShippingLabelCard({ label, className }: { label: ShippingLabel; className?: string }) {
+  return (
+    <div className={cn("rounded-2xl border bg-card p-6", className)}>
+      {label.shipFromAddress ? (
+        <div className="mb-4">
+          <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">Ship from</p>
+          <p className="whitespace-pre-line text-sm text-muted-foreground">{label.shipFromAddress}</p>
         </div>
+      ) : null}
+      <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">Ship to</p>
+      <p className="mt-2 text-xl font-semibold">{label.customerName}</p>
+      <p className="whitespace-pre-line text-muted-foreground">{label.shipToAddress}</p>
+      <div className="mt-6 border-t pt-6">
+        <p className="text-sm text-muted-foreground">
+          {label.orderNumber} · {label.carrierCompany} {label.carrierService}
+        </p>
+        <p className="mt-1 font-mono text-2xl font-semibold tracking-wide">{label.trackingNumber}</p>
+        {label.trackingUrl ? (
+          <a
+            className="mt-1 inline-block text-sm underline print:hidden"
+            href={label.trackingUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Track shipment
+          </a>
+        ) : null}
+        <BarcodeLabel value={label.trackingNumber} className="mt-4 w-full" />
       </div>
     </div>
   );

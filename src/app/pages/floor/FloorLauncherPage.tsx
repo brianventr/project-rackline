@@ -35,7 +35,7 @@ import { useScanner } from "../../scanner/ScannerProvider";
 import { useApiQuery } from "../../query";
 import { api, type FloorJob, type Item } from "../../api";
 import { VERB_LABELS, type FloorVerb, isFloorVerb } from "@/domain/jobs";
-import { garageAllowsPath, isGarageMode, pathOnly } from "@/domain/operating-mode";
+import { garageOffersOnFloor, isGarageMode, pathOnly } from "@/domain/operating-mode";
 import {
   floorUsageKey,
   groupFloorTiles,
@@ -139,7 +139,7 @@ export function FloorLauncherPage() {
   const items = [
     ...verbs.filter((item) => !item.verb || allowed.has(item.verb) || me.role === "owner"),
     ...(me.role === "owner" ? [adjustTile] : []),
-  ].filter((item) => !garage || garageAllowsPath(item.to));
+  ].filter((item) => !garage || garageOffersOnFloor(item.to));
 
   const warehouseQuery = warehouseId ? `warehouseId=${encodeURIComponent(warehouseId)}` : "";
   const nextQ = useApiQuery<FloorJob[]>(`/api/jobs/next${warehouseQuery ? `?${warehouseQuery}` : ""}`, {
@@ -149,7 +149,7 @@ export function FloorLauncherPage() {
     refetchOnMount: "always",
   });
 
-  const keep = useCallback((job: FloorJob) => !garage || garageAllowsPath(job.floorPath), [garage]);
+  const keep = useCallback((job: FloorJob) => !garage || garageOffersOnFloor(job.floorPath), [garage]);
   const nextJobs = useMemo(() => (nextQ.data ?? []).filter(keep), [nextQ.data, keep]);
   const openJobs = useMemo(() => (openQ.data ?? []).filter(keep), [openQ.data, keep]);
   const mine = useMemo(() => openJobs.filter((job) => job.assigneeId === me.user.id), [openJobs, me.user.id]);
@@ -200,10 +200,23 @@ export function FloorLauncherPage() {
         title={garage ? "What are you making?" : "What are you doing?"}
         description={
           garage
-            ? "Founder bench. Receive, make, pick, and ship. Unassigned work stays pickable — scan first, or pick a verb."
+            ? "Founder bench. Receive, make, and put away here; customer orders ship from the Ship queue in one step."
             : "Next job is ranked from the same ledger. Unassigned work stays pickable — scan first, or pick a verb."
         }
       />
+      {garage ? (
+        <Link
+          to="/ship"
+          className="flex items-center gap-3 rounded-xl border bg-card p-4 outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
+          <Truck aria-hidden className="size-5 text-primary" />
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium">Ship orders</span>
+            <span className="block text-sm text-muted-foreground">Pick, pack, label, and ship in one step.</span>
+          </span>
+          <ChevronRight aria-hidden className="size-4 text-muted-foreground" />
+        </Link>
+      ) : null}
       <MyDayCard />
       <ErrorBanner error={error} />
       {recentScan ? (

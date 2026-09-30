@@ -71,6 +71,8 @@ import { FloorAsnPage } from "./pages/floor/FloorAsnPage";
 import { FloorYardPage } from "./pages/floor/FloorYardPage";
 import { FloorCheckoutPage } from "./pages/floor/FloorCheckoutPage";
 import { EquipmentPage } from "./pages/EquipmentPage";
+import { ShipQueuePage } from "./pages/ShipQueuePage";
+import { ShipLabelsPage } from "./pages/ShipLabelsPage";
 import { ShippingLabelPage } from "./pages/ShippingLabelPage";
 import { PackSlipPage } from "./pages/PackSlipPage";
 import { OrderPickListPage, WavePickListPage } from "./pages/PickListPage";
@@ -111,7 +113,7 @@ export function App() {
     );
   }
 
-  const signedInHome = me ? homePath(me.role) : "/";
+  const signedInHome = me ? homePath(me.role, me.organization.operatingMode) : "/";
 
   return (
     <Routes>
@@ -224,6 +226,8 @@ export function App() {
         <Route path="/make/work-orders/:id" element={<WorkOrdersPage />} />
         <Route path="/make/kits" element={<KitsPage />} />
         <Route path="/make/kits/:id" element={<KitsPage />} />
+        <Route path="/ship" element={<ShipQueuePage />} />
+        <Route path="/ship/labels" element={<ShipLabelsPage />} />
         <Route path="/outbound/orders" element={<OrdersPage />} />
         <Route path="/outbound/orders/:id" element={<OrdersPage />} />
         <Route path="/outbound/orders/:id/shipping-label" element={<ShippingLabelPage />} />

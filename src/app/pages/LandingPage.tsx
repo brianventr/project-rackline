@@ -1,6 +1,7 @@
 import { LandingNavbar } from "../landing/navbar";
 import { LandingHero } from "../landing/hero";
 import { LandingEcosystems } from "../landing/ecosystems";
+import { LandingModes } from "../landing/modes";
 import { LandingPartners } from "../landing/partners";
 import { LandingFeatures } from "../landing/features";
 import { LandingTestimonials } from "../landing/testimonials";
@@ -21,6 +22,7 @@ export function LandingPage() {
       <LandingNavbar />
       <main className="flex min-h-dvh flex-col">
         <LandingHero />
+        <LandingModes />
         <LandingEcosystems />
         <LandingPartners />
         <LandingFeatures />

@@ -9,6 +9,8 @@ import { FloorFrame, FloorScanBox, type ScanReport } from "./floor-ui";
 import { canPickWave, isOpenWave } from "@/domain/status";
 import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 import { useSession } from "../../session";
+import { checkScanEvidence, workflowPolicy } from "@/domain/workflow-policy";
+import { EMPTY_SCAN_LOG, afterPost, recordScan, scanEvidence, type ScanLog } from "./scan-log";
 
 const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -37,6 +39,8 @@ export function FloorWavePage() {
   const [qty, setQty] = useState("1");
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const needScan = workflowPolicy(me.organization.operatingMode).scanVerifiedPick;
+  const [scanLog, setScanLog] = useState<ScanLog>(EMPTY_SCAN_LOG);
 
   function applyWave(wave: Wave) {
     setActive(wave);
@@ -94,6 +98,7 @@ export function FloorWavePage() {
       }
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
         .then((hit) => {
+          setScanLog((log) => recordScan(log, hit));
           if (hit.kind === "location" && hit.location) {
             setLocationId(hit.location.id);
             report?.(true);
@@ -152,8 +157,9 @@ export function FloorWavePage() {
     try {
       const next = await api<Wave>(`/api/waves/${active.id}/batch-pick`, {
         method: "POST",
-        body: JSON.stringify({ locationId, itemId, qty: Number(qty) }),
+        body: JSON.stringify({ locationId, itemId, qty: Number(qty), scan: scanEvidence(scanLog, locationId) }),
       });
+      setScanLog(afterPost);
       setActive(next);
       setDone(`Picked ${qty} onto ${next.number}.`);
       const first = (next.batchLines ?? []).find((line) => line.remaining > 0);
@@ -166,6 +172,17 @@ export function FloorWavePage() {
       setError(errorText(err, "Could not post the batch pick."));
     }
   }
+
+  const batchLine = (active?.batchLines ?? []).find((line) => line.itemId === itemId);
+  const bay = locations.find((row) => row.id === locationId);
+  const batchScanProblem =
+    needScan && batchLine
+      ? checkScanEvidence(
+          [{ lineId: batchLine.itemId, qty: Number(qty) || 0, sku: batchLine.sku, barcode: null }],
+          scanEvidence(scanLog, locationId),
+          { bay: bay ? { code: bay.code, barcode: bay.barcode } : null },
+        )
+      : null;
 
   return (
     <FloorFrame title="Wave" description="Scan a WAV- wave. Batch mode picks aggregated SKUs from a bay." error={error}>
@@ -275,9 +292,18 @@ export function FloorWavePage() {
                   onChange={(e) => setQty(e.target.value)}
                 />
               </Field>
-              <Button className="h-14 w-full text-lg sm:w-auto" onClick={() => void batchPick()} disabled={!itemId}>
+              <Button
+                className="h-14 w-full text-lg sm:w-auto"
+                onClick={() => void batchPick()}
+                disabled={!itemId || Boolean(batchScanProblem)}
+              >
                 Batch pick
               </Button>
+              {batchScanProblem ? (
+                <p className="text-sm text-muted-foreground" role="status">
+                  {batchScanProblem}.
+                </p>
+              ) : null}
             </>
           ) : active.mode === "wave" ? (
             <div className="space-y-2 text-sm">

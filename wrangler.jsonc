@@ -17,6 +17,9 @@
     ],
     "binding": "ASSETS"
   },
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
   "vars": {
     "BETTER_AUTH_URL": "https://rackline.brian-72c.workers.dev"
   },

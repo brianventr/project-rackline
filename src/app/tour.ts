@@ -102,7 +102,7 @@ export function useTourAutoOpen(): void {
   const location = useLocation();
   const [seen] = useTourSeen();
   const owner = me.role === "owner";
-  const onHome = pathOnly(location.pathname) === homePath(me.role);
+  const onHome = pathOnly(location.pathname) === homePath(me.role, me.organization.operatingMode);
   // The Getting started read is only needed to decide the first open, so it is not fetched on every page.
   const onboarding = useOnboarding({ enabled: owner && !seen && onHome });
   const loaded = !!onboarding.data;
@@ -114,6 +114,7 @@ export function useTourAutoOpen(): void {
         seen,
         role: me.role,
         pathname: location.pathname,
+        operatingMode: me.organization.operatingMode,
         onboarding: owner ? { loaded, incomplete } : null,
       })
     ) {

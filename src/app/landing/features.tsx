@@ -13,7 +13,12 @@ import {
 import { motion } from "motion/react";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-const features = [
+const features: {
+  title: string;
+  body: string;
+  icon: typeof Boxes;
+  href?: string;
+}[] = [
   {
     title: "One inventory ledger",
     body: "Receive, move, pick, ship, adjust, and assemble against the same on-hand engine. Short stock returns a 409, not a silent lie.",
@@ -40,9 +45,10 @@ const features = [
     icon: Clock,
   },
   {
-    title: "Garage Mode",
-    body: "The founder bench. Receive, make, pick, and ship without a yard, waves, or a 3PL. Open the full warehouse on the same ledger when you lease a floor.",
+    title: "Garage, then Manufacturer",
+    body: "Garage is a ship queue: orders in from Shopify, Etsy, and WooCommerce, labels in one click, tracking posted back. Manufacturer runs scan-verified picks and cutoff waves on the same ledger.",
     icon: Factory,
+    href: "/#modes",
   },
   {
     title: "Gun scanners, no extra app",
@@ -97,7 +103,17 @@ export function LandingFeatures() {
               <CardHeader>
                 <feature.icon className="mb-2 size-5 text-primary" />
                 <CardTitle>{feature.title}</CardTitle>
-                <CardDescription>{feature.body}</CardDescription>
+                <CardDescription>
+                  {feature.body}
+                  {feature.href ? (
+                    <>
+                      {" "}
+                      <a href={feature.href} className="text-primary underline">
+                        Compare the two modes
+                      </a>
+                    </>
+                  ) : null}
+                </CardDescription>
               </CardHeader>
             </Card>
           </motion.div>

@@ -74,7 +74,9 @@ import { hasUnpicked } from "@/domain/partial-pick";
 import { hasUnpacked } from "@/domain/partial-pack";
 import { canShipLabeledCarton, canUncartonOrderPackage } from "@/domain/cartons";
 import { planShortShip } from "@/domain/short-ship";
+import { workflowPolicy } from "@/domain/workflow-policy";
 import { useWarehouse, inWarehouse } from "../warehouse";
+import { useSession } from "../session";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { PickMap } from "../components/PickMap";
 
@@ -83,6 +85,9 @@ export function OrdersPage() {
   if (id) return <OrderDetail id={id} />;
   return <OrderList />;
 }
+
+const CHANNEL_NAMES: Record<string, string> = { woocommerce: "WooCommerce", etsy: "Etsy", faire: "Faire" };
+const CHANNEL_POSTS_BACK = new Set(["woocommerce", "etsy"]);
 
 const ORDER_TABS: TabDef<Order>[] = [
   { id: "active", label: "Active", match: (order) => isOpenOrder(order.status) },
@@ -422,6 +427,8 @@ function NewOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o
 }
 
 function OrderDetail({ id }: { id: string }) {
+  const me = useSession();
+  const policy = workflowPolicy(me.organization.operatingMode);
   const [order, setOrder] = useState<Order | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [pickLocation, setPickLocation] = useState("");
@@ -493,6 +500,16 @@ function OrderDetail({ id }: { id: string }) {
   }
 
   const sumQty = (values: Record<string, string>) => Object.values(values).reduce((sum, value) => sum + (Number(value) || 0), 0);
+
+  const quickShip = () =>
+    run(
+      "Ship",
+      async () => {
+        await api(`/api/orders/${id}/quick-ship`, { method: "POST", body: JSON.stringify({}) });
+        return api<Order>(`/api/orders/${id}`);
+      },
+      (next) => `Shipped ${next?.number ?? "order"}${next?.trackingNumber ? ` · ${next.trackingNumber}` : ""}.`,
+    );
 
   const startPick = () =>
     run("Start pick", () => api<Order>(`/api/orders/${id}/start`, { method: "POST" }), () => "Pick started. Stock is reserved for this order.");
@@ -605,6 +622,19 @@ function OrderDetail({ id }: { id: string }) {
 
   const uncarton = (pkgId: string, number: string) =>
     run("Drop carton", () => api<Order>(`/api/orders/${id}/packages/${pkgId}/uncarton`, { method: "POST" }), () => `Dropped ${number}. Its units can be boxed again.`);
+
+  const retryChannel = () =>
+    run(
+      "Post tracking",
+      async () => {
+        const result = await api<{ status: string; error?: string }>(`/api/channels/orders/${id}/post-back`, {
+          method: "POST",
+        });
+        if (result.status !== "fulfilled") throw new Error(result.error || "The channel did not accept the tracking number.");
+        return api<Order>(`/api/orders/${id}`);
+      },
+      () => "Tracking sent to the channel.",
+    );
 
   const retryShopify = () =>
     run("Shopify fulfill", () => api<Order>(`/api/orders/${id}/shopify/fulfill`, { method: "POST" }), () => "Sent fulfillment to Shopify.");
@@ -740,12 +770,22 @@ function OrderDetail({ id }: { id: string }) {
     order.source === "shopify" &&
     (order.shopifySyncStatus === "failed" || packages.some((pkg) => pkg.shippedAt && !pkg.shopifyFulfillmentId));
 
+  const channelName = CHANNEL_NAMES[order.source ?? ""];
+  const channelRetry = Boolean(channelName) && order.status === "shipped" && order.channelSyncStatus === "failed";
+
   let primary: DocumentAction | null = null;
-  if (picking) primary = { label: "Pick", icon: PackageMinus, onSelect: pick, disabled: !thisPick };
+  const quickShipOk =
+    policy.quickShip && !hasPackages && ["open", "draft", "picking", "picked", "packing", "packed"].includes(order.status);
+  if (quickShipOk) primary = { label: shipLabel, icon: Truck, onSelect: quickShip };
+  else if (picking && !policy.officePickPack) primary = { label: "Pick on floor", icon: ScanLine, to: `/floor/pick?id=${order.id}` };
+  else if (packing && !policy.officePickPack) primary = { label: "Pack on floor", icon: ScanLine, to: `/floor/pack?id=${order.id}` };
+  else if (picking) primary = { label: "Pick", icon: PackageMinus, onSelect: pick, disabled: !thisPick };
   else if (packing) primary = { label: "Pack", icon: PackageCheck, onSelect: pack, disabled: !thisPack };
   else if (canShipOrder(order.status)) primary = { label: shipLabel, icon: Truck, onSelect: ship };
 
   const menu: DocumentAction[] = [
+    ...(quickShipOk && picking ? [{ label: "Pick", icon: PackageMinus, onSelect: pick, disabled: !thisPick }] : []),
+    ...(quickShipOk && packing ? [{ label: "Pack", icon: PackageCheck, onSelect: pack, disabled: !thisPack }] : []),
     ...(canStartPick(order.status) && remaining
       ? [{ label: "Start pick (reserve stock)", icon: Play, onSelect: startPick }]
       : []),
@@ -753,11 +793,14 @@ function OrderDetail({ id }: { id: string }) {
     ...(canPickOrder(order.status) ? [{ label: "Pick list", icon: ClipboardList, to: `/outbound/orders/${order.id}/pick-list` }] : []),
     { label: "Pack slip", icon: FileText, to: `/outbound/orders/${order.id}/pack-slip` },
     ...(!hasPackages ? [{ label: "Shipping label", icon: Printer, to: `/outbound/orders/${order.id}/shipping-label` }] : []),
-    ...(packing ? [{ label: "Pack into carton", icon: Box, onSelect: packIntoCarton, disabled: !thisPack }] : []),
+    ...(packing && policy.officePickPack
+      ? [{ label: "Pack into carton", icon: Box, onSelect: packIntoCarton, disabled: !thisPack }]
+      : []),
     ...(unpickable && !unpickMode
       ? [{ label: "Unpick…", icon: Undo2, onSelect: () => { setUnpickMode(true); setView("lines"); } }]
       : []),
     ...(shopifyRetry ? [{ label: "Retry Shopify", icon: RefreshCw, onSelect: retryShopify }] : []),
+    ...(channelRetry ? [{ label: `Retry ${channelName} tracking`, icon: RefreshCw, onSelect: retryChannel }] : []),
     ...(shortShipOk
       ? [
           {
@@ -791,6 +834,8 @@ function OrderDetail({ id }: { id: string }) {
       : []),
   ];
 
+  const officePicking = picking && policy.officePickPack;
+  const officePacking = packing && policy.officePickPack;
   const units = orderUnits(order);
   const tracksAnything = lines.some((line) => line.trackLot || line.trackSerial || line.catchWeight);
   const hasAllocations = lines.some((line) => (line.allocations ?? []).length || (line.allocatedQty ?? 0) > 0);
@@ -805,9 +850,9 @@ function OrderDetail({ id }: { id: string }) {
     "Shipped",
     ...(hasAllocations ? ["Allocated"] : []),
     ...(remaining ? ["Pick from"] : []),
-    ...(picking ? ["This pick"] : []),
-    ...(picking && tracksAnything ? ["Lot / serial"] : []),
-    ...(packing ? ["This pack"] : []),
+    ...(officePicking ? ["This pick"] : []),
+    ...(officePicking && tracksAnything ? ["Lot / serial"] : []),
+    ...(officePacking ? ["This pack"] : []),
     ...(unpickMode ? ["This unpick"] : []),
   ];
 
@@ -827,6 +872,11 @@ function OrderDetail({ id }: { id: string }) {
             <ToneBadge tone="success" dot={false}>
               <Store className="size-3" />
               Shopify {order.shopifyOrderName ?? ""}
+            </ToneBadge>
+          ) : channelName ? (
+            <ToneBadge tone="success" dot={false}>
+              <Store className="size-3" />
+              {channelName}
             </ToneBadge>
           ) : null
         }
@@ -860,10 +910,19 @@ function OrderDetail({ id }: { id: string }) {
                   <Link className="underline" to="/setup/shopify">
                     Shopify
                   </Link>
+                ) : channelName ? (
+                  <Link className="underline" to="/setup/channels">
+                    {channelName}
+                  </Link>
                 ) : (
                   "Floor"
                 )}
               </DocumentFact>
+              {CHANNEL_POSTS_BACK.has(order.source ?? "") ? (
+                <DocumentFact label="Tracking post-back">
+                  <StatusBadge status={order.channelSyncStatus || "inbound"} />
+                </DocumentFact>
+              ) : null}
               {order.source === "shopify" ? (
                 <DocumentFact label="Shopify sync">
                   <StatusBadge status={order.shopifySyncStatus || "inbound"} />
@@ -897,6 +956,7 @@ function OrderDetail({ id }: { id: string }) {
                 <RelativeTime at={order.createdAt} />
               </DocumentFact>
               {order.shopifySyncError ? <p className="text-sm text-destructive">{order.shopifySyncError}</p> : null}
+              {order.channelSyncError ? <p className="text-sm text-destructive">{order.channelSyncError}</p> : null}
             </Card>
           </DocumentRail>
         }
@@ -987,7 +1047,7 @@ function OrderDetail({ id }: { id: string }) {
                       )}
                     </td>
                   ) : null}
-                  {picking ? (
+                  {officePicking ? (
                     <td>
                       {line.remaining > 0 ? (
                         <Input
@@ -1004,7 +1064,7 @@ function OrderDetail({ id }: { id: string }) {
                       )}
                     </td>
                   ) : null}
-                  {picking && tracksAnything ? (
+                  {officePicking && tracksAnything ? (
                     <td className="space-y-1">
                       {line.trackLot ? (
                         <Input
@@ -1027,7 +1087,7 @@ function OrderDetail({ id }: { id: string }) {
                       />
                     </td>
                   ) : null}
-                  {packing ? (
+                  {officePacking ? (
                     <td>
                       {(line.packRemaining ?? 0) > 0 ? (
                         <Input

@@ -1,6 +1,8 @@
 /**
  * Channel CSV ingest for Etsy and Faire (Shopify stays on its own webhook path).
  */
+import { destPatchFromAddress } from "./geo";
+import type { ChannelOrder } from "./channels/adapter";
 
 export type ChannelKind = "etsy" | "faire";
 
@@ -92,6 +94,24 @@ export function parseChannelCsv(channel: ChannelKind, csv: string): ChannelParse
     });
   }
   return { channel, rows, errors };
+}
+
+/** CSV rows as normalized channel orders, one per external id, same-SKU rows summed. */
+export function csvChannelOrders(channel: ChannelKind, rows: ChannelOrderRow[]): ChannelOrder[] {
+  const label = channel === "etsy" ? "Etsy" : "Faire";
+  return [...groupChannelRows(rows)].map(([externalId, group]) => {
+    const qtyBySku = new Map<string, number>();
+    for (const row of group) qtyBySku.set(row.sku, (qtyBySku.get(row.sku) ?? 0) + row.qty);
+    const { shipToAddress, ...dest } = destPatchFromAddress(group.find((row) => row.address)?.address);
+    return {
+      externalId,
+      externalName: `${label} ${externalId}`,
+      customerName: group[0]!.customerName,
+      shipToAddress,
+      dest,
+      lines: [...qtyBySku].map(([sku, qty]) => ({ sku, title: sku, qty, externalLineId: null })),
+    };
+  });
 }
 
 /** Collapse rows that share an external order id into one order with multiple lines. */
