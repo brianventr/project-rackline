@@ -480,6 +480,7 @@ shopifyRoute.get("/shopify/locations", async (c) => {
   const organizationId = c.get("organizationId")!;
   const connection = await connectionByOrg(db, organizationId);
   if (!connection) return c.json([]);
+  if (connection.mode === "live" && !connection.accessToken) conflict(SHOPIFY_TOKEN_UNREADABLE, "SHOPIFY_TOKEN");
   try {
     return c.json(await listShopifyLocationsForOrg(db, organizationId));
   } catch (err) {
