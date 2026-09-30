@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
@@ -168,6 +169,55 @@ export const items = sqliteTable(
   ],
 );
 
+/** Who you buy from. Purchases, vendor returns, and ASNs link here and keep the name they were made with. */
+export const vendors = sqliteTable(
+  "vendors",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    contactName: text("contact_name"),
+    email: text("email"),
+    phone: text("phone"),
+    address: text("address"),
+    paymentTerms: text("payment_terms"),
+    leadTimeDays: integer("lead_time_days"),
+    currency: text("currency").notNull().default("USD"),
+    notes: text("notes"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("vendors_org_name").on(t.organizationId, sql`lower(trim(${t.name}))`)],
+);
+
+/** Who you ship to. Orders and returns link here; see `matchCustomer` in `src/domain/parties.ts`. */
+export const customers = sqliteTable(
+  "customers",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    email: text("email"),
+    phone: text("phone"),
+    shipToAddress: text("ship_to_address"),
+    notes: text("notes"),
+    /** `[{ channel, ref }]`: the customer's id on each sales channel that sent an order. */
+    channelRefsJson: text("channel_refs_json"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("customers_org_email")
+      .on(t.organizationId, sql`lower(trim(${t.email}))`)
+      .where(sql`${t.email} IS NOT NULL AND trim(${t.email}) != ''`),
+    index("customers_org_name").on(t.organizationId, sql`lower(trim(${t.name}))`),
+  ],
+);
+
 export const inventoryBalances = sqliteTable(
   "inventory_balances",
   {
@@ -312,12 +362,14 @@ export const orders = sqliteTable(
     channelSyncStatus: text("channel_sync_status").notNull().default("none"),
     channelSyncError: text("channel_sync_error"),
     channelFulfilledAt: integer("channel_fulfilled_at"),
+    customerId: text("customer_id").references(() => customers.id, { onDelete: "set null" }),
   },
   (t) => [
     uniqueIndex("shopify_orders_org_order").on(t.organizationId, t.shopifyOrderId),
     uniqueIndex("orders_org_source_external").on(t.organizationId, t.source, t.externalOrderId),
     index("orders_org_status_shipped").on(t.organizationId, t.status, t.shippedAt),
     index("orders_parent").on(t.parentOrderId),
+    index("orders_customer").on(t.customerId),
   ],
 );
 
@@ -630,24 +682,29 @@ export const cycleCountLines = sqliteTable("cycle_count_lines", {
   weightGrams: integer("weight_grams"),
 });
 
-export const purchases = sqliteTable("purchases", {
-  id: text("id").primaryKey(),
-  organizationId: text("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  warehouseId: text("warehouse_id")
-    .notNull()
-    .references(() => warehouses.id),
-  number: text("number").notNull(),
-  vendorName: text("vendor_name").notNull(),
-  status: text("status").notNull(),
-  locationId: text("location_id").references(() => locations.id),
-  notes: text("notes"),
-  createdAt: integer("created_at").notNull(),
-  orderedAt: integer("ordered_at"),
-  receivedAt: integer("received_at"),
-  clientId: text("client_id"),
-});
+export const purchases = sqliteTable(
+  "purchases",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    number: text("number").notNull(),
+    vendorName: text("vendor_name").notNull(),
+    status: text("status").notNull(),
+    locationId: text("location_id").references(() => locations.id),
+    notes: text("notes"),
+    createdAt: integer("created_at").notNull(),
+    orderedAt: integer("ordered_at"),
+    receivedAt: integer("received_at"),
+    clientId: text("client_id"),
+    vendorId: text("vendor_id").references(() => vendors.id, { onDelete: "set null" }),
+  },
+  (t) => [index("purchases_vendor").on(t.vendorId)],
+);
 
 export const purchaseLines = sqliteTable(
   "purchase_lines",
@@ -661,6 +718,8 @@ export const purchaseLines = sqliteTable(
       .references(() => items.id),
     qtyOrdered: integer("qty_ordered").notNull(),
     qtyReceived: integer("qty_received").notNull().default(0),
+    /** Price per each on this PO; null on lines made before costs were recorded. */
+    unitCostCents: integer("unit_cost_cents"),
   },
   (t) => [uniqueIndex("purchase_lines_purchase_item").on(t.purchaseId, t.itemId)],
 );
@@ -681,23 +740,28 @@ export const purchaseSends = sqliteTable("purchase_sends", {
   createdAt: integer("created_at").notNull(),
 });
 
-export const rmas = sqliteTable("rmas", {
-  id: text("id").primaryKey(),
-  organizationId: text("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  warehouseId: text("warehouse_id")
-    .notNull()
-    .references(() => warehouses.id),
-  number: text("number").notNull(),
-  customerName: text("customer_name").notNull(),
-  status: text("status").notNull(),
-  orderId: text("order_id").references(() => orders.id),
-  locationId: text("location_id").references(() => locations.id),
-  notes: text("notes"),
-  createdAt: integer("created_at").notNull(),
-  receivedAt: integer("received_at"),
-});
+export const rmas = sqliteTable(
+  "rmas",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    number: text("number").notNull(),
+    customerName: text("customer_name").notNull(),
+    status: text("status").notNull(),
+    orderId: text("order_id").references(() => orders.id),
+    locationId: text("location_id").references(() => locations.id),
+    notes: text("notes"),
+    createdAt: integer("created_at").notNull(),
+    receivedAt: integer("received_at"),
+    customerId: text("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  },
+  (t) => [index("rmas_customer").on(t.customerId)],
+);
 
 export const rmaLines = sqliteTable(
   "rma_lines",
@@ -716,23 +780,28 @@ export const rmaLines = sqliteTable(
   (t) => [uniqueIndex("rma_lines_rma_item").on(t.rmaId, t.itemId)],
 );
 
-export const vendorReturns = sqliteTable("vendor_returns", {
-  id: text("id").primaryKey(),
-  organizationId: text("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  warehouseId: text("warehouse_id")
-    .notNull()
-    .references(() => warehouses.id),
-  number: text("number").notNull(),
-  vendorName: text("vendor_name").notNull(),
-  status: text("status").notNull(),
-  purchaseId: text("purchase_id").references(() => purchases.id),
-  locationId: text("location_id").references(() => locations.id),
-  notes: text("notes"),
-  createdAt: integer("created_at").notNull(),
-  returnedAt: integer("returned_at"),
-});
+export const vendorReturns = sqliteTable(
+  "vendor_returns",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    number: text("number").notNull(),
+    vendorName: text("vendor_name").notNull(),
+    status: text("status").notNull(),
+    purchaseId: text("purchase_id").references(() => purchases.id),
+    locationId: text("location_id").references(() => locations.id),
+    notes: text("notes"),
+    createdAt: integer("created_at").notNull(),
+    returnedAt: integer("returned_at"),
+    vendorId: text("vendor_id").references(() => vendors.id, { onDelete: "set null" }),
+  },
+  (t) => [index("vendor_returns_vendor").on(t.vendorId)],
+);
 
 export const vendorReturnLines = sqliteTable(
   "vendor_return_lines",
@@ -1091,8 +1160,9 @@ export const asns = sqliteTable(
     createdAt: integer("created_at").notNull(),
     expectedAt: integer("expected_at"),
     receivedAt: integer("received_at"),
+    vendorId: text("vendor_id").references(() => vendors.id, { onDelete: "set null" }),
   },
-  (t) => [uniqueIndex("asns_org_number").on(t.organizationId, t.number)],
+  (t) => [uniqueIndex("asns_org_number").on(t.organizationId, t.number), index("asns_vendor").on(t.vendorId)],
 );
 
 export const asnLines = sqliteTable(

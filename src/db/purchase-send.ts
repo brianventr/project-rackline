@@ -26,6 +26,7 @@ export async function sendPurchaseOrder(
       warehouseId: string;
       number: string;
       vendorName: string;
+      vendorId?: string | null;
       notes: string | null;
       clientId: string | null;
       lines: { itemId: string; sku: string; qtyOrdered: number; qtyReceived: number }[];
@@ -75,6 +76,7 @@ export async function sendPurchaseOrder(
         warehouseId: input.purchase.warehouseId,
         number: docNumber("ASN"),
         vendorName: input.purchase.vendorName,
+        vendorId: input.purchase.vendorId ?? null,
         status: "expected",
         purchaseId: input.purchase.id,
         clientId: input.purchase.clientId,

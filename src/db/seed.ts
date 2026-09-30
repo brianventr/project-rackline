@@ -14,6 +14,7 @@ import { checklistForClass, equipmentBarcode } from "../domain/equipment";
 import { destPatchFromAddress, originColumns, resolveOrigin } from "../domain/geo";
 import { demoInventoryItemGid, demoShopifyLocationGid } from "../domain/shopify-sellable";
 import { syncShopifySellable } from "./shopify-sellable";
+import { backfillParties } from "./parties";
 import { rateActivity } from "../domain/billing";
 
 export const DEMO_EMAIL = "demo@northwind.makers";
@@ -372,6 +373,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       itemId: item.bulb,
       qtyOrdered: 20,
       qtyReceived: 0,
+      unitCostCents: 185,
     }),
     db.insert(schema.purchaseLines).values({
       id: newId(),
@@ -379,6 +381,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       itemId: item.shade,
       qtyOrdered: 8,
       qtyReceived: 0,
+      unitCostCents: 640,
     }),
     db.insert(schema.purchaseSends).values({
       id: newId(),
@@ -406,6 +409,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       itemId: item.cord,
       qtyOrdered: 15,
       qtyReceived: 0,
+      unitCostCents: 210,
     }),
     db.insert(schema.orders).values({
       id: orderId,
@@ -1323,6 +1327,19 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
   });
   await seedAssignedJobs(db, organizationId, userId, orderId, woId);
   await syncShopifySellable(db, organizationId);
+  await backfillParties(db, organizationId);
+  // No email: with mail configured, Send would try to deliver to it.
+  await db
+    .update(schema.vendors)
+    .set({
+      contactName: "Dana Ruiz",
+      phone: "503-555-0142",
+      address: "220 Front Ave\nPortland, OR 97209",
+      paymentTerms: "Net 30",
+      leadTimeDays: 7,
+      notes: "Bulbs, shades, and cords. Ships Tuesdays and Fridays.",
+    })
+    .where(and(eq(schema.vendors.organizationId, organizationId), eq(schema.vendors.name, "Harbor Components")));
 
   return { organizationId };
 }

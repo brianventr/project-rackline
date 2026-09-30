@@ -285,6 +285,35 @@ export const purchaseFormSchema = z.object({
   lines: uniqueLinesSchema,
 });
 
+/** An email field that may be blank. Server: `isEmailAddress` when set. */
+const optionalEmail = z.string().refine((value) => !value.trim() || isEmailAddress(value), "Enter a full email, like sam@example.com.");
+
+/** POST and PATCH /api/vendors (`src/routes/vendors.ts`). */
+export const vendorFormSchema = z.object({
+  name: requiredText("Enter the vendor's name."),
+  contactName: optionalText,
+  email: optionalEmail,
+  phone: optionalText,
+  address: optionalText,
+  paymentTerms: optionalText,
+  leadTimeDays: numberInput.refine((value) => {
+    if (isBlank(value)) return true;
+    const n = typeof value === "number" ? value : Number(value.trim());
+    return Number.isInteger(n) && n >= 0 && n <= 365;
+  }, "Lead time is whole days, 0 to 365."),
+  currency: z.string().refine((value) => /^[A-Za-z]{3}$/.test(value.trim()), "Use a three-letter code, like USD."),
+  notes: optionalText,
+});
+
+/** POST and PATCH /api/customers (`src/routes/customers.ts`). */
+export const customerFormSchema = z.object({
+  name: requiredText("Enter the customer's name."),
+  email: optionalEmail,
+  phone: optionalText,
+  shipToAddress: optionalText,
+  notes: optionalText,
+});
+
 /** POST /api/team (`parseTeamInvite` in `src/domain/auth-mail.ts`). Password is optional; when set, 8+ characters. */
 export const inviteFormSchema = z.object({
   name: requiredText("Enter their name."),

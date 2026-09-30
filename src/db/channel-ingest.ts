@@ -3,6 +3,7 @@ import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { newId } from "../lib/ids";
 import { orderJobInput, syncDocumentJob } from "./jobs";
+import { ensureCustomer } from "./parties";
 import { normalizeSku, type ChannelId, type ChannelOrder } from "../domain/channels/adapter";
 
 export type ChannelConnectionRow = typeof schema.channelConnections.$inferSelect;
@@ -96,12 +97,19 @@ export async function persistChannelOrder(
   }
   if (lines.length === 0) return { skipped: "unknown_skus", missingSkus: [...missing] };
 
+  const customer = await ensureCustomer(db, organizationId, {
+    name: order.customerName,
+    email: order.customerEmail,
+    address: order.shipToAddress,
+    channelRef: order.customerRef ? { channel, ref: order.customerRef } : null,
+  });
   const row = {
     id: orderId,
     organizationId,
     warehouseId: input.warehouseId,
     number: order.externalName,
     customerName: order.customerName,
+    customerId: customer.id,
     status: "open",
     createdAt: now,
     source: channel,

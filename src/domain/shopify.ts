@@ -173,7 +173,7 @@ export type ShopifyRestOrder = {
   cancel_reason?: string | null;
   fulfillment_status?: string | null;
   financial_status?: string | null;
-  customer?: { first_name?: string | null; last_name?: string | null } | null;
+  customer?: { id?: number | string | null; first_name?: string | null; last_name?: string | null } | null;
   shipping_address?: {
     name?: string | null;
     first_name?: string | null;
@@ -205,6 +205,8 @@ export type MappedInboundOrder = {
   shopifyOrderGid: string;
   shopifyOrderName: string;
   customerName: string;
+  customerEmail?: string | null;
+  customerRef?: string | null;
   shipToAddress: string | null;
   dest: DestColumns;
   lines: MappedInboundLine[];
@@ -404,6 +406,8 @@ export function mapRestOrder(order: ShopifyRestOrder): MappedInboundOrder | Skip
     shopifyOrderGid: order.admin_graphql_api_id || orderGid(shopifyOrderId),
     shopifyOrderName: order.name?.trim() || `#${shopifyOrderId}`,
     customerName: customerNameFrom(order),
+    customerEmail: order.email?.trim() || null,
+    customerRef: order.customer?.id != null ? String(order.customer.id) : null,
     ...destFromRestAddress(order.shipping_address),
     lines,
   };

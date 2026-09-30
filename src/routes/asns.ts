@@ -13,6 +13,7 @@ import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
 import { recordLaborEvent } from "../db/labor";
 import { resolveLineStockQty, UomConversionError } from "../domain/uom";
+import { ensureVendor } from "../db/parties";
 import {
   applyCarton,
   asnCartonReceiveGate,
@@ -146,6 +147,7 @@ asnsRoute.get("/asns/:id", async (c) => {
 asnsRoute.post("/asns", async (c) => {
   const body = await c.req.json<{
     warehouseId?: string;
+    vendorId?: string;
     vendorName?: string;
     notes?: string;
     purchaseId?: string;
@@ -154,7 +156,7 @@ asnsRoute.post("/asns", async (c) => {
     lines?: { itemId?: string; qty?: number }[];
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
-  const vendorName = requireString(body.vendorName, "vendorName");
+  const vendorName = body.vendorId ? body.vendorName?.trim() : requireString(body.vendorName, "vendorName");
   if (!Array.isArray(body.lines) || body.lines.length === 0) {
     badRequest("At least one ASN line is required");
   }
@@ -191,6 +193,7 @@ asnsRoute.post("/asns", async (c) => {
     await getOrgItem(db, organizationId, itemId);
     lines.push({ id: newId(), asnId: id, itemId, qtyExpected: qty, qtyReceived: 0 });
   }
+  const vendor = await ensureVendor(db, organizationId, { vendorId: body.vendorId, name: vendorName });
 
   await db.batch([
     db.insert(schema.asns).values({
@@ -198,7 +201,8 @@ asnsRoute.post("/asns", async (c) => {
       organizationId,
       warehouseId,
       number: docNumber("ASN"),
-      vendorName,
+      vendorName: vendor.name,
+      vendorId: vendor.id,
       status: "draft",
       purchaseId: body.purchaseId || null,
       clientId: body.clientId || null,

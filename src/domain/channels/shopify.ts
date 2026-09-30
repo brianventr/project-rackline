@@ -10,6 +10,8 @@ export function shopifyChannelOrder(mapped: MappedInboundOrder): ChannelOrder {
     externalId: mapped.shopifyOrderId,
     externalName: mapped.shopifyOrderName,
     customerName: mapped.customerName,
+    customerEmail: mapped.customerEmail ?? null,
+    customerRef: mapped.customerRef ?? null,
     shipToAddress: mapped.shipToAddress,
     dest: mapped.dest,
     lines: mapped.lines.map((line) => ({

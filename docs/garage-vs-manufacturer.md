@@ -204,6 +204,7 @@ Settings → Integrations changes with the mode:
 | Yard, ASN, counts, holds, replenish | Hidden | Yes |
 | Equipment, labor, Live, Traffic | Hidden | Yes |
 | 3PL clients, billing, EDI, webhooks | Hidden | Yes |
+| Vendor and customer records | Parts → Vendors, Ship → Customers | Inbound → Vendors, Outbound → Customers |
 | Menu | Short bench menu | Full office menu plus Settings |
 
 ## 6. Switching modes
@@ -280,3 +281,29 @@ A Shopify token or carrier key saved by an older version of Rackline, before the
 **Does the Ship queue reserve stock?** A row being "ready" is a check, not a hold. Stock is reserved when the pick starts, and quick-ship starts the pick.
 
 **Can I use the Ship queue in Manufacturer?** No. `/ship` opens Outbound → Waves instead. If the mode switched while the queue was already open, the queue says so and hides its Ship buttons. Use Waves and the floor, or switch to Garage.
+
+## 8. Vendors and customers
+
+Both modes keep a record for each vendor and each customer. In Garage they are under **Parts → Vendors** and **Ship → Customers**; in Manufacturer, **Inbound → Vendors** and **Outbound → Customers**.
+
+**Vendors** have a contact, email, phone, address, payment terms, a default lead time in days, a currency, and notes. A vendor's page lists its purchases, its vendor returns, and the last price paid for each item bought from it.
+
+- **New purchase** suggests vendors as you type. A name that matches a vendor, ignoring case and extra spaces, links to it. A new name creates the vendor.
+- A purchase line typed without a unit cost takes the last price paid to that vendor for the item, then the item's standard cost. The purchase shows a total once every line has a price.
+- **Send** fills in the vendor's email, and the purchase shows the vendor's terms and lead time.
+- Purchases made from reorder suggestions or the runway link to their vendor the same way.
+
+**Customers** have a name, email, phone, a default ship-to, notes, and the customer ids the sales channels use. A customer's page lists their orders and returns.
+
+Every order links itself to a customer as it arrives, whether from Shopify, WooCommerce, Etsy, a channel CSV, a crowdfunding import, or the office. Rackline tries these in order:
+
+1. The channel's own customer id, when the channel sends one.
+2. The email.
+3. The same name at the same ship-to address. The same name at a different address is treated as a different person, and so is the same name with a different email.
+4. For a typed order or a return with no address to compare, the same name.
+
+If nothing matches, Rackline creates the customer. A match only fills blanks on the record, such as a missing email or ship-to. It never overwrites what is there. On a new office order, picking a known customer fills in their ship-to.
+
+**Existing documents.** Records were made from the names already on your documents: one vendor per distinct vendor name on purchases, ASNs, and vendor returns, and one customer per distinct customer name on orders and returns. Case and extra spaces are ignored. Each customer's ship-to comes from their newest order.
+
+**Renaming.** Each document keeps the name it was made with. Renaming a vendor or customer changes new documents, not old ones. Two vendors cannot share a name, and two customers cannot share an email.

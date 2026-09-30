@@ -19,6 +19,43 @@ import { guardFloorJob, syncDocumentJob, type DocumentJobInput } from "../db/job
 import { loadReorderQueue } from "../db/reorder";
 import { loadRunway } from "../db/runway";
 import { majorityVendor } from "../domain/reorder";
+import { ensureVendor, vendorLastCosts, type VendorRef } from "../db/parties";
+import { defaultLineCost } from "../domain/parties";
+
+type DraftLine = { itemId: string; qty: number; unitCostCents?: number | null };
+
+/** PO lines with their cost filled from the vendor's last price, else the item's standard cost. */
+async function pricedLines(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  purchaseId: string,
+  vendor: VendorRef,
+  lines: DraftLine[],
+) {
+  const itemIds = lines.map((line) => line.itemId);
+  const [last, items] = await Promise.all([
+    vendorLastCosts(db, organizationId, vendor.id, itemIds),
+    itemIds.length
+      ? db
+          .select({ id: schema.items.id, unitCostCents: schema.items.unitCostCents })
+          .from(schema.items)
+          .where(and(eq(schema.items.organizationId, organizationId), inArray(schema.items.id, itemIds)))
+      : Promise.resolve([]),
+  ]);
+  const itemCost = new Map(items.map((row) => [row.id, row.unitCostCents]));
+  return lines.map((line) => ({
+    id: newId(),
+    purchaseId,
+    itemId: line.itemId,
+    qtyOrdered: line.qty,
+    qtyReceived: 0,
+    unitCostCents: defaultLineCost({
+      typed: line.unitCostCents,
+      vendorLast: last.get(line.itemId),
+      itemCost: itemCost.get(line.itemId),
+    }),
+  }));
+}
 
 function purchaseJob(row: {
   id: string;
@@ -61,12 +98,16 @@ async function purchaseWithLines(db: AppEnv["Variables"]["db"], organizationId: 
     .where(and(eq(schema.purchases.id, id), eq(schema.purchases.organizationId, organizationId)))
     .limit(1);
   if (!purchase) notFound("Purchase not found");
+  const [vendor] = purchase.vendorId
+    ? await db.select().from(schema.vendors).where(eq(schema.vendors.id, purchase.vendorId)).limit(1)
+    : [];
   const lines = await db
     .select({
       id: schema.purchaseLines.id,
       itemId: schema.purchaseLines.itemId,
       qtyOrdered: schema.purchaseLines.qtyOrdered,
       qtyReceived: schema.purchaseLines.qtyReceived,
+      unitCostCents: schema.purchaseLines.unitCostCents,
       sku: schema.items.sku,
       itemName: schema.items.name,
       imageUrl: schema.items.imageUrl,
@@ -91,6 +132,7 @@ async function purchaseWithLines(db: AppEnv["Variables"]["db"], organizationId: 
     .limit(5);
   return {
     ...purchase,
+    vendor: vendor ?? null,
     lines: lines.map((line) => ({ ...line, remaining: remainingOnLine(asExpected(line)) })),
     asns,
     send: sends[0] ?? null,
@@ -114,6 +156,7 @@ purchasesRoute.get("/purchases", async (c) => {
       itemId: schema.purchaseLines.itemId,
       qtyOrdered: schema.purchaseLines.qtyOrdered,
       qtyReceived: schema.purchaseLines.qtyReceived,
+      unitCostCents: schema.purchaseLines.unitCostCents,
       sku: schema.items.sku,
       itemName: schema.items.name,
       imageUrl: schema.items.imageUrl,
@@ -154,12 +197,13 @@ purchasesRoute.get("/purchases/:id", async (c) => {
 purchasesRoute.post("/purchases", async (c) => {
   const body = await c.req.json<{
     warehouseId?: string;
+    vendorId?: string;
     vendorName?: string;
     notes?: string;
-    lines?: { itemId?: string; qty?: number }[];
+    lines?: { itemId?: string; qty?: number; unitCostCents?: number | null }[];
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
-  const vendorName = requireString(body.vendorName, "vendorName");
+  const vendorName = body.vendorId ? body.vendorName?.trim() : requireString(body.vendorName, "vendorName");
   if (!Array.isArray(body.lines) || body.lines.length === 0) {
     badRequest("At least one purchase line is required");
   }
@@ -169,16 +213,20 @@ purchasesRoute.post("/purchases", async (c) => {
   const now = Date.now();
   const id = newId();
   const seen = new Set<string>();
-  const lines = [];
+  const drafts: DraftLine[] = [];
   for (const line of body.lines) {
     const itemId = requireString(line.itemId, "itemId");
     const qty = requireInt(line.qty, "qty");
     if (qty <= 0) badRequest("Line quantity must be positive");
     if (seen.has(itemId)) badRequest("Each SKU can appear once on a purchase");
     seen.add(itemId);
+    const unitCostCents = line.unitCostCents == null ? null : requireInt(line.unitCostCents, "unitCostCents");
+    if (unitCostCents != null && unitCostCents < 0) badRequest("Unit cost cannot be negative");
     await getOrgItem(db, organizationId, itemId);
-    lines.push({ id: newId(), purchaseId: id, itemId, qtyOrdered: qty, qtyReceived: 0 });
+    drafts.push({ itemId, qty, unitCostCents });
   }
+  const vendor = await ensureVendor(db, organizationId, { vendorId: body.vendorId, name: vendorName });
+  const lines = await pricedLines(db, organizationId, id, vendor, drafts);
 
   await db.batch([
     db.insert(schema.purchases).values({
@@ -186,7 +234,8 @@ purchasesRoute.post("/purchases", async (c) => {
       organizationId,
       warehouseId,
       number: docNumber("PO"),
-      vendorName,
+      vendorName: vendor.name,
+      vendorId: vendor.id,
       status: "draft",
       notes: body.notes?.trim() || null,
       createdAt: now,
@@ -208,29 +257,25 @@ purchasesRoute.post("/purchases/from-reorder", async (c) => {
   if (queue.draftLines.length === 0) {
     conflict("Nothing below reorder that isn't already on an open PO");
   }
-  const vendorName = majorityVendor(queue.draftLines, queue.orgVendor ?? "Reorder");
+  const vendor = await ensureVendor(db, organizationId, {
+    name: majorityVendor(queue.draftLines, queue.orgVendor ?? "Reorder"),
+  });
   const now = Date.now();
   const id = newId();
+  const lines = await pricedLines(db, organizationId, id, vendor, queue.draftLines);
   await db.batch([
     db.insert(schema.purchases).values({
       id,
       organizationId,
       warehouseId,
       number: docNumber("PO"),
-      vendorName,
+      vendorName: vendor.name,
+      vendorId: vendor.id,
       status: "draft",
       notes: body.notes?.trim() || "Drafted from Today reorder queue",
       createdAt: now,
     }),
-    ...queue.draftLines.map((line) =>
-      db.insert(schema.purchaseLines).values({
-        id: newId(),
-        purchaseId: id,
-        itemId: line.itemId,
-        qtyOrdered: line.qty,
-        qtyReceived: 0,
-      }),
-    ),
+    ...lines.map((line) => db.insert(schema.purchaseLines).values(line)),
   ]);
   const created = await purchaseWithLines(db, organizationId, id);
   await syncDocumentJob(db, purchaseJob(created));
@@ -258,28 +303,23 @@ purchasesRoute.post("/purchases/from-runway", async (c) => {
     })),
     queue.orgVendor ?? "Reorder",
   );
+  const vendor = await ensureVendor(db, organizationId, { name: vendorName });
   const now = Date.now();
   const id = newId();
+  const lines = await pricedLines(db, organizationId, id, vendor, queue.draftLines);
   await db.batch([
     db.insert(schema.purchases).values({
       id,
       organizationId,
       warehouseId,
       number: docNumber("PO"),
-      vendorName,
+      vendorName: vendor.name,
+      vendorId: vendor.id,
       status: "draft",
       notes: body.notes?.trim() || "Drafted from Runway order-today queue",
       createdAt: now,
     }),
-    ...queue.draftLines.map((line) =>
-      db.insert(schema.purchaseLines).values({
-        id: newId(),
-        purchaseId: id,
-        itemId: line.itemId,
-        qtyOrdered: line.qty,
-        qtyReceived: 0,
-      }),
-    ),
+    ...lines.map((line) => db.insert(schema.purchaseLines).values(line)),
   ]);
   const created = await purchaseWithLines(db, organizationId, id);
   await syncDocumentJob(db, purchaseJob(created));
@@ -292,7 +332,7 @@ async function deliverPurchase(
   body: { to?: string; message?: string },
   options: { requireEmail: boolean },
 ) {
-  const toAddress = body.to?.trim() || purchase.vendorName;
+  const toAddress = body.to?.trim() || purchase.vendor?.email || purchase.vendorName;
   const message =
     body.message?.trim() ||
     demoPurchaseMessage({

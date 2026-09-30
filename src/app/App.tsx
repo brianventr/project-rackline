@@ -27,6 +27,8 @@ import { FloorPutawayPage } from "./pages/floor/FloorPutawayPage";
 import { PurchasesPage } from "./pages/PurchasesPage";
 import { ReturnsPage } from "./pages/ReturnsPage";
 import { VendorReturnsPage } from "./pages/VendorReturnsPage";
+import { VendorsPage } from "./pages/VendorsPage";
+import { CustomersPage } from "./pages/CustomersPage";
 import { FloorLauncherPage } from "./pages/floor/FloorLauncherPage";
 import { FloorPrintPage } from "./pages/floor/FloorPrintPage";
 import { FloorLookupPage } from "./pages/floor/FloorLookupPage";
@@ -206,6 +208,8 @@ export function App() {
         <Route path="/inbound/putaway/:id" element={<TransfersPage />} />
         <Route path="/inbound/purchases" element={<PurchasesPage />} />
         <Route path="/inbound/purchases/:id" element={<PurchasesPage />} />
+        <Route path="/inbound/vendors" element={<VendorsPage />} />
+        <Route path="/inbound/vendors/:id" element={<VendorsPage />} />
         <Route path="/inbound/vendor-returns" element={<VendorReturnsPage />} />
         <Route path="/inbound/vendor-returns/:id" element={<VendorReturnsPage />} />
         <Route path="/stock" element={<InventoryPage />} />
@@ -237,6 +241,8 @@ export function App() {
         <Route path="/outbound/waves" element={<WavesPage />} />
         <Route path="/outbound/waves/:id" element={<WavesPage />} />
         <Route path="/outbound/waves/:id/pick-list" element={<WavePickListPage />} />
+        <Route path="/outbound/customers" element={<CustomersPage />} />
+        <Route path="/outbound/customers/:id" element={<CustomersPage />} />
         <Route path="/outbound/returns" element={<ReturnsPage />} />
         <Route path="/outbound/returns/:id" element={<ReturnsPage />} />
         <Route

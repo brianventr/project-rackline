@@ -19,6 +19,9 @@ export type ChannelOrder = {
   externalId: string;
   externalName: string;
   customerName: string;
+  customerEmail?: string | null;
+  /** The buyer's id on the channel, when it has one (guest checkouts do not). */
+  customerRef?: string | null;
   shipToAddress: string | null;
   dest: DestColumns;
   lines: ChannelOrderLine[];

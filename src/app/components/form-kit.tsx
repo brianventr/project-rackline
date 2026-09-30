@@ -174,8 +174,11 @@ function FieldShell<T extends FieldValues>({
   description,
   className,
   control,
+  beside,
 }: BaseFieldProps<T> & {
   control: (field: ControllerRenderProps<FieldValues, string>) => ReactNode;
+  /** Rendered next to the control, outside `FormControl` (which must wrap exactly one element). */
+  beside?: ReactNode;
 }) {
   useHeldBlurs();
   return (
@@ -187,6 +190,7 @@ function FieldShell<T extends FieldValues>({
           <FormItem className={cn("text-sm", className)}>
             <FormLabel>{label}</FormLabel>
             <FormControl>{control(field as unknown as ControllerRenderProps<FieldValues, string>)}</FormControl>
+            {beside}
             {description ? <FormDescription>{description}</FormDescription> : null}
             <FormMessage />
           </FormItem>
@@ -205,16 +209,30 @@ export function TextField<T extends FieldValues>({
   autoFocus,
   type = "text",
   autoComplete,
+  suggestions,
   ...props
 }: BaseFieldProps<T> & {
   placeholder?: string;
   autoFocus?: boolean;
   type?: HTMLInputTypeAttribute;
   autoComplete?: string;
+  /** Values the browser offers as you type (vendor and customer names). Free text still goes through. */
+  suggestions?: string[];
 }) {
+  const listId = useId();
+  const listed = Boolean(suggestions?.length);
   return (
     <FieldShell
       {...props}
+      beside={
+        listed ? (
+          <datalist id={listId}>
+            {suggestions!.map((value) => (
+              <option key={value} value={value} />
+            ))}
+          </datalist>
+        ) : null
+      }
       control={(field) => (
         <Input
           {...field}
@@ -224,7 +242,8 @@ export function TextField<T extends FieldValues>({
           type={type}
           placeholder={placeholder}
           autoFocus={autoFocus}
-          autoComplete={autoComplete}
+          autoComplete={listed ? "off" : autoComplete}
+          list={listed ? listId : undefined}
         />
       )}
     />

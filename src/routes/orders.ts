@@ -78,6 +78,7 @@ import type { OpenAllocation } from "../domain/allocations";
 import { cancelOrderDocument, loadNetPickSlices, persistUnpick, remainingToUnpick } from "../db/unpick";
 import { OverUnpickError } from "../domain/partial-unpick";
 import { resolveLineStockQty, UomConversionError } from "../domain/uom";
+import { ensureCustomer } from "../db/parties";
 import { orderJobInput, guardFloorJob, syncDocumentJob } from "../db/jobs";
 import { desiredVerb } from "../domain/jobs";
 import { backorderNumber, ledgerUnpick, planShortShip, shopifyBackorderFields } from "../domain/short-ship";
@@ -467,13 +468,15 @@ ordersRoute.get("/orders/:id", async (c) => {
 ordersRoute.post("/orders", async (c) => {
   const body = await c.req.json<{
     warehouseId?: string;
+    customerId?: string;
     customerName?: string;
+    customerEmail?: string;
     shipToAddress?: string;
     clientId?: string;
     lines?: { itemId?: string; qty?: number }[];
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
-  const customerName = requireString(body.customerName, "customerName");
+  const typedName = body.customerId ? body.customerName?.trim() : requireString(body.customerName, "customerName");
   if (!Array.isArray(body.lines) || body.lines.length === 0) {
     badRequest("At least one order line is required");
   }
@@ -497,6 +500,12 @@ ordersRoute.post("/orders", async (c) => {
     await getOrgItem(db, organizationId, itemId);
     lines.push({ id: newId(), orderId: id, itemId, qty, qtyPicked: 0 });
   }
+  const customer = await ensureCustomer(db, organizationId, {
+    customerId: body.customerId,
+    name: typedName ?? "",
+    email: body.customerEmail,
+    address: body.shipToAddress,
+  });
 
   await db.batch([
     db.insert(schema.orders).values({
@@ -504,7 +513,8 @@ ordersRoute.post("/orders", async (c) => {
       organizationId,
       warehouseId,
       number: docNumber("ORD"),
-      customerName,
+      customerName: typedName || customer.name,
+      customerId: customer.id,
       status: "open",
       createdAt: Date.now(),
       clientId: body.clientId || null,
@@ -2157,6 +2167,7 @@ ordersRoute.post("/orders/:id/short-ship", async (c) => {
     warehouseId: order.warehouseId,
     number,
     customerName: order.customerName,
+    customerId: order.customerId,
     status: "open",
     createdAt: now,
     source: channel.source,

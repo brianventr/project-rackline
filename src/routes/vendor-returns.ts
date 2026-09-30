@@ -11,6 +11,7 @@ import { applyPartialReturn, hasUnreturned, isFullyReturned, remainingToReturn, 
 import { canPostVendorReturn } from "../domain/status";
 import { parseSerialList } from "../domain/lots";
 import { guardFloorJob, syncDocumentJob } from "../db/jobs";
+import { ensureVendor } from "../db/parties";
 import { lineCatchWeight } from "../lib/catch-weight";
 
 export const vendorReturnsRoute = new Hono<AppEnv>();
@@ -134,13 +135,14 @@ vendorReturnsRoute.get("/vendor-returns/:id", async (c) => {
 vendorReturnsRoute.post("/vendor-returns", async (c) => {
   const body = await c.req.json<{
     warehouseId?: string;
+    vendorId?: string;
     vendorName?: string;
     purchaseId?: string | null;
     notes?: string;
     lines?: { itemId?: string; qty?: number }[];
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
-  const vendorName = requireString(body.vendorName, "vendorName");
+  const vendorName = body.vendorId ? body.vendorName?.trim() : requireString(body.vendorName, "vendorName");
   if (!Array.isArray(body.lines) || body.lines.length === 0) {
     badRequest("At least one vendor return line is required");
   }
@@ -158,6 +160,7 @@ vendorReturnsRoute.post("/vendor-returns", async (c) => {
     if (!row) notFound("Purchase not found");
     purchaseId = row.id;
   }
+  const vendor = await ensureVendor(db, organizationId, { vendorId: body.vendorId, name: vendorName });
 
   const now = Date.now();
   const id = newId();
@@ -179,7 +182,8 @@ vendorReturnsRoute.post("/vendor-returns", async (c) => {
       organizationId,
       warehouseId,
       number: docNumber("RTV"),
-      vendorName,
+      vendorName: vendor.name,
+      vendorId: vendor.id,
       status: "open",
       purchaseId,
       notes: body.notes?.trim() || null,

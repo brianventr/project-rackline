@@ -515,6 +515,7 @@ export type Order = {
   id: string;
   number: string;
   customerName: string;
+  customerId?: string | null;
   status: string;
   createdAt: number;
   pickLocationId: string | null;
@@ -1152,12 +1153,15 @@ export type PurchaseLine = {
   trackSerial?: boolean;
   catchWeight?: boolean;
   trackExpiry?: boolean;
+  unitCostCents?: number | null;
 };
 
 export type Purchase = {
   id: string;
   number: string;
   vendorName: string;
+  vendorId?: string | null;
+  vendor?: Vendor | null;
   status: string;
   notes: string | null;
   createdAt: number;
@@ -1200,6 +1204,7 @@ export type Rma = {
   id: string;
   number: string;
   customerName: string;
+  customerId?: string | null;
   status: string;
   notes: string | null;
   createdAt: number;
@@ -1227,6 +1232,7 @@ export type VendorReturn = {
   id: string;
   number: string;
   vendorName: string;
+  vendorId?: string | null;
   status: string;
   notes: string | null;
   createdAt: number;
@@ -1696,3 +1702,61 @@ export type QuickShipOutcome =
   | { orderId: string; ok: false; number?: string; status: number; code?: string; error: string };
 
 export type QuickShipBatch = { shipped: number; failed: number; total: number; outcomes: QuickShipOutcome[] };
+
+export type Vendor = {
+  id: string;
+  name: string;
+  contactName: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  paymentTerms: string | null;
+  leadTimeDays: number | null;
+  currency: string;
+  notes: string | null;
+  createdAt: number;
+  updatedAt: number;
+  purchaseCount?: number;
+  openPurchaseCount?: number;
+  lastPurchaseAt?: number | null;
+};
+
+export type VendorCost = {
+  itemId: string;
+  sku: string;
+  itemName: string;
+  unitCostCents: number | null;
+  qtyOrdered: number;
+  purchaseId: string;
+  purchaseNumber: string;
+  at: number;
+};
+
+export type VendorDetail = {
+  vendor: Vendor;
+  purchases: (Omit<Purchase, "lines"> & { open: boolean; lineCount: number; unitsOrdered: number; unitsReceived: number; totalCents: number | null })[];
+  lastCosts: VendorCost[];
+  vendorReturns: VendorReturn[];
+};
+
+export type Customer = {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  shipToAddress: string | null;
+  notes: string | null;
+  channelRefs: { channel: string; ref: string }[];
+  createdAt: number;
+  updatedAt: number;
+  orderCount?: number;
+  openOrderCount?: number;
+  lastOrderAt?: number | null;
+  returnCount?: number;
+};
+
+export type CustomerDetail = {
+  customer: Customer;
+  orders: (Omit<Order, "lines"> & { open: boolean; lines: { sku: string; itemName: string; qty: number }[] })[];
+  returns: Rma[];
+};

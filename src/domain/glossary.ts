@@ -110,6 +110,22 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/inbound/purchases",
   },
   {
+    id: "vendor",
+    term: "Vendor",
+    aliases: ["vendors", "supplier", "suppliers", "vendor record", "lead time", "payment terms"],
+    short: "Who you buy from, with contact, terms, lead time, and the last price paid per part. Purchases link to it by name.",
+    long: "Typing a new name on a purchase adds a vendor. Renaming a vendor changes new purchases; old ones keep the name they were sent with.",
+    path: "/inbound/vendors",
+  },
+  {
+    id: "customer",
+    term: "Customer",
+    aliases: ["customers", "buyer", "ship to", "customer record"],
+    short: "Who you ship to, with a default ship-to and every order and return they have sent.",
+    long: "Channel and CSV orders join a customer by email first, then by name and ship-to address when there is no email; otherwise they add one.",
+    path: "/outbound/customers",
+  },
+  {
     id: "asn",
     term: "ASN",
     aliases: ["advance ship notice", "advance shipping notice", "vendor notice", "inbound notice"],
