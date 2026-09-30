@@ -509,7 +509,7 @@ function OrderDetail({ id }: { id: string }) {
     run(
       "Ship",
       async () => {
-        await api(`/api/orders/${id}/quick-ship`, { method: "POST", body: JSON.stringify({}) });
+        await api(`/api/orders/${id}/quick-ship`, { method: "POST", body: JSON.stringify({ releaseHold: true }) });
         return api<Order>(`/api/orders/${id}`);
       },
       (next) => `Shipped ${next?.number ?? "order"}${next?.trackingNumber ? ` · ${next.trackingNumber}` : ""}.${manualNote(next)}`,

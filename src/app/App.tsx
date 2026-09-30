@@ -46,6 +46,7 @@ import { TeamPage } from "./pages/setup/TeamPage";
 import { AuditPage } from "./pages/setup/AuditPage";
 import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
 import { CarriersPage } from "./pages/setup/CarriersPage";
+import { ShippingRulesPage } from "./pages/setup/ShippingRulesPage";
 import { IntegrationsPage } from "./pages/setup/IntegrationsPage";
 import { ClientsPage } from "./pages/setup/ClientsPage";
 import { ZonesPage } from "./pages/setup/ZonesPage";
@@ -254,6 +255,7 @@ export function App() {
           <Route path="imports" element={<ImportsPage />} />
           <Route path="accounting" element={<AccountingPage />} />
           <Route path="carriers" element={<CarriersPage />} />
+          <Route path="shipping-rules" element={<ShippingRulesPage />} />
           <Route path="warehouse" element={<WarehouseSetupPage />} />
           <Route path="clients" element={<ClientsPage />} />
           <Route path="zones" element={<ZonesPage />} />

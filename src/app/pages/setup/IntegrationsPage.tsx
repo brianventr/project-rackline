@@ -7,12 +7,13 @@ import {
   FileInput,
   Package,
   Printer,
+  Split,
   Store,
   Truck,
   Webhook,
   type LucideIcon,
 } from "lucide-react";
-import type { CarrierHub, ChannelStatus, ChannelsPayload } from "../../api";
+import type { CarrierHub, ChannelStatus, ChannelsPayload, ShipRulesPayload } from "../../api";
 import { Button, Input, PageHeader, StatusBadge, ToneBadge } from "../../components/ui";
 import { Term } from "../../components/term";
 import { useApiQuery } from "../../query";
@@ -40,6 +41,7 @@ export function IntegrationsPage() {
   const owner = me.role === "owner";
   const channels = useApiQuery<ChannelsPayload>("/api/channels");
   const carriers = useApiQuery<CarrierHub>(`/api/carriers?warehouseId=${encodeURIComponent(warehouseId)}`);
+  const shipRules = useApiQuery<ShipRulesPayload>("/api/ship/rules");
   const edi = useApiQuery<EdiRow[]>(!garage && owner ? "/api/edi/inbox" : null);
   const clients = useApiQuery<ClientRow[]>(!garage ? "/api/clients" : null);
   const origin = typeof window === "undefined" ? "" : window.location.origin;
@@ -111,6 +113,20 @@ export function IntegrationsPage() {
             state={{ tone: "neutral", label: "Per station", detail: "Browser print works without setup.", connected: true }}
           />
         )}
+        <IntegrationCard
+          icon={Split}
+          name="Shipping rules"
+          summary={
+            garage
+              ? "Pick the box and service per order, or hold an order for a look before one-click ship."
+              : "Box and service per order for one-click ship. They apply in Garage mode."
+          }
+          to="/setup/shipping-rules"
+          action={shipRules.data?.rules.length ? "Manage" : "Add a rule"}
+          loading={shipRules.isLoading}
+          error={shipRules.error?.message}
+          state={shipRules.data ? shipRulesState(shipRules.data) : null}
+        />
       </Group>
 
       {!garage ? (
@@ -299,6 +315,39 @@ function defaultServiceState(hub: CarrierHub): Connection {
       </span>
     ) : (
       <span>No default service yet. Set one in {change} or with Save as default on the ship queue.</span>
+    ),
+  };
+}
+
+function shipRulesState(payload: ShipRulesPayload): Connection {
+  const on = payload.rules.filter((rule) => rule.enabled).sort((a, b) => a.position - b.position);
+  const broken = payload.rules.find((rule) => rule.problem);
+  if (!payload.rules.length) {
+    return {
+      tone: "neutral",
+      label: "None yet",
+      detail: "Every order ships in the default box with the default service.",
+      connected: true,
+    };
+  }
+  return {
+    tone: broken ? "warning" : on.length ? "success" : "neutral",
+    label: broken ? "Needs attention" : `${on.length} on`,
+    connected: true,
+    detail: broken ? (
+      <span className="text-tone-warning">
+        {broken.name}: {broken.problem}.
+      </span>
+    ) : on.length ? (
+      <span>
+        {on
+          .slice(0, 3)
+          .map((rule) => rule.name)
+          .join(" → ")}
+        {on.length > 3 ? <span className="text-muted-foreground"> · {on.length - 3} more</span> : null}
+      </span>
+    ) : (
+      "All rules are off."
     ),
   };
 }

@@ -312,6 +312,8 @@ export const orders = sqliteTable(
     channelSyncStatus: text("channel_sync_status").notNull().default("none"),
     channelSyncError: text("channel_sync_error"),
     channelFulfilledAt: integer("channel_fulfilled_at"),
+    /** Why quick-ship picked the box and service it did, e.g. `Mailer (Rule: Small parcels) · UPS Ground (Cheapest)`. */
+    shipReason: text("ship_reason"),
   },
   (t) => [
     uniqueIndex("shopify_orders_org_order").on(t.organizationId, t.shopifyOrderId),
@@ -1294,6 +1296,31 @@ export const packagePresets = sqliteTable(
     createdAt: integer("created_at").notNull(),
   },
   (t) => [uniqueIndex("package_presets_org_name").on(t.organizationId, t.name)],
+);
+
+export const shipRules = sqliteTable(
+  "ship_rules",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Null runs the rule in every building. */
+    warehouseId: text("warehouse_id").references(() => warehouses.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    /** `ShipRuleConditions` from `domain/ship-rules.ts`. */
+    conditionsJson: text("conditions_json").notNull().default("{}"),
+    presetId: text("preset_id").references(() => packagePresets.id, { onDelete: "set null" }),
+    carrierService: text("carrier_service"),
+    carrierConnectionId: text("carrier_connection_id"),
+    rateStrategy: text("rate_strategy"),
+    hold: integer("hold", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("ship_rules_org_position").on(t.organizationId, t.position)],
 );
 
 export const printers = sqliteTable(

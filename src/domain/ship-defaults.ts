@@ -44,6 +44,14 @@ function positive(value: number | null | undefined): number | undefined {
   return value != null && value > 0 ? value : undefined;
 }
 
+/** `20` → `1 lb 4 oz`, `16` → `1 lb`, `9` → `9 oz`. */
+export function formatOz(weightOz: number): string {
+  const lb = Math.floor(weightOz / 16);
+  const oz = Math.round((weightOz - lb * 16) * 10) / 10;
+  if (!lb) return `${oz} oz`;
+  return oz ? `${lb} lb ${oz} oz` : `${lb} lb`;
+}
+
 export function pickPreset(presets: PackagePreset[], presetId?: string | null): PackagePreset | null {
   if (presetId) return presets.find((row) => row.id === presetId) ?? null;
   return presets.find((row) => row.isDefault) ?? null;

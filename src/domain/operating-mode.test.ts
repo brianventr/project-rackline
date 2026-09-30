@@ -81,6 +81,7 @@ describe("operating mode", () => {
       "/setup/imports",
       "/setup/accounting",
       "/setup/carriers",
+      "/setup/shipping-rules",
       "/setup/team",
       "/setup/labels",
       "/setup/warehouse",

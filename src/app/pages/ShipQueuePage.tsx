@@ -1,12 +1,20 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Circle, Package, PackageCheck, Printer, Scale, Store, Truck, Warehouse } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, Package, PackageCheck, Printer, Scale, Split, Store, Truck, Warehouse } from "lucide-react";
 import { toast } from "sonner";
-import { errorText, type PackagePreset, type QuickShipBatch, type ShipQueue, type ShipQueueOrder } from "../api";
+import {
+  errorText,
+  type PackagePreset,
+  type QuickShipBatch,
+  type QuickShipOutcome,
+  type ShipQueue,
+  type ShipQueueOrder,
+} from "../api";
 import { Button, Card, EmptyState, Field, Input, PageHeader, Select, ToneBadge } from "../components/ui";
 import { DataTable, type BulkAction, type DataColumn, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, LineChips, Muted, RelativeTime } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { useConfirm } from "../components/confirm";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
@@ -40,6 +48,7 @@ function labelsHref(ids: string[]): string {
 export function ShipQueuePage() {
   const me = useSession();
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const [params, setParams] = useSearchParams();
   const { warehouseId } = useWarehouse();
   const owner = me.role === "owner";
@@ -51,7 +60,8 @@ export function ShipQueuePage() {
   const boxOpen = params.get("setup") === "box";
 
   const data = queue.data;
-  const effectivePreset = presetId || data?.defaults.presetId || "";
+  const pickedPreset = data?.presets.find((preset) => preset.id === presetId) ?? null;
+  const pickedService = data?.services.find((service) => service.id === serviceId) ?? null;
   const setupLeft = (data?.setup ?? []).filter((step) => !step.done);
   const storeConnected = !!data?.setup.some((step) => step.id === "store" && step.done);
   const defaultServiceId = data?.defaults.carrierService ?? null;
@@ -76,17 +86,20 @@ export function ShipQueuePage() {
     }
   }
 
-  async function ship(rows: ShipQueueOrder[]) {
+  async function post(ids: string[], releaseHold: boolean): Promise<QuickShipBatch> {
+    const picked = { presetId: presetId || undefined, carrierService: serviceId || undefined };
+    if (!releaseHold) return apiMutate<QuickShipBatch>("/api/ship/quick-ship", { body: JSON.stringify({ ids, ...picked }) });
+    const outcome = await apiMutate<QuickShipOutcome>(`/api/orders/${encodeURIComponent(ids[0]!)}/quick-ship`, {
+      body: JSON.stringify({ ...picked, releaseHold: true }),
+    });
+    return { shipped: 1, failed: 0, total: 1, outcomes: [outcome] };
+  }
+
+  async function ship(rows: ShipQueueOrder[], releaseHold = false) {
     const ids = rows.map((row) => row.id);
     setShipping(ids.length === 1 ? ids[0]! : "bulk");
     try {
-      const result = await apiMutate<QuickShipBatch>("/api/ship/quick-ship", {
-        body: JSON.stringify({
-          ids,
-          presetId: effectivePreset || undefined,
-          carrierService: serviceId || undefined,
-        }),
-      });
+      const result = await post(ids, releaseHold);
       const shippedIds = result.outcomes.filter((row) => row.ok).map((row) => row.orderId);
       const failed = result.outcomes.filter((row) => !row.ok);
       if (failed.length) {
@@ -114,6 +127,18 @@ export function ShipQueuePage() {
       setShipping(null);
       void refreshApi("/api/ship");
     }
+  }
+
+  async function shipAnyway(row: ShipQueueOrder) {
+    const box = pickedPreset?.name ?? row.box?.name;
+    const service = pickedService?.name ?? row.serviceName;
+    const ok = await confirm({
+      title: `Ship ${row.number} anyway?`,
+      body: `Rule ${row.rule?.name ?? ""} holds orders like this for a look.${box || service ? ` It ships${box ? ` in ${box}` : ""}${service ? ` with ${service}` : ""}.` : ""}`,
+      confirmLabel: "Ship anyway",
+      cancelLabel: "Keep holding",
+    });
+    if (ok) await ship([row], true);
   }
 
   const columns: DataColumn<ShipQueueOrder>[] = [
@@ -172,23 +197,39 @@ export function ShipQueuePage() {
         ),
     },
     {
+      id: "box",
+      header: "Box",
+      sortValue: (row) => row.box?.name ?? "",
+      csv: (row) => (row.status === "shipped" ? "" : (pickedPreset?.name ?? row.box?.name ?? "")),
+      cell: (row) => {
+        const name = row.status === "shipped" ? null : (pickedPreset?.name ?? row.box?.name);
+        if (!name) return <Muted>—</Muted>;
+        return <Reasoned text={name} reason={pickedPreset ? "Picked" : row.box?.reason} />;
+      },
+    },
+    {
       id: "service",
       header: "Service",
       sortValue: (row) => row.serviceName ?? "",
       cell: (row) =>
         row.status === "shipped" ? (
-          row.trackingUrl ? (
-            <a href={row.trackingUrl} target="_blank" rel="noreferrer" className="font-mono text-xs hover:underline">
-              {row.trackingNumber}
-            </a>
-          ) : (
-            <span className="font-mono text-xs">{row.trackingNumber ?? "—"}</span>
-          )
-        ) : (
-          <span className="flex flex-col text-sm">
-            {serviceId ? (data?.services.find((service) => service.id === serviceId)?.name ?? serviceId) : (row.serviceName ?? <Muted>—</Muted>)}
-            {row.serviceLive ? <span className="text-[11px] text-muted-foreground">Live postage</span> : null}
+          <span className="flex flex-col">
+            {row.trackingUrl ? (
+              <a href={row.trackingUrl} target="_blank" rel="noreferrer" className="font-mono text-xs hover:underline">
+                {row.trackingNumber}
+              </a>
+            ) : (
+              <span className="font-mono text-xs">{row.trackingNumber ?? "—"}</span>
+            )}
+            {row.shipReason ? <span className="text-[11px] text-muted-foreground">{row.shipReason}</span> : null}
           </span>
+        ) : (
+          <Reasoned
+            text={pickedService?.name ?? (serviceId || row.serviceName)}
+            reason={[pickedService || serviceId ? "Picked" : row.serviceReason, row.serviceLive ? "Live postage" : null]
+              .filter(Boolean)
+              .join(" · ")}
+          />
         ),
     },
     {
@@ -222,14 +263,21 @@ export function ShipQueuePage() {
         }
         if (!row.ready && row.blocker) {
           return (
-            <span className="inline-flex max-w-64 items-start gap-1.5 text-left text-xs text-tone-warning">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-              <span>
-                {row.blocker.error}{" "}
-                <Link to={`/outbound/orders/${row.id}`} className="underline">
-                  Open
-                </Link>
+            <span className="inline-flex max-w-64 flex-col items-end gap-1.5">
+              <span className="inline-flex items-start gap-1.5 text-left text-xs text-tone-warning">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                <span>
+                  {row.blocker.error}{" "}
+                  <Link to={`/outbound/orders/${row.id}`} className="underline">
+                    Open
+                  </Link>
+                </span>
               </span>
+              {row.blocker.code === "SHIP_RULE_HOLD" ? (
+                <Button size="xs" variant="outline" disabled={shipping !== null} onClick={() => void shipAnyway(row)}>
+                  {shipping === row.id ? "Shipping…" : "Ship anyway"}
+                </Button>
+              ) : null}
             </span>
           );
         }
@@ -275,13 +323,21 @@ export function ShipQueuePage() {
       <PageHeader
         eyebrow="Garage"
         title="Ship"
-        description="Store orders land here. Pick a box and service, then ship: Rackline picks from the suggested shelf, buys the label, and sends tracking back to the store."
+        description="Store orders land here with a box and service chosen by your shipping rules and defaults. Ship, and Rackline picks from the suggested shelf, buys the label, and sends tracking back to the store."
         actions={
           owner ? (
-            <Button size="sm" variant="outline" onClick={() => setParams((prev) => withParam(prev, "setup", "box"))}>
-              <Package className="size-4" />
-              Boxes
-            </Button>
+            <>
+              <Button size="sm" variant="outline" asChild>
+                <Link to="/setup/shipping-rules">
+                  <Split className="size-4" />
+                  Rules
+                </Link>
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setParams((prev) => withParam(prev, "setup", "box"))}>
+                <Package className="size-4" />
+                Boxes
+              </Button>
+            </>
           ) : null
         }
       />
@@ -299,7 +355,7 @@ export function ShipQueuePage() {
           </Button>
         </Card>
       ) : setupLeft.length && data ? (
-        <SetupChecklist steps={data.setup} onBox={() => setParams((prev) => withParam(prev, "setup", "box"))} />
+        <SetupChecklist steps={data.setup} owner={owner} onBox={() => setParams((prev) => withParam(prev, "setup", "box"))} />
       ) : null}
 
       <DataTable
@@ -320,13 +376,8 @@ export function ShipQueuePage() {
         exportName="ship-queue"
         toolbar={
           <div className="flex flex-wrap items-center gap-2">
-            <Select
-              aria-label="Box"
-              className="h-8 w-40"
-              value={effectivePreset}
-              onChange={(event) => setPresetId(event.target.value)}
-            >
-              <option value="">No box preset</option>
+            <Select aria-label="Box" className="h-8 w-40" value={presetId} onChange={(event) => setPresetId(event.target.value)}>
+              <option value="">Each order's box</option>
               {(data?.presets ?? []).map((preset) => (
                 <option key={preset.id} value={preset.id}>
                   {preset.name} ({preset.lengthIn}×{preset.widthIn}×{preset.heightIn})
@@ -334,7 +385,7 @@ export function ShipQueuePage() {
               ))}
             </Select>
             <Select aria-label="Service" className="h-8 w-48" value={serviceId} onChange={(event) => setServiceId(event.target.value)}>
-              <option value="">Each order's default service</option>
+              <option value="">Each order's service</option>
               {(data?.services ?? []).map((service) => (
                 <option key={`${service.connectionId ?? "rl"}-${service.id}`} value={service.id}>
                   {service.id === defaultServiceId ? `${service.name} (default)` : service.name}
@@ -394,7 +445,18 @@ function withParam(previous: URLSearchParams, key: string, value: string | null)
   return next;
 }
 
-function SetupChecklist({ steps, onBox }: { steps: ShipQueue["setup"]; onBox: () => void }) {
+/** A value with the small grey line that says why it was chosen. */
+function Reasoned({ text, reason }: { text: string | null | undefined; reason?: string | null }) {
+  if (!text) return <Muted>—</Muted>;
+  return (
+    <span className="flex flex-col text-sm">
+      <span>{text}</span>
+      {reason ? <span className="text-[11px] text-muted-foreground">{reason}</span> : null}
+    </span>
+  );
+}
+
+function SetupChecklist({ steps, owner, onBox }: { steps: ShipQueue["setup"]; owner: boolean; onBox: () => void }) {
   const done = steps.filter((step) => step.done).length;
   return (
     <Card className="flex flex-col gap-3 p-(--density-gap) md:flex-row md:items-center md:justify-between">
@@ -429,6 +491,17 @@ function SetupChecklist({ steps, onBox }: { steps: ShipQueue["setup"]; onBox: ()
             </li>
           );
         })}
+        {owner ? (
+          <li>
+            <Link
+              to="/setup/shipping-rules"
+              className="inline-flex items-center gap-1.5 rounded-md border border-dashed px-2.5 py-1 text-sm text-muted-foreground hover:bg-muted"
+            >
+              <Split className="size-4" />
+              Shipping rules (optional)
+            </Link>
+          </li>
+        ) : null}
       </ol>
     </Card>
   );
@@ -488,7 +561,7 @@ function BoxesSheet({
       open={open}
       onOpenChange={onOpenChange}
       title="Boxes"
-      description="Your usual boxes. The default box's size and weight go on every label unless you pick another."
+      description="Your usual boxes. The default box's size and weight go on every label unless a shipping rule or you pick another."
       submitLabel="Add box"
       onSubmit={add}
       busy={busy}

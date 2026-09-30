@@ -10,17 +10,19 @@ import { internalApi, type InternalResult } from "../lib/internal-api";
 import { loadAtpBaysByItem, loadOpenAllocations } from "../db/allocations";
 import { loadCarrierConnections } from "./carriers";
 import { ordersRoute } from "./orders";
-import { enabledServicesFromConnections, resolveLabelPurchase } from "../domain/carriers";
+import { enabledServicesFromConnections, resolveLabelPurchase, resolveService } from "../domain/carriers";
 import { isLivePostage, liveShipAddress } from "../domain/carrier-live";
+import { buildingDefaultService, orderParcel, parsePresetInput, pickPreset, type PackagePreset } from "../domain/ship-defaults";
+import { parseShipRuleInput, reorderShipRules, type ShipRule, type ShipRuleInput } from "../domain/ship-rules";
 import {
-  buildingDefaultService,
-  defaultShipConnection,
-  defaultShipService,
-  orderParcel,
-  parsePresetInput,
-  pickPreset,
-  type PackagePreset,
-} from "../domain/ship-defaults";
+  holdMessage,
+  planShipment,
+  shipBoxReason,
+  shipReasonSummary,
+  shipServiceReason,
+  type ShipPlan,
+} from "../domain/ship-decision";
+import { loadShipRules } from "../db/ship-rules";
 import {
   planQuickShip,
   quickShipLabelBlocker,
@@ -98,13 +100,77 @@ async function loadShipLines(db: Db, orderIds: string[]) {
     .where(inArray(schema.orderLines.orderId, orderIds));
 }
 
-function chooseService(
-  services: ReturnType<typeof enabledServicesFromConnections>,
-  input: { requested?: string | null; orderService?: string | null; warehouseDefault?: string | null },
-) {
-  const picked = defaultShipService(input);
-  if (picked) return picked;
-  return (services.find((row) => row.provider !== "rackline") ?? services[0])?.id ?? null;
+type OrderRow = typeof schema.orders.$inferSelect;
+type WarehouseRow = typeof schema.warehouses.$inferSelect;
+type ShipLine = Awaited<ReturnType<typeof loadShipLines>>[number];
+
+/** What every order in one queue load or one bulk ship is decided against. */
+type ShipContext = {
+  rules: ShipRule[];
+  presets: PackagePreset[];
+  connections: Awaited<ReturnType<typeof loadCarrierConnections>>;
+  services: ReturnType<typeof enabledServicesFromConnections>;
+};
+
+async function loadShipContext(db: Db, organizationId: string): Promise<ShipContext> {
+  const [rules, presets, connections] = await Promise.all([
+    loadShipRules(db, organizationId),
+    loadPresets(db, organizationId),
+    loadCarrierConnections(db, organizationId),
+  ]);
+  return { rules, presets, connections, services: enabledServicesFromConnections(connections) };
+}
+
+type ShipDecision = {
+  plan: ShipPlan;
+  parcel: ReturnType<typeof orderParcel>;
+  serviceId: string | null;
+  connectionId: string | null;
+  serviceName: string | null;
+  live: boolean;
+  boxReason: string | null;
+  serviceReason: string | null;
+  summary: string | null;
+};
+
+/** The box, service, and parcel quick-ship would use, and why. The queue, the scan station, and quick-ship all ask here. */
+function decideShip(
+  ctx: ShipContext,
+  warehouse: WarehouseRow | null | undefined,
+  order: OrderRow,
+  lines: ShipLine[],
+  picked: QuickShipBody = {},
+): ShipDecision {
+  const typed = picked.weightOz
+    ? { packageWeightOz: picked.weightOz, packageLengthIn: picked.lengthIn, packageWidthIn: picked.widthIn, packageHeightIn: picked.heightIn }
+    : order;
+  const plan = planShipment({
+    order: { ...order, lines, weightOz: typed.packageWeightOz },
+    rules: ctx.rules,
+    presets: ctx.presets,
+    connections: ctx.connections,
+    buildingDefault: buildingDefaultService(ctx.connections, warehouse),
+    picked,
+  });
+  const parcel = orderParcel({ lines, preset: plan.box.preset, order: typed });
+  const serviceId = plan.service.kind === "service" ? plan.service.serviceId : null;
+  const connectionId = plan.service.kind === "service" ? plan.service.connectionId : null;
+  const service = resolveService(serviceId);
+  const connection = ctx.connections.find((row) => row.id === connectionId);
+  const serviceName = service ? `${service.company} ${service.service}` : null;
+  const boxReason = shipBoxReason(plan);
+  const serviceReason = shipServiceReason(plan);
+  return {
+    plan,
+    parcel,
+    serviceId,
+    connectionId,
+    serviceName,
+    live: connection ? isLivePostage(connection.provider, connection.mode) : false,
+    boxReason,
+    serviceReason,
+    summary: shipReasonSummary({ boxName: plan.box.preset?.name ?? null, boxReason, serviceName, serviceReason }),
+  };
 }
 
 shipRoute.get("/ship/queue", async (c) => {
@@ -120,10 +186,9 @@ shipRoute.get("/ship/queue", async (c) => {
   if (!warehouse) notFound("Warehouse not found");
 
   const policy = await loadWorkflowPolicy(db, organizationId);
-  const presets = await loadPresets(db, organizationId);
-  const connections = await loadCarrierConnections(db, organizationId);
-  const services = enabledServicesFromConnections(connections);
-  const fallback = buildingDefaultService(connections, warehouse);
+  const ctx = await loadShipContext(db, organizationId);
+  const { presets, services } = ctx;
+  const fallback = buildingDefaultService(ctx.connections, warehouse);
   const signals = await loadSetupSignals(db, organizationId);
 
   const orders = await db
@@ -165,22 +230,27 @@ shipRoute.get("/ship/queue", async (c) => {
 
   const rows = visible.map((order) => {
     const orderLines = lines.filter((line) => line.orderId === order.id);
-    const parcel = orderParcel({ lines: orderLines, preset: defaultPreset, order });
-    const serviceId = chooseService(services, {
-      orderService: order.carrierService,
-      warehouseDefault: fallback?.serviceId,
-    });
-    const service = services.find((row) => row.id === serviceId) ?? null;
-    const plan =
-      order.status === "shipped"
-        ? null
-        : planQuickShip(
-            { status: order.status, packageCount: packageCount.get(order.id) ?? 0, lines: orderLines },
-            withOwnReservations(
-              bays,
-              reservations.filter((row) => row.orderId === order.id),
-            ),
-          );
+    const shipped = order.status === "shipped";
+    const decision = shipped ? null : decideShip(ctx, warehouse, order, orderLines);
+    const parcel = decision?.parcel ?? orderParcel({ lines: orderLines, preset: defaultPreset, order });
+    const plan = shipped
+      ? null
+      : planQuickShip(
+          { status: order.status, packageCount: packageCount.get(order.id) ?? 0, lines: orderLines },
+          withOwnReservations(
+            bays,
+            reservations.filter((row) => row.orderId === order.id),
+          ),
+        );
+    const blocker =
+      plan && !plan.ok
+        ? { code: plan.code, error: plan.error, sku: plan.sku ?? null }
+        : decision?.plan.problem
+          ? { code: "SHIP_RULE_SERVICE", error: decision.plan.problem, sku: null }
+          : decision?.plan.hold
+            ? { code: "SHIP_RULE_HOLD", error: holdMessage(decision.plan), sku: null }
+            : null;
+    const box = decision?.plan.box;
     return {
       id: order.id,
       number: order.number,
@@ -206,16 +276,17 @@ shipRoute.get("/ship/queue", async (c) => {
       })),
       parcel: parcel.parcel,
       missingWeight: parcel.missingWeight,
-      serviceId,
-      serviceName: service ? `${service.company} ${service.service}` : null,
-      serviceLive: service?.connectionId
-        ? isLivePostage(
-            service.provider,
-            connections.find((row) => row.id === service.connectionId)?.mode ?? "demo",
-          )
-        : false,
-      ready: plan ? plan.ok : false,
-      blocker: plan && !plan.ok ? { code: plan.code, error: plan.error, sku: plan.sku ?? null } : null,
+      box: box?.preset
+        ? { presetId: box.preset.id, name: box.preset.name, source: box.source, reason: decision?.boxReason ?? null, note: box.note }
+        : null,
+      serviceId: decision?.serviceId ?? order.carrierService,
+      serviceName: decision ? decision.serviceName : null,
+      serviceReason: decision?.serviceReason ?? null,
+      serviceLive: decision?.live ?? false,
+      rule: decision?.plan.rule ?? null,
+      shipReason: order.shipReason,
+      ready: Boolean(plan?.ok) && !blocker,
+      blocker,
     };
   });
 
@@ -315,10 +386,171 @@ shipRoute.delete("/ship/presets/:id", async (c) => {
   requireOwner(c.get("role"));
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  const id = c.req.param("id");
+  const usedBy = (await loadShipRules(db, organizationId)).find((rule) => rule.presetId === id);
+  if (usedBy) conflict(`Rule “${usedBy.name}” packs in this box. Change the rule first.`);
   await db
     .delete(schema.packagePresets)
-    .where(and(eq(schema.packagePresets.id, c.req.param("id")), eq(schema.packagePresets.organizationId, organizationId)));
+    .where(and(eq(schema.packagePresets.id, id), eq(schema.packagePresets.organizationId, organizationId)));
   return c.json(await loadPresets(db, organizationId));
+});
+
+async function rulesPayload(db: Db, organizationId: string) {
+  const ctx = await loadShipContext(db, organizationId);
+  const buildings = await db
+    .select({ id: schema.warehouses.id, name: schema.warehouses.name })
+    .from(schema.warehouses)
+    .where(eq(schema.warehouses.organizationId, organizationId));
+  const rules = await loadShipRules(db, organizationId);
+  return {
+    rules: rules.map((rule) => {
+      const purchase = rule.carrierService
+        ? resolveLabelPurchase({ connections: ctx.connections, serviceId: rule.carrierService, connectionId: rule.carrierConnectionId })
+        : null;
+      return {
+        ...rule,
+        problem: purchase && !purchase.ok ? "No connected carrier account offers this service" : null,
+      };
+    }),
+    presets: ctx.presets,
+    services: ctx.services.map((row) => ({
+      id: row.id,
+      name: `${row.company} ${row.service}`,
+      company: row.company,
+      connectionId: row.connectionId,
+      provider: row.provider,
+    })),
+    warehouses: buildings,
+  };
+}
+
+/**
+ * Checks the rule's building, box, and service belong to this org, and pins the service to the account that offers it.
+ * An edit only rechecks what it changed, so a rule whose service went away can still be turned off or renamed.
+ */
+async function resolveRuleRefs(db: Db, organizationId: string, input: ShipRuleInput, current?: ShipRule): Promise<ShipRuleInput> {
+  if (input.warehouseId && input.warehouseId !== current?.warehouseId) {
+    const [building] = await db
+      .select({ id: schema.warehouses.id })
+      .from(schema.warehouses)
+      .where(and(eq(schema.warehouses.id, input.warehouseId), eq(schema.warehouses.organizationId, organizationId)))
+      .limit(1);
+    if (!building) badRequest("Building not found");
+  }
+  if (
+    input.presetId &&
+    input.presetId !== current?.presetId &&
+    !(await loadPresets(db, organizationId)).some((row) => row.id === input.presetId)
+  ) {
+    badRequest("Box not found");
+  }
+  if (!input.carrierService) return input;
+  if (current && input.carrierService === current.carrierService && input.carrierConnectionId === current.carrierConnectionId) {
+    return input;
+  }
+  const purchase = resolveLabelPurchase({
+    connections: await loadCarrierConnections(db, organizationId),
+    serviceId: input.carrierService,
+    connectionId: input.carrierConnectionId,
+  });
+  if (!purchase.ok) badRequest(purchase.error);
+  return { ...input, carrierService: purchase.service.id, carrierConnectionId: purchase.connectionId };
+}
+
+function ruleColumns(input: ShipRuleInput) {
+  return {
+    name: input.name,
+    enabled: input.enabled,
+    warehouseId: input.warehouseId,
+    conditionsJson: JSON.stringify(input.conditions),
+    presetId: input.presetId,
+    carrierService: input.carrierService,
+    carrierConnectionId: input.carrierConnectionId,
+    rateStrategy: input.rateStrategy,
+    hold: input.hold,
+  };
+}
+
+function parseRule(body: Record<string, unknown>): ShipRuleInput {
+  try {
+    return parseShipRuleInput(body);
+  } catch (err) {
+    badRequest(err instanceof Error ? err.message : "Invalid rule");
+  }
+}
+
+shipRoute.get("/ship/rules", async (c) => {
+  return c.json(await rulesPayload(c.get("db"), c.get("organizationId")!));
+});
+
+shipRoute.post("/ship/rules", async (c) => {
+  requireOwner(c.get("role"));
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  const input = await resolveRuleRefs(db, organizationId, parseRule(body));
+  const existing = await loadShipRules(db, organizationId);
+  const now = Date.now();
+  await db.insert(schema.shipRules).values({
+    id: newId(),
+    organizationId,
+    position: existing.reduce((max, rule) => Math.max(max, rule.position), 0) + 1,
+    ...ruleColumns(input),
+    createdAt: now,
+    updatedAt: now,
+  });
+  return c.json(await rulesPayload(db, organizationId), 201);
+});
+
+shipRoute.post("/ship/rules/reorder", async (c) => {
+  requireOwner(c.get("role"));
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const body = await c.req.json<{ ids?: unknown }>().catch(() => ({}) as { ids?: unknown });
+  if (!Array.isArray(body.ids)) badRequest("ids must list the rules in their new order");
+  const ids = body.ids.filter((id): id is string => typeof id === "string");
+  const rules = await loadShipRules(db, organizationId);
+  const current = new Map(rules.map((rule) => [rule.id, rule.position]));
+  const moves = reorderShipRules(rules, ids).filter((row) => current.get(row.id) !== row.position);
+  const now = Date.now();
+  if (moves.length) {
+    const [first, ...rest] = moves.map((row) =>
+      db
+        .update(schema.shipRules)
+        .set({ position: row.position, updatedAt: now })
+        .where(and(eq(schema.shipRules.id, row.id), eq(schema.shipRules.organizationId, organizationId))),
+    );
+    await db.batch([first!, ...rest]);
+  }
+  return c.json(await rulesPayload(db, organizationId));
+});
+
+shipRoute.patch("/ship/rules/:id", async (c) => {
+  requireOwner(c.get("role"));
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const id = c.req.param("id");
+  const current = (await loadShipRules(db, organizationId)).find((rule) => rule.id === id);
+  if (!current) notFound("Rule not found");
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  const merged: Record<string, unknown> = { ...current, ...body };
+  if ("carrierService" in body && !("carrierConnectionId" in body)) merged.carrierConnectionId = null;
+  const input = await resolveRuleRefs(db, organizationId, parseRule(merged), current);
+  await db
+    .update(schema.shipRules)
+    .set({ ...ruleColumns(input), updatedAt: Date.now() })
+    .where(and(eq(schema.shipRules.id, id), eq(schema.shipRules.organizationId, organizationId)));
+  return c.json(await rulesPayload(db, organizationId));
+});
+
+shipRoute.delete("/ship/rules/:id", async (c) => {
+  requireOwner(c.get("role"));
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  await db
+    .delete(schema.shipRules)
+    .where(and(eq(schema.shipRules.id, c.req.param("id")), eq(schema.shipRules.organizationId, organizationId)));
+  return c.json(await rulesPayload(db, organizationId));
 });
 
 type ShipOrderRow = {
@@ -341,6 +573,7 @@ async function quickShipOne(
   call: ReturnType<typeof internalApi>,
   orderId: string,
   body: QuickShipBody,
+  options: { ctx?: ShipContext; releaseHold?: boolean } = {},
 ): Promise<QuickShipOutcome> {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -379,32 +612,20 @@ async function quickShipOne(
     .from(schema.warehouses)
     .where(eq(schema.warehouses.id, order.warehouseId))
     .limit(1);
-  const connections = await loadCarrierConnections(db, organizationId);
-  const services = enabledServicesFromConnections(connections);
-  const fallback = buildingDefaultService(connections, warehouse);
-  const carrierService = chooseService(services, {
-    requested: body.carrierService,
-    orderService: order.carrierService,
-    warehouseDefault: fallback?.serviceId,
-  });
-  const carrierConnectionId =
-    defaultShipConnection({
-      requested: body.carrierConnectionId,
-      orderConnection: carrierService === order.carrierService ? order.carrierConnectionId : null,
-      warehouseDefault: carrierService && carrierService === fallback?.serviceId ? fallback.connectionId : null,
-    }) ?? services.find((row) => row.id === carrierService)?.connectionId ?? null;
+  const ctx = options.ctx ?? (await loadShipContext(db, organizationId));
+  const { connections } = ctx;
+  const decision = decideShip(ctx, warehouse, order, lines, body);
+  const current = order as ShipOrderRow;
+  const hasLabel = Boolean(current.trackingNumber) && current.labelStatus === "purchased";
+  if (decision.plan.hold && !options.releaseHold) return fail(409, holdMessage(decision.plan), "SHIP_RULE_HOLD");
+  if (decision.plan.problem && !hasLabel) return fail(409, decision.plan.problem, "SHIP_RULE_SERVICE");
+  const { parcel, serviceId: carrierService, connectionId: carrierConnectionId } = decision;
   const connection = connections.find((row) => row.id === carrierConnectionId) ?? null;
   const live = Boolean(connection && isLivePostage(connection.provider, connection.mode));
-
-  const presets = await loadPresets(db, organizationId);
-  const typed = body.weightOz ? { packageWeightOz: body.weightOz, packageLengthIn: body.lengthIn, packageWidthIn: body.widthIn, packageHeightIn: body.heightIn } : order;
-  const parcel = orderParcel({ lines, preset: pickPreset(presets, body.presetId), order: typed });
   if (live && parcel.missingWeight.length) {
     return fail(409, `Add a ship weight for ${parcel.missingWeight.join(", ")} before buying live postage`, "NEED_WEIGHT");
   }
 
-  const current = order as ShipOrderRow;
-  const hasLabel = Boolean(current.trackingNumber) && current.labelStatus === "purchased";
   if (!hasLabel) {
     const purchase = resolveLabelPurchase({ connections, serviceId: carrierService, connectionId: carrierConnectionId });
     const blocked = quickShipLabelBlocker({
@@ -488,6 +709,9 @@ async function quickShipOne(
   const snapshot = await snapshotQuickShip(db, organizationId, order.id);
   const run = await runQuickShip(steps, () => undoQuickShip(c, call, order.id, snapshot));
   if (!run.ok) return fail(run.failure.status, run.failure.error, run.failure.code);
+  if (!hasLabel && decision.summary) {
+    await db.update(schema.orders).set({ shipReason: decision.summary }).where(eq(schema.orders.id, order.id));
+  }
   const [shipped] = await db
     .select({ trackingNumber: schema.orders.trackingNumber, channelSyncStatus: schema.orders.channelSyncStatus })
     .from(schema.orders)
@@ -533,9 +757,9 @@ shipRoute.post("/orders/:id/quick-ship", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   assertQuickShip(await loadWorkflowPolicy(db, organizationId));
-  const body = await c.req.json<QuickShipBody>().catch(() => ({}) as QuickShipBody);
+  const body = await c.req.json<QuickShipBody & { releaseHold?: boolean }>().catch(() => ({}) as QuickShipBody & { releaseHold?: boolean });
   const call = internalApi(c, [ordersRoute]);
-  const outcome = await quickShipOne(c, call, c.req.param("id"), body);
+  const outcome = await quickShipOne(c, call, c.req.param("id"), body, { releaseHold: body.releaseHold === true });
   if (!outcome.ok) return c.json({ error: outcome.error, code: outcome.code, orderId: outcome.orderId }, outcome.status as 400 | 404 | 409);
   return c.json(outcome);
 });
@@ -549,10 +773,11 @@ shipRoute.post("/ship/quick-ship", async (c) => {
   if (ids.length === 0) badRequest("Pick at least one order to ship");
   if (ids.length > MAX_BULK) badRequest(`Ship at most ${MAX_BULK} orders at a time`);
   const call = internalApi(c, [ordersRoute]);
+  const ctx = await loadShipContext(db, organizationId);
   const outcomes: QuickShipOutcome[] = [];
   for (const id of ids) {
     try {
-      outcomes.push(await quickShipOne(c, call, id, body));
+      outcomes.push(await quickShipOne(c, call, id, body, { ctx }));
     } catch (err) {
       outcomes.push({ orderId: id, ok: false, status: 500, error: err instanceof Error ? err.message : "Ship failed" });
     }

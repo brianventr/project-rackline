@@ -1675,17 +1675,32 @@ export type ShipQueueOrder = {
   lines: { id: string; sku: string; itemName: string; imageUrl: string | null; qty: number; shipWeightOz: number | null }[];
   parcel: { weightOz?: number; lengthIn?: number; widthIn?: number; heightIn?: number };
   missingWeight: string[];
+  /** The box quick-ship would use and why; null once shipped or when there are no boxes. */
+  box: {
+    presetId: string;
+    name: string;
+    source: "picked" | "rule" | "auto" | "default" | null;
+    reason: string | null;
+    note: string | null;
+  } | null;
   serviceId: string | null;
   serviceName: string | null;
+  /** `Rule: Small parcels`, `Default service`, `Order's service`. */
+  serviceReason: string | null;
   serviceLive: boolean;
+  rule: { id: string; name: string } | null;
+  /** Written when quick-ship bought the label: `Mailer (Auto) · UPS Ground (Cheapest)`. */
+  shipReason: string | null;
   ready: boolean;
   blocker: { code: string; error: string; sku: string | null } | null;
 };
 
+export type ShipServiceChoice = { id: string; name: string; company: string; connectionId: string | null; provider: string };
+
 export type ShipQueue = {
   policy: { mode: "garage" | "warehouse"; quickShip: boolean };
   presets: PackagePreset[];
-  services: { id: string; name: string; company: string; connectionId: string | null; provider: string }[];
+  services: ShipServiceChoice[];
   defaults: { presetId: string | null; carrierService: string | null; carrierConnectionId: string | null };
   setup: { id: string; label: string; done: boolean; to: string }[];
   orders: ShipQueueOrder[];
@@ -1696,3 +1711,17 @@ export type QuickShipOutcome =
   | { orderId: string; ok: false; number?: string; status: number; code?: string; error: string };
 
 export type QuickShipBatch = { shipped: number; failed: number; total: number; outcomes: QuickShipOutcome[] };
+
+export type ShipRuleRow = import("@/domain/ship-rules").ShipRule & {
+  createdAt: number;
+  updatedAt: number;
+  /** Set when no connected carrier account offers the rule's service. */
+  problem: string | null;
+};
+
+export type ShipRulesPayload = {
+  rules: ShipRuleRow[];
+  presets: PackagePreset[];
+  services: ShipServiceChoice[];
+  warehouses: { id: string; name: string }[];
+};
