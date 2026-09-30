@@ -134,12 +134,25 @@ export type AsBuiltLink = {
   qty: number;
 };
 
+export type ItemPack = {
+  level: "inner" | "case" | "pallet";
+  qty: number;
+  barcode: string | null;
+  weightOz: number | null;
+  lengthIn: number | null;
+  widthIn: number | null;
+  heightIn: number | null;
+};
+
 export type Item = {
   id: string;
   sku: string;
   name: string;
   type: string;
   barcode: string;
+  altUom?: string | null;
+  altPerStock?: number | null;
+  packs?: ItemPack[];
   reorderPoint: number;
   baselineShipRate?: number | null;
   pickMin?: number;
@@ -327,6 +340,9 @@ export type ScanLocationHit = {
 export type ScanItemHit = {
   kind: "item";
   item: Item;
+  /** Set when the scan was a pack barcode: it counts `pack.qty` eaches. */
+  pack?: ItemPack | null;
+  packs?: ItemPack[];
   onHand: {
     locationId: string;
     locationCode: string;

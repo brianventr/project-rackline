@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Check, CheckCircle2, ListChecks, Loader2, MapPin, Minus, MoreHorizontal, Plus, Printer, SkipForward, Undo2, XCircle } from "lucide-react";
+import { scanIntoLine } from "@/domain/pack-sizes";
 import { api, errorText, type Location, type Order, type OrderLine, type ScanHit } from "../../api";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
@@ -98,6 +99,13 @@ export function FloorPickPage() {
   const [busy, setBusy] = useState(false);
   const needScan = workflowPolicy(me.organization.operatingMode).scanVerifiedPick;
   const [scanLog, setScanLog] = useState<ScanLog>(EMPTY_SCAN_LOG);
+  // Pack scans add to the latest qty on screen, read through refs since scans resolve out of order.
+  // `counted` holds line ids (list) and stop keys (guided) scanned or typed since the last prefill.
+  const qtysRef = useRef(qtys);
+  qtysRef.current = qtys;
+  const stepQtysRef = useRef(stepQtys);
+  stepQtysRef.current = stepQtys;
+  const counted = useRef(new Set<string>());
 
   function setMode(next: PickMode) {
     setModeState(next);
@@ -107,6 +115,7 @@ export function FloorPickPage() {
   function applyOrder(order: Order, nextLocations: Location[]) {
     setActive(order);
     setLocationId(defaultPickLocation(order, nextLocations));
+    counted.current = new Set();
     setQtys(needScan ? zeroQtys(order) : qtyDefaults(order));
     setUnpickQtys(unpickQtyDefaults(order));
   }
@@ -229,6 +238,27 @@ export function FloorPickPage() {
         if (hit.kind === "lot" && target.trackLot) {
           setLots((current) => ({ ...current, [target.lineId]: hit.lotCode }));
         }
+        if (hit.kind === "item" && hit.pack) {
+          const targetKey = stopKey(target);
+          const targetLine = (active.lines ?? []).find((row) => row.id === target.lineId);
+          const scanned = scanIntoLine(
+            {
+              qty: Number(stepQtysRef.current[targetKey] ?? target.qty),
+              counted: counted.current.has(targetKey),
+              remaining: Math.min(target.qty, targetLine ? lineRemaining(targetLine) : target.qty),
+            },
+            { pack: hit.pack },
+          );
+          if (!scanned.ok) {
+            setError(`${target.sku}: ${scanned.problem}`);
+            report?.(false);
+            return true;
+          }
+          counted.current.add(targetKey);
+          const nextQtys = { ...stepQtysRef.current, [targetKey]: String(scanned.qty) };
+          stepQtysRef.current = nextQtys;
+          setStepQtys(nextQtys);
+        }
         goToStop(result.index, { item: true });
         report?.(true);
         return true;
@@ -268,7 +298,24 @@ export function FloorPickPage() {
               return;
             }
             if (line.suggestedLocation) setLocationId(line.suggestedLocation.locationId);
-            setQtys((current) => ({ ...current, [line.id]: String(line.remaining ?? 0) }));
+            if (!hit.pack && !counted.current.has(line.id)) {
+              setQtys((current) => ({ ...current, [line.id]: String(line.remaining ?? 0) }));
+              report?.(true);
+              return;
+            }
+            const scanned = scanIntoLine(
+              { qty: Number(qtysRef.current[line.id] || 0), counted: counted.current.has(line.id), remaining: line.remaining ?? 0 },
+              { pack: hit.pack, fill: true },
+            );
+            if (!scanned.ok) {
+              setError(`${hit.item.sku}: ${scanned.problem}`);
+              report?.(false);
+              return;
+            }
+            counted.current.add(line.id);
+            const nextQtys = { ...qtysRef.current, [line.id]: String(scanned.qty) };
+            qtysRef.current = nextQtys;
+            setQtys(nextQtys);
             report?.(true);
             return;
           }
@@ -344,6 +391,7 @@ export function FloorPickPage() {
         body: JSON.stringify({ ...body, scan: scanEvidence(scanLog, bayId) }),
       });
       setScanLog(afterPost);
+      counted.current.delete(key);
       setStepQtys((current) => withoutKey(current, key));
       setLots((current) => withoutKey(current, stop.lineId));
       setSerials((current) => withoutKey(current, stop.lineId));
@@ -528,7 +576,10 @@ export function FloorPickPage() {
               locations={locations}
               checks={checks?.key === key ? checks : null}
               qty={stepQtys[key] ?? String(stop.qty)}
-              onQty={(value) => setStepQtys((current) => ({ ...current, [key]: value }))}
+              onQty={(value) => {
+                counted.current.add(key);
+                setStepQtys((current) => ({ ...current, [key]: value }));
+              }}
               lot={lots[stop.lineId] ?? ""}
               onLot={(value) => setLots((current) => ({ ...current, [stop.lineId]: value }))}
               serials={serials[stop.lineId] ?? ""}
@@ -611,7 +662,10 @@ export function FloorPickPage() {
                       min={0}
                       max={line.remaining}
                       value={qtys[line.id] ?? "0"}
-                      onChange={(e) => setQtys((current) => ({ ...current, [line.id]: e.target.value }))}
+                      onChange={(e) => {
+                        counted.current.add(line.id);
+                        setQtys((current) => ({ ...current, [line.id]: e.target.value }));
+                      }}
                     />
                   </Field>
                 ) : (

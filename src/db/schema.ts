@@ -169,6 +169,33 @@ export const items = sqliteTable(
   ],
 );
 
+/** Inner, case, and pallet sizes. Stock stays in eaches; scanning a pack barcode counts `qty` eaches. */
+export const itemPacks = sqliteTable(
+  "item_packs",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    level: text("level").notNull(),
+    qty: integer("qty").notNull(),
+    barcode: text("barcode"),
+    weightOz: integer("weight_oz"),
+    lengthIn: integer("length_in"),
+    widthIn: integer("width_in"),
+    heightIn: integer("height_in"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("item_packs_item_level").on(t.itemId, t.level),
+    uniqueIndex("item_packs_org_barcode").on(t.organizationId, t.barcode).where(sql`${t.barcode} IS NOT NULL`),
+  ],
+);
+
 /** Who you buy from. Purchases, vendor returns, and ASNs link here and keep the name they were made with. */
 export const vendors = sqliteTable(
   "vendors",

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Layers } from "lucide-react";
 import { api, errorText, type Location, type ScanHit, type Wave } from "../../api";
@@ -10,6 +10,7 @@ import { canPickWave, isOpenWave } from "@/domain/status";
 import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 import { useSession } from "../../session";
 import { checkScanEvidence, workflowPolicy } from "@/domain/workflow-policy";
+import { scanIntoLine } from "@/domain/pack-sizes";
 import { EMPTY_SCAN_LOG, afterPost, recordScan, scanEvidence, type ScanLog } from "./scan-log";
 
 const textLink =
@@ -37,12 +38,17 @@ export function FloorWavePage() {
   const [locationId, setLocationId] = useState("");
   const [itemId, setItemId] = useState("");
   const [qty, setQty] = useState("1");
+  // Pack scans add to the latest qty (read through the ref) once the SKU in `countedItem` is being counted.
+  const qtyRef = useRef(qty);
+  qtyRef.current = qty;
+  const countedItem = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const needScan = workflowPolicy(me.organization.operatingMode).scanVerifiedPick;
   const [scanLog, setScanLog] = useState<ScanLog>(EMPTY_SCAN_LOG);
 
   function applyWave(wave: Wave) {
+    countedItem.current = null;
     setActive(wave);
     const first = (wave.batchLines ?? []).find((line) => line.remaining > 0);
     if (first) {
@@ -134,9 +140,26 @@ export function FloorWavePage() {
               report?.(false);
               return;
             }
-            // Same as tapping the line: select the SKU and fill what it has left.
+            if (!hit.pack && countedItem.current !== line.itemId) {
+              // Same as tapping the line: select the SKU and fill what it has left.
+              setItemId(line.itemId);
+              setQty(String(line.remaining));
+              report?.(true);
+              return;
+            }
+            const scanned = scanIntoLine(
+              { qty: Number(qtyRef.current) || 0, counted: countedItem.current === line.itemId, remaining: line.remaining },
+              { pack: hit.pack, fill: true },
+            );
+            if (!scanned.ok) {
+              setError(`${hit.item.sku}: ${scanned.problem}`);
+              report?.(false);
+              return;
+            }
+            countedItem.current = line.itemId;
+            qtyRef.current = String(scanned.qty);
             setItemId(line.itemId);
-            setQty(String(line.remaining));
+            setQty(String(scanned.qty));
             report?.(true);
             return;
           }
@@ -160,6 +183,7 @@ export function FloorWavePage() {
         body: JSON.stringify({ locationId, itemId, qty: Number(qty), scan: scanEvidence(scanLog, locationId) }),
       });
       setScanLog(afterPost);
+      countedItem.current = null;
       setActive(next);
       setDone(`Picked ${qty} onto ${next.number}.`);
       const first = (next.batchLines ?? []).find((line) => line.remaining > 0);
@@ -252,6 +276,7 @@ export function FloorWavePage() {
                       aria-pressed={line.itemId === itemId}
                       className="-mx-2 flex min-h-11 w-[calc(100%+1rem)] items-center justify-between gap-2 rounded-md px-2 text-left outline-none hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-pressed:bg-muted"
                       onClick={() => {
+                        countedItem.current = null;
                         setItemId(line.itemId);
                         setQty(String(line.remaining));
                       }}
@@ -289,7 +314,10 @@ export function FloorWavePage() {
                   min={1}
                   className="h-11 text-base"
                   value={qty}
-                  onChange={(e) => setQty(e.target.value)}
+                  onChange={(e) => {
+                    countedItem.current = itemId;
+                    setQty(e.target.value);
+                  }}
                 />
               </Field>
               <Button

@@ -251,6 +251,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/stock/items",
   },
   {
+    id: "pack-size",
+    term: "Pack size",
+    aliases: ["pack sizes", "inner pack", "case pack", "pallet qty", "case barcode", "case label"],
+    short: "The inner, case, and pallet an item comes in, each with its eaches and an optional barcode. Scanning a pack counts all its eaches.",
+    long: "Stock is always kept in eaches. Each level holds whole packs of the one below it, and the case becomes the item's alt unit.",
+    path: "/stock/items",
+  },
+  {
     id: "cycle-count",
     term: "Cycle count",
     aliases: ["count", "counts", "stock take", "stocktake"],

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Repeat } from "lucide-react";
 import { api, errorText, type ScanHit, type Transfer } from "../../api";
@@ -7,6 +7,7 @@ import { Term } from "../../components/term";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { canPostTransfer } from "@/domain/status";
 import { hasUnmoved } from "@/domain/partial-transfer";
+import { scanIntoLine } from "@/domain/pack-sizes";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 
@@ -19,9 +20,14 @@ export function FloorTransferPage() {
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // Pack scans add to the latest qty, read through the ref; `counted` lines were scanned or typed.
+  const qtysRef = useRef(qtys);
+  qtysRef.current = qtys;
+  const counted = useRef(new Set<string>());
 
   function applyTicket(transfer: Transfer) {
     setActive(transfer);
+    counted.current = new Set();
     setQtys(moveQtyDefaults(transfer));
   }
 
@@ -74,7 +80,24 @@ export function FloorTransferPage() {
               report?.(false);
               return;
             }
-            setQtys((current) => ({ ...current, [line.id]: String(line.remaining ?? 0) }));
+            if (!hit.pack && !counted.current.has(line.id)) {
+              setQtys((current) => ({ ...current, [line.id]: String(line.remaining ?? 0) }));
+              report?.(true);
+              return;
+            }
+            const scanned = scanIntoLine(
+              { qty: Number(qtysRef.current[line.id] || 0), counted: counted.current.has(line.id), remaining: line.remaining ?? 0 },
+              { pack: hit.pack, fill: true },
+            );
+            if (!scanned.ok) {
+              setError(`${hit.item.sku}: ${scanned.problem}`);
+              report?.(false);
+              return;
+            }
+            counted.current.add(line.id);
+            const next = { ...qtysRef.current, [line.id]: String(scanned.qty) };
+            qtysRef.current = next;
+            setQtys(next);
             report?.(true);
             return;
           }
@@ -203,7 +226,10 @@ export function FloorTransferPage() {
                       min={0}
                       max={line.remaining}
                       value={qtys[line.id] ?? "0"}
-                      onChange={(e) => setQtys((current) => ({ ...current, [line.id]: e.target.value }))}
+                      onChange={(e) => {
+                        counted.current.add(line.id);
+                        setQtys((current) => ({ ...current, [line.id]: e.target.value }));
+                      }}
                     />
                   </Field>
                 ) : (

@@ -11,6 +11,7 @@ import { fulfillShopifyOrder } from "../domain/shopify-fulfill";
 import { fulfillChannelOrder } from "../db/channel-sync";
 import { loadWorkflowPolicy } from "../db/workflow";
 import { assertScanned, requiresScan, type ScanCheckLine, type ScanEvidence } from "../domain/workflow-policy";
+import { loadItemPacks } from "../db/item-packs";
 import { postsTrackingBack } from "../domain/channels/adapter";
 import { canPackOrder, canPickOrder, canShipOrder, canShipCartonOrder, canStartPack, canStartPick, canCancelOrder, canUnpickOrder } from "../domain/status";
 import { destPatchFromAddress } from "../domain/geo";
@@ -330,14 +331,17 @@ function resolveIncoming(
     }));
 }
 
-function scanCheckLines(
-  lines: { id: string; sku: string; barcode: string | null }[],
+async function scanCheckLines(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  lines: { id: string; itemId: string; sku: string; barcode: string | null }[],
   posted: { lineId: string; qty: number }[],
-): ScanCheckLine[] {
+): Promise<ScanCheckLine[]> {
   const byId = new Map(lines.map((line) => [line.id, line]));
+  const packs = await loadItemPacks(db, organizationId, lines.map((line) => line.itemId));
   return posted.map((row) => {
     const line = byId.get(row.lineId)!;
-    return { lineId: row.lineId, qty: row.qty, sku: line.sku, barcode: line.barcode };
+    return { lineId: row.lineId, qty: row.qty, sku: line.sku, barcode: line.barcode, packs: packs.get(line.itemId) };
   });
 }
 
@@ -600,7 +604,13 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
   const scanPolicy = await loadWorkflowPolicy(db, organizationId);
   if (requiresScan(scanPolicy, "pick")) {
     const scanned = resolveIncoming(order.lines, body.lines).filter((line) => line.qty > 0);
-    assertScanned(scanPolicy, "pick", scanCheckLines(order.lines, scanned), withSerialScans(order.lines, scanned, body.scan), pickBay);
+    assertScanned(
+      scanPolicy,
+      "pick",
+      await scanCheckLines(db, organizationId, order.lines, scanned),
+      withSerialScans(order.lines, scanned, body.scan),
+      pickBay,
+    );
   }
   const allocations = await ensureAllocated(db, {
     organizationId,
@@ -728,7 +738,12 @@ ordersRoute.post("/orders/:id/pack", async (c) => {
   if (!hasUnpacked(order.lines.map(asPackLine))) conflict("Order has nothing remaining to pack");
 
   const incoming = resolveIncomingPack(order.lines, body.lines).filter((line) => line.qty > 0);
-  assertScanned(await loadWorkflowPolicy(db, organizationId), "pack", scanCheckLines(order.lines, incoming), body.scan);
+  assertScanned(
+    await loadWorkflowPolicy(db, organizationId),
+    "pack",
+    await scanCheckLines(db, organizationId, order.lines, incoming),
+    body.scan,
+  );
   let applied;
   try {
     applied = applyPartialPack(order.lines.map(asPackLine), incoming);
@@ -874,7 +889,12 @@ ordersRoute.post("/orders/:id/packages", async (c) => {
     }
     if (hasUnpacked(order.lines.map(asPackLine))) {
       const incomingPack = resolveIncomingPack(order.lines, body.lines).filter((line) => line.qty > 0);
-      assertScanned(await loadWorkflowPolicy(db, organizationId), "pack", scanCheckLines(order.lines, incomingPack), body.scan);
+      assertScanned(
+        await loadWorkflowPolicy(db, organizationId),
+        "pack",
+        await scanCheckLines(db, organizationId, order.lines, incomingPack),
+        body.scan,
+      );
       let packed;
       try {
         packed = applyPartialPack(order.lines.map(asPackLine), incomingPack);

@@ -29,6 +29,8 @@ import { mediaItemKey, normalizeImageUrl } from "../domain/media";
 import { deleteManagedMedia, putMediaFile, readUploadedFile } from "../lib/media-store";
 import { resolveLabelPurchase } from "../domain/carriers";
 import { loadCarrierConnections } from "./carriers";
+import { normalizePackSizes, PackSizeError } from "../domain/pack-sizes";
+import { assertNotPackBarcode, assertPackBarcodesFree, loadPacksForItem, replaceItemPacks } from "../db/item-packs";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -243,6 +245,7 @@ catalogRoute.post("/locations", async (c) => {
 
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  await assertNotPackBarcode(db, organizationId, [code, barcode]);
   const [warehouse] = await db
     .select()
     .from(schema.warehouses)
@@ -330,7 +333,11 @@ catalogRoute.patch("/locations/:id", async (c) => {
   const name = optionalString(body.name);
   if (name) patch.name = name;
   const barcode = optionalString(body.barcode);
-  if (barcode) patch.barcode = barcode.toUpperCase();
+  if (barcode) {
+    const value = barcode.toUpperCase();
+    await assertNotPackBarcode(c.get("db"), c.get("organizationId")!, [value]);
+    patch.barcode = value;
+  }
   const area = optionalString(body.area);
   if (area) patch.area = area;
   if (body.aisle !== undefined) patch.aisle = body.aisle ? String(body.aisle).trim().toUpperCase() : null;
@@ -445,6 +452,7 @@ catalogRoute.get("/items/:id", async (c) => {
   const allocations = await loadOpenAllocations(db, organizationId);
   return c.json({
     ...item,
+    packs: await loadPacksForItem(db, organizationId, item.id),
     onHand: annotateAtp(located, allocations, available),
     lots: lots.map((row) => ({
       ...row,
@@ -511,6 +519,7 @@ catalogRoute.post("/items", async (c) => {
   const baselineShipRate = parseBaselineShipRate(body.baselineShipRate);
   let imageUrl: string | null = null;
   if ("imageUrl" in body) imageUrl = normalizeImageUrl(body.imageUrl);
+  await assertNotPackBarcode(c.get("db"), c.get("organizationId")!, [sku, barcode]);
   try {
     const [row] = await c
       .get("db")
@@ -626,6 +635,7 @@ catalogRoute.patch("/items/:id", async (c) => {
   }
   if ("imageUrl" in body) patch.imageUrl = normalizeImageUrl(body.imageUrl);
   if (Object.keys(patch).length === 0) badRequest("Nothing to update");
+  if (patch.barcode && patch.barcode !== existing.barcode) await assertNotPackBarcode(db, organizationId, [patch.barcode]);
   if (patch.imageUrl !== undefined && existing.imageUrl && existing.imageUrl !== patch.imageUrl) {
     await deleteManagedMedia(c.env.MEDIA, existing.imageUrl);
   }
@@ -640,6 +650,23 @@ catalogRoute.patch("/items/:id", async (c) => {
   } catch {
     return c.json({ error: "Barcode already exists" }, 409);
   }
+});
+
+catalogRoute.put("/items/:id/packs", async (c) => {
+  const body = await c.req.json<{ packs?: unknown }>();
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const item = await getOrgItem(db, organizationId, c.req.param("id"));
+  let packs;
+  try {
+    packs = normalizePackSizes(body.packs ?? []);
+  } catch (err) {
+    if (err instanceof PackSizeError) badRequest(err.message);
+    throw err;
+  }
+  await assertPackBarcodesFree(db, organizationId, item.id, packs);
+  const alt = await replaceItemPacks(db, organizationId, item, packs);
+  return c.json({ ...item, ...alt, packs: await loadPacksForItem(db, organizationId, item.id) });
 });
 
 catalogRoute.post("/items/:id/image", async (c) => {

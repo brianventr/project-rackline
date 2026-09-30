@@ -9,6 +9,7 @@ import { NumberField, SelectField, TextField, useZodForm, type ZodFormInput, typ
 import { SampleDataButton } from "../components/onboarding";
 import { Term } from "../components/term";
 import { SkuThumb } from "../components/sku-thumb";
+import { PackSizesEditor } from "../components/pack-sizes";
 import {
   ActionButton,
   DetailSkeleton,
@@ -562,7 +563,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
     );
     if (updated) {
       // The PATCH answer carries no stock, so keep what the page already shows.
-      setItem((current) => ({ ...updated, onHand: current?.onHand, lots: current?.lots, serials: current?.serials }));
+      setItem((current) => ({ ...updated, onHand: current?.onHand, lots: current?.lots, serials: current?.serials, packs: current?.packs }));
       reset(formFromItem(updated));
     }
   }
@@ -589,7 +590,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
   async function uploadPhoto(file: File) {
     const next = await run("Upload photo", () => uploadFile<Item>(`/api/items/${id}/image`, file), "Photo uploaded.");
     if (next) {
-      setItem((current) => ({ ...next, onHand: current?.onHand, lots: current?.lots, serials: current?.serials }));
+      setItem((current) => ({ ...next, onHand: current?.onHand, lots: current?.lots, serials: current?.serials, packs: current?.packs }));
       setImageUrl(next.imageUrl ?? "");
     }
   }
@@ -597,7 +598,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
   async function clearPhoto() {
     const next = await run("Clear photo", () => api<Item>(`/api/items/${id}/image`, { method: "DELETE" }), "Photo cleared.");
     if (next) {
-      setItem((current) => ({ ...next, onHand: current?.onHand, lots: current?.lots, serials: current?.serials }));
+      setItem((current) => ({ ...next, onHand: current?.onHand, lots: current?.lots, serials: current?.serials, packs: current?.packs }));
       setImageUrl("");
     }
   }
@@ -742,6 +743,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
             <TabsTrigger value="stock">Stock ({onHand.length})</TabsTrigger>
             {lots.length ? <TabsTrigger value="lots">Lots ({lots.length})</TabsTrigger> : null}
             {serials.length ? <TabsTrigger value="serials">Serials ({serials.length})</TabsTrigger> : null}
+            <TabsTrigger value="packs">Pack sizes ({item.packs?.length ?? 0})</TabsTrigger>
             <TabsTrigger value="settings">Settings{dirty ? " •" : ""}</TabsTrigger>
           </TabsList>
 
@@ -827,6 +829,16 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
               </Table>
             </TabsContent>
           ) : null}
+
+          <TabsContent value="packs">
+            <PackSizesEditor
+              key={JSON.stringify(item.packs ?? [])}
+              item={item}
+              onSaved={(next) =>
+                setItem((current) => ({ ...next, onHand: current?.onHand, lots: current?.lots, serials: current?.serials }))
+              }
+            />
+          </TabsContent>
 
           <TabsContent value="settings">
             <Card>

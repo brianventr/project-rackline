@@ -173,6 +173,17 @@ export function parseScan(raw: string): ParsedScan {
   return { kind: "unknown", value, raw: value, gs1: gs1 ?? undefined };
 }
 
+/**
+ * What to look up as an item or pack barcode, or null when the scan names something else. A bare
+ * number that happens to read as a GS1 lot (10…) or serial (21…) is far more often a UPC or an
+ * ITF-14 case code, so it is tried as an item before the lot or serial.
+ */
+export function itemScanValue(parsed: ParsedScan): string | null {
+  if (parsed.kind === "item" || parsed.kind === "unknown") return parsed.value;
+  if ((parsed.kind === "lot" || parsed.kind === "serial") && /^\d+$/.test(parsed.raw)) return parsed.raw;
+  return null;
+}
+
 export function documentPath(kind: Exclude<ScanKind, "unknown" | "location" | "item" | "serial" | "lot">, id: string): string {
   switch (kind) {
     case "order":

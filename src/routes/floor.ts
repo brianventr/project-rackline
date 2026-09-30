@@ -4,12 +4,13 @@ import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
-import { getOrgItem, getOrgLocation, getOrgLocationByScan, getOrgItemByScan } from "../lib/org";
+import { getOrgItem, getOrgLocation, getOrgLocationByScan } from "../lib/org";
+import { loadPacksForItem, resolveItemScan } from "../db/item-packs";
 import { docNumber, newId } from "../lib/ids";
 import { countCatchWeight } from "../lib/catch-weight";
 import { chainPlans, planCycleCount, planMove } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
-import { parseScan } from "../domain/barcodes";
+import { itemScanValue, parseScan } from "../domain/barcodes";
 import { canPostCount, canPostTransfer } from "../domain/status";
 import {
   applyPartialMove,
@@ -879,8 +880,9 @@ floorRoute.get("/scan", async (c) => {
   }
 
   async function itemHit(code: string) {
-    const item = await getOrgItemByScan(db, organizationId, code);
-    if (!item) return null;
+    const scanned = await resolveItemScan(db, organizationId, code);
+    if (!scanned) return null;
+    const { item, pack } = scanned;
     const onHand = await db
       .select({
         locationId: schema.locations.id,
@@ -918,7 +920,7 @@ floorRoute.get("/scan", async (c) => {
         availableQty: row.qty,
       };
     });
-    return { kind: "item" as const, item, onHand: annotated };
+    return { kind: "item" as const, item, pack, packs: await loadPacksForItem(db, organizationId, item.id), onHand: annotated };
   }
 
   async function findByNumber<T extends { number: string }>(
@@ -938,8 +940,9 @@ floorRoute.get("/scan", async (c) => {
     if (parsed.kind === "location") notFound("No location matches that barcode");
   }
 
-  if (parsed.kind === "item" || parsed.kind === "unknown") {
-    const hit = await itemHit(parsed.value);
+  const itemCode = itemScanValue(parsed);
+  if (itemCode) {
+    const hit = await itemHit(itemCode);
     if (hit) return c.json(hit);
     if (parsed.kind === "item") notFound("No item matches that barcode");
   }

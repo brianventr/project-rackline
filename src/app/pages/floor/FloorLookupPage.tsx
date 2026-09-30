@@ -8,6 +8,8 @@ import { Term } from "../../components/term";
 import { FloorFrame, FloorScanBox, type ScanReport } from "./floor-ui";
 import { AsBuiltList } from "../../components/as-built";
 import { SkuThumb } from "../../components/sku-thumb";
+import { PackSizesTable } from "../../components/pack-sizes";
+import { packText } from "@/domain/pack-sizes";
 
 export function FloorLookupPage() {
   const [hit, setHit] = useState<ScanHit | null>(null);
@@ -163,8 +165,18 @@ function LookupResult({ hit }: { hit: ScanHit }) {
           <div className="min-w-0">
             <h2 className="text-2xl font-semibold">{hit.item.sku}</h2>
             <p className="text-muted-foreground">{hit.item.name}</p>
+            {hit.pack ? (
+              <p className="mt-1 text-sm font-medium">
+                {packText(hit.pack)} label: scanning it counts {hit.pack.qty} eaches.
+              </p>
+            ) : null}
           </div>
         </div>
+        {hit.packs?.length ? (
+          <div className="mt-4">
+            <PackSizesTable packs={hit.packs} />
+          </div>
+        ) : null}
         {hit.onHand.length ? <StockHead left="Bay" /> : null}
         <ul className={hit.onHand.length ? "mt-2 space-y-1 text-sm" : "mt-4 space-y-1 text-sm"}>
           {hit.onHand.length ? (

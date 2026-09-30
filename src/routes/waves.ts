@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { loadWorkflowPolicy } from "../db/workflow";
 import { assertScanned, type ScanEvidence } from "../domain/workflow-policy";
+import { loadPacksForItem } from "../db/item-packs";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
@@ -279,7 +280,7 @@ wavesRoute.post("/waves/:id/batch-pick", async (c) => {
   assertScanned(
     await loadWorkflowPolicy(db, organizationId),
     "pick",
-    [{ lineId: itemId, qty, sku: item.sku, barcode: item.barcode }],
+    [{ lineId: itemId, qty, sku: item.sku, barcode: item.barcode, packs: await loadPacksForItem(db, organizationId, itemId) }],
     body.scan,
     bay,
   );

@@ -205,6 +205,7 @@ Settings → Integrations changes with the mode:
 | Equipment, labor, Live, Traffic | Hidden | Yes |
 | 3PL clients, billing, EDI, webhooks | Hidden | Yes |
 | Vendor and customer records | Parts → Vendors, Ship → Customers | Inbound → Vendors, Outbound → Customers |
+| Pack sizes (inner, case, pallet) | Yes: a case scan counts its eaches | Yes, and one case scan proves every unit in it |
 | Menu | Short bench menu | Full office menu plus Settings |
 
 ## 6. Switching modes
@@ -307,3 +308,20 @@ If nothing matches, Rackline creates the customer. A match only fills blanks on 
 **Existing documents.** Records were made from the names already on your documents: one vendor per distinct vendor name on purchases, ASNs, and vendor returns, and one customer per distinct customer name on orders and returns. Case and extra spaces are ignored. Each customer's ship-to comes from their newest order.
 
 **Renaming.** Each document keeps the name it was made with. Renaming a vendor or customer changes new documents, not old ones. Two vendors cannot share a name, and two customers cannot share an email.
+
+## 9. Pack sizes
+
+An item can have up to three pack sizes: an **inner**, a **case**, and a **pallet**. Each one records how many eaches it holds, and can have its own barcode, weight, and size. Set them on the item's **Pack sizes** tab, in either mode.
+
+- Stock is always kept in eaches. A pack size is a shortcut for counting, not a separate stock unit.
+- Each level has to hold whole packs of the level below it. A case of 24 can hold inners of 4 or 6, but not 5.
+- A pack barcode has to be its own label. It cannot match an item's barcode or SKU, another pack, or a bay.
+- The case becomes the item's alt unit, so a line typed as 2 cases on an ASN or order still means 2 × the case size.
+
+**Scanning a pack counts its eaches.** On Receive, scanning a SKU or a case label counts what arrived. The first scan replaces the quantity Rackline filled in, and each scan after that adds to it. A scan that would take the line past what is still expected is refused, so scan eaches or type the qty for a short case. Pick, Wave, Putaway, and Pack count a case label the same way, and Count adds a case's eaches to what you have counted.
+
+A scan of an each keeps working as before. On Pick, Putaway, and Wave it still fills the whole remaining qty until you start counting with a case label or by typing.
+
+**Manufacturer scan proof.** One scan of a case label proves every unit in it. A pack of 24 bulbs is proven by one scan of their case barcode, where an inner pack of 4 only proves 4 of the 24.
+
+**Case codes that are plain numbers.** An ITF-14 case code such as `10614141000019` starts with digits that also look like a GS1 lot (`10`) or serial (`21`). Rackline tries a plain number as an item or pack barcode first, then as a lot or serial.

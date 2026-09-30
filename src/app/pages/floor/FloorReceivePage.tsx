@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Truck } from "lucide-react";
 import { api, errorText, type Location, type Purchase, type Receipt, type ScanHit } from "../../api";
@@ -10,6 +10,7 @@ import { SkuThumb } from "../../components/sku-thumb";
 import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
 import { canReceive, canReceivePurchase } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
+import { scanIntoLine } from "@/domain/pack-sizes";
 import { useSession } from "../../session";
 import { useWarehouse } from "../../warehouse";
 import { jobForRef, useOpenJobs } from "../../jobs";
@@ -38,6 +39,21 @@ export function FloorReceivePage() {
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  // Scans resolve out of order, so each one reads the latest qtys through the ref. Items in
+  // `counted` have been scanned or typed since the qtys were prefilled; their scans add.
+  const qtysRef = useRef(qtys);
+  qtysRef.current = qtys;
+  const counted = useRef(new Set<string>());
+
+  function prefill(lines: { itemId: string; remaining: number }[]) {
+    counted.current = new Set();
+    setQtys(Object.fromEntries(lines.map((line) => [line.itemId, String(line.remaining)])));
+  }
+
+  function typeQty(itemId: string, value: string) {
+    counted.current.add(itemId);
+    setQtys((current) => ({ ...current, [itemId]: value }));
+  }
 
   async function load() {
     const [nextReceipts, nextPurchases, nextLocations] = await Promise.all([
@@ -82,14 +98,14 @@ export function FloorReceivePage() {
       openFloorRow(match, me.user.id, jobForRef(nextJobs, "purchase", match.id, "receive"), (purchase) => {
         setActivePurchase(purchase);
         setActiveReceipt(null);
-        setQtys(Object.fromEntries((purchase.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+        prefill(purchase.lines ?? []);
       }, setError);
     } else if (receiptId) {
       const match = await api<Receipt>(`/api/receipts/${receiptId}`);
       openFloorRow(match, me.user.id, jobForRef(nextJobs, "receipt", match.id, "receive"), (receipt) => {
         setActiveReceipt(receipt);
         setActivePurchase(null);
-        setQtys(Object.fromEntries((receipt.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+        prefill(receipt.lines ?? []);
       }, setError);
     }
   }
@@ -111,7 +127,7 @@ export function FloorReceivePage() {
             openFloorRow(receipt, me.user.id, jobForRef(jobs, "receipt", receipt.id, "receive"), (next) => {
               setActiveReceipt(next);
               setActivePurchase(null);
-              setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+              prefill(next.lines ?? []);
             }, setError),
           );
           return;
@@ -122,7 +138,7 @@ export function FloorReceivePage() {
             openFloorRow(purchase, me.user.id, jobForRef(jobs, "purchase", purchase.id, "receive"), (next) => {
               setActivePurchase(next);
               setActiveReceipt(null);
-              setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+              prefill(next.lines ?? []);
             }, setError),
           );
           return;
@@ -132,14 +148,42 @@ export function FloorReceivePage() {
           report?.(true);
           return;
         }
-        setError("Scan a receipt, purchase order, or a dock / bay barcode.");
+        const doc = activeReceipt ?? activePurchase;
+        if (hit.kind === "item" && doc) {
+          const line = (doc.lines ?? []).find((row) => row.itemId === hit.item.id);
+          if (!line) {
+            setError(`${hit.item.sku} is not on ${doc.number}.`);
+            report?.(false);
+            return;
+          }
+          const result = scanIntoLine(
+            { qty: Number(qtysRef.current[line.itemId] || 0), counted: counted.current.has(line.itemId), remaining: line.remaining },
+            { pack: hit.pack },
+          );
+          if (!result.ok) {
+            setError(`${hit.item.sku}: ${result.problem}`);
+            report?.(false);
+            return;
+          }
+          counted.current.add(line.itemId);
+          const next = { ...qtysRef.current, [line.itemId]: String(result.qty) };
+          qtysRef.current = next;
+          setQtys(next);
+          report?.(true);
+          return;
+        }
+        setError(
+          doc
+            ? `Scan a SKU or case on ${doc.number}, or the bay to receive into.`
+            : "Scan a receipt, purchase order, or a dock / bay barcode.",
+        );
         report?.(false);
       })
       .catch((err) => {
         setError(errorText(err, "That barcode did not scan. Try again."));
         report?.(false);
       });
-  }, [jobs, me.user.id]);
+  }, [jobs, me.user.id, activeReceipt, activePurchase]);
 
   async function receiveReceipt() {
     if (!activeReceipt) return;
@@ -160,7 +204,7 @@ export function FloorReceivePage() {
         body: JSON.stringify({ locationId, lines }),
       });
       setActiveReceipt(posted);
-      setQtys(Object.fromEntries((posted.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+      prefill(posted.lines ?? []);
       setDone(`${posted.number} posted to the dock.`);
       await load();
     } catch (err) {
@@ -187,7 +231,7 @@ export function FloorReceivePage() {
         body: JSON.stringify({ locationId, lines }),
       });
       setActivePurchase(posted);
-      setQtys(Object.fromEntries((posted.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+      prefill(posted.lines ?? []);
       setDone(`${posted.number} posted to the dock.`);
       await load();
     } catch (err) {
@@ -196,8 +240,17 @@ export function FloorReceivePage() {
   }
 
   return (
-    <FloorFrame title="Receive" description="Scan a receipt or purchase order, scan the dock, post it into the bay." error={error}>
-      <FloorScanBox label="Scan receipt, PO, or bay" placeholder="PO-DEMO1, RCP-DEMO1, or RECV" onScan={onScan} ready={loaded} />
+    <FloorFrame
+      title="Receive"
+      description="Scan a receipt or purchase order, scan the dock, post it into the bay. Scan SKUs or case labels to count what arrived."
+      error={error}
+    >
+      <FloorScanBox
+        label={activeReceipt || activePurchase ? "Scan SKU, case, or bay" : "Scan receipt, PO, or bay"}
+        placeholder={activeReceipt || activePurchase ? "LED-BULB, a case label, or RECV" : "PO-DEMO1, RCP-DEMO1, or RECV"}
+        onScan={onScan}
+        ready={loaded}
+      />
       <DoneBanner>
         {done ? (
           <>
@@ -232,7 +285,7 @@ export function FloorReceivePage() {
                 api<Receipt>(`/api/receipts/${receipt.id}`)
                   .then((next) => {
                     setActiveReceipt(next);
-                    setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+                    prefill(next.lines ?? []);
                   })
                   .catch((err) => setError(errorText(err, "Could not open that receipt.")));
               }, setError)
@@ -262,7 +315,7 @@ export function FloorReceivePage() {
                 api<Purchase>(`/api/purchases/${purchase.id}`)
                   .then((next) => {
                     setActivePurchase(next);
-                    setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+                    prefill(next.lines ?? []);
                   })
                   .catch((err) => setError(errorText(err, "Could not open that purchase order.")));
               }, setError)
@@ -301,7 +354,7 @@ export function FloorReceivePage() {
                     min={0}
                     max={line.remaining}
                     value={qtys[line.itemId] ?? "0"}
-                    onChange={(e) => setQtys((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                    onChange={(e) => typeQty(line.itemId, e.target.value)}
                   />
                 ) : (
                   <span className="text-muted-foreground">Done</span>
@@ -405,7 +458,7 @@ export function FloorReceivePage() {
                     min={0}
                     max={line.remaining}
                     value={qtys[line.itemId] ?? "0"}
-                    onChange={(e) => setQtys((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                    onChange={(e) => typeQty(line.itemId, e.target.value)}
                   />
                 ) : (
                   <span className="text-muted-foreground">Done</span>

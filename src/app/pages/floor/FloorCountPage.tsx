@@ -96,19 +96,28 @@ export function FloorCountPage() {
               report?.(false);
               return;
             }
-            const existing = (active.lines ?? []).find(
-              (line) => line.itemId === hit.item.id || line.sku === hit.item.sku,
-            );
-            if (existing) {
+            const matches = (line: { itemId: string; sku: string }) => line.itemId === hit.item.id || line.sku === hit.item.sku;
+            const pack = hit.pack;
+            // A pack label adds its eaches to the count; an each scan only puts the SKU on the count.
+            const addPack = (count: CycleCount): CycleCount =>
+              pack
+                ? {
+                    ...count,
+                    lines: (count.lines ?? []).map((line) =>
+                      matches(line) ? { ...line, countedQty: (line.entered ? line.countedQty : 0) + pack.qty, entered: true } : line,
+                    ),
+                  }
+                : count;
+            if ((active.lines ?? []).some(matches)) {
+              setActive((current) => (current ? addPack(current) : current));
               report?.(true);
               return;
             }
-            setActive(
-              await api<CycleCount>(`/api/cycle-counts/${active.id}/lines`, {
-                method: "POST",
-                body: JSON.stringify({ itemId: hit.item.id }),
-              }),
-            );
+            const withLine = await api<CycleCount>(`/api/cycle-counts/${active.id}/lines`, {
+              method: "POST",
+              body: JSON.stringify({ itemId: hit.item.id }),
+            });
+            setActive(addPack(withLine));
             report?.(true);
             return;
           }

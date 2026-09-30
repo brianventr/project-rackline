@@ -241,6 +241,12 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       shopifyInventoryItemGid: demoInventoryItemGid("GLUE"),
     }),
   ]);
+  const pack = { organizationId, createdAt: now, updatedAt: now };
+  await db.insert(schema.itemPacks).values([
+    { ...pack, id: newId(), itemId: item.resin, level: "case", qty: 6, barcode: "10614141000019", weightOz: 400, lengthIn: 16, widthIn: 11, heightIn: 10 },
+    { ...pack, id: newId(), itemId: item.bulb, level: "inner", qty: 4, barcode: "10614141000026", weightOz: 8, lengthIn: 5, widthIn: 5, heightIn: 3 },
+    { ...pack, id: newId(), itemId: item.bulb, level: "case", qty: 24, barcode: "20614141000023", weightOz: 52, lengthIn: 12, widthIn: 10, heightIn: 8 },
+  ]);
 
   const starting = [
     { itemId: item.bulb, locationId: locIds.a0101!, qty: 25, lotCode: "LOT-2026-A" },
