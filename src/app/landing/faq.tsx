@@ -60,8 +60,8 @@ const accordionItems = [
     title: "Do Garage and Manufacturer share records?",
     content: (
       <div className="text-muted-foreground">
-        Yes. New organizations start in Garage: a ship queue where one click buys the label, picks,
-        packs, ships, and posts tracking back to the store.
+        Yes. New organizations start in Garage: a ship queue where one click picks, packs, buys the
+        label, ships, and posts tracking back to the store.
         The top-bar switch opens Manufacturer for the whole shop. Parts, orders, and builds made
         in Garage are already there.
       </div>
