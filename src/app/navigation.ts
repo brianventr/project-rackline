@@ -71,7 +71,7 @@ export const SETTINGS_ITEMS: NavItem[] = [
   { title: "Imports", url: "/setup/imports", icon: FileInput, keywords: "backerkit kickstarter gamefound crowdfunding csv" },
   { title: "Accounting", url: "/setup/accounting", icon: Calculator, keywords: "qbo xero cogs valuation export" },
   { title: "Carriers", url: "/setup/carriers", icon: Truck, keywords: "ups fedex usps dhl easypost shipengine postage" },
-  { title: "Warehouse", url: "/setup/warehouse", icon: Warehouse, keywords: "building garage mode timezone bench" },
+  { title: "Warehouse", url: "/setup/warehouse", icon: Warehouse, keywords: "building garage mode timezone bench default carrier service" },
   { title: "Team", url: "/setup/team", icon: Users, keywords: "people invite operators roles certs" },
   { title: "Clients", url: "/setup/clients", icon: Building2, keywords: "3pl customers portal" },
   { title: "Zones", url: "/setup/zones", icon: Grid3x3, keywords: "aisles areas" },

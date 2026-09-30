@@ -1,4 +1,5 @@
 import type { ParcelDims } from "./carrier-live";
+import { resolveLabelPurchase, type CarrierConnectionLike } from "./carriers";
 
 export type PackagePreset = {
   id: string;
@@ -100,6 +101,19 @@ export function defaultShipConnection(input: {
   orderConnection?: string | null;
 }): string | null {
   return input.requested?.trim() || input.orderConnection?.trim() || input.warehouseDefault?.trim() || null;
+}
+
+export type BuildingDefaultService = { serviceId: string; connectionId: string | null };
+
+/** The building's default service, or null once its carrier account is gone or no longer offers it. */
+export function buildingDefaultService(
+  connections: CarrierConnectionLike[],
+  warehouse: { defaultCarrierService?: string | null; defaultCarrierConnectionId?: string | null } | null | undefined,
+): BuildingDefaultService | null {
+  const serviceId = warehouse?.defaultCarrierService?.trim();
+  if (!serviceId) return null;
+  const purchase = resolveLabelPurchase({ connections, serviceId, connectionId: warehouse?.defaultCarrierConnectionId });
+  return purchase.ok ? { serviceId: purchase.service.id, connectionId: purchase.connectionId } : null;
 }
 
 export function parsePresetInput(body: {

@@ -34,7 +34,7 @@ Most of this is the same in both modes. New organizations start in Garage.
 
    The card disappears once all four are done.
 5. **Ship weights.** On each SKU (Stock → Items), enter a ship weight in ounces, and optionally length, width and height. The Ship queue uses these to weigh every parcel.
-6. **Carrier.** On Settings → Carriers, connect UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine. Enable services and **Set as default**. Rackline Ground is always there for testing.
+6. **Carrier.** On Settings → Carriers, connect UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine. Enable services and **Set as default**. Rackline Ground is always there for testing. Then pick the building's **Default service** on Settings → Warehouse, or with **Save as default** next to the Ship queue's service picker.
 7. **Manufacturer only:** add zones (Settings → Zones), set carrier cutoffs (the **Cutoffs** button on Outbound → Waves), and add 3PL clients if you hold stock for other brands.
 
 ## 2. How an order moves, end to end
@@ -72,7 +72,7 @@ In **Manufacturer**, it is a floor flow:
 1. Group orders into a wave from the wave planner, or pick orders one at a time.
 2. **Floor → Pick** or **Floor → Wave** (batch pick). The operator scans the bay and each SKU before the post is accepted.
 3. **Floor → Pack.** The operator scans each SKU into the box. Boxes (`BOX-1`, `BOX-2`) are optional; once one exists, every packed unit has to be in a labeled box before ship.
-4. **Floor → Ship** or the order page. Buy the label, or paste a tracking number, then ship. With boxes, each labeled box can ship on its own.
+4. **Floor → Ship** or the order page. Buy the label, or paste a tracking number, then ship. The service starts on the order's own, then the building's default. With boxes, each labeled box can ship on its own.
 
 ### Tracking goes back
 
@@ -116,7 +116,7 @@ The queue sends these orders to **Needs attention** instead of guessing:
 - **Box presets.** The **Boxes** sheet (owners) saves your usual boxes: name, length, width and height in inches, and empty weight in ounces. The first box you add becomes the default, and you can switch the default at any time. The toolbar's box picker overrides the default for this run.
 - **Parcel weight.** Weight is each SKU's ship weight × qty, plus the box's empty weight. A weight typed on the order wins.
 - **Parcel size.** A size typed on the order wins, then the box, then the SKU's own size when the order is a single unit. A row with no ship weight shows **Add weight**, which links to Items.
-- **Service.** The toolbar's service picker applies to this run. Otherwise each order keeps its own service, then the building's default service, then the first enabled service on your default carrier. Rackline Ground is the last fallback.
+- **Service.** The toolbar's service picker applies to this run, and owners can press **Save as default** beside it to make that service the building's default. Otherwise each order keeps its own service, then the building's default service (Settings → Warehouse → Default service), then the first enabled service on your default carrier. Rackline Ground is the last fallback. A default whose carrier is disconnected, or whose service is turned off, is ignored.
 
 ### Printing
 
@@ -148,7 +148,7 @@ Floor Pick, Pack, and Wave keep a record of what was scanned since the last post
 
 Outbound → Waves opens with **Plan by carrier cutoff**. It takes every open order that is not on a wave and groups it by:
 
-- **Carrier pickup.** This is the carrier's cutoff on the day the Promise board says the order can ship. The carrier comes from the order's service, or the building default.
+- **Carrier pickup.** This is the carrier's cutoff on the day the Promise board says the order can ship. The carrier comes from the order's service, or the building's default service (Settings → Warehouse).
 - **Zone.** An order's zone is the one where most of each SKU sits. An order that spans zones is "Multi-zone".
 - **3PL client.**
 

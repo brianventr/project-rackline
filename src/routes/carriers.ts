@@ -25,6 +25,7 @@ import { isLiveAggregator, isLiveDirect } from "../domain/carrier-live";
 import { isDirectProvider } from "../domain/direct-carrier";
 import { normalizeTrackerStatus, parseTrackerWebhook, verifyTrackerHmac } from "../domain/tracker";
 import { loadPackagesForOrders, orderPatchFromPackages } from "../db/packages";
+import { buildingDefaultService } from "../domain/ship-defaults";
 
 export const carriersRoute = new Hono<AppEnv>();
 
@@ -123,6 +124,7 @@ carriersRoute.get("/carriers", async (c) => {
     enabledServices: enabledServicesFromConnections(connections.map(asLike)),
     shipFromAddress: warehouse?.shipFromAddress ?? null,
     warehouseId: warehouse?.id ?? null,
+    defaultService: buildingDefaultService(connections.map(asLike), warehouse),
     trackerWebhookUrl: `${c.get("origin")}/api/carriers/trackers/webhooks`,
   });
 });
@@ -401,6 +403,12 @@ carriersRoute.delete("/carriers/:id", async (c) => {
   }
   const wasDefault = existing.isDefault;
   await db.delete(schema.carrierConnections).where(eq(schema.carrierConnections.id, existing.id));
+  await db
+    .update(schema.warehouses)
+    .set({ defaultCarrierService: null, defaultCarrierConnectionId: null })
+    .where(
+      and(eq(schema.warehouses.organizationId, organizationId), eq(schema.warehouses.defaultCarrierConnectionId, existing.id)),
+    );
   if (wasDefault) {
     const remaining = await loadCarrierConnections(db, organizationId);
     const fallback = remaining.find((row) => row.provider === "rackline") ?? remaining[0];

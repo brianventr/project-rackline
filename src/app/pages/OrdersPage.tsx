@@ -75,6 +75,7 @@ import { hasUnpacked } from "@/domain/partial-pack";
 import { canShipLabeledCarton, canUncartonOrderPackage } from "@/domain/cartons";
 import { planShortShip } from "@/domain/short-ship";
 import { workflowPolicy } from "@/domain/workflow-policy";
+import { startingShipService } from "@/domain/ship-service";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { useSession } from "../session";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
@@ -428,6 +429,7 @@ function NewOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o
 
 function OrderDetail({ id }: { id: string }) {
   const me = useSession();
+  const { warehouseId } = useWarehouse();
   const policy = workflowPolicy(me.organization.operatingMode);
   const [order, setOrder] = useState<Order | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -457,7 +459,7 @@ function OrderDetail({ id }: { id: string }) {
     const [next, nextLocations, hub] = await Promise.all([
       api<Order>(`/api/orders/${id}`),
       api<Location[]>("/api/locations"),
-      api<CarrierHub>("/api/carriers"),
+      api<CarrierHub>(`/api/carriers?warehouseId=${encodeURIComponent(warehouseId)}`),
     ]);
     setOrder(next);
     setLocations(nextLocations);
@@ -465,7 +467,7 @@ function OrderDetail({ id }: { id: string }) {
     resetQtys(next, nextLocations);
     setTrackingNumber(next.trackingNumber || "");
     setTrackingCompany(next.trackingCompany || "");
-    setCarrierService(next.carrierService || hub.enabledServices.find((row) => row.isDefault)?.id || "rackline_ground");
+    setCarrierService(startingShipService(next, hub));
     setWeightOz(String(next.packageWeightOz || 16));
     setLengthIn(String(next.packageLengthIn || 12));
     setWidthIn(String(next.packageWidthIn || 9));

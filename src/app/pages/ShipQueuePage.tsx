@@ -46,11 +46,31 @@ export function ShipQueuePage() {
   const [presetId, setPresetId] = useState<string>("");
   const [serviceId, setServiceId] = useState<string>("");
   const [shipping, setShipping] = useState<string | null>(null);
+  const [savingDefault, setSavingDefault] = useState(false);
   const boxOpen = params.get("setup") === "box";
 
   const data = queue.data;
   const effectivePreset = presetId || data?.defaults.presetId || "";
   const setupLeft = (data?.setup ?? []).filter((step) => !step.done);
+  const defaultServiceId = data?.defaults.carrierService ?? null;
+
+  async function saveDefaultService() {
+    const service = data?.services.find((row) => row.id === serviceId);
+    if (!service || !warehouseId) return;
+    setSavingDefault(true);
+    try {
+      await apiMutate(`/api/warehouses/${encodeURIComponent(warehouseId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ defaultCarrierService: service.id, defaultCarrierConnectionId: service.connectionId }),
+        refresh: "/api/ship",
+      });
+      toast.success(`${service.name} is now this building's default service.`);
+    } catch (err) {
+      toast.error(errorText(err, "Could not save the default service. Try again."));
+    } finally {
+      setSavingDefault(false);
+    }
+  }
 
   async function ship(rows: ShipQueueOrder[]) {
     const ids = rows.map((row) => row.id);
@@ -286,10 +306,15 @@ export function ShipQueuePage() {
               <option value="">Each order's default service</option>
               {(data?.services ?? []).map((service) => (
                 <option key={`${service.connectionId ?? "rl"}-${service.id}`} value={service.id}>
-                  {service.name}
+                  {service.id === defaultServiceId ? `${service.name} (default)` : service.name}
                 </option>
               ))}
             </Select>
+            {owner && serviceId && serviceId !== defaultServiceId ? (
+              <Button size="sm" variant="outline" disabled={savingDefault} onClick={() => void saveDefaultService()}>
+                {savingDefault ? "Saving…" : "Save as default"}
+              </Button>
+            ) : null}
             <ToneBadge tone={readyCount ? "success" : "neutral"}>{readyCount} ready</ToneBadge>
           </div>
         }

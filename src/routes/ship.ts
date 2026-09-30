@@ -13,6 +13,7 @@ import { ordersRoute } from "./orders";
 import { enabledServicesFromConnections, resolveLabelPurchase } from "../domain/carriers";
 import { isLivePostage, liveShipAddress } from "../domain/carrier-live";
 import {
+  buildingDefaultService,
   defaultShipConnection,
   defaultShipService,
   orderParcel,
@@ -121,6 +122,7 @@ shipRoute.get("/ship/queue", async (c) => {
   const presets = await loadPresets(db, organizationId);
   const connections = await loadCarrierConnections(db, organizationId);
   const services = enabledServicesFromConnections(connections);
+  const fallback = buildingDefaultService(connections, warehouse);
   const [shopify] = await db
     .select({ id: schema.shopifyConnections.id })
     .from(schema.shopifyConnections)
@@ -173,7 +175,7 @@ shipRoute.get("/ship/queue", async (c) => {
     const parcel = orderParcel({ lines: orderLines, preset: defaultPreset, order });
     const serviceId = chooseService(services, {
       orderService: order.carrierService,
-      warehouseDefault: warehouse.defaultCarrierService,
+      warehouseDefault: fallback?.serviceId,
     });
     const service = services.find((row) => row.id === serviceId) ?? null;
     const plan =
@@ -236,8 +238,8 @@ shipRoute.get("/ship/queue", async (c) => {
     })),
     defaults: {
       presetId: defaultPreset?.id ?? null,
-      carrierService: warehouse.defaultCarrierService,
-      carrierConnectionId: warehouse.defaultCarrierConnectionId,
+      carrierService: fallback?.serviceId ?? null,
+      carrierConnectionId: fallback?.connectionId ?? null,
     },
     setup: shipSetupSteps({
       storeConnected: Boolean(shopify) || channels.some((row) => row.status === "active"),
@@ -386,17 +388,17 @@ async function quickShipOne(
     .limit(1);
   const connections = await loadCarrierConnections(db, organizationId);
   const services = enabledServicesFromConnections(connections);
+  const fallback = buildingDefaultService(connections, warehouse);
   const carrierService = chooseService(services, {
     requested: body.carrierService,
     orderService: order.carrierService,
-    warehouseDefault: warehouse?.defaultCarrierService,
+    warehouseDefault: fallback?.serviceId,
   });
   const carrierConnectionId =
     defaultShipConnection({
       requested: body.carrierConnectionId,
-      orderConnection: order.carrierConnectionId,
-      warehouseDefault:
-        carrierService && carrierService === warehouse?.defaultCarrierService ? warehouse?.defaultCarrierConnectionId : null,
+      orderConnection: carrierService === order.carrierService ? order.carrierConnectionId : null,
+      warehouseDefault: carrierService && carrierService === fallback?.serviceId ? fallback.connectionId : null,
     }) ?? services.find((row) => row.id === carrierService)?.connectionId ?? null;
   const connection = connections.find((row) => row.id === carrierConnectionId) ?? null;
   const live = Boolean(connection && isLivePostage(connection.provider, connection.mode));
