@@ -101,6 +101,16 @@ export function garageAllowsPath(path: string): boolean {
   );
 }
 
+/** Garage-only screens, and the Manufacturer page that does their job. */
+const MANUFACTURER_REPLACES: Record<string, string> = {
+  "/ship": "/outbound/waves",
+};
+
+/** Where Manufacturer sends a Garage-only screen, or null when the path opens as is. */
+export function manufacturerRedirect(path: string): string | null {
+  return MANUFACTURER_REPLACES[pathOnly(path)] ?? null;
+}
+
 export type GarageNavItem = { title: string; url: string };
 
 export type GarageNavGroup = { label: string; ownerOnly?: boolean; items: GarageNavItem[] };

@@ -12,9 +12,9 @@ const garage = [
 ];
 
 const manufacturer = [
-  "Everything in Garage, on the same ledger",
+  "Garage's parts, orders, channels, and ledger, as they are",
+  "Waves grouped by carrier cutoff, zone, and client, in place of the one-click ship queue",
   "Scan-verified pick and pack on the floor",
-  "Waves grouped by carrier cutoff, zone, and client",
   "Yard, ASN, counts, holds, and replenishment",
   "Equipment, labor, and traffic",
   "3PL clients, EDI, webhooks, and billing",

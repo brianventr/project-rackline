@@ -1,4 +1,4 @@
-import { garageAllowsPath } from "./operating-mode";
+import { garageAllowsPath, manufacturerRedirect } from "./operating-mode";
 
 /**
  * Plain-language definitions for the warehouse words Rackline uses on screen.
@@ -572,11 +572,15 @@ function isOwnerOnlyPath(path: string): boolean {
   return OWNER_ONLY_PREFIXES.some((prefix) => bare === prefix || bare.startsWith(`${prefix}/`));
 }
 
-/** The entry's page if this person can open it: owners-only pages drop for operators, packed-away pages drop in Garage Mode. */
+/**
+ * The entry's page if this person can open it: owners-only pages drop for operators, packed-away pages
+ * drop in Garage Mode, and Garage-only pages (the ship queue) drop in Manufacturer.
+ */
 export function glossaryPathFor(entry: GlossaryEntry, viewer: { role: string; garage: boolean }): string | null {
   const path = entry.path;
   if (!path) return null;
   if (viewer.role !== "owner" && isOwnerOnlyPath(path)) return null;
   if (viewer.garage && !garageAllowsPath(path)) return null;
+  if (!viewer.garage && manufacturerRedirect(path)) return null;
   return path;
 }

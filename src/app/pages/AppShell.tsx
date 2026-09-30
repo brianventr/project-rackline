@@ -4,27 +4,30 @@ import type { Me } from "../api";
 import { SessionProvider, useSession } from "../session";
 import { WarehouseProvider } from "../warehouse";
 import { BaseLayout } from "@/components/layouts/base-layout";
-import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
+import { garageAllowsPath, isGarageMode, manufacturerRedirect } from "@/domain/operating-mode";
 
 export function AppShell({ me }: { me: Me }) {
   return (
     <SessionProvider me={me}>
       <WarehouseProvider>
         <BaseLayout>
-          <GarageGate>
+          <ModeGate>
             <Outlet />
-          </GarageGate>
+          </ModeGate>
         </BaseLayout>
       </WarehouseProvider>
     </SessionProvider>
   );
 }
 
-function GarageGate({ children }: { children: ReactNode }) {
+function ModeGate({ children }: { children: ReactNode }) {
   const me = useSession();
   const location = useLocation();
-  if (isGarageMode(me.organization.operatingMode) && !garageAllowsPath(location.pathname)) {
-    return <Navigate to="/today" replace />;
+  if (isGarageMode(me.organization.operatingMode)) {
+    if (!garageAllowsPath(location.pathname)) return <Navigate to="/today" replace />;
+    return children;
   }
+  const replacement = manufacturerRedirect(location.pathname);
+  if (replacement) return <Navigate to={replacement} replace />;
   return children;
 }

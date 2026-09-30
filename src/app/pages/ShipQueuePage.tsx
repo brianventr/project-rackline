@@ -53,6 +53,8 @@ export function ShipQueuePage() {
   const effectivePreset = presetId || data?.defaults.presetId || "";
   const setupLeft = (data?.setup ?? []).filter((step) => !step.done);
   const defaultServiceId = data?.defaults.carrierService ?? null;
+  // The route gate sends Manufacturer to Waves; this covers a session opened before the mode switched.
+  const quickShip = data?.policy.quickShip !== false;
 
   async function saveDefaultService() {
     const service = data?.services.find((row) => row.id === serviceId);
@@ -203,6 +205,13 @@ export function ShipQueuePage() {
             </Button>
           );
         }
+        if (!quickShip) {
+          return (
+            <Button size="sm" variant="ghost" asChild>
+              <Link to={`/outbound/orders/${row.id}`}>Open</Link>
+            </Button>
+          );
+        }
         if (!row.ready && row.blocker) {
           return (
             <span className="inline-flex max-w-64 items-start gap-1.5 text-left text-xs text-tone-warning">
@@ -230,7 +239,7 @@ export function ShipQueuePage() {
     {
       label: "Create labels & ship",
       icon: Truck,
-      when: (rows) => rows.every((row) => row.ready && row.status !== "shipped"),
+      when: (rows) => quickShip && rows.every((row) => row.ready && row.status !== "shipped"),
       confirm: (rows) => ({
         title: `Ship ${rows.length} ${rows.length === 1 ? "order" : "orders"}?`,
         body: "Each order is picked from its suggested shelf, packed, labeled, and marked shipped. Tracking posts back to the store.",
@@ -269,7 +278,21 @@ export function ShipQueuePage() {
         }
       />
 
-      {setupLeft.length && data ? <SetupChecklist steps={data.setup} onBox={() => setParams((prev) => withParam(prev, "setup", "box"))} /> : null}
+      {!quickShip ? (
+        <Card className="flex flex-col gap-3 p-(--density-gap) md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="font-medium">Manufacturer ships through the floor</p>
+            <p className="text-sm text-muted-foreground">
+              One-click ship is off. Plan waves by carrier cutoff, then pick, pack, and ship by scan on the floor.
+            </p>
+          </div>
+          <Button size="sm" asChild>
+            <Link to="/outbound/waves">Open Waves</Link>
+          </Button>
+        </Card>
+      ) : setupLeft.length && data ? (
+        <SetupChecklist steps={data.setup} onBox={() => setParams((prev) => withParam(prev, "setup", "box"))} />
+      ) : null}
 
       <DataTable
         id="ship-queue"

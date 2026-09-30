@@ -134,7 +134,7 @@ Manufacturer is built like a traditional WMS. Work is planned, directed, and pro
 
 The mode sets a workflow policy on the server, not just in the menu:
 
-- **Quick-ship is off.** The one-click ship calls answer HTTP 409 `WAREHOUSE_FLOW`: "Manufacturer mode ships through the floor."
+- **Quick-ship is off.** Opening the Ship queue (`/ship`) takes you to Outbound → Waves instead, and the one-click ship calls answer HTTP 409 `WAREHOUSE_FLOW`: "Manufacturer mode ships through the floor." The batch label page (`/ship/labels`) still opens.
 - **Pick is scan-verified.** A pick post must carry a scan of the bay it is picked from and a scan of each SKU on it. A serial or lot barcode counts as its SKU. Otherwise the server answers 409 `SCAN_REQUIRED`, for example "Scan bay A-01-02 before posting."
 - **Pack is scan-verified.** Each SKU packed in the post must have been scanned.
 - **Batch pick is scan-verified** on Floor → Wave, with the same bay-and-SKU rule.
@@ -188,7 +188,7 @@ Settings → Integrations changes with the mode:
 | Feels like | ShipStation | A traditional WMS |
 | Home after sign-in | Ship queue, for everyone | Today for owners and office, Floor for operators |
 | How an order ships | One click or bulk (up to 50): pick, pack, label, ship, post-back | Wave → scan pick → scan pack → ship |
-| Quick-ship | On | Off (409 `WAREHOUSE_FLOW`) |
+| Quick-ship | On | Off: `/ship` opens Waves, and the API answers 409 `WAREHOUSE_FLOW` |
 | Scan to pick or pack | Optional | Required (409 `SCAN_REQUIRED`) |
 | Office pick and pack | Yes, on the order page | Hands off to Floor Pick and Pack |
 | Waves | Hidden | Planner by cutoff, zone, and client; batch pick |
@@ -210,7 +210,7 @@ Owners switch with the toggle in the top bar, or on Settings → Warehouse → O
 **What changes:**
 
 - The menu and the home screen.
-- Which pages open. In Garage, packed-away pages redirect to Today.
+- Which pages open. In Garage, packed-away pages redirect to Today. In Manufacturer, the Ship queue redirects to Waves.
 - Whether quick-ship is allowed.
 - Whether pick and pack need scans.
 - Whether the office can post pick and pack.
@@ -267,4 +267,4 @@ A 409 means Rackline refused the post to protect the ledger. Nothing was half wr
 
 **Does the Ship queue reserve stock?** A row being "ready" is a check, not a hold. Stock is reserved when the pick starts, and quick-ship starts the pick.
 
-**Can I use the Ship queue in Manufacturer?** No. Ship buttons there get `WAREHOUSE_FLOW`. Use Waves and the floor, or switch to Garage.
+**Can I use the Ship queue in Manufacturer?** No. `/ship` opens Outbound → Waves instead. If the mode switched while the queue was already open, the queue says so and hides its Ship buttons. Use Waves and the floor, or switch to Garage.

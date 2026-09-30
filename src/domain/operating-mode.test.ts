@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { GARAGE_NAV, garageAllowsPath, garageNavForRole, garageOffersOnFloor, isGarageMode, parseOperatingMode } from "./operating-mode";
+import {
+  GARAGE_NAV,
+  garageAllowsPath,
+  garageNavForRole,
+  garageOffersOnFloor,
+  isGarageMode,
+  manufacturerRedirect,
+  parseOperatingMode,
+} from "./operating-mode";
 import { homePath } from "./home-path";
 
 describe("operating mode", () => {
@@ -99,6 +107,14 @@ describe("operating mode", () => {
     expect(garageOffersOnFloor("/floor/receive")).toBe(true);
     expect(garageOffersOnFloor("/floor/wave")).toBe(false);
     expect(GARAGE_NAV[0]!.items[0]!.url).toBe("/ship");
+  });
+
+  it("sends Manufacturer from the ship queue to Waves and keeps the label page", () => {
+    expect(manufacturerRedirect("/ship")).toBe("/outbound/waves");
+    expect(manufacturerRedirect("/ship/?setup=box")).toBe("/outbound/waves");
+    expect(manufacturerRedirect("/ship/labels?ids=a,b")).toBeNull();
+    expect(manufacturerRedirect("/outbound/orders")).toBeNull();
+    expect(manufacturerRedirect("/today")).toBeNull();
   });
 
   it("lands Garage on Ship and Manufacturer on Today or the floor", () => {

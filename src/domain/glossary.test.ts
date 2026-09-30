@@ -281,6 +281,12 @@ describe("glossaryPathFor", () => {
     expect(glossaryPathFor(glossaryEntry("asn")!, owner)).toBe("/inbound/asns");
   });
 
+  it("drops the ship queue in Manufacturer", () => {
+    expect(glossaryPathFor(glossaryEntry("quick-ship")!, garageOwner)).toBe("/ship");
+    expect(glossaryPathFor(glossaryEntry("quick-ship")!, owner)).toBeNull();
+    expect(glossaryPathFor(glossaryEntry("quick-ship")!, operator)).toBeNull();
+  });
+
   it("returns null when there is no page", () => {
     expect(glossaryPathFor(glossaryEntry("fefo")!, owner)).toBeNull();
   });
