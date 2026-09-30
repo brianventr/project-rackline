@@ -496,11 +496,17 @@ async function quickShipOne(
   const run = await runQuickShip(steps, () => undoQuickShip(c, call, order.id, snapshot));
   if (!run.ok) return fail(run.failure.status, run.failure.error, run.failure.code);
   const [shipped] = await db
-    .select({ trackingNumber: schema.orders.trackingNumber })
+    .select({ trackingNumber: schema.orders.trackingNumber, channelSyncStatus: schema.orders.channelSyncStatus })
     .from(schema.orders)
     .where(eq(schema.orders.id, order.id))
     .limit(1);
-  return { orderId, ok: true, number: order.number, trackingNumber: shipped?.trackingNumber ?? null };
+  return {
+    orderId,
+    ok: true,
+    number: order.number,
+    trackingNumber: shipped?.trackingNumber ?? null,
+    manualPostBack: shipped?.channelSyncStatus === "manual",
+  };
 }
 
 /** Voids a label this run bought, then puts stock, pack counts, status, and reservations back. */

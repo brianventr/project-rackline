@@ -78,7 +78,7 @@ In **Manufacturer**, it is a floor flow:
 
 1. **Shopify** gets one `fulfillmentCreate` per shipped box, or one for the whole order when there are no boxes. If it fails, **Retry Shopify** is on the order's menu.
 2. **WooCommerce** is marked completed with the tracking number, and **Etsy** gets tracking on the receipt. This happens when the order is fully shipped. If it fails, the order still counts as shipped in Rackline, the error is saved on the order, and **Retry WooCommerce tracking** or **Retry Etsy tracking** appears on its menu.
-3. **Faire and CSV-imported orders** do not post back. Mark them shipped in the channel.
+3. **Faire orders, and Etsy orders while Etsy is connected only by CSV,** do not post back. Mark them shipped in the channel. An Etsy order shipped without a live connection shows **Manual** under Tracking post-back, with "Mark it shipped in Etsy." and no retry, and it does not count as a failed post-back on Settings → Channels. The ship toast lists these orders too. Once Etsy is connected live, orders imported by CSV post tracking like any other.
 4. **Carrier tracking.** EasyPost and ShipEngine tracker webhooks move orders through at gate, in flight, and arrived on Traffic. Failures show as exceptions on Today, where you can buy a replacement label.
 
 ## 3. Garage: simple on the surface, full ledger underneath
@@ -266,7 +266,7 @@ A 409 means Rackline refused the post to protect the ledger. Nothing was half wr
 
 **Channel keys stopped working after a redeploy.** WooCommerce and Etsy credentials are sealed with `BETTER_AUTH_SECRET`. If that secret changes, the stored keys can no longer be read, and you have to reconnect the channel. A deployed Worker with a secret shorter than 32 characters will not store channel keys at all. Only local `http://localhost` uses a built-in development key.
 
-**An order shipped but the store still shows it unfulfilled.** Open the order. If the post-back failed, the menu has **Retry Shopify**, or **Retry WooCommerce tracking** / **Retry Etsy tracking**. Faire and CSV orders never post back, so mark those shipped in the channel.
+**An order shipped but the store still shows it unfulfilled.** Open the order. If the post-back failed, the menu has **Retry Shopify**, or **Retry WooCommerce tracking** / **Retry Etsy tracking**. If Tracking post-back says **Manual**, the channel has no live connection (Etsy by CSV), so there is nothing to retry: mark it shipped in the channel. Faire orders never post back either.
 
 **Can I test without buying postage?** Yes. Rackline Ground and demo carrier connections mint local tracking numbers. Live postage only happens on a live EasyPost, ShipEngine, UPS, FedEx, USPS, or DHL connection.
 

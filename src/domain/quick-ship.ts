@@ -114,7 +114,14 @@ export function planQuickShip(order: QuickShipOrder, baysByItem: Map<string, Sto
 }
 
 export type QuickShipOutcome =
-  | { orderId: string; ok: true; number: string; trackingNumber: string | null }
+  | {
+      orderId: string;
+      ok: true;
+      number: string;
+      trackingNumber: string | null;
+      /** The channel has no live connection, so the owner marks the order shipped there. */
+      manualPostBack?: boolean;
+    }
   | { orderId: string; ok: false; number?: string; status: number; code?: string; error: string };
 
 export function summarizeQuickShip(outcomes: QuickShipOutcome[]) {

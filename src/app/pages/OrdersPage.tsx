@@ -76,6 +76,7 @@ import { canShipLabeledCarton, canUncartonOrderPackage } from "@/domain/cartons"
 import { planShortShip } from "@/domain/short-ship";
 import { workflowPolicy } from "@/domain/workflow-policy";
 import { startingShipService } from "@/domain/ship-service";
+import { canRetryPostBack, manualPostBackNote, markShippedIn } from "@/domain/channels/adapter";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { useSession } from "../session";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
@@ -502,6 +503,7 @@ function OrderDetail({ id }: { id: string }) {
   }
 
   const sumQty = (values: Record<string, string>) => Object.values(values).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  const manualNote = (next: Order | null) => (next?.channelSyncStatus === "manual" ? ` ${markShippedIn(next.source ?? "")}` : "");
 
   const quickShip = () =>
     run(
@@ -510,7 +512,7 @@ function OrderDetail({ id }: { id: string }) {
         await api(`/api/orders/${id}/quick-ship`, { method: "POST", body: JSON.stringify({}) });
         return api<Order>(`/api/orders/${id}`);
       },
-      (next) => `Shipped ${next?.number ?? "order"}${next?.trackingNumber ? ` · ${next.trackingNumber}` : ""}.`,
+      (next) => `Shipped ${next?.number ?? "order"}${next?.trackingNumber ? ` · ${next.trackingNumber}` : ""}.${manualNote(next)}`,
     );
 
   const startPick = () =>
@@ -616,11 +618,15 @@ function OrderDetail({ id }: { id: string }) {
             heightIn: Number(heightIn),
           }),
         }),
-      (next) => `Shipped ${next?.number ?? "order"}${next?.source === "shopify" ? " and fulfilled on Shopify" : ""}.`,
+      (next) => `Shipped ${next?.number ?? "order"}${next?.source === "shopify" ? " and fulfilled on Shopify" : ""}.${manualNote(next)}`,
     );
 
   const shipCarton = (pkgId: string, number: string) =>
-    run("Ship carton", () => api<Order>(`/api/orders/${id}/packages/${pkgId}/ship`, { method: "POST" }), () => `Shipped ${number}.`);
+    run(
+      "Ship carton",
+      () => api<Order>(`/api/orders/${id}/packages/${pkgId}/ship`, { method: "POST" }),
+      (next) => `Shipped ${number}.${manualNote(next)}`,
+    );
 
   const uncarton = (pkgId: string, number: string) =>
     run("Drop carton", () => api<Order>(`/api/orders/${id}/packages/${pkgId}/uncarton`, { method: "POST" }), () => `Dropped ${number}. Its units can be boxed again.`);
@@ -632,10 +638,12 @@ function OrderDetail({ id }: { id: string }) {
         const result = await api<{ status: string; error?: string }>(`/api/channels/orders/${id}/post-back`, {
           method: "POST",
         });
-        if (result.status !== "fulfilled") throw new Error(result.error || "The channel did not accept the tracking number.");
+        if (result.status !== "fulfilled" && result.status !== "manual") {
+          throw new Error(result.error || "The channel did not accept the tracking number.");
+        }
         return api<Order>(`/api/orders/${id}`);
       },
-      () => "Tracking sent to the channel.",
+      (next) => (next?.channelSyncStatus === "manual" ? markShippedIn(next.source ?? "") : "Tracking sent to the channel."),
     );
 
   const retryShopify = () =>
@@ -773,7 +781,7 @@ function OrderDetail({ id }: { id: string }) {
     (order.shopifySyncStatus === "failed" || packages.some((pkg) => pkg.shippedAt && !pkg.shopifyFulfillmentId));
 
   const channelName = CHANNEL_NAMES[order.source ?? ""];
-  const channelRetry = Boolean(channelName) && order.status === "shipped" && order.channelSyncStatus === "failed";
+  const channelRetry = canRetryPostBack(order);
 
   let primary: DocumentAction | null = null;
   const quickShipOk =
@@ -959,6 +967,9 @@ function OrderDetail({ id }: { id: string }) {
               </DocumentFact>
               {order.shopifySyncError ? <p className="text-sm text-destructive">{order.shopifySyncError}</p> : null}
               {order.channelSyncError ? <p className="text-sm text-destructive">{order.channelSyncError}</p> : null}
+              {order.channelSyncStatus === "manual" ? (
+                <p className="text-sm text-muted-foreground">{manualPostBackNote(order.source ?? "")}</p>
+              ) : null}
             </Card>
           </DocumentRail>
         }

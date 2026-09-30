@@ -10,6 +10,7 @@ import { FormSheet } from "../components/form-sheet";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
+import { markShippedReminder } from "@/domain/channels/adapter";
 
 const TABS: TabDef<ShipQueueOrder>[] = [
   { id: "ready", label: "Ready to ship", match: (row) => row.status !== "shipped" && row.ready },
@@ -94,7 +95,13 @@ export function ShipQueuePage() {
         });
       }
       if (shippedIds.length) {
+        const manual = result.outcomes.flatMap((row) =>
+          row.ok && row.manualPostBack
+            ? [{ number: row.number, source: rows.find((order) => order.id === row.orderId)?.source ?? "" }]
+            : [],
+        );
         toast.success(`Shipped ${shippedIds.length} ${shippedIds.length === 1 ? "order" : "orders"}.`, {
+          description: markShippedReminder(manual) ?? undefined,
           action: { label: "Print labels", onClick: () => navigate(labelsHref(shippedIds)) },
         });
       }

@@ -231,6 +231,7 @@ const TONE_BY_STATUS: Record<string, StatusTone> = {
   dekitted: "neutral",
   voided: "neutral",
   inbound: "neutral",
+  manual: "neutral",
   checked_out: "neutral",
   clear: "neutral",
   open: "info",

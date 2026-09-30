@@ -1692,7 +1692,7 @@ export type ShipQueue = {
 };
 
 export type QuickShipOutcome =
-  | { orderId: string; ok: true; number: string; trackingNumber: string | null }
+  | { orderId: string; ok: true; number: string; trackingNumber: string | null; manualPostBack?: boolean }
   | { orderId: string; ok: false; number?: string; status: number; code?: string; error: string };
 
 export type QuickShipBatch = { shipped: number; failed: number; total: number; outcomes: QuickShipOutcome[] };

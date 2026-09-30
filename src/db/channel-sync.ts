@@ -14,7 +14,7 @@ import {
 } from "../lib/channel-clients";
 import { mapWooOrder } from "../domain/channels/woocommerce";
 import { etsyTokenFresh, mapEtsyReceipt } from "../domain/channels/etsy";
-import { postsTrackingBack, type ChannelOrder, type ChannelSkip } from "../domain/channels/adapter";
+import { postBackRoute, postsTrackingBack, type ChannelOrder, type ChannelSkip } from "../domain/channels/adapter";
 import { channelWarehouseId, persistChannelOrder, skuIndex, type ChannelConnectionRow } from "./channel-ingest";
 
 export type SyncSummary = { created: number; existing: number; skipped: number; missingSkus: string[] };
@@ -152,7 +152,8 @@ export async function runChannelCron(db: AppDb, env: Bindings): Promise<{ synced
   return { synced, failed };
 }
 
-export type ChannelFulfillResult = { status: "fulfilled" | "failed" | "skipped"; error?: string };
+/** `manual`: the channel has no live connection, so the owner marks the order shipped there. Never retried. */
+export type ChannelFulfillResult = { status: "fulfilled" | "failed" | "manual" | "skipped"; error?: string };
 
 async function trackingFor(db: AppDb, order: typeof schema.orders.$inferSelect) {
   if (order.trackingNumber) {
@@ -168,7 +169,8 @@ async function trackingFor(db: AppDb, order: typeof schema.orders.$inferSelect) 
 
 /**
  * Posts tracking back to WooCommerce or Etsy after the order ships. Never throws: the order is
- * already shipped in Rackline, so a channel failure is recorded on the order for a retry.
+ * already shipped in Rackline, so a channel failure is recorded on the order for a retry. A channel
+ * with no live connection records `manual` instead, since a retry could never reach it.
  */
 export async function fulfillChannelOrder(
   db: AppDb,
@@ -184,11 +186,11 @@ export async function fulfillChannelOrder(
   if (!order || !postsTrackingBack(order.source) || !order.externalOrderId) return { status: "skipped" };
   if (order.channelSyncStatus === "fulfilled") return { status: "fulfilled" };
 
-  const record = async (result: ChannelFulfillResult) => {
+  const record = async (result: { status: "fulfilled" | "failed" | "manual"; error?: string }) => {
     await db
       .update(schema.orders)
       .set({
-        channelSyncStatus: result.status === "fulfilled" ? "fulfilled" : "failed",
+        channelSyncStatus: result.status,
         channelSyncError: result.error ?? null,
         channelFulfilledAt: result.status === "fulfilled" ? Date.now() : null,
       })
@@ -201,9 +203,10 @@ export async function fulfillChannelOrder(
     .from(schema.channelConnections)
     .where(and(eq(schema.channelConnections.organizationId, organizationId), eq(schema.channelConnections.channel, order.source)))
     .limit(1);
-  if (!conn || conn.status === "disconnected") return record({ status: "failed", error: "Channel is not connected." });
-  if (conn.mode === "demo") return record({ status: "fulfilled" });
-  if (conn.mode !== "live") return record({ status: "failed", error: "Channel was imported by CSV; mark it shipped there." });
+  const route = postBackRoute(conn);
+  if (!conn || route === "not_connected") return record({ status: "failed", error: "Channel is not connected." });
+  if (route === "demo") return record({ status: "fulfilled" });
+  if (route === "manual") return record({ status: "manual" });
 
   const tracking = await trackingFor(db, order);
   if (!tracking) return record({ status: "failed", error: "No tracking number to post back." });
