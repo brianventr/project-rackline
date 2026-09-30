@@ -42,6 +42,8 @@ import {
 import { cn } from "@/lib/utils";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
+import { checkScanEvidence, workflowPolicy } from "@/domain/workflow-policy";
+import { EMPTY_SCAN_LOG, afterPost, recordScan, scanEvidence, type ScanLog } from "./scan-log";
 
 type PickMode = "guided" | "list";
 
@@ -94,6 +96,8 @@ export function FloorPickPage() {
   const [checks, setChecks] = useState<StopChecks | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const needScan = workflowPolicy(me.organization.operatingMode).scanVerifiedPick;
+  const [scanLog, setScanLog] = useState<ScanLog>(EMPTY_SCAN_LOG);
 
   function setMode(next: PickMode) {
     setModeState(next);
@@ -103,7 +107,7 @@ export function FloorPickPage() {
   function applyOrder(order: Order, nextLocations: Location[]) {
     setActive(order);
     setLocationId(defaultPickLocation(order, nextLocations));
-    setQtys(qtyDefaults(order));
+    setQtys(needScan ? zeroQtys(order) : qtyDefaults(order));
     setUnpickQtys(unpickQtyDefaults(order));
   }
 
@@ -115,6 +119,7 @@ export function FloorPickPage() {
     setBayOverride({});
     setChecks(null);
     setNotice(null);
+    setScanLog(afterPost);
   }, [activeId]);
 
   const stops = useMemo(() => (active ? pickStops(active.lines ?? [], locations) : []), [active, locations]);
@@ -242,6 +247,7 @@ export function FloorPickPage() {
       setError(null);
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
         .then(async (hit) => {
+          setScanLog((log) => recordScan(log, hit));
           if (hit.kind === "order") {
             const order = await api<Order>(`/api/orders/${hit.order.id}`);
             const job = jobForRef(jobs, "order", order.id, desiredVerb("order", order.status) ?? "pick");
@@ -296,8 +302,9 @@ export function FloorPickPage() {
         .filter((line) => line.qty > 0);
       const picked = await api<Order>(`/api/orders/${active.id}/pick`, {
         method: "POST",
-        body: JSON.stringify({ locationId, lines }),
+        body: JSON.stringify({ locationId, lines, scan: scanEvidence(scanLog, locationId) }),
       });
+      setScanLog(afterPost);
       applyOrder(picked, locations);
       await load();
     } catch (err) {
@@ -334,8 +341,9 @@ export function FloorPickPage() {
       });
       const picked = await api<Order>(`/api/orders/${active.id}/pick`, {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, scan: scanEvidence(scanLog, bayId) }),
       });
+      setScanLog(afterPost);
       setStepQtys((current) => withoutKey(current, key));
       setLots((current) => withoutKey(current, stop.lineId));
       setSerials((current) => withoutKey(current, stop.lineId));
@@ -445,6 +453,23 @@ export function FloorPickPage() {
   const unpickable = (active?.lines ?? []).some((line) => (line.unpickRemaining ?? 0) > 0);
 
   const guidedBayCode = locationCode(locations, bayId) ?? stop?.locationCode ?? null;
+  const listScanProblem =
+    needScan && active && !guided
+      ? checkScanEvidence(
+          (active.lines ?? []).map((line) => ({ lineId: line.id, qty: Number(qtys[line.id] || 0), sku: line.sku, barcode: line.barcode ?? null })),
+          scanEvidence(scanLog, locationId),
+          { bay: bayRef(locations, locationId) },
+        )
+      : null;
+  const stopLine = stop ? (active?.lines ?? []).find((row) => row.id === stop.lineId) : undefined;
+  const stopScanProblem =
+    needScan && stop
+      ? checkScanEvidence(
+          [{ lineId: stop.lineId, qty: 1, sku: stop.sku, barcode: stopLine?.barcode ?? null }],
+          scanEvidence(scanLog, bayId),
+          { bay: bayRef(locations, bayId) },
+        )
+      : null;
   const scanLabel = guided && stop ? "Scan bay or SKU" : guided && !remaining ? "Scan the next order" : "Scan order, bay, or SKU";
   const scanPlaceholder =
     guided && stop ? `${guidedBayCode ?? "Bay"} or ${stop.sku}` : "ORD-DEMO1, B-01-01, or LAMP";
@@ -516,6 +541,7 @@ export function FloorPickPage() {
               }}
               notice={notice}
               busy={busy}
+              scanProblem={stopScanProblem}
               canSkip={stops.length > 1}
               onPick={() => void pickStop()}
               onSkip={skipStop}
@@ -635,9 +661,14 @@ export function FloorPickPage() {
           </Field>
           <div className="flex flex-wrap gap-2">
             {canPickOrder(active.status) && remaining ? (
-              <Button disabled={!thisPick} onClick={() => void pick()}>
+              <Button disabled={!thisPick || Boolean(listScanProblem)} onClick={() => void pick()}>
                 Pick from bay
               </Button>
+            ) : null}
+            {canPickOrder(active.status) && remaining && thisPick && listScanProblem ? (
+              <p className="basis-full text-sm text-muted-foreground" role="status">
+                {listScanProblem}.
+              </p>
             ) : null}
             {canUnpickOrder(active.status) && unpickable ? (
               <Button variant="secondary" disabled={!thisUnpick} onClick={() => void unpick()}>
@@ -828,6 +859,7 @@ function GuidedStop({
   onBay,
   notice,
   busy,
+  scanProblem,
   canSkip,
   onPick,
   onSkip,
@@ -851,6 +883,8 @@ function GuidedStop({
   onBay: (locationId: string) => void;
   notice: string | null;
   busy: boolean;
+  /** Manufacturer mode: what still needs a scan before Picked posts. */
+  scanProblem: string | null;
   canSkip: boolean;
   onPick: () => void;
   onSkip: () => void;
@@ -858,7 +892,7 @@ function GuidedStop({
   const max = line ? lineRemaining(line) : stop.qty;
   const count = clampPickQty(qty, max);
   const [otherBay, setOtherBay] = useState(!stop.locationId);
-  const canPick = Boolean(bayId) && count >= 1 && !busy;
+  const canPick = Boolean(bayId) && count >= 1 && !busy && !scanProblem;
   const qtyLabelId = `pick-qty-${stop.lineId}`;
 
   return (
@@ -974,7 +1008,7 @@ function GuidedStop({
       <div className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-10 -mx-(--density-gap) bg-card px-(--density-gap) py-2 shadow-[0_-10px_12px_-12px_rgb(0_0_0/0.35)] md:bottom-0">
         <Button className="h-14 w-full text-lg" disabled={!canPick} onClick={onPick}>
           {busy ? <Loader2 className="size-5 animate-spin" /> : <Check className="size-5" />}
-          {bayId ? `Picked ${count}` : "Choose a bay first"}
+          {!bayId ? "Choose a bay first" : scanProblem ? scanProblem : `Picked ${count}`}
         </Button>
       </div>
 
@@ -1085,6 +1119,15 @@ function bayAddress(locations: Location[], id: string | null | undefined): strin
   if (!location) return null;
   if (!location.aisle && !location.rack && !location.bay) return location.name || null;
   return formatLocationAddress(location);
+}
+
+function zeroQtys(order: Order): Record<string, string> {
+  return Object.fromEntries((order.lines ?? []).map((line) => [line.id, "0"]));
+}
+
+function bayRef(locations: Location[], id: string | null | undefined): { code: string; barcode: string } | null {
+  const row = id ? locations.find((location) => location.id === id) : undefined;
+  return row ? { code: row.code, barcode: row.barcode } : null;
 }
 
 function qtyDefaults(order: Order): Record<string, string> {

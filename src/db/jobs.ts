@@ -1175,6 +1175,8 @@ async function upsertSuggestionJobs(db: AppDb, organizationId: string, warehouse
   }
 }
 
+const CHANNEL_LABEL: Record<string, string> = { shopify: "Shopify", woocommerce: "WooCommerce", etsy: "Etsy" };
+
 export function orderJobInput(order: {
   id: string;
   organizationId: string;
@@ -1193,9 +1195,9 @@ export function orderJobInput(order: {
     refId: order.id,
     status: order.status,
     number: order.number,
-    title: order.source === "shopify" ? `${order.customerName} · Shopify` : order.customerName,
+    title: CHANNEL_LABEL[order.source ?? ""] ? `${order.customerName} · ${CHANNEL_LABEL[order.source!]}` : order.customerName,
     fromLocationId: order.pickLocationId,
-    dueAt: order.source === "shopify" ? order.createdAt : null,
+    dueAt: CHANNEL_LABEL[order.source ?? ""] ? order.createdAt : null,
     createdAt: order.createdAt,
   };
 }

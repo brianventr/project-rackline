@@ -13,6 +13,7 @@ import {
 /** Office and floor routes in src/app/App.tsx that a glossary entry may link to. */
 const ROUTES = new Set([
   "/today",
+  "/ship",
   "/live",
   "/floor",
   "/floor/lookup",

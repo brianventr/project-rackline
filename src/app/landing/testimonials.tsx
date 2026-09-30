@@ -28,7 +28,7 @@ const testimonials = [
     name: "Founder",
     role: "Garage Mode",
     content:
-      "We started on the bench: receive, make, pick, and ship. The full warehouse opened on the same ledger when the garage ran out of room.",
+      "We started in Garage: receive, make, pick, and ship. Manufacturer opened the rest of the floor on the same records when the product took off.",
     rating: 5,
   },
   {

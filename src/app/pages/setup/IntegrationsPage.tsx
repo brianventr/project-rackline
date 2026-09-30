@@ -1,13 +1,27 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { Calculator, FileInput, Store, Truck, type LucideIcon } from "lucide-react";
-import type { CarrierHub, ShopifyConnection } from "../../api";
-import { Button, PageHeader, StatusBadge, ToneBadge } from "../../components/ui";
+import {
+  Boxes,
+  Building2,
+  Calculator,
+  FileInput,
+  Package,
+  Printer,
+  Store,
+  Truck,
+  Webhook,
+  type LucideIcon,
+} from "lucide-react";
+import type { CarrierHub, ChannelStatus, ChannelsPayload } from "../../api";
+import { Button, Input, PageHeader, StatusBadge, ToneBadge } from "../../components/ui";
 import { Term } from "../../components/term";
 import { useApiQuery } from "../../query";
+import { useSession } from "../../session";
 import { useWarehouse } from "../../warehouse";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StatusTone } from "@/domain/status";
+import { relativeTime } from "@/domain/relative-time";
+import { channelHealthBadge } from "./channel-health";
 
 type Connection = {
   tone: StatusTone;
@@ -16,46 +30,132 @@ type Connection = {
   connected: boolean;
 };
 
+type EdiRow = { id: string; status: string; createdAt: number };
+type ClientRow = { id: string; code: string; name: string };
+
 export function IntegrationsPage() {
+  const me = useSession();
   const { warehouseId } = useWarehouse();
-  const shopify = useApiQuery<ShopifyConnection>("/api/shopify/connection");
+  const garage = me.organization.operatingMode === "garage";
+  const owner = me.role === "owner";
+  const channels = useApiQuery<ChannelsPayload>("/api/channels");
   const carriers = useApiQuery<CarrierHub>(`/api/carriers?warehouseId=${encodeURIComponent(warehouseId)}`);
+  const edi = useApiQuery<EdiRow[]>(!garage && owner ? "/api/edi/inbox" : null);
+  const clients = useApiQuery<ClientRow[]>(!garage ? "/api/clients" : null);
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
 
   return (
-    <div className="space-y-(--density-gap)">
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Setup"
         title="Integrations"
-        description="Connect checkout, marketplaces, pledges, shipping, and accounting exports."
+        description={
+          garage
+            ? "Connect where you sell and how you ship. Orders land on the ship queue; tracking goes back to the buyer."
+            : "Order sources, carriers, trading partners, and systems that read from Rackline."
+        }
       />
-      <div className="grid gap-(--density-gap) md:grid-cols-2">
+
+      <Group title="Sales channels" hint={garage ? "Paid orders become ship-queue rows." : "Orders become pick tickets for the next wave."}>
+        {channels.isLoading
+          ? [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-40 rounded-lg" />)
+          : (channels.data?.channels ?? []).map((row) => (
+              <IntegrationCard
+                key={row.id}
+                icon={Store}
+                name={row.name}
+                summary={
+                  row.id === "shopify" ? (
+                    <>
+                      Checkout → pick ticket. <Term id="sellable">Sellable qty</Term> and fulfillment post back.
+                    </>
+                  ) : (
+                    row.blurb
+                  )
+                }
+                to={row.setupPath}
+                loading={false}
+                state={channelState(row)}
+              />
+            ))}
+        {channels.error ? <p className="text-sm text-destructive">{channels.error.message}</p> : null}
+      </Group>
+
+      <Group title="Shipping">
         <IntegrationCard
-          icon={Store}
-          name="Shopify"
-          summary={
-            <>
-              Checkout → pick ticket. <Term id="sellable">Sellable qty</Term> and fulfillment post back. Stocky
-              replacement for POs and stocktakes lives on the same ledger.
-            </>
-          }
-          to="/setup/shopify"
-          loading={shopify.isLoading}
-          error={shopify.error?.message}
-          state={shopify.data ? shopifyState(shopify.data) : null}
+          icon={Truck}
+          name="Carriers"
+          summary="UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine."
+          to="/setup/carriers"
+          loading={carriers.isLoading}
+          error={carriers.error?.message}
+          state={carriers.data ? carrierState(carriers.data) : null}
         />
-        <IntegrationCard
-          icon={Store}
-          name="Etsy & Faire"
-          summary="CSV order ingest for handmade and wholesale channels beside Shopify."
-          to="/setup/channels"
-          loading={false}
-          state={{
-            tone: "neutral",
-            label: "CSV import",
-            detail: "Connect a shop name, then paste an orders export.",
-            connected: false,
-          }}
-        />
+        {garage ? (
+          <IntegrationCard
+            icon={Package}
+            name="Boxes & default service"
+            summary="Saved box sizes and the service each label uses unless you pick another."
+            to="/ship?setup=box"
+            loading={false}
+            state={{ tone: "neutral", label: "Ship queue", detail: "Set on the ship queue toolbar.", connected: true }}
+          />
+        ) : (
+          <IntegrationCard
+            icon={Printer}
+            name="Label printers"
+            summary="Thermal printers per station for cartons, pallets, and bays."
+            to="/setup/labels"
+            loading={false}
+            state={{ tone: "neutral", label: "Per station", detail: "Browser print works without setup.", connected: true }}
+          />
+        )}
+      </Group>
+
+      {!garage ? (
+        <Group title="Trading partners & systems" hint="Manufacturer mode only.">
+          <IntegrationCard
+            icon={Building2}
+            name="EDI"
+            summary="Inbound 856 ASNs from suppliers become receipts on the dock."
+            to="/setup/edi"
+            loading={edi.isLoading}
+            error={edi.error?.message}
+            state={owner ? ediState(edi.data) : { tone: "neutral", label: "Owner only", detail: "Ask an owner to manage EDI.", connected: true }}
+          />
+          <IntegrationCard
+            icon={Boxes}
+            name="3PL clients"
+            summary="Client-owned stock, per-client billing, and client-scoped orders."
+            to="/setup/clients"
+            loading={clients.isLoading}
+            error={clients.error?.message}
+            state={clients.data ? clientState(clients.data) : null}
+          />
+          <IntegrationCard
+            icon={Webhook}
+            name="Webhooks & API"
+            summary="Endpoints outside systems post to. Every write is in the audit log."
+            to="/setup/audit"
+            action="Audit log"
+            loading={false}
+            state={{
+              tone: "neutral",
+              label: "Inbound",
+              connected: true,
+              detail: (
+                <div className="grid gap-1">
+                  <EndpointRow label="Shopify orders" url={`${origin}/api/shopify/webhooks`} />
+                  <EndpointRow label="Carrier tracking" url={`${origin}/api/carriers/trackers/webhooks`} />
+                  <EndpointRow label="EDI 856" url={`${origin}/api/edi/asn`} />
+                </div>
+              ),
+            }}
+          />
+        </Group>
+      ) : null}
+
+      <Group title="Imports & accounting">
         <IntegrationCard
           icon={FileInput}
           name="Crowdfunding imports"
@@ -66,7 +166,7 @@ export function IntegrationsPage() {
             tone: "neutral",
             label: "Pledge CSV",
             detail: "Map reward SKUs to catalog items, then ship the wave.",
-            connected: false,
+            connected: true,
           }}
         />
         <IntegrationCard
@@ -75,47 +175,72 @@ export function IntegrationsPage() {
           summary="QBO/Xero-ready valuation and COGS CSVs. Set unit cost on each SKU."
           to="/setup/accounting"
           loading={false}
-          state={{
-            tone: "neutral",
-            label: "CSV export",
-            detail: "Live journal sync is next; export works today.",
-            connected: false,
-          }}
+          state={{ tone: "neutral", label: "CSV export", detail: "Download valuation and COGS by period.", connected: true }}
         />
-        <IntegrationCard
-          icon={Truck}
-          name="Carriers"
-          summary="UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine."
-          to="/setup/carriers"
-          loading={carriers.isLoading}
-          error={carriers.error?.message}
-          state={carriers.data ? carrierState(carriers.data) : null}
-        />
-      </div>
+      </Group>
+
+      {garage ? (
+        <p className="text-sm text-muted-foreground">
+          EDI, 3PL clients, and inbound API endpoints appear in Manufacturer mode.
+        </p>
+      ) : null}
     </div>
   );
 }
 
-function shopifyState(row: ShopifyConnection): Connection {
-  if (!row.connected) {
-    return {
-      tone: "neutral",
-      label: "Not connected",
-      detail: "Orders only come from the floor until a shop is connected.",
-      connected: false,
-    };
+function Group({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <h2 className="text-sm font-medium">{title}</h2>
+        {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+      </div>
+      <div className="grid gap-(--density-gap) md:grid-cols-2">{children}</div>
+    </section>
+  );
+}
+
+function EndpointRow({ label, url }: { label: string; url: string }) {
+  return (
+    <label className="grid grid-cols-[7rem_1fr] items-center gap-2 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <Input readOnly value={url} onFocus={(e) => e.currentTarget.select()} className="h-7 font-mono text-xs" />
+    </label>
+  );
+}
+
+function channelState(row: ChannelStatus): Connection {
+  const badge = channelHealthBadge(row);
+  const connected = row.health !== "disconnected";
+  const parts: string[] = [];
+  if (row.externalShop) parts.push(row.externalShop);
+  if (connected) parts.push(`${row.openOrders} open`);
+  if (row.lastSyncAt) parts.push(`pulled ${relativeTime(row.lastSyncAt)}`);
+  let detail: ReactNode = parts.join(" · ");
+  if (!connected) {
+    detail = row.liveOrders
+      ? row.configured
+        ? "Connect to pull paid orders automatically."
+        : "Needs an app key on this deployment; CSV works today."
+      : "Paste an orders export.";
   }
-  return {
-    tone: "success",
-    label: "Connected",
-    connected: true,
-    detail: (
+  if (row.lastSyncError) detail = <span className="text-destructive">{row.lastSyncError}</span>;
+  else if (row.failedPostBacks) {
+    detail = (
+      <span className="text-destructive">
+        {row.failedPostBacks} shipped {row.failedPostBacks === 1 ? "order" : "orders"} did not post tracking
+      </span>
+    );
+  }
+  if (row.id === "shopify" && row.mode) {
+    detail = (
       <span className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-xs">{row.shopDomain}</span>
+        <span className="font-mono text-xs">{row.externalShop}</span>
         <StatusBadge status={row.mode} />
       </span>
-    ),
-  };
+    );
+  }
+  return { tone: badge.tone, label: badge.label, detail, connected };
 }
 
 function carrierState(hub: CarrierHub): Connection {
@@ -156,11 +281,42 @@ function carrierState(hub: CarrierHub): Connection {
   };
 }
 
+function ediState(rows: EdiRow[] | undefined): Connection | null {
+  if (!rows) return null;
+  if (!rows.length) {
+    return { tone: "neutral", label: "No documents", detail: "Post an 856 to start.", connected: false };
+  }
+  const failed = rows.filter((row) => row.status === "error" || row.status === "failed").length;
+  const latest = Math.max(...rows.map((row) => row.createdAt));
+  return {
+    tone: failed ? "danger" : "success",
+    label: failed ? `${failed} failed` : "Receiving",
+    detail: `${rows.length} documents · last ${relativeTime(latest)}`,
+    connected: true,
+  };
+}
+
+function clientState(rows: ClientRow[]): Connection {
+  if (!rows.length) {
+    return { tone: "neutral", label: "None yet", detail: "Add a client to track stock you hold for them.", connected: false };
+  }
+  return {
+    tone: "success",
+    label: `${rows.length} ${rows.length === 1 ? "client" : "clients"}`,
+    detail: rows
+      .slice(0, 4)
+      .map((row) => row.code)
+      .join(", "),
+    connected: true,
+  };
+}
+
 function IntegrationCard({
   icon: Icon,
   name,
   summary,
   to,
+  action,
   loading,
   error,
   state,
@@ -170,6 +326,7 @@ function IntegrationCard({
   /** A card subtitle; may hold a `<Term>`. */
   summary: ReactNode;
   to: string;
+  action?: string;
   loading: boolean;
   error?: string;
   state: Connection | null;
@@ -205,7 +362,7 @@ function IntegrationCard({
       </div>
       <div className="mt-auto flex justify-end border-t pt-3">
         <Button asChild size="sm" variant={state && !state.connected ? "primary" : "outline"}>
-          <Link to={to}>{state && !state.connected ? "Connect" : "Manage"}</Link>
+          <Link to={to}>{action ?? (state && !state.connected ? "Connect" : "Manage")}</Link>
         </Button>
       </div>
     </div>

@@ -57,12 +57,24 @@ const accordionItems = [
     ),
   },
   {
-    title: "What is Garage Mode?",
+    title: "Do Garage and Manufacturer share records?",
     content: (
       <div className="text-muted-foreground">
-        New organizations start in Garage Mode — the bench founders and inventors use before a
-        warehouse. Receive, make, pick, and ship. Setup → Warehouse opens the full floor (yard,
-        waves, ASN, equipment, 3PL) on the same location:item ledger.
+        Yes. New organizations start in Garage: a ship queue where one click buys the label, picks,
+        packs, ships, and posts tracking back to the store.
+        The top-bar switch opens Manufacturer for the whole shop. Parts, orders, and builds made
+        in Garage are already there.
+      </div>
+    ),
+  },
+  {
+    title: "What does Manufacturer add?",
+    content: (
+      <div className="text-muted-foreground">
+        The full floor once the product takes off. Picks and packs are confirmed by scan, and waves
+        are planned by carrier cutoff, zone, and client. It also adds yard, ASN, equipment, labor, counts,
+        holds, replenishment, traffic, 3PL clients, zones, EDI, billing, and more than one
+        building. The ledger stays the same.
       </div>
     ),
   },

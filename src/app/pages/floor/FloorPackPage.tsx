@@ -12,6 +12,8 @@ import { cartonShipGate, canUncartonOrderPackage, hasUncartoned } from "@/domain
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
+import { checkScanEvidence, workflowPolicy } from "@/domain/workflow-policy";
+import { EMPTY_SCAN_LOG, afterPost, recordScan, scanEvidence, type ScanLog } from "./scan-log";
 
 const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -40,10 +42,15 @@ export function FloorPackPage() {
   const [widthIn, setWidthIn] = useState("9");
   const [heightIn, setHeightIn] = useState("6");
   const [error, setError] = useState<string | null>(null);
+  const needScan = workflowPolicy(me.organization.operatingMode).scanVerifiedPack;
+  const [scanLog, setScanLog] = useState<ScanLog>(EMPTY_SCAN_LOG);
 
   function applyOrder(order: Order) {
-    setActive(order);
-    setQtys(packQtyDefaults(order));
+    setActive((current) => {
+      if (current?.id !== order.id) setScanLog(EMPTY_SCAN_LOG);
+      return order;
+    });
+    setQtys(needScan ? Object.fromEntries((order.lines ?? []).map((line) => [line.id, "0"])) : packQtyDefaults(order));
   }
 
   async function load() {
@@ -81,6 +88,7 @@ export function FloorPackPage() {
       setError(null);
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
         .then(async (hit) => {
+          setScanLog((log) => recordScan(log, hit));
           if (hit.kind === "order") {
             const order = await api<Order>(`/api/orders/${hit.order.id}`);
             // Pack takes picked or packing tickets, plus packed ones that may still need a carton boxed or dropped.
@@ -135,8 +143,9 @@ export function FloorPackPage() {
         .filter((line) => line.qty > 0);
       const packed = await api<Order>(`/api/orders/${active.id}/pack`, {
         method: "POST",
-        body: JSON.stringify({ lines }),
+        body: JSON.stringify({ lines, scan: scanEvidence(scanLog) }),
       });
+      setScanLog(afterPost);
       applyOrder(packed);
       await load();
     } catch (err) {
@@ -163,12 +172,14 @@ export function FloorPackPage() {
         body: JSON.stringify({
           pack: true,
           lines,
+          scan: scanEvidence(scanLog),
           weightOz: Number(weightOz),
           lengthIn: Number(lengthIn),
           widthIn: Number(widthIn),
           heightIn: Number(heightIn),
         }),
       });
+      setScanLog(afterPost);
       applyOrder(packed);
       await load();
     } catch (err) {
@@ -241,6 +252,13 @@ export function FloorPackPage() {
       })),
     );
   const thisPack = Object.values(qtys).some((value) => Number(value) > 0);
+  const scanProblem =
+    needScan && active && thisPack
+      ? checkScanEvidence(
+          (active.lines ?? []).map((line) => ({ lineId: line.id, qty: Number(qtys[line.id] || 0), sku: line.sku, barcode: line.barcode ?? null })),
+          scanEvidence(scanLog),
+        )
+      : null;
 
   return (
     <FloorFrame title="Pack" description="Scan the tote, pack remaining qty into BOX-1 / BOX-2, drop a mispacked box, print a pack slip." error={error}>
@@ -317,11 +335,18 @@ export function FloorPackPage() {
           </ul>
           {canPackOrder(active.status) && remaining ? (
             <div className="space-y-2">
-              <Button className="h-14 w-full text-lg sm:w-auto" disabled={!thisPack} onClick={() => void pack()}>
-                Pack remaining
+              <Button className="h-14 w-full text-lg sm:w-auto" disabled={!thisPack || Boolean(scanProblem)} onClick={() => void pack()}>
+                {needScan ? "Pack scanned" : "Pack remaining"}
               </Button>
+              {scanProblem ? (
+                <p className="text-sm text-muted-foreground" role="status">
+                  {scanProblem}.
+                </p>
+              ) : needScan && !thisPack ? (
+                <p className="text-sm text-muted-foreground">Scan each SKU as it goes in the box.</p>
+              ) : null}
               <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap [&>*]:min-w-0 [&>*:last-child:nth-child(odd)]:col-span-2">
-                <Button className="h-11" disabled={!thisPack} variant="secondary" onClick={() => void packIntoCarton()}>
+                <Button className="h-11" disabled={!thisPack || Boolean(scanProblem)} variant="secondary" onClick={() => void packIntoCarton()}>
                   Pack into carton
                 </Button>
                 {uncartoned ? (

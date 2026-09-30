@@ -19,6 +19,7 @@ import { CarrierLiveError } from "../domain/carrier-live";
 import { ShopifyIngestError } from "../domain/shopify-ingest";
 import { ImageUrlError } from "../domain/media";
 import { BomStepError } from "../domain/bom-steps";
+import { WorkflowPolicyError } from "../domain/workflow-policy";
 
 export type ErrorStatus = 400 | 401 | 403 | 404 | 409;
 export type MappedError = { status: ErrorStatus; body: Record<string, unknown> };
@@ -166,6 +167,9 @@ export function mapDomainError(err: unknown): MappedError | null {
   }
   if (err instanceof ShopifyIngestError) {
     return { status: err.status as 400 | 409, body: { error: err.message } };
+  }
+  if (err instanceof WorkflowPolicyError) {
+    return { status: 409, body: { error: err.message, code: err.code } };
   }
   if (err instanceof ImageUrlError || err instanceof BomStepError) {
     return { status: 400, body: { error: err.message } };

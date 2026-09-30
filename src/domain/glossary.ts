@@ -40,6 +40,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/setup/shopify",
   },
   {
+    id: "quick-ship",
+    term: "Quick ship",
+    aliases: ["ship queue", "one-click ship", "create labels", "ship"],
+    short: "Garage Mode's one-step ship: pick from the suggested shelf, pack, buy the label, and mark the order shipped.",
+    long: "Weight comes from each SKU's ship weight plus the box. Lots and serials are taken first-expiring first; weighed SKUs and boxed orders still go through the floor. Manufacturer mode ships through the floor instead.",
+    path: "/ship",
+  },
+  {
     id: "sku",
     term: "SKU",
     aliases: ["stock keeping unit", "item", "product", "part"],

@@ -92,6 +92,10 @@ export const warehouses = sqliteTable("warehouses", {
   timeZone: text("time_zone").notNull().default("UTC"),
   /** Where north points on the map, in degrees clockwise from the top edge. */
   mapNorth: integer("map_north").notNull().default(0),
+  defaultCarrierConnectionId: text("default_carrier_connection_id"),
+  defaultCarrierService: text("default_carrier_service"),
+  /** Carrier company → pickup cutoff (minutes from local midnight); see `domain/wave-plan.ts`. */
+  carrierCutoffsJson: text("carrier_cutoffs_json"),
 });
 
 export const locations = sqliteTable(
@@ -153,6 +157,10 @@ export const items = sqliteTable(
     shopifyInventoryItemGid: text("shopify_inventory_item_gid"),
     imageUrl: text("image_url"),
     unitCostCents: integer("unit_cost_cents").notNull().default(0),
+    shipWeightOz: integer("ship_weight_oz"),
+    shipLengthIn: integer("ship_length_in"),
+    shipWidthIn: integer("ship_width_in"),
+    shipHeightIn: integer("ship_height_in"),
   },
   (t) => [
     uniqueIndex("items_org_sku").on(t.organizationId, t.sku),
@@ -300,9 +308,14 @@ export const orders = sqliteTable(
     trackerStatus: text("tracker_status"),
     trackerUpdatedAt: integer("tracker_updated_at"),
     parentOrderId: text("parent_order_id"),
+    externalOrderId: text("external_order_id"),
+    channelSyncStatus: text("channel_sync_status").notNull().default("none"),
+    channelSyncError: text("channel_sync_error"),
+    channelFulfilledAt: integer("channel_fulfilled_at"),
   },
   (t) => [
     uniqueIndex("shopify_orders_org_order").on(t.organizationId, t.shopifyOrderId),
+    uniqueIndex("orders_org_source_external").on(t.organizationId, t.source, t.externalOrderId),
     index("orders_org_status_shipped").on(t.organizationId, t.status, t.shippedAt),
     index("orders_parent").on(t.parentOrderId),
   ],
@@ -1247,8 +1260,40 @@ export const channelConnections = sqliteTable(
     status: text("status").notNull().default("active"),
     externalShop: text("external_shop"),
     createdAt: integer("created_at").notNull(),
+    mode: text("mode").notNull().default("csv"),
+    apiBase: text("api_base"),
+    apiKey: text("api_key"),
+    apiSecret: text("api_secret"),
+    webhookSecret: text("webhook_secret"),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    tokenExpiresAt: integer("token_expires_at"),
+    externalShopId: text("external_shop_id"),
+    oauthState: text("oauth_state"),
+    oauthVerifier: text("oauth_verifier"),
+    lastSyncAt: integer("last_sync_at"),
+    lastSyncError: text("last_sync_error"),
+    warehouseId: text("warehouse_id").references(() => warehouses.id),
   },
   (t) => [uniqueIndex("channel_connections_org_channel").on(t.organizationId, t.channel)],
+);
+
+export const packagePresets = sqliteTable(
+  "package_presets",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    lengthIn: integer("length_in").notNull(),
+    widthIn: integer("width_in").notNull(),
+    heightIn: integer("height_in").notNull(),
+    tareOz: integer("tare_oz").notNull().default(0),
+    isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("package_presets_org_name").on(t.organizationId, t.name)],
 );
 
 export const printers = sqliteTable(

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { GARAGE_NAV, garageAllowsPath, garageNavForRole, isGarageMode, parseOperatingMode } from "./operating-mode";
+import { GARAGE_NAV, garageAllowsPath, garageNavForRole, garageOffersOnFloor, isGarageMode, parseOperatingMode } from "./operating-mode";
+import { homePath } from "./home-path";
 
 describe("operating mode", () => {
   it("accepts garage and warehouse", () => {
@@ -51,6 +52,7 @@ describe("operating mode", () => {
   it("keeps the maker menu short and on the same allowlist", () => {
     const urls = GARAGE_NAV.flatMap((group) => group.items.map((item) => item.url));
     expect(urls).toEqual([
+      "/ship",
       "/today",
       "/floor",
       "/map",
@@ -85,5 +87,25 @@ describe("operating mode", () => {
     expect(garageAllowsPath("/stock/ledger")).toBe(true);
     expect(garageAllowsPath("/inbound/putaway/x1")).toBe(true);
     expect(garageAllowsPath("/setup/audit")).toBe(true);
+  });
+
+  it("ships from the queue and keeps floor pick, pack, and ship behind it", () => {
+    expect(garageAllowsPath("/ship")).toBe(true);
+    expect(garageAllowsPath("/ship/labels?ids=a,b")).toBe(true);
+    expect(garageAllowsPath("/floor/pick?id=o1")).toBe(true);
+    expect(garageOffersOnFloor("/floor/pick?id=o1")).toBe(false);
+    expect(garageOffersOnFloor("/floor/pack")).toBe(false);
+    expect(garageOffersOnFloor("/floor/ship")).toBe(false);
+    expect(garageOffersOnFloor("/floor/receive")).toBe(true);
+    expect(garageOffersOnFloor("/floor/wave")).toBe(false);
+    expect(GARAGE_NAV[0]!.items[0]!.url).toBe("/ship");
+  });
+
+  it("lands Garage on Ship and Manufacturer on Today or the floor", () => {
+    expect(homePath("owner", "garage")).toBe("/ship");
+    expect(homePath("operator", "garage")).toBe("/ship");
+    expect(homePath("owner", "warehouse")).toBe("/today");
+    expect(homePath("operator", "warehouse")).toBe("/floor");
+    expect(homePath("operator")).toBe("/floor");
   });
 });
