@@ -7,7 +7,15 @@
   "workers_dev": true,
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": [
+      "/api/*",
+      "/sitemap.xml",
+      "/robots.txt",
+      "/industries/*",
+      "/use-cases/*",
+      "/compare/*"
+    ],
+    "binding": "ASSETS"
   },
   "vars": {
     "BETTER_AUTH_URL": "https://rackline.brian-72c.workers.dev"

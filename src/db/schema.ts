@@ -152,6 +152,7 @@ export const items = sqliteTable(
     altPerStock: integer("alt_per_stock"),
     shopifyInventoryItemGid: text("shopify_inventory_item_gid"),
     imageUrl: text("image_url"),
+    unitCostCents: integer("unit_cost_cents").notNull().default(0),
   },
   (t) => [
     uniqueIndex("items_org_sku").on(t.organizationId, t.sku),
@@ -1230,7 +1231,25 @@ export const billingAccounts = sqliteTable("billing_accounts", {
   plan: text("plan").notNull().default("free"),
   status: text("status").notNull().default("active"),
   createdAt: integer("created_at").notNull(),
+  ratesJson: text("rates_json"),
+  portalToken: text("portal_token"),
 });
+
+/** Etsy / Faire channel connections (Shopify stays on shopify_connections). */
+export const channelConnections = sqliteTable(
+  "channel_connections",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull(),
+    status: text("status").notNull().default("active"),
+    externalShop: text("external_shop"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("channel_connections_org_channel").on(t.organizationId, t.channel)],
+);
 
 export const printers = sqliteTable(
   "printers",

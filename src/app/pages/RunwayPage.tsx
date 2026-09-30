@@ -335,6 +335,7 @@ export function RunwayPage() {
         }
       />
       <ErrorBanner error={query.error?.message ?? draft.error ?? baseline.error} />
+      <AssistBanner warehouseId={warehouseId} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {tiles.map((tile) => (
           <Card key={tile.label} className="from-primary/5 to-card bg-gradient-to-t shadow-xs">
@@ -430,5 +431,29 @@ export function RunwayPage() {
         }
       />
     </div>
+  );
+}
+
+function AssistBanner({ warehouseId }: { warehouseId: string }) {
+  const assist = useApiQuery<{ summary: string; suggestions: { sku: string; suggestedQty: number }[] }>(
+    `/api/analytics/runway/assist?warehouseId=${encodeURIComponent(warehouseId)}`,
+  );
+  if (!assist.data?.summary) return null;
+  return (
+    <Card className="p-4">
+      <CardHeader className="p-0">
+        <CardTitle className="text-sm font-semibold">PO assist</CardTitle>
+        <CardDescription>{assist.data.summary}</CardDescription>
+      </CardHeader>
+      {assist.data.suggestions.length > 0 ? (
+        <p className="mt-2 font-mono text-xs text-muted-foreground">
+          {assist.data.suggestions
+            .slice(0, 6)
+            .map((row) => `${row.sku}×${row.suggestedQty}`)
+            .join(" · ")}
+          {assist.data.suggestions.length > 6 ? " · …" : ""}
+        </p>
+      ) : null}
+    </Card>
   );
 }

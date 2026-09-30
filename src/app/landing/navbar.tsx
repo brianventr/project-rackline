@@ -11,39 +11,42 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Logo } from "@/components/logo";
 import { ModeToggle } from "@/components/mode-toggle";
+import { marketingNavGroups } from "@/domain/marketing-pages";
 
 const productItems = [
   {
     name: "One inventory ledger",
-    href: "#features",
+    href: "/#features",
     description: "Receive, move, pick, and ship against the same on-hand engine.",
     icon: Boxes,
   },
   {
     name: "Floor map and scan",
-    href: "#features",
+    href: "/#features",
     description: "Bins sit on a 2D plan and a 3D rack view. Scan one bay, then the next.",
     icon: Map,
   },
   {
     name: "Shopify to pick ticket",
-    href: "#features",
+    href: "/use-cases/shopify-wms",
     description: "Checkouts land as Rackline orders. After ship, fulfillment posts back.",
     icon: Store,
   },
   {
     name: "Next job from the ledger",
-    href: "#features",
+    href: "/#features",
     description: "Every warehouse and bench verb shares one ranked queue.",
     icon: ClipboardList,
   },
 ];
 
 const menuItems = [
-  { name: "Features", href: "#features" },
-  { name: "Pricing", href: "#pricing" },
-  { name: "FAQ", href: "#faq" },
+  { name: "Features", href: "/#features" },
+  { name: "Pricing", href: "/#pricing" },
+  { name: "FAQ", href: "/#faq" },
 ];
+
+const navGroups = marketingNavGroups();
 
 export function LandingNavbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -101,8 +104,8 @@ export function LandingNavbar() {
               Rackline
             </Link>
           </div>
-          <div className="hidden items-center space-x-2 sm:flex">
-            <Link to="/" className="mr-4 flex items-center gap-2 font-light tracking-tighter text-2xl">
+          <div className="hidden items-center space-x-1 lg:space-x-2 sm:flex">
+            <Link to="/" className="mr-2 flex items-center gap-2 font-light tracking-tighter text-2xl lg:mr-4">
               <span className="bg-primary text-primary-foreground flex size-8 items-center justify-center rounded-md">
                 <Logo size={18} />
               </span>
@@ -111,8 +114,28 @@ export function LandingNavbar() {
 
             {menuItems.map((item) => (
               <Button key={item.name} asChild variant="ghost" size="sm">
-                <a href={item.href}>{item.name}</a>
+                <Link to={item.href}>{item.name}</Link>
               </Button>
+            ))}
+
+            {navGroups.map((group) => (
+              <DropdownMenu key={group.label}>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    {group.label}
+                    <ChevronDown className="ml-1 h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="max-h-96 w-80 overflow-y-auto">
+                  {group.items.map((item) => (
+                    <DropdownMenuItem key={item.path} asChild className="items-start py-2">
+                      <Link to={item.path}>
+                        <div className="font-medium leading-snug">{item.name}</div>
+                      </Link>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             ))}
 
             <DropdownMenu>
@@ -125,13 +148,13 @@ export function LandingNavbar() {
               <DropdownMenuContent className="w-80">
                 {productItems.map((item) => (
                   <DropdownMenuItem key={item.name} asChild className="items-start gap-2 py-2">
-                    <a href={item.href}>
+                    <Link to={item.href}>
                       <item.icon className="mt-0.5" />
                       <div>
                         <div className="font-semibold">{item.name}</div>
                         <div className="text-sm text-muted-foreground">{item.description}</div>
                       </div>
-                    </a>
+                    </Link>
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
@@ -161,53 +184,43 @@ export function LandingNavbar() {
                 animate={{ y: 0 }}
                 exit={{ y: -20 }}
                 transition={{ duration: 0.3, delay: 0.1 }}
-                className="space-y-1 px-2 pt-2 pb-3"
+                className="max-h-[70vh] space-y-1 overflow-y-auto px-2 pt-2 pb-3"
               >
-                {menuItems.map((item, index) => (
-                  <motion.div
+                {menuItems.map((item) => (
+                  <Link
                     key={item.name}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.3, delay: 0.2 + index * 0.1 }}
+                    to={item.href}
+                    className="block rounded-md px-3 py-2 text-base font-medium text-foreground hover:bg-muted"
+                    onClick={() => setIsMenuOpen(false)}
                   >
-                    <a
-                      href={item.href}
-                      className="block rounded-md px-3 py-2 text-base font-medium text-foreground transition-colors duration-200 hover:bg-muted"
-                      onClick={() => setIsMenuOpen(false)}
-                    >
-                      {item.name}
-                    </a>
-                  </motion.div>
+                    {item.name}
+                  </Link>
                 ))}
-                {productItems.map((item, index) => (
-                  <motion.div
-                    key={item.name}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.3, delay: 0.45 + index * 0.08 }}
-                  >
-                    <a
-                      href={item.href}
-                      className="block rounded-md px-3 py-2 text-base font-medium text-foreground transition-colors duration-200 hover:bg-muted"
-                      onClick={() => setIsMenuOpen(false)}
-                    >
-                      {item.name}
-                    </a>
-                  </motion.div>
+                {navGroups.map((group) => (
+                  <div key={group.label} className="pt-2">
+                    <p className="px-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                      {group.label}
+                    </p>
+                    {group.items.slice(0, 6).map((item) => (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        className="block rounded-md px-3 py-2 text-sm text-foreground hover:bg-muted"
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        {item.name}
+                      </Link>
+                    ))}
+                  </div>
                 ))}
-                <motion.div
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.3, delay: 0.8 }}
-                  className="flex flex-col gap-2 px-3 pt-2"
-                >
+                <div className="flex flex-col gap-2 px-3 pt-2">
                   <Button asChild variant="outline" onClick={() => setIsMenuOpen(false)}>
                     <Link to="/login">Sign in</Link>
                   </Button>
                   <Button asChild onClick={() => setIsMenuOpen(false)}>
                     <Link to="/signup">Open a warehouse</Link>
                   </Button>
-                </motion.div>
+                </div>
               </motion.div>
             </motion.div>
           )}
