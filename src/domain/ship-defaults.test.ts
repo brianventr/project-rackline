@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildingDefaultService,
   defaultShipConnection,
   defaultShipService,
   orderParcel,
@@ -81,6 +82,21 @@ describe("ship defaults", () => {
     expect(defaultShipService({ warehouseDefault: "fedex" })).toBe("fedex");
     expect(defaultShipService({})).toBeNull();
     expect(defaultShipConnection({ warehouseDefault: "c1" })).toBe("c1");
+  });
+
+  it("drops a building default whose carrier account is gone or no longer offers the service", () => {
+    const ups = { id: "c-ups", provider: "ups", nickname: "UPS", mode: "demo", enabledServicesJson: '["ups_ground"]', isDefault: false };
+    const rackline = { id: "c-rl", provider: "rackline", nickname: "Rackline", mode: "demo", enabledServicesJson: '["rackline_ground"]', isDefault: true };
+    expect(buildingDefaultService([rackline, ups], { defaultCarrierService: "ups_ground", defaultCarrierConnectionId: "c-ups" })).toEqual({
+      serviceId: "ups_ground",
+      connectionId: "c-ups",
+    });
+    expect(buildingDefaultService([rackline, ups], { defaultCarrierService: "ups_ground" })).toEqual({ serviceId: "ups_ground", connectionId: "c-ups" });
+    expect(buildingDefaultService([rackline], { defaultCarrierService: "ups_ground", defaultCarrierConnectionId: "c-ups" })).toBeNull();
+    expect(
+      buildingDefaultService([rackline, { ...ups, enabledServicesJson: "[]" }], { defaultCarrierService: "ups_ground", defaultCarrierConnectionId: "c-ups" }),
+    ).toBeNull();
+    expect(buildingDefaultService([rackline, ups], { defaultCarrierService: null })).toBeNull();
   });
 
   it("validates box presets", () => {

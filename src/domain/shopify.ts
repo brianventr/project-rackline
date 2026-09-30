@@ -286,6 +286,10 @@ export function maskSecret(value: string | null | undefined): string | null {
   return `••••${value.slice(-4)}`;
 }
 
+/** A live connection whose Admin token is missing, or was sealed under a BETTER_AUTH_SECRET that has since changed. */
+export const SHOPIFY_TOKEN_UNREADABLE =
+  "Rackline cannot read the Shopify access token. Paste it again on Settings → Shopify, or reinstall the app.";
+
 export function orderGid(id: string | number): string {
   const raw = String(id);
   if (raw.startsWith("gid://")) return raw;

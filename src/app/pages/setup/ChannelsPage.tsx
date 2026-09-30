@@ -119,6 +119,11 @@ function ChannelCard({
                 {row.failedPostBacks} shipped {row.failedPostBacks === 1 ? "order" : "orders"} did not post back
               </dd>
             </>
+          ) : row.health === "csv" ? (
+            <>
+              <dt className="text-muted-foreground">Tracking</dt>
+              <dd>Not posted back by CSV. Mark orders shipped in {row.name}.</dd>
+            </>
           ) : null}
         </dl>
       ) : null}

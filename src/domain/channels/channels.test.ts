@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   CHANNELS,
+  canRetryPostBack,
   carrierNameForChannel,
   channelHealth,
   channelOrder,
+  manualPostBackNote,
+  markShippedIn,
+  markShippedReminder,
+  postBackRoute,
   postsTrackingBack,
 } from "./adapter";
 import {
@@ -49,6 +54,38 @@ describe("channel registry", () => {
     expect(channelHealth(woo, { ...base, mode: "demo" })).toBe("demo");
     expect(channelHealth(CHANNELS.faire, { ...base, mode: "csv" })).toBe("csv");
     expect(channelHealth(woo, { ...base, status: "paused" })).toBe("paused");
+  });
+
+  it("routes tracking by how the channel is connected", () => {
+    expect(postBackRoute({ status: "active", mode: "live" })).toBe("live");
+    expect(postBackRoute({ status: "paused", mode: "live" })).toBe("live");
+    expect(postBackRoute({ status: "active", mode: "demo" })).toBe("demo");
+    expect(postBackRoute({ status: "active", mode: "csv" })).toBe("manual");
+    expect(postBackRoute({ status: "disconnected", mode: "csv" })).toBe("not_connected");
+    expect(postBackRoute(null)).toBe("not_connected");
+  });
+
+  it("offers a retry only for a failed post-back, never a manual one", () => {
+    const shipped = { source: "etsy", status: "shipped" };
+    expect(canRetryPostBack({ ...shipped, channelSyncStatus: "failed" })).toBe(true);
+    expect(canRetryPostBack({ ...shipped, channelSyncStatus: "manual" })).toBe(false);
+    expect(canRetryPostBack({ ...shipped, channelSyncStatus: "fulfilled" })).toBe(false);
+    expect(canRetryPostBack({ ...shipped, status: "packed", channelSyncStatus: "failed" })).toBe(false);
+    expect(canRetryPostBack({ ...shipped, source: "faire", channelSyncStatus: "failed" })).toBe(false);
+  });
+
+  it("tells the owner to mark manual orders shipped in the channel", () => {
+    expect(manualPostBackNote("etsy")).toBe("Etsy has no live connection, so tracking does not post back. Mark it shipped in Etsy.");
+    expect(markShippedIn("faire")).toBe("Mark it shipped in Faire.");
+    expect(markShippedReminder([])).toBeNull();
+    expect(markShippedReminder([{ number: "ORD-1", source: "etsy" }])).toBe("Mark ORD-1 shipped in Etsy.");
+    expect(
+      markShippedReminder([
+        { number: "ORD-1", source: "etsy" },
+        { number: "ORD-2", source: "etsy" },
+        { number: "ORD-3", source: "woocommerce" },
+      ]),
+    ).toBe("Mark 2 orders shipped in Etsy. Mark ORD-3 shipped in WooCommerce.");
   });
 
   it("maps carrier names channels recognize", () => {

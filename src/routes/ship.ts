@@ -6,13 +6,14 @@ import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound } from "../lib/http";
 import { requireOwner } from "../lib/org";
 import { newId } from "../lib/ids";
-import { internalApi } from "../lib/internal-api";
-import { loadAtpBaysByItem, loadOpenAllocations, releaseOpenAllocations } from "../db/allocations";
+import { internalApi, type InternalResult } from "../lib/internal-api";
+import { loadAtpBaysByItem, loadOpenAllocations } from "../db/allocations";
 import { loadCarrierConnections } from "./carriers";
 import { ordersRoute } from "./orders";
-import { enabledServicesFromConnections } from "../domain/carriers";
-import { isLivePostage } from "../domain/carrier-live";
+import { enabledServicesFromConnections, resolveLabelPurchase } from "../domain/carriers";
+import { isLivePostage, liveShipAddress } from "../domain/carrier-live";
 import {
+  buildingDefaultService,
   defaultShipConnection,
   defaultShipService,
   orderParcel,
@@ -22,15 +23,22 @@ import {
 } from "../domain/ship-defaults";
 import {
   planQuickShip,
+  quickShipLabelBlocker,
+  runQuickShip,
   shipSetupSteps,
   summarizeQuickShip,
   withOwnReservations,
   type QuickShipOutcome,
+  type QuickShipSnapshot,
+  type QuickShipStep,
+  type QuickShipUndone,
 } from "../domain/quick-ship";
 import { assertQuickShip } from "../domain/workflow-policy";
 import { loadWorkflowPolicy } from "../db/workflow";
-import { normalizeOrderStatus } from "../domain/status";
-import { orderJobInput, syncDocumentJob } from "../db/jobs";
+import { membershipVerbs } from "../db/jobs";
+import { JobVerbDeniedError, verbAllowed, type FloorVerb } from "../domain/jobs";
+import { planQuickShipUndo, restoreQuickShip, snapshotQuickShip } from "../db/quick-ship";
+import { loadSetupSignals } from "../db/setup-signals";
 
 export const shipRoute = new Hono<AppEnv>();
 
@@ -115,15 +123,8 @@ shipRoute.get("/ship/queue", async (c) => {
   const presets = await loadPresets(db, organizationId);
   const connections = await loadCarrierConnections(db, organizationId);
   const services = enabledServicesFromConnections(connections);
-  const [shopify] = await db
-    .select({ id: schema.shopifyConnections.id })
-    .from(schema.shopifyConnections)
-    .where(eq(schema.shopifyConnections.organizationId, organizationId))
-    .limit(1);
-  const channels = await db
-    .select({ id: schema.channelConnections.id, status: schema.channelConnections.status })
-    .from(schema.channelConnections)
-    .where(eq(schema.channelConnections.organizationId, organizationId));
+  const fallback = buildingDefaultService(connections, warehouse);
+  const signals = await loadSetupSignals(db, organizationId);
 
   const orders = await db
     .select()
@@ -167,7 +168,7 @@ shipRoute.get("/ship/queue", async (c) => {
     const parcel = orderParcel({ lines: orderLines, preset: defaultPreset, order });
     const serviceId = chooseService(services, {
       orderService: order.carrierService,
-      warehouseDefault: warehouse.defaultCarrierService,
+      warehouseDefault: fallback?.serviceId,
     });
     const service = services.find((row) => row.id === serviceId) ?? null;
     const plan =
@@ -230,12 +231,12 @@ shipRoute.get("/ship/queue", async (c) => {
     })),
     defaults: {
       presetId: defaultPreset?.id ?? null,
-      carrierService: warehouse.defaultCarrierService,
-      carrierConnectionId: warehouse.defaultCarrierConnectionId,
+      carrierService: fallback?.serviceId ?? null,
+      carrierConnectionId: fallback?.connectionId ?? null,
     },
     setup: shipSetupSteps({
-      storeConnected: Boolean(shopify) || channels.some((row) => row.status === "active"),
-      carrierConnected: connections.some((row) => row.provider !== "rackline"),
+      storeConnected: signals.stores > 0,
+      carrierConnected: signals.carriers > 0,
       hasShipFrom: Boolean(warehouse.shipFromAddress?.trim()),
       hasBox: presets.length > 0,
     }),
@@ -380,17 +381,17 @@ async function quickShipOne(
     .limit(1);
   const connections = await loadCarrierConnections(db, organizationId);
   const services = enabledServicesFromConnections(connections);
+  const fallback = buildingDefaultService(connections, warehouse);
   const carrierService = chooseService(services, {
     requested: body.carrierService,
     orderService: order.carrierService,
-    warehouseDefault: warehouse?.defaultCarrierService,
+    warehouseDefault: fallback?.serviceId,
   });
   const carrierConnectionId =
     defaultShipConnection({
       requested: body.carrierConnectionId,
-      orderConnection: order.carrierConnectionId,
-      warehouseDefault:
-        carrierService && carrierService === warehouse?.defaultCarrierService ? warehouse?.defaultCarrierConnectionId : null,
+      orderConnection: carrierService === order.carrierService ? order.carrierConnectionId : null,
+      warehouseDefault: carrierService && carrierService === fallback?.serviceId ? fallback.connectionId : null,
     }) ?? services.find((row) => row.id === carrierService)?.connectionId ?? null;
   const connection = connections.find((row) => row.id === carrierConnectionId) ?? null;
   const live = Boolean(connection && isLivePostage(connection.provider, connection.mode));
@@ -404,55 +405,128 @@ async function quickShipOne(
 
   const current = order as ShipOrderRow;
   const hasLabel = Boolean(current.trackingNumber) && current.labelStatus === "purchased";
-  let boughtLabel = false;
   if (!hasLabel) {
-    const label = await call("POST", `/orders/${order.id}/label`, {
-      carrierService,
-      carrierConnectionId: carrierConnectionId ?? undefined,
-      ...parcel.parcel,
+    const purchase = resolveLabelPurchase({ connections, serviceId: carrierService, connectionId: carrierConnectionId });
+    const blocked = quickShipLabelBlocker({
+      purchaseError: purchase.ok ? null : purchase.error,
+      live,
+      hasApiKey: Boolean(connection?.apiKey),
+      shipFrom: live
+        ? liveShipAddress({
+            name: warehouse?.name || "Warehouse",
+            text: warehouse?.shipFromAddress,
+            city: warehouse?.city,
+            region: warehouse?.region,
+            country: warehouse?.country,
+          })
+        : null,
+      shipTo: live
+        ? liveShipAddress({
+            name: order.customerName,
+            text: order.shipToAddress,
+            city: order.shipToCity,
+            region: order.shipToRegion,
+            country: order.shipToCountry,
+          })
+        : null,
     });
-    if (!label.ok) return fail(label.status, label.error, label.code);
-    boughtLabel = true;
+    if (blocked) return fail(blocked.status, blocked.error, blocked.code);
   }
+  const verbs = await membershipVerbs(db, organizationId, c.get("user")!.id, c.get("role")!);
+  const needed: FloorVerb[] = [...(plan.picks.length > 0 ? ["pick" as const] : []), ...(plan.packNeeded ? ["pack" as const] : []), "ship"];
+  const denied = needed.find((verb) => !verbAllowed(verbs, verb));
+  if (denied) return fail(403, new JobVerbDeniedError(denied).message, "JOB_VERB_DENIED");
 
-  let picked = false;
-  const startedOpen = normalizeOrderStatus(order.status) === "open";
-  const rollback = async () => {
-    if (picked) await call("POST", `/orders/${order.id}/unpick`, {});
-    if (startedOpen) {
-      await releaseOpenAllocations(db, order.id);
-      await db.update(schema.orders).set({ status: "open" }).where(eq(schema.orders.id, order.id));
-      await syncDocumentJob(db, orderJobInput({ ...order, status: "open" }));
-    }
-    if (boughtLabel) await call("POST", `/orders/${order.id}/label/void`, {});
-  };
-
-  for (const pick of plan.picks) {
-    const res = await call("POST", `/orders/${order.id}/pick`, { locationId: pick.locationId, lines: pick.lines });
-    if (!res.ok) {
-      await rollback();
-      return fail(res.status, `${res.error} (bay ${pick.locationCode})`, res.code);
-    }
-    picked = true;
-  }
-  const resume = " Stock is picked and the label is kept; Ship again to finish.";
+  const asFailure = (res: InternalResult<unknown>, suffix = "") =>
+    res.ok ? null : { status: res.status, error: `${res.error}${suffix}`, code: res.code };
+  const steps: QuickShipStep[] = plan.picks.map((pick) => ({
+    id: "pick",
+    run: async () =>
+      asFailure(
+        await call("POST", `/orders/${order.id}/pick`, { locationId: pick.locationId, lines: pick.lines }),
+        ` (bay ${pick.locationCode})`,
+      ),
+  }));
   if (plan.packNeeded) {
-    const packed = await call("POST", `/orders/${order.id}/pack`, {});
-    if (!packed.ok) return fail(packed.status, packed.error + resume, packed.code);
+    steps.push({ id: "pack", run: async () => asFailure(await call("POST", `/orders/${order.id}/pack`, {})) });
   }
+  if (!hasLabel) {
+    steps.push({
+      id: "label",
+      run: async () =>
+        asFailure(
+          await call("POST", `/orders/${order.id}/label`, {
+            carrierService,
+            carrierConnectionId: carrierConnectionId ?? undefined,
+            ...parcel.parcel,
+          }),
+        ),
+    });
+  }
+  steps.push({
+    id: "ship",
+    run: async () => {
+      const [labeled] = await db
+        .select({
+          trackingNumber: schema.orders.trackingNumber,
+          carrierService: schema.orders.carrierService,
+          carrierConnectionId: schema.orders.carrierConnectionId,
+        })
+        .from(schema.orders)
+        .where(eq(schema.orders.id, order.id))
+        .limit(1);
+      return asFailure(
+        await call("POST", `/orders/${order.id}/ship`, {
+          trackingNumber: labeled?.trackingNumber ?? undefined,
+          carrierService: labeled?.carrierService ?? undefined,
+          carrierConnectionId: labeled?.carrierConnectionId ?? undefined,
+        }),
+      );
+    },
+  });
 
-  const [labeled] = await db
-    .select({ trackingNumber: schema.orders.trackingNumber, carrierService: schema.orders.carrierService, carrierConnectionId: schema.orders.carrierConnectionId })
+  const snapshot = await snapshotQuickShip(db, organizationId, order.id);
+  const run = await runQuickShip(steps, () => undoQuickShip(c, call, order.id, snapshot));
+  if (!run.ok) return fail(run.failure.status, run.failure.error, run.failure.code);
+  const [shipped] = await db
+    .select({ trackingNumber: schema.orders.trackingNumber, channelSyncStatus: schema.orders.channelSyncStatus })
     .from(schema.orders)
     .where(eq(schema.orders.id, order.id))
     .limit(1);
-  const shipped = await call<{ trackingNumber: string | null }>("POST", `/orders/${order.id}/ship`, {
-    trackingNumber: labeled?.trackingNumber ?? undefined,
-    carrierService: labeled?.carrierService ?? undefined,
-    carrierConnectionId: labeled?.carrierConnectionId ?? undefined,
-  });
-  if (!shipped.ok) return fail(shipped.status, shipped.error + resume, shipped.code);
-  return { orderId, ok: true, number: order.number, trackingNumber: shipped.body.trackingNumber ?? null };
+  return {
+    orderId,
+    ok: true,
+    number: order.number,
+    trackingNumber: shipped?.trackingNumber ?? null,
+    manualPostBack: shipped?.channelSyncStatus === "manual",
+  };
+}
+
+/** Voids a label this run bought, then puts stock, pack counts, status, and reservations back. */
+async function undoQuickShip(
+  c: Context<AppEnv>,
+  call: ReturnType<typeof internalApi>,
+  orderId: string,
+  snapshot: QuickShipSnapshot,
+): Promise<QuickShipUndone> {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const plan = await planQuickShipUndo(db, organizationId, orderId, snapshot);
+  if (plan.shipped) return { shipped: true };
+  let voidError: string | null = null;
+  if (plan.voidLabel) {
+    const voided = await call("POST", `/orders/${orderId}/label/void`, {});
+    if (!voided.ok) voidError = voided.error;
+  }
+  const labelVoided = plan.voidLabel && !voidError;
+  let restoreError: string | null = null;
+  try {
+    await restoreQuickShip(db, { organizationId, userId: c.get("user")!.id, orderId, snapshot, plan, labelVoided });
+  } catch (err) {
+    console.error(err);
+    restoreError = err instanceof Error ? err.message : "Restore failed";
+  }
+  return { shipped: false, voidedLabel: labelVoided, voidError, restoreError };
 }
 
 shipRoute.post("/orders/:id/quick-ship", async (c) => {

@@ -1,4 +1,4 @@
-import { garageAllowsPath } from "./operating-mode";
+import { MODE_SWITCH_RULES, garageAllowsPath, manufacturerRedirect } from "./operating-mode";
 
 /**
  * Plain-language definitions for the warehouse words Rackline uses on screen.
@@ -435,8 +435,8 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     id: "garage-mode",
     term: "Garage Mode",
     aliases: ["garage", "bench", "founder bench", "full warehouse"],
-    short: "The short setup new shops start in: receive, make, pick, pack, ship, recipes, and runway. Open the full warehouse in Settings.",
-    long: "The full warehouse adds yard, waves, ASNs, equipment, replenish, holds, counts, 3PL clients, EDI, and traffic on the same ledger.",
+    short: "The short setup new shops start in: one-click ship from the Ship queue, optional scans, and office pick and pack.",
+    long: `Switch in Settings → Warehouse. ${MODE_SWITCH_RULES} It also opens yard, waves, ASNs, equipment, replenish, holds, counts, 3PL clients, EDI, and traffic on the same ledger.`,
     path: "/setup/warehouse",
   },
 ];
@@ -572,11 +572,15 @@ function isOwnerOnlyPath(path: string): boolean {
   return OWNER_ONLY_PREFIXES.some((prefix) => bare === prefix || bare.startsWith(`${prefix}/`));
 }
 
-/** The entry's page if this person can open it: owners-only pages drop for operators, packed-away pages drop in Garage Mode. */
+/**
+ * The entry's page if this person can open it: owners-only pages drop for operators, packed-away pages
+ * drop in Garage Mode, and Garage-only pages (the ship queue) drop in Manufacturer.
+ */
 export function glossaryPathFor(entry: GlossaryEntry, viewer: { role: string; garage: boolean }): string | null {
   const path = entry.path;
   if (!path) return null;
   if (viewer.role !== "owner" && isOwnerOnlyPath(path)) return null;
   if (viewer.garage && !garageAllowsPath(path)) return null;
+  if (!viewer.garage && manufacturerRedirect(path)) return null;
   return path;
 }

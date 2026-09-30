@@ -49,16 +49,54 @@ describe("pick slices", () => {
     ]);
   });
 
+  const lamp = (type: "pick" | "unpick", createdAt: number, serials: string[], locationId = "b0101") => ({
+    type,
+    createdAt,
+    itemId: "lamp",
+    locationId,
+    qty: serials.length,
+    lotCode: null,
+    serials,
+    weightGrams: null,
+  });
+
   it("nets prior unpicks off pick movements", () => {
-    const remaining = netPickSlices(
-      [
-        { itemId: "lamp", locationId: "b0101", qty: 1, lotCode: null, serials: ["LAMP-1"], weightGrams: null },
-        { itemId: "lamp", locationId: "b0101", qty: 1, lotCode: null, serials: ["LAMP-2"], weightGrams: null },
-      ],
-      [{ itemId: "lamp", locationId: "b0101", qty: 1, lotCode: null, serials: ["LAMP-2"], weightGrams: null }],
-    );
+    const remaining = netPickSlices([lamp("pick", 1, ["LAMP-1"]), lamp("pick", 1, ["LAMP-2"]), lamp("unpick", 2, ["LAMP-2"])]);
     expect(remaining).toEqual([
       { itemId: "lamp", locationId: "b0101", qty: 1, lotCode: null, serials: ["LAMP-1"], weightGrams: null },
+    ]);
+  });
+
+  it("nets a pick, unpick, and re-pick of the same serial to the re-pick", () => {
+    const remaining = netPickSlices([
+      lamp("pick", 3, ["LAMP-1009"], "b0102"),
+      lamp("unpick", 2, ["LAMP-1007"]),
+      lamp("pick", 1, ["LAMP-1007"]),
+      lamp("pick", 3, ["LAMP-1007"]),
+    ]);
+    expect(remaining.flatMap((slice) => slice.serials).sort()).toEqual(["LAMP-1007", "LAMP-1009"]);
+    expect(remaining.map((slice) => slice.locationId).sort()).toEqual(["b0101", "b0102"]);
+  });
+
+  it("replays in time order so an old unpick never cancels a newer pick", () => {
+    const bulb = (type: "pick" | "unpick", createdAt: number, qty: number, locationId: string, lotCode: string | null = null) => ({
+      type,
+      createdAt,
+      itemId: "bulb",
+      locationId,
+      qty,
+      lotCode,
+      serials: [],
+      weightGrams: null,
+    });
+    expect(netPickSlices([bulb("pick", 1, 2, "a"), bulb("unpick", 2, 2, "a"), bulb("pick", 3, 1, "b")])).toEqual([
+      { itemId: "bulb", locationId: "b", qty: 1, lotCode: null, serials: [], weightGrams: null },
+    ]);
+    expect(
+      netPickSlices([bulb("pick", 1, 2, "a", "LOT-A"), bulb("pick", 2, 2, "a", "LOT-B"), bulb("unpick", 3, 1, "a", "LOT-A")]),
+    ).toEqual([
+      { itemId: "bulb", locationId: "a", qty: 1, lotCode: "LOT-A", serials: [], weightGrams: null },
+      { itemId: "bulb", locationId: "a", qty: 2, lotCode: "LOT-B", serials: [], weightGrams: null },
     ]);
   });
 });

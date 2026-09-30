@@ -10,8 +10,14 @@ import {
   isOpenPickStatus,
   remainingToPickQty,
 } from "../domain/shopify-sellable";
-import { INVENTORY_SET_QUANTITIES_MUTATION, buildInventorySetQuantitiesInput } from "../domain/shopify";
+import {
+  INVENTORY_SET_QUANTITIES_MUTATION,
+  SHOPIFY_TOKEN_UNREADABLE,
+  buildInventorySetQuantitiesInput,
+} from "../domain/shopify";
 import { loadOpenHolds, loadHeldLotQuantities } from "./holds";
+import { openShopifyRow } from "./credentials";
+import { credentialSecret } from "../lib/credential-secret";
 import {
   ShopifyApiError,
   createShopifyGraphqlClient,
@@ -180,19 +186,30 @@ export async function syncShopifySellable(
   organizationId: string,
   options?: { itemIds?: string[]; strict?: boolean },
 ): Promise<SellableSyncResult> {
-  const [connection] = await db
+  const [stored] = await db
     .select()
     .from(schema.shopifyConnections)
     .where(eq(schema.shopifyConnections.organizationId, organizationId))
     .limit(1);
-  if (!connection) {
+  if (!stored) {
     if (options?.strict) {
       return { status: "skipped", locationGid: null, rows: [], skipped: [], error: "Shopify is not connected", code: "NOT_CONNECTED" };
     }
     return { status: "skipped", locationGid: null, rows: [], skipped: [] };
   }
+  const connection = await openShopifyRow(db, credentialSecret, stored);
 
   const rows = await loadSellableRows(db, organizationId, options?.itemIds);
+  if (connection.mode === "live" && !connection.accessToken) {
+    await recordOutbound(db, {
+      organizationId,
+      kind: "inventorySetQuantities",
+      status: "failed",
+      request: { itemIds: rows.map((row) => row.sku) },
+      response: { error: SHOPIFY_TOKEN_UNREADABLE, code: "SHOPIFY_TOKEN" },
+    });
+    return { status: "failed", locationGid: null, rows: [], skipped: [], error: SHOPIFY_TOKEN_UNREADABLE, code: "SHOPIFY_TOKEN" };
+  }
   const live = connection.mode === "live" && Boolean(connection.accessToken);
   const locationGid = connection.shopifyLocationGid || (live ? null : demoShopifyLocationGid());
   if (live && !locationGid) {
@@ -298,15 +315,17 @@ export async function scheduleShopifySellableSync(
 }
 
 export async function listShopifyLocationsForOrg(db: AppDb, organizationId: string) {
-  const [connection] = await db
+  const [stored] = await db
     .select()
     .from(schema.shopifyConnections)
     .where(eq(schema.shopifyConnections.organizationId, organizationId))
     .limit(1);
-  if (!connection) return [];
-  if (connection.mode !== "live" || !connection.accessToken) {
+  if (!stored) return [];
+  const connection = await openShopifyRow(db, credentialSecret, stored);
+  if (connection.mode !== "live") {
     return [{ id: demoShopifyLocationGid(), name: "Main (demo)", fulfillsOnlineOrders: true }];
   }
+  if (!connection.accessToken) throw new Error(SHOPIFY_TOKEN_UNREADABLE);
   const client = createShopifyGraphqlClient({
     shopDomain: connection.shopDomain,
     accessToken: connection.accessToken,

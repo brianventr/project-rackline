@@ -239,6 +239,8 @@ export type WarehouseMapInfo = {
   lat?: number | null;
   lng?: number | null;
   timeZone?: string | null;
+  defaultCarrierService?: string | null;
+  defaultCarrierConnectionId?: string | null;
 };
 
 export type LiveFlowId = "inbound" | "outbound" | "make" | "stock" | "yard";
@@ -844,6 +846,8 @@ export type CarrierHub = {
   enabledServices: CarrierServiceOption[];
   shipFromAddress: string | null;
   warehouseId: string | null;
+  /** This building's default service; null when unset or its carrier account no longer offers it. */
+  defaultService?: { serviceId: string; connectionId: string | null } | null;
   trackerWebhookUrl?: string;
 };
 
@@ -1688,7 +1692,7 @@ export type ShipQueue = {
 };
 
 export type QuickShipOutcome =
-  | { orderId: string; ok: true; number: string; trackingNumber: string | null }
+  | { orderId: string; ok: true; number: string; trackingNumber: string | null; manualPostBack?: boolean }
   | { orderId: string; ok: false; number?: string; status: number; code?: string; error: string };
 
 export type QuickShipBatch = { shipped: number; failed: number; total: number; outcomes: QuickShipOutcome[] };

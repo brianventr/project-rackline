@@ -15,7 +15,7 @@ Most of this is the same in both modes. New organizations start in Garage.
 
 ### Deployment (one time)
 
-1. Set `BETTER_AUTH_SECRET` as a Wrangler secret, 32 characters or more. Sign-in needs it, and it is also the key that seals WooCommerce and Etsy credentials. A deployed Worker without it refuses to store channel keys.
+1. Set `BETTER_AUTH_SECRET` as a Wrangler secret, 32 characters or more. Sign-in needs it, and it is also the key that seals stored credentials: WooCommerce and Etsy keys, the Shopify Admin token, and carrier API keys and secrets (the FedEx client secret lives in the meter number field). A deployed Worker without it refuses to store them.
 2. Optional: set `MAIL_API_KEY` and `MAIL_FROM` for purchase-order email, password resets, and teammate invites.
 3. Optional: set `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET` to allow **Install Shopify app** (OAuth). Pasting an Admin token works without them.
 4. Optional: set `ETSY_API_KEY` (your Etsy app keystring) to allow a live Etsy connection. `ETSY_SHARED_SECRET` is optional. In your Etsy app, register the callback `https://<your-domain>/api/channels/etsy/oauth/callback`.
@@ -24,7 +24,7 @@ Most of this is the same in both modes. New organizations start in Garage.
 ### In the app
 
 1. **Sign up.** You get an organization in Garage and one building.
-2. **Getting started** on Today (owners) walks four required steps: add a SKU, set up your building, receive stock, and ship an order. Optional steps are Shopify, a carrier, and a teammate.
+2. **Getting started** on Today (owners) walks four required steps: add a SKU, set up your building, receive stock, and ship an order. In Garage, the ship step opens the Ship queue; in Manufacturer, it opens a new order. Optional steps are a store, a carrier, and a teammate.
 3. **Set up your building** (`/welcome`) builds a dock, a rack of bays, a bench, and an outbound bay, then draws the map.
 4. **Get to one-click shipping** is the checklist at the top of the Ship queue in Garage. It has four steps, and each one opens the page that fixes it:
    - Connect a store (Settings → Integrations)
@@ -32,9 +32,9 @@ Most of this is the same in both modes. New organizations start in Garage.
    - Set your ship-from address (Settings → Warehouse)
    - Add your usual box (the **Boxes** sheet on the Ship queue)
 
-   The card disappears once all four are done.
+   The card disappears once all four are done. Its store and carrier steps are the same checks as the optional steps in Getting started, so they tick off together in both places. A store is Shopify or any active Etsy, WooCommerce, or Faire channel, live or by CSV. An empty queue offers **New order**, so you can ship one by hand before a store is connected.
 5. **Ship weights.** On each SKU (Stock → Items), enter a ship weight in ounces, and optionally length, width and height. The Ship queue uses these to weigh every parcel.
-6. **Carrier.** On Settings → Carriers, connect UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine. Enable services and **Set as default**. Rackline Ground is always there for testing.
+6. **Carrier.** On Settings → Carriers, connect UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine. Enable services and **Set as default**. Rackline Ground is always there for testing. Then pick the building's **Default service** on Settings → Warehouse, or with **Save as default** next to the Ship queue's service picker.
 7. **Manufacturer only:** add zones (Settings → Zones), set carrier cutoffs (the **Cutoffs** button on Outbound → Waves), and add 3PL clients if you hold stock for other brands.
 
 ## 2. How an order moves, end to end
@@ -63,22 +63,22 @@ An order that arrives is a promise, not a reservation. Stock is reserved when pi
 In **Garage**, this is one button on the Ship queue:
 
 1. Rackline plans the pick from the suggested bays. Lots go first-expiring first, and serials go first-in.
-2. It buys the label from the chosen service.
-3. It posts the picks, packs every unit, and marks the order shipped.
+2. It posts the picks and packs every unit.
+3. It buys the label from the chosen service and marks the order shipped.
 4. It posts tracking back to the store.
 
 In **Manufacturer**, it is a floor flow:
 
 1. Group orders into a wave from the wave planner, or pick orders one at a time.
-2. **Floor → Pick** or **Floor → Wave** (batch pick). The operator scans the bay and each SKU before the post is accepted.
-3. **Floor → Pack.** The operator scans each SKU into the box. Boxes (`BOX-1`, `BOX-2`) are optional; once one exists, every packed unit has to be in a labeled box before ship.
-4. **Floor → Ship** or the order page. Buy the label, or paste a tracking number, then ship. With boxes, each labeled box can ship on its own.
+2. **Floor → Pick** or **Floor → Wave** (batch pick). The operator scans the bay and each SKU once, then types the qty, before the post is accepted.
+3. **Floor → Pack.** The operator scans every unit into the box; each scan adds one. Boxes (`BOX-1`, `BOX-2`) are optional; once one exists, every packed unit has to be in a labeled box before ship.
+4. **Floor → Ship** or the order page. Buy the label, or paste a tracking number, then ship. The service starts on the order's own, then the building's default. With boxes, each labeled box can ship on its own.
 
 ### Tracking goes back
 
 1. **Shopify** gets one `fulfillmentCreate` per shipped box, or one for the whole order when there are no boxes. If it fails, **Retry Shopify** is on the order's menu.
 2. **WooCommerce** is marked completed with the tracking number, and **Etsy** gets tracking on the receipt. This happens when the order is fully shipped. If it fails, the order still counts as shipped in Rackline, the error is saved on the order, and **Retry WooCommerce tracking** or **Retry Etsy tracking** appears on its menu.
-3. **Faire and CSV-imported orders** do not post back. Mark them shipped in the channel.
+3. **Faire orders, and Etsy orders while Etsy is connected only by CSV,** do not post back. Mark them shipped in the channel. An Etsy order shipped without a live connection shows **Manual** under Tracking post-back, with "Mark it shipped in Etsy." and no retry, and it does not count as a failed post-back on Settings → Channels. The ship toast lists these orders too. Once Etsy is connected live, orders imported by CSV post tracking like any other.
 4. **Carrier tracking.** EasyPost and ShipEngine tracker webhooks move orders through at gate, in flight, and arrived on Traffic. Failures show as exceptions on Today, where you can buy a replacement label.
 
 ## 3. Garage: simple on the surface, full ledger underneath
@@ -99,7 +99,9 @@ You can search by order, customer, city, or SKU, and export to CSV.
 
 **Ship** on a row, or select rows and **Create labels & ship**, runs pick → pack → label → ship → post-back for each order. Bulk runs take up to 50 orders. Each order is handled on its own, so one failure does not stop the rest. You get a count of shipped and failed orders and the first error. Shipped orders open the batch label page.
 
-Rackline buys the label before it picks. If a pick fails, it puts back what was picked, releases the reservation, and voids the label it just bought, so nothing is half done. If the pick succeeds but pack or ship fails, the stock stays picked and the label is kept. The message says so, and **Ship** again finishes the job.
+Rackline buys the label last, once the picks and the pack have gone through, because postage is the one step that costs money and is hard to take back. Before any stock moves, it checks what it can without calling the carrier: the service is enabled, a live account has its API key, both addresses have a street, city, region, and postal code, and you are allowed to pick, pack, and ship.
+
+If any step fails after that, Rackline undoes the whole run. It voids a label it bought, puts the picked units back in the bays they came from, unpacks what it packed, and returns the order's status, reservations, service, and parcel size to where they were. The message names what failed and ends with "The order is back where it started", so **Ship** again starts clean. If an undo step itself fails (the carrier refuses the void, say), the message says what to do by hand. If the ship went through and only a later step errored, the order counts as shipped.
 
 The queue sends these orders to **Needs attention** instead of guessing:
 
@@ -114,7 +116,7 @@ The queue sends these orders to **Needs attention** instead of guessing:
 - **Box presets.** The **Boxes** sheet (owners) saves your usual boxes: name, length, width and height in inches, and empty weight in ounces. The first box you add becomes the default, and you can switch the default at any time. The toolbar's box picker overrides the default for this run.
 - **Parcel weight.** Weight is each SKU's ship weight × qty, plus the box's empty weight. A weight typed on the order wins.
 - **Parcel size.** A size typed on the order wins, then the box, then the SKU's own size when the order is a single unit. A row with no ship weight shows **Add weight**, which links to Items.
-- **Service.** The toolbar's service picker applies to this run. Otherwise each order keeps its own service, then the building's default service, then the first enabled service on your default carrier. Rackline Ground is the last fallback.
+- **Service.** The toolbar's service picker applies to this run, and owners can press **Save as default** beside it to make that service the building's default. Otherwise each order keeps its own service, then the building's default service (Settings → Warehouse → Default service), then the first enabled service on your default carrier. Rackline Ground is the last fallback. A default whose carrier is disconnected, or whose service is turned off, is ignored.
 
 ### Printing
 
@@ -132,21 +134,26 @@ Manufacturer is built like a traditional WMS. Work is planned, directed, and pro
 
 The mode sets a workflow policy on the server, not just in the menu:
 
-- **Quick-ship is off.** The one-click ship calls answer HTTP 409 `WAREHOUSE_FLOW`: "Manufacturer mode ships through the floor."
-- **Pick is scan-verified.** A pick post must carry a scan of the bay it is picked from and a scan of each SKU on it. A serial or lot barcode counts as its SKU. Otherwise the server answers 409 `SCAN_REQUIRED`, for example "Scan bay A-01-02 before posting."
-- **Pack is scan-verified.** Each SKU packed in the post must have been scanned.
-- **Batch pick is scan-verified** on Floor → Wave, with the same bay-and-SKU rule.
+- **Quick-ship is off.** Opening the Ship queue (`/ship`) takes you to Outbound → Waves instead, and the one-click ship calls answer HTTP 409 `WAREHOUSE_FLOW`: "Manufacturer mode ships through the floor." The batch label page (`/ship/labels`) still opens.
+- **Pick is scan-verified.** A pick post must carry a scan of the bay it is picked from and one scan of each SKU on it. You type the qty after the SKU scan, so picking 12 of a SKU takes one scan, not 12. A serial or lot barcode counts as its SKU. Otherwise the server answers 409 `SCAN_REQUIRED`, for example "Scan bay A-01-02 before posting."
+- **Pack is scan-verified per unit.** A pack post needs one scan for every unit it packs, counted per SKU. Packing 3 of a SKU takes 3 scans; with 2 the server answers 409 `SCAN_REQUIRED`: "Scan every unit of CORD: 2 of 3 scanned." This applies to plain pack and to **Pack into carton**.
+- **Batch pick is scan-verified** on Floor → Wave, with the same bay-and-SKU rule as pick.
 - **Office pick and pack hand off to the floor.** On an order page, the main button becomes **Pick on floor** or **Pack on floor** and opens the handheld screen for that order. Office qty fields for pick and pack are hidden. Starting a pick (reserving stock) and shipping a packed order still work from the office.
 
 ### Floor screens and scan proof
 
-Floor Pick, Pack, and Wave keep a record of what was scanned since the last post: the bay you are standing at and the SKUs you scanned. That record goes with the post. Quantities start at zero and are keyed after the scan. The post button stays disabled, with the reason shown, until the scans match. After a post, the SKUs clear and the bay stays, because you are still standing there. The pick can run guided (one stop at a time) or as a list, with an optional pick map.
+Floor Pick, Pack, and Wave keep a record of what was scanned since the last post: the bay you are standing at and the SKUs you scanned. That record goes with the post. Quantities start at zero. The post button stays disabled, with the reason shown, until the scans match. After a post, the SKUs clear and the bay stays, because you are still standing there.
+
+- **Pick and Wave:** scan the SKU once, then type the qty.
+- **Pack:** scan each unit as it goes in the box. Every scan of an item, serial, or lot barcode adds 1 to that line, up to what is left to pack. Scanning the same serial twice counts once, and a scan past what is left is refused ("All 2 SHADE left to pack are already scanned."). If you type a qty ahead of your scans, the next scans count toward it before adding more.
+
+The pick can run guided (one stop at a time) or as a list, with an optional pick map.
 
 ### Wave planner
 
 Outbound → Waves opens with **Plan by carrier cutoff**. It takes every open order that is not on a wave and groups it by:
 
-- **Carrier pickup.** This is the carrier's cutoff on the day the Promise board says the order can ship. The carrier comes from the order's service, or the building default.
+- **Carrier pickup.** This is the carrier's cutoff on the day the Promise board says the order can ship. The carrier comes from the order's service, or the building's default service (Settings → Warehouse).
 - **Zone.** An order's zone is the one where most of each SKU sits. An order that spans zones is "Multi-zone".
 - **3PL client.**
 
@@ -186,8 +193,8 @@ Settings → Integrations changes with the mode:
 | Feels like | ShipStation | A traditional WMS |
 | Home after sign-in | Ship queue, for everyone | Today for owners and office, Floor for operators |
 | How an order ships | One click or bulk (up to 50): pick, pack, label, ship, post-back | Wave → scan pick → scan pack → ship |
-| Quick-ship | On | Off (409 `WAREHOUSE_FLOW`) |
-| Scan to pick or pack | Optional | Required (409 `SCAN_REQUIRED`) |
+| Quick-ship | On | Off: `/ship` opens Waves, and the API answers 409 `WAREHOUSE_FLOW` |
+| Scan to pick or pack | Optional | Required (409 `SCAN_REQUIRED`): pick scans each SKU once, pack scans every unit |
 | Office pick and pack | Yes, on the order page | Hands off to Floor Pick and Pack |
 | Waves | Hidden | Planner by cutoff, zone, and client; batch pick |
 | Carrier cutoffs | Hidden | Per carrier, on the planner and Today's strip |
@@ -208,7 +215,7 @@ Owners switch with the toggle in the top bar, or on Settings → Warehouse → O
 **What changes:**
 
 - The menu and the home screen.
-- Which pages open. In Garage, packed-away pages redirect to Today.
+- Which pages open. In Garage, packed-away pages redirect to Today. In Manufacturer, the Ship queue redirects to Waves.
 - Whether quick-ship is allowed.
 - Whether pick and pack need scans.
 - Whether the office can post pick and pack.
@@ -228,7 +235,7 @@ Owners switch with the toggle in the top bar, or on Settings → Warehouse → O
 A 409 means Rackline refused the post to protect the ledger. Nothing was half written. The ones you are most likely to see:
 
 - **`WAREHOUSE_FLOW`.** You tried one-click ship in Manufacturer. Pick and pack on the floor, or switch to Garage.
-- **`SCAN_REQUIRED`.** A Manufacturer pick or pack was missing a scan. Scan the bay shown, then each SKU, then key the qty.
+- **`SCAN_REQUIRED`.** A Manufacturer pick or pack was missing a scan. For a pick, scan the bay shown, then each SKU once, then type the qty. For a pack, scan every unit going in the box.
 - **`INSUFFICIENT_ATP`.** Not enough free stock. It may be on hand but held, or reserved for another order already being picked.
 - **`NEED_CARTON_FLOW`.** The order is packed in boxes. Open it and label and ship each box.
 - **`NEED_SCAN`.** A catch-weight SKU needs weighing on Floor → Pick before the Ship queue can finish it.
@@ -248,6 +255,7 @@ A 409 means Rackline refused the post to protect the ledger. Nothing was half wr
 - **`CHANNEL_NOT_LIVE`.** Sync needs a live connection.
 - **`MISSING_APP`.** The Shopify OAuth install needs `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET`.
 - **`MISSING_LOCATION`.** Pick a Shopify location before pushing live sellable qty.
+- **`SHOPIFY_TOKEN`.** Rackline cannot read the Shopify access token, usually because `BETTER_AUTH_SECRET` changed. Paste the token again on Settings → Shopify, or reinstall the app. Fulfillment post-back fails with the same message, and **Retry Shopify** works once the token is back.
 
 ### Questions that come up
 
@@ -257,12 +265,18 @@ A 409 means Rackline refused the post to protect the ledger. Nothing was half wr
 
 **WooCommerce says it connected but orders do not arrive.** The key probably could not create the webhook. Copy the URL shown on Settings → Channels into WooCommerce → Settings → Advanced → Webhooks. The 15-minute pull still catches processing orders in the meantime.
 
-**Channel keys stopped working after a redeploy.** WooCommerce and Etsy credentials are sealed with `BETTER_AUTH_SECRET`. If that secret changes, the stored keys can no longer be read, and you have to reconnect the channel. A deployed Worker with a secret shorter than 32 characters will not store channel keys at all. Only local `http://localhost` uses a built-in development key.
+**Store or carrier keys stopped working after a redeploy.** WooCommerce and Etsy credentials, the Shopify Admin token, and carrier API keys and secrets are sealed with `BETTER_AUTH_SECRET`. If that secret changes, the stored values can no longer be read, and Rackline treats them as missing rather than guessing:
 
-**An order shipped but the store still shows it unfulfilled.** Open the order. If the post-back failed, the menu has **Retry Shopify**, or **Retry WooCommerce tracking** / **Retry Etsy tracking**. Faire and CSV orders never post back, so mark those shipped in the channel.
+- Reconnect a WooCommerce or Etsy channel.
+- On Settings → Shopify, paste the token again, or reinstall the app. A live store never falls back to demo: stock sync, the location list, and fulfillment fail with "Rackline cannot read the Shopify access token" until the token is back.
+- On Settings → Carriers, the account shows its keys as missing. Paste them again; until then, a live label is refused with "Live postage needs an API key".
+
+A Shopify token or carrier key saved by an older version of Rackline, before these were sealed, keeps working and is sealed the first time it is read. A deployed Worker with a secret shorter than 32 characters will not store credentials at all. Only local `http://localhost` uses a built-in development key.
+
+**An order shipped but the store still shows it unfulfilled.** Open the order. If the post-back failed, the menu has **Retry Shopify**, or **Retry WooCommerce tracking** / **Retry Etsy tracking**. If Tracking post-back says **Manual**, the channel has no live connection (Etsy by CSV), so there is nothing to retry: mark it shipped in the channel. Faire orders never post back either.
 
 **Can I test without buying postage?** Yes. Rackline Ground and demo carrier connections mint local tracking numbers. Live postage only happens on a live EasyPost, ShipEngine, UPS, FedEx, USPS, or DHL connection.
 
 **Does the Ship queue reserve stock?** A row being "ready" is a check, not a hold. Stock is reserved when the pick starts, and quick-ship starts the pick.
 
-**Can I use the Ship queue in Manufacturer?** No. Ship buttons there get `WAREHOUSE_FLOW`. Use Waves and the floor, or switch to Garage.
+**Can I use the Ship queue in Manufacturer?** No. `/ship` opens Outbound → Waves instead. If the mode switched while the queue was already open, the queue says so and hides its Ship buttons. Use Waves and the floor, or switch to Garage.

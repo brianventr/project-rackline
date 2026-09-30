@@ -6,11 +6,11 @@ import { isGarageMode } from "./operating-mode";
  */
 export type WorkflowPolicy = {
   mode: "garage" | "warehouse";
-  /** One call picks from suggested bays, packs, buys the label, and ships. */
+  /** One call picks from suggested bays, packs, then buys the label and ships, undoing it all on failure. */
   quickShip: boolean;
-  /** Floor pick must scan the bay and every unit's SKU before posting. */
+  /** Floor pick must scan the bay and each SKU once before posting; the qty is typed after the SKU scan. */
   scanVerifiedPick: boolean;
-  /** Pack must scan each unit at the pack station before the order is packed. */
+  /** Pack must scan every unit at the pack station: one scan per unit posted. */
   scanVerifiedPack: boolean;
   /** Office screens may post pick / pack for the operator without a floor scan. */
   officePickPack: boolean;
@@ -63,7 +63,10 @@ export function assertQuickShip(policy: WorkflowPolicy): void {
 export type ScanEvidence = {
   /** Bay barcode or code the operator scanned. */
   locationScan?: string | null;
-  /** SKU or item barcode scans made for this post, in any order. Serial and lot scans count as their SKU. */
+  /**
+   * SKU or item barcode scans made for this post, one entry per scan, in any order. Serial and lot scans
+   * count as their SKU. Pick needs each SKU once; pack needs one entry per unit.
+   */
   itemScans?: string[] | null;
 };
 
@@ -76,14 +79,14 @@ export function requiresScan(policy: WorkflowPolicy, verb: ScanVerb): boolean {
 }
 
 /**
- * Verifies a floor post was scanned: the bay (for picks) and each posted line's SKU at least once.
- * Qty is keyed after the SKU scan, as on a directed-pick RF screen. Returns the first problem, or null.
- * Matching is case-insensitive on SKU or item barcode.
+ * Verifies a floor post was scanned. A pick needs the bay and one scan of each posted SKU; the qty is
+ * typed after the SKU scan, as on a directed-pick RF screen. A pack (`perUnit`) needs one scan per unit
+ * posted. Matching is case-insensitive on SKU or item barcode. Returns the first problem, or null.
  */
 export function checkScanEvidence(
   lines: ScanCheckLine[],
   evidence: ScanEvidence | null | undefined,
-  options: { bay?: { code: string; barcode: string } | null } = {},
+  options: { bay?: { code: string; barcode: string } | null; perUnit?: boolean } = {},
 ): string | null {
   if (options.bay) {
     const scanned = evidence?.locationScan?.trim().toUpperCase();
@@ -92,13 +95,36 @@ export function checkScanEvidence(
       return `Scanned ${scanned}, but this pick is from ${options.bay.code}`;
     }
   }
-  const scanned = new Set((evidence?.itemScans ?? []).map((raw) => raw.trim().toUpperCase()).filter(Boolean));
-  for (const line of lines) {
-    if (line.qty <= 0) continue;
-    const keys = [line.sku, line.barcode ?? ""].map((key) => key.toUpperCase()).filter(Boolean);
-    if (!keys.some((key) => scanned.has(key))) return `Scan ${line.sku} before posting`;
+  for (const posted of postedBySku(lines)) {
+    const scanned = countScans(evidence?.itemScans, posted);
+    if (scanned === 0) return `Scan ${posted.sku} before posting`;
+    if (options.perUnit && scanned < posted.qty) {
+      return `Scan every unit of ${posted.sku}: ${scanned} of ${posted.qty} scanned`;
+    }
   }
   return null;
+}
+
+/** How many scans name this SKU, by SKU or item barcode. */
+export function countScans(
+  itemScans: string[] | null | undefined,
+  sku: { sku: string; barcode: string | null },
+): number {
+  const keys = new Set([sku.sku, sku.barcode ?? ""].map((key) => key.trim().toUpperCase()).filter(Boolean));
+  return (itemScans ?? []).filter((raw) => keys.has(raw.trim().toUpperCase())).length;
+}
+
+/** Posted qty per SKU, since one order can carry a SKU on two lines. */
+function postedBySku(lines: ScanCheckLine[]): { sku: string; barcode: string | null; qty: number }[] {
+  const bySku = new Map<string, { sku: string; barcode: string | null; qty: number }>();
+  for (const line of lines) {
+    if (line.qty <= 0) continue;
+    const key = line.sku.trim().toUpperCase();
+    const posted = bySku.get(key);
+    if (posted) posted.qty += line.qty;
+    else bySku.set(key, { sku: line.sku, barcode: line.barcode, qty: line.qty });
+  }
+  return [...bySku.values()];
 }
 
 /** Throws the 409 the floor shows when a Manufacturer post is missing its scans. */
@@ -110,6 +136,6 @@ export function assertScanned(
   bay?: { code: string; barcode: string } | null,
 ): void {
   if (!requiresScan(policy, verb)) return;
-  const problem = checkScanEvidence(lines, evidence, { bay: verb === "pick" ? bay : null });
+  const problem = checkScanEvidence(lines, evidence, { bay: verb === "pick" ? bay : null, perUnit: verb === "pack" });
   if (problem) throw new WorkflowPolicyError(`${problem}. Manufacturer mode ${verb}s by scan on the floor.`, "SCAN_REQUIRED");
 }

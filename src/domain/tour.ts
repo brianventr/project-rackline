@@ -5,6 +5,7 @@
  * Pure so the dialog only draws.
  */
 import { homePath } from "./home-path";
+import { MODE_SWITCH_RULES } from "./operating-mode";
 
 export type TourAudience = "owner" | "operator";
 
@@ -93,8 +94,8 @@ export const TOUR_STEPS: readonly TourStep[] = [
     eyebrow: "Two sizes",
     title: "Garage Mode and Manufacturer",
     body: [
-      "Garage Mode is the founder bench: buy parts, receive, build, pick, pack, ship, recipes, and runway, on a short menu. Manufacturer opens the rest of the floor: yard, ASNs, waves, replenishment, holds, counts, equipment, 3PL clients, EDI, and traffic.",
-      "Both run on the same ledger and the same bins. Switching changes what shows, not what is stored, so start small and open the full warehouse when the floor needs it.",
+      "Garage Mode is the founder bench: buy parts, receive, build, and ship each order in one click from the Ship queue, on a short menu. Manufacturer opens the rest of the floor: yard, ASNs, waves, replenishment, holds, counts, equipment, 3PL clients, EDI, and traffic.",
+      `Both run on the same ledger and the same bins, so a switch copies nothing. It does change how work moves: ${MODE_SWITCH_RULES} Start small and open the full warehouse when the floor needs it.`,
     ],
     audience: "owner",
   },

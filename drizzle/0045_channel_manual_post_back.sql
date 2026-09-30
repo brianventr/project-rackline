@@ -1,0 +1,1 @@
+UPDATE `orders` SET `channel_sync_status` = 'manual', `channel_sync_error` = NULL WHERE `channel_sync_status` = 'failed' AND `channel_sync_error` = 'Channel was imported by CSV; mark it shipped there.';

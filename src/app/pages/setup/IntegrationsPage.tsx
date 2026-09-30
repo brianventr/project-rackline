@@ -97,8 +97,9 @@ export function IntegrationsPage() {
             name="Boxes & default service"
             summary="Saved box sizes and the service each label uses unless you pick another."
             to="/ship?setup=box"
-            loading={false}
-            state={{ tone: "neutral", label: "Ship queue", detail: "Set on the ship queue toolbar.", connected: true }}
+            loading={carriers.isLoading}
+            error={carriers.error?.message}
+            state={carriers.data ? defaultServiceState(carriers.data) : null}
           />
         ) : (
           <IntegrationCard
@@ -277,6 +278,27 @@ function carrierState(hub: CarrierHub): Connection {
           {fallback ? ` · default ${fallback.nickname || fallback.name}` : ""}
         </span>
       </span>
+    ),
+  };
+}
+
+function defaultServiceState(hub: CarrierHub): Connection {
+  const service = hub.enabledServices.find((row) => row.id === hub.defaultService?.serviceId);
+  const change = (
+    <Link to="/setup/warehouse" className="underline">
+      Setup → Warehouse
+    </Link>
+  );
+  return {
+    tone: "neutral",
+    label: "Ship queue",
+    connected: true,
+    detail: service ? (
+      <span>
+        Default service: {service.company} {service.service}. Change it in {change}.
+      </span>
+    ) : (
+      <span>No default service yet. Set one in {change} or with Save as default on the ship queue.</span>
     ),
   };
 }

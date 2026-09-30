@@ -6,6 +6,7 @@ import { loadPromiseFacts } from "./promise";
 import { planPromises, cutoffLabel } from "../domain/promise";
 import { isValidTimeZone } from "../domain/time-zone";
 import { enabledServicesFromConnections, resolveService } from "../domain/carriers";
+import { buildingDefaultService } from "../domain/ship-defaults";
 import {
   ANY_CARRIER,
   cutoffFor,
@@ -101,7 +102,7 @@ export async function loadWavePlan(db: AppDb, organizationId: string, warehouseI
     list.push(line);
     linesByOrder.set(line.orderId, list);
   }
-  const defaultCarrier = resolveService(warehouse.defaultCarrierService)?.company ?? null;
+  const defaultCarrier = resolveService(buildingDefaultService(connections, warehouse)?.serviceId)?.company ?? null;
 
   const planOrders: WavePlanOrder[] = orders.map((row) => {
     const own = linesByOrder.get(row.id) ?? [];

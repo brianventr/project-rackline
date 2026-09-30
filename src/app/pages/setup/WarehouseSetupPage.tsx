@@ -1,17 +1,31 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { Factory, Plus, Wrench, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
-import { api, errorText, type WarehouseMapInfo } from "../../api";
+import { api, errorText, type CarrierHub, type CarrierServiceOption, type WarehouseMapInfo } from "../../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, ToneBadge, onSubmit } from "../../components/ui";
-import { NumberField, TextField, TextareaField, useZodForm, type ZodFormOutput } from "../../components/form-kit";
+import {
+  NumberField,
+  SelectField,
+  TextField,
+  TextareaField,
+  useZodForm,
+  type ZodFormOutput,
+} from "../../components/form-kit";
 import { Term } from "../../components/term";
 import { useWarehouse } from "../../warehouse";
 import { useOperatingMode } from "../../use-operating-mode";
 import { useWrite } from "../../use-write";
 import { cn } from "@/lib/utils";
 import { optionalText, wholeNumber } from "@/domain/form-schemas";
-import { GARAGE_MODE_LABEL, GARAGE_SWITCH_LABEL, MANUFACTURER_MODE_LABEL, type OperatingMode } from "@/domain/operating-mode";
+import {
+  GARAGE_MODE_LABEL,
+  GARAGE_SWITCH_LABEL,
+  MANUFACTURER_MODE_LABEL,
+  MODE_SWITCH_RULES,
+  type OperatingMode,
+} from "@/domain/operating-mode";
 import { isValidTimeZone } from "@/domain/time-zone";
 import { describeNorth, NORTH_PRESETS, normalizeHeading } from "@/domain/compass";
 import { CompassRose } from "../../components/CompassRose";
@@ -26,7 +40,8 @@ function mapSize(label: string) {
 
 /**
  * PATCH /api/warehouses/:id (`src/routes/catalog.ts`): a blank name keeps the old one, map sizes are
- * whole numbers above 0, and the timezone must be an IANA name (`parseTimeZone`).
+ * whole numbers above 0, the timezone must be an IANA name (`parseTimeZone`), and the default service
+ * must be enabled on a connected carrier account (`resolveLabelPurchase`).
  */
 const buildingFormSchema = z.object({
   name: optionalText,
@@ -49,6 +64,7 @@ const buildingFormSchema = z.object({
     notWhole: "North must be a whole number of degrees.",
     tooSmall: "North must be 0 or more.",
   }).refine((value) => value <= 359, { message: "North must be 359 or less." }),
+  defaultCarrierService: z.string(),
 });
 
 export function WarehouseSetupPage() {
@@ -68,18 +84,27 @@ export function WarehouseSetupPage() {
     mapDepth: "28",
     mapHeight: "8",
     mapNorth: "0",
+    defaultCarrierService: "",
   });
   const [newName, setNewName] = useState("");
+  const [services, setServices] = useState<CarrierServiceOption[]>([]);
+  const [savedService, setSavedService] = useState("");
   const currentId = warehouse.warehouseId;
 
   // Load this building's settings into the form.
   const { reset } = form;
   useEffect(() => {
-    api<WarehouseMapInfo[]>("/api/warehouses")
-      .then((rows) => {
+    Promise.all([
+      api<WarehouseMapInfo[]>("/api/warehouses"),
+      api<CarrierHub>(`/api/carriers?warehouseId=${encodeURIComponent(currentId)}`).catch(() => null),
+    ])
+      .then(([rows, carriers]) => {
         const current = rows.find((row) => row.id === currentId) ?? rows[0];
         setLoaded(true);
+        setServices(carriers?.enabledServices ?? []);
         if (!current) return;
+        const service = carriers?.warehouseId === current.id ? (carriers.defaultService?.serviceId ?? "") : "";
+        setSavedService(service);
         reset({
           name: current.name,
           timeZone: current.timeZone || "UTC",
@@ -91,6 +116,7 @@ export function WarehouseSetupPage() {
           mapDepth: String(current.mapDepth),
           mapHeight: String(current.mapHeight),
           mapNorth: String(current.mapNorth ?? 0),
+          defaultCarrierService: service,
         });
       })
       .catch((err: unknown) => write.setError(errorText(err, "Could not load this warehouse.")));
@@ -101,13 +127,22 @@ export function WarehouseSetupPage() {
       "Change mode",
       () => operating.setMode(operatingMode),
       operatingMode === "garage"
-        ? "Garage Mode is on. Same parts, orders, and builds."
-        : "Manufacturer is on. The rest of the floor is open.",
+        ? "Garage Mode is on. One-click ship is back on the Ship queue, and scans are optional."
+        : "Manufacturer is on. Orders ship through waves, with pick and pack scanned on the floor.",
     );
 
   async function save(values: ZodFormOutput<typeof buildingFormSchema>) {
     if (!currentId) return;
-    await write.run(
+    const service = values.defaultCarrierService;
+    // The server re-checks a sent default against the carrier accounts, so send it only when it changed.
+    const defaultPatch =
+      service === savedService
+        ? {}
+        : {
+            defaultCarrierService: service || null,
+            defaultCarrierConnectionId: services.find((row) => row.id === service)?.connectionId ?? null,
+          };
+    const saved = await write.run(
       "Save warehouse",
       () =>
         api<WarehouseMapInfo>(`/api/warehouses/${currentId}`, {
@@ -123,10 +158,12 @@ export function WarehouseSetupPage() {
             region: values.region,
             country: values.country,
             timeZone: values.timeZone,
+            ...defaultPatch,
           }),
         }),
       "Warehouse saved.",
     );
+    if (saved) setSavedService(service);
   }
 
   async function addWarehouse() {
@@ -157,7 +194,7 @@ export function WarehouseSetupPage() {
             description={
               <>
                 Switching between <Term id="garage-mode">Garage Mode</Term> and Manufacturer keeps the same parts, orders, and
-                builds. Only what shows on the floor changes.
+                builds. {MODE_SWITCH_RULES}
               </>
             }
           />
@@ -167,8 +204,9 @@ export function WarehouseSetupPage() {
               title={GARAGE_MODE_LABEL}
               body={
                 <>
-                  The bench founders and inventors start on. Receive, make, pick, and ship. Yard, waves,{" "}
-                  <Term id="asn">ASN</Term>, equipment, and <Term id="3pl-client">3PL</Term> stay packed away.
+                  The bench founders and inventors start on. Orders ship in one click from the Ship queue, scans are
+                  optional, and the office can pick and pack. Yard, waves, <Term id="asn">ASN</Term>, equipment, and{" "}
+                  <Term id="3pl-client">3PL</Term> stay packed away.
                 </>
               }
               current={garage}
@@ -179,7 +217,7 @@ export function WarehouseSetupPage() {
             <ModeOption
               icon={Factory}
               title={MANUFACTURER_MODE_LABEL}
-              body="Yard, waves, ASN, equipment, and 3PL are on this floor, next to the founder bench."
+              body="Orders ship through waves and the floor. One-click ship is off, and pick and pack need scans on the floor. Yard, ASN, equipment, and 3PL open too."
               current={!garage}
               switchLabel={`Switch to ${MANUFACTURER_MODE_LABEL}`}
               disabled={operating.busy || write.busy || !operating.owner}
@@ -223,6 +261,32 @@ export function WarehouseSetupPage() {
               <TextField form={form} name="city" label="City" placeholder="Portland" />
               <TextField form={form} name="region" label="State" placeholder="OR" />
               <TextField form={form} name="country" label="Country" placeholder="US" />
+            </div>
+          </div>
+
+          <div className="space-y-3 border-t pt-4">
+            <SectionHeading
+              title="Default service"
+              description={
+                garage
+                  ? "The ship queue, quick-ship, and an order's Ship step start on this service when the order doesn't name one."
+                  : "The Ship screen starts on this service when an order doesn't name one, and Waves use its carrier's cutoff."
+              }
+            />
+            <div className="grid gap-3 sm:grid-cols-2 sm:items-start">
+              <SelectField
+                form={form}
+                name="defaultCarrierService"
+                label="Carrier and service"
+                placeholder="No default"
+                options={services.map((row) => ({ value: row.id, label: `${row.company} ${row.service}` }))}
+                description={
+                  <>
+                    Only services turned on in <Link to="/setup/carriers" className="underline">Setup → Carriers</Link> are
+                    listed.
+                  </>
+                }
+              />
             </div>
           </div>
 

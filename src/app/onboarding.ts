@@ -4,9 +4,10 @@ import { refreshApi, useApiQuery } from "./query";
 import { useSession } from "./session";
 import { useWarehouse } from "./warehouse";
 import {
-  ONBOARDING_STEPS,
   nextOnboardingStep,
   onboardingProgress,
+  onboardingSteps,
+  skippedStepIds,
   type OnboardingStepId,
   type OnboardingStepMeta,
   type OnboardingStepState,
@@ -72,12 +73,7 @@ function readSkipped(orgId: string): string {
   const raw = readFlag(SKIPPED_KEY(orgId));
   if (!raw) return "";
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return "";
-    return parsed
-      .filter((id): id is OnboardingStepId => ONBOARDING_STEPS.some((step) => step.id === id && step.optional))
-      .sort()
-      .join(",");
+    return skippedStepIds(JSON.parse(raw)).join(",");
   } catch {
     return "";
   }
@@ -166,11 +162,12 @@ export function useOnboarding(options?: { enabled?: boolean }) {
   const query = useApiQuery<OnboardingResponse>(enabled ? onboardingPath(warehouseId) : null);
   const { skipped, skip, unskipAll } = useOnboardingSkipped();
   const data = query.data;
+  const mode = me.organization.operatingMode;
 
   const steps = useMemo<OnboardingStepView[]>(() => {
     if (!data) return [];
     const byId = new Map(data.steps.map((step) => [step.id, step]));
-    return ONBOARDING_STEPS.map((meta) => {
+    return onboardingSteps(mode).map((meta) => {
       const state = byId.get(meta.id);
       return {
         ...meta,
@@ -179,7 +176,7 @@ export function useOnboarding(options?: { enabled?: boolean }) {
         skipped: meta.optional && !state?.done && skipped.has(meta.id),
       };
     });
-  }, [data, skipped]);
+  }, [data, skipped, mode]);
 
   const progress = useMemo(() => onboardingProgress(steps), [steps]);
   const next = useMemo(() => nextOnboardingStep(steps), [steps]);

@@ -60,8 +60,8 @@ const accordionItems = [
     title: "Do Garage and Manufacturer share records?",
     content: (
       <div className="text-muted-foreground">
-        Yes. New organizations start in Garage: a ship queue where one click buys the label, picks,
-        packs, ships, and posts tracking back to the store.
+        Yes. New organizations start in Garage: a ship queue where one click picks, packs, buys the
+        label, ships, and posts tracking back to the store.
         The top-bar switch opens Manufacturer for the whole shop. Parts, orders, and builds made
         in Garage are already there.
       </div>
@@ -71,8 +71,9 @@ const accordionItems = [
     title: "What does Manufacturer add?",
     content: (
       <div className="text-muted-foreground">
-        The full floor once the product takes off. Picks and packs are confirmed by scan, and waves
-        are planned by carrier cutoff, zone, and client. It also adds yard, ASN, equipment, labor, counts,
+        The full floor once the product takes off. The one-click ship queue gives way to waves planned
+        by carrier cutoff, zone, and client, with picks and packs confirmed by scan on the floor. It also
+        adds yard, ASN, equipment, labor, counts,
         holds, replenishment, traffic, 3PL clients, zones, EDI, billing, and more than one
         building. The ledger stays the same.
       </div>

@@ -20,8 +20,10 @@ import { canShipOrder, canShipCartonOrder, normalizeOrderStatus } from "@/domain
 import { canShipLabeledCarton, cartonShipGate, hasShippableCarton } from "@/domain/cartons";
 import { planShortShip } from "@/domain/short-ship";
 import { useSession } from "../../session";
+import { useWarehouse } from "../../warehouse";
 import { jobForRef, useOpenJobs } from "../../jobs";
 import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
+import { startingShipService } from "@/domain/ship-service";
 
 const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -49,6 +51,7 @@ export function FloorShipPage() {
   const canPack =
     (me.role === "owner" || (me.floorVerbs ?? []).includes("pack")) && (!garage || garageAllowsPath("/floor/pack"));
   const { jobs, reload: reloadJobs } = useOpenJobs("ship");
+  const { warehouseId } = useWarehouse();
   const [params] = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -56,6 +59,7 @@ export function FloorShipPage() {
   const [trackingNumber, setTrackingNumber] = useState("");
   const [trackingCompany, setTrackingCompany] = useState("");
   const [carrierService, setCarrierService] = useState("rackline_ground");
+  const [hub, setHub] = useState<CarrierHub | null>(null);
   const [services, setServices] = useState<CarrierServiceOption[]>([]);
   const [rates, setRates] = useState<CarrierRate[]>([]);
   const [weightOz, setWeightOz] = useState("16");
@@ -67,9 +71,13 @@ export function FloorShipPage() {
   const [done, setDone] = useState<string | null>(null);
 
   async function load() {
-    const [next, hub] = await Promise.all([api<Order[]>("/api/orders"), api<CarrierHub>("/api/carriers")]);
+    const [next, nextHub] = await Promise.all([
+      api<Order[]>("/api/orders"),
+      api<CarrierHub>(`/api/carriers?warehouseId=${encodeURIComponent(warehouseId)}`),
+    ]);
     setOrders(next.filter(shippableOrder));
-    setServices(hub.enabledServices);
+    setHub(nextHub);
+    setServices(nextHub.enabledServices);
     const nextJobs = await reloadJobs();
     const wanted = params.get("id");
     if (wanted) {
@@ -78,9 +86,7 @@ export function FloorShipPage() {
         setActive(order);
         setTrackingNumber(order.trackingNumber || "");
         setTrackingCompany(order.trackingCompany || "");
-        setCarrierService(
-          order.carrierService || hub.enabledServices.find((row) => row.isDefault)?.id || "rackline_ground",
-        );
+        setCarrierService(startingShipService(order, nextHub));
         setWeightOz(String(order.packageWeightOz || 16));
         setLengthIn(String(order.packageLengthIn || 12));
         setWidthIn(String(order.packageWidthIn || 9));
@@ -112,7 +118,7 @@ export function FloorShipPage() {
               setActive(next);
               setTrackingNumber(next.trackingNumber || "");
               setTrackingCompany(next.trackingCompany || "");
-              setCarrierService(next.carrierService || services.find((row) => row.isDefault)?.id || "rackline_ground");
+              setCarrierService(startingShipService(next, hub));
               setWeightOz(String(next.packageWeightOz || 16));
               setLengthIn(String(next.packageLengthIn || 12));
               setWidthIn(String(next.packageWidthIn || 9));
@@ -128,7 +134,7 @@ export function FloorShipPage() {
         setError(errorText(err, "That barcode did not scan. Try again."));
         report?.(false);
       });
-  }, [jobs, me.user.id, services]);
+  }, [jobs, me.user.id, hub]);
 
   async function ship() {
     if (!active) return;
@@ -236,7 +242,7 @@ export function FloorShipPage() {
                   setActive(order);
                   setTrackingNumber(order.trackingNumber || "");
                   setTrackingCompany(order.trackingCompany || "");
-                  setCarrierService(order.carrierService || services.find((s) => s.isDefault)?.id || "rackline_ground");
+                  setCarrierService(startingShipService(order, hub));
                   setWeightOz(String(order.packageWeightOz || 16));
                   setLengthIn(String(order.packageLengthIn || 12));
                   setWidthIn(String(order.packageWidthIn || 9));

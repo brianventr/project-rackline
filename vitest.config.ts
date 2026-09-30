@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(rootDir, "./src"),
+      "cloudflare:workers": path.resolve(rootDir, "./src/test/cloudflare-workers.ts"),
     },
   },
   test: {

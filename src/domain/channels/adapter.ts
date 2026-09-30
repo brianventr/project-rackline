@@ -85,9 +85,54 @@ export function isChannelId(value: string): value is ChannelId {
   return value in CHANNELS;
 }
 
-/** Order `source` values that post tracking back through `db/channel-fulfill.ts`. */
+/** Order `source` values that post tracking back through `db/channel-sync.ts`. */
 export function postsTrackingBack(source: string): source is "woocommerce" | "etsy" {
   return source === "woocommerce" || source === "etsy";
+}
+
+/**
+ * Where a shipped order's tracking goes, from its channel's connection. `manual` is a channel with
+ * no live connection (Etsy by CSV): there is nothing to post to or retry, so the owner marks the
+ * order shipped in the channel.
+ */
+export type PostBackRoute = "live" | "demo" | "manual" | "not_connected";
+
+export function postBackRoute(conn: { status: string; mode: string } | null | undefined): PostBackRoute {
+  if (!conn || conn.status === "disconnected") return "not_connected";
+  if (conn.mode === "demo") return "demo";
+  return conn.mode === "live" ? "live" : "manual";
+}
+
+/** Only a failed post-back is worth another try; a `manual` one would fail the same way. */
+export function canRetryPostBack(order: { source?: string | null; status: string; channelSyncStatus?: string | null }): boolean {
+  return postsTrackingBack(order.source ?? "") && order.status === "shipped" && order.channelSyncStatus === "failed";
+}
+
+function channelName(source: string): string {
+  return isChannelId(source) ? CHANNELS[source].name : "the channel";
+}
+
+/** What the owner does for a `manual` order. */
+export function markShippedIn(source: string): string {
+  return `Mark it shipped in ${channelName(source)}.`;
+}
+
+/** Why a `manual` order's tracking stays in Rackline, and what the owner does instead. */
+export function manualPostBackNote(source: string): string {
+  return `${channelName(source)} has no live connection, so tracking does not post back. ${markShippedIn(source)}`;
+}
+
+/** The reminder after shipping `manual` orders, or null when every channel took its tracking. */
+export function markShippedReminder(orders: { number: string; source: string }[]): string | null {
+  if (orders.length === 0) return null;
+  const byChannel = new Map<string, string[]>();
+  for (const order of orders) {
+    const name = channelName(order.source);
+    byChannel.set(name, [...(byChannel.get(name) ?? []), order.number]);
+  }
+  return [...byChannel]
+    .map(([name, numbers]) => `Mark ${numbers.length === 1 ? numbers[0] : `${numbers.length} orders`} shipped in ${name}.`)
+    .join(" ");
 }
 
 export type ChannelConnectionView = {

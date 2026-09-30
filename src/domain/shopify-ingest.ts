@@ -165,10 +165,10 @@ export async function ingestRestOrder(
 
   let inbound = mapped;
   let foId: string | null = null;
-  if (connection.mode === "demo" || !connection.accessToken) {
+  if (connection.mode !== "live") {
     inbound = demoFulfillmentIds(mapped);
     foId = demoFulfillmentOrderId(mapped.shopifyOrderId);
-  } else {
+  } else if (connection.accessToken) {
     try {
       const client = createShopifyGraphqlClient({
         shopDomain: connection.shopDomain,

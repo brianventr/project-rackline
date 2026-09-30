@@ -10,6 +10,7 @@ import { FormSheet } from "../components/form-sheet";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
+import { markShippedReminder } from "@/domain/channels/adapter";
 
 const TABS: TabDef<ShipQueueOrder>[] = [
   { id: "ready", label: "Ready to ship", match: (row) => row.status !== "shipped" && row.ready },
@@ -46,11 +47,34 @@ export function ShipQueuePage() {
   const [presetId, setPresetId] = useState<string>("");
   const [serviceId, setServiceId] = useState<string>("");
   const [shipping, setShipping] = useState<string | null>(null);
+  const [savingDefault, setSavingDefault] = useState(false);
   const boxOpen = params.get("setup") === "box";
 
   const data = queue.data;
   const effectivePreset = presetId || data?.defaults.presetId || "";
   const setupLeft = (data?.setup ?? []).filter((step) => !step.done);
+  const storeConnected = !!data?.setup.some((step) => step.id === "store" && step.done);
+  const defaultServiceId = data?.defaults.carrierService ?? null;
+  // The route gate sends Manufacturer to Waves; this covers a session opened before the mode switched.
+  const quickShip = data?.policy.quickShip !== false;
+
+  async function saveDefaultService() {
+    const service = data?.services.find((row) => row.id === serviceId);
+    if (!service || !warehouseId) return;
+    setSavingDefault(true);
+    try {
+      await apiMutate(`/api/warehouses/${encodeURIComponent(warehouseId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ defaultCarrierService: service.id, defaultCarrierConnectionId: service.connectionId }),
+        refresh: "/api/ship",
+      });
+      toast.success(`${service.name} is now this building's default service.`);
+    } catch (err) {
+      toast.error(errorText(err, "Could not save the default service. Try again."));
+    } finally {
+      setSavingDefault(false);
+    }
+  }
 
   async function ship(rows: ShipQueueOrder[]) {
     const ids = rows.map((row) => row.id);
@@ -72,7 +96,13 @@ export function ShipQueuePage() {
         });
       }
       if (shippedIds.length) {
+        const manual = result.outcomes.flatMap((row) =>
+          row.ok && row.manualPostBack
+            ? [{ number: row.number, source: rows.find((order) => order.id === row.orderId)?.source ?? "" }]
+            : [],
+        );
         toast.success(`Shipped ${shippedIds.length} ${shippedIds.length === 1 ? "order" : "orders"}.`, {
+          description: markShippedReminder(manual) ?? undefined,
           action: { label: "Print labels", onClick: () => navigate(labelsHref(shippedIds)) },
         });
       }
@@ -183,6 +213,13 @@ export function ShipQueuePage() {
             </Button>
           );
         }
+        if (!quickShip) {
+          return (
+            <Button size="sm" variant="ghost" asChild>
+              <Link to={`/outbound/orders/${row.id}`}>Open</Link>
+            </Button>
+          );
+        }
         if (!row.ready && row.blocker) {
           return (
             <span className="inline-flex max-w-64 items-start gap-1.5 text-left text-xs text-tone-warning">
@@ -210,7 +247,7 @@ export function ShipQueuePage() {
     {
       label: "Create labels & ship",
       icon: Truck,
-      when: (rows) => rows.every((row) => row.ready && row.status !== "shipped"),
+      when: (rows) => quickShip && rows.every((row) => row.ready && row.status !== "shipped"),
       confirm: (rows) => ({
         title: `Ship ${rows.length} ${rows.length === 1 ? "order" : "orders"}?`,
         body: "Each order is picked from its suggested shelf, packed, labeled, and marked shipped. Tracking posts back to the store.",
@@ -249,7 +286,21 @@ export function ShipQueuePage() {
         }
       />
 
-      {setupLeft.length && data ? <SetupChecklist steps={data.setup} onBox={() => setParams((prev) => withParam(prev, "setup", "box"))} /> : null}
+      {!quickShip ? (
+        <Card className="flex flex-col gap-3 p-(--density-gap) md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="font-medium">Manufacturer ships through the floor</p>
+            <p className="text-sm text-muted-foreground">
+              One-click ship is off. Plan waves by carrier cutoff, then pick, pack, and ship by scan on the floor.
+            </p>
+          </div>
+          <Button size="sm" asChild>
+            <Link to="/outbound/waves">Open Waves</Link>
+          </Button>
+        </Card>
+      ) : setupLeft.length && data ? (
+        <SetupChecklist steps={data.setup} onBox={() => setParams((prev) => withParam(prev, "setup", "box"))} />
+      ) : null}
 
       <DataTable
         id="ship-queue"
@@ -286,10 +337,15 @@ export function ShipQueuePage() {
               <option value="">Each order's default service</option>
               {(data?.services ?? []).map((service) => (
                 <option key={`${service.connectionId ?? "rl"}-${service.id}`} value={service.id}>
-                  {service.name}
+                  {service.id === defaultServiceId ? `${service.name} (default)` : service.name}
                 </option>
               ))}
             </Select>
+            {owner && serviceId && serviceId !== defaultServiceId ? (
+              <Button size="sm" variant="outline" disabled={savingDefault} onClick={() => void saveDefaultService()}>
+                {savingDefault ? "Saving…" : "Save as default"}
+              </Button>
+            ) : null}
             <ToneBadge tone={readyCount ? "success" : "neutral"}>{readyCount} ready</ToneBadge>
           </div>
         }
@@ -297,11 +353,22 @@ export function ShipQueuePage() {
           <EmptyState
             icon={PackageCheck}
             title="Nothing to ship."
-            body="Connect a store and new orders show up here, ready for a label."
+            body={
+              storeConnected
+                ? "New store orders show up here, ready for a label. You can also add an order by hand."
+                : "Connect a store and new orders show up here, ready for a label. Or add an order by hand."
+            }
             action={
-              <Button size="sm" asChild>
-                <Link to="/setup/integrations">Connect a store</Link>
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                {storeConnected ? null : (
+                  <Button size="sm" asChild>
+                    <Link to="/setup/integrations">Connect a store</Link>
+                  </Button>
+                )}
+                <Button size="sm" variant={storeConnected ? "primary" : "outline"} asChild>
+                  <Link to="/outbound/orders?new=1">New order</Link>
+                </Button>
+              </div>
             }
           />
         }

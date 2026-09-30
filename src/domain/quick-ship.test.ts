@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { StockedBay } from "./partial-pick";
-import { canQuickShip, needsScanAtPick, planQuickShip, summarizeQuickShip, type QuickShipLine } from "./quick-ship";
+import {
+  canQuickShip,
+  needsScanAtPick,
+  planQuickShip,
+  planQuickShipRestore,
+  quickShipLabelBlocker,
+  quickShipUndoNote,
+  runQuickShip,
+  summarizeQuickShip,
+  type QuickShipLine,
+  type QuickShipSnapshot,
+  type QuickShipStep,
+  type QuickShipUndone,
+} from "./quick-ship";
 
 function bay(locationId: string, qty: number, extra: Partial<StockedBay> = {}): StockedBay {
   return { locationId, locationCode: locationId.toUpperCase(), locationName: locationId, barcode: locationId, qty, ...extra };
@@ -110,6 +123,19 @@ describe("quick ship helpers", () => {
     expect(bays.get("a")![0]!.qty).toBe(1);
   });
 
+  it("checks the label before any stock moves", () => {
+    expect(quickShipLabelBlocker({ live: false, hasApiKey: false })).toBeNull();
+    expect(quickShipLabelBlocker({ purchaseError: "Unknown carrier service", live: false, hasApiKey: false })).toEqual({
+      status: 400,
+      error: "Unknown carrier service",
+    });
+    expect(quickShipLabelBlocker({ live: true, hasApiKey: false })).toMatchObject({ status: 400, error: "Live postage needs an API key" });
+    expect(
+      quickShipLabelBlocker({ live: true, hasApiKey: true, shipFrom: { street1: "1 Main" }, shipTo: { error: "Needs a street" } }),
+    ).toEqual({ status: 409, error: "Needs a street", code: "LIVE_ADDRESS" });
+    expect(quickShipLabelBlocker({ live: true, hasApiKey: true, shipFrom: { street1: "1 Main" }, shipTo: { street1: "2 Elm" } })).toBeNull();
+  });
+
   it("lists the four setup steps in order", async () => {
     const { shipSetupSteps } = await import("./quick-ship");
     const steps = shipSetupSteps({ storeConnected: true, carrierConnected: false, hasShipFrom: true, hasBox: false });
@@ -119,5 +145,230 @@ describe("quick ship helpers", () => {
       ["ship-from", true],
       ["box", false],
     ]);
+  });
+});
+
+describe("quick ship run", () => {
+  const cleanUndo: QuickShipUndone = { shipped: false, voidedLabel: false };
+
+  function recorder(failAt?: string, failure = { status: 409, error: "Nope", code: "X" }) {
+    const ran: string[] = [];
+    const step = (id: QuickShipStep["id"], name: string = id): QuickShipStep => ({
+      id,
+      run: async () => {
+        ran.push(name);
+        return name === failAt ? failure : null;
+      },
+    });
+    return { ran, step };
+  }
+
+  it("buys the label only after pick and pack, whatever order the steps arrive in", async () => {
+    const { ran, step } = recorder();
+    const result = await runQuickShip([step("ship"), step("label"), step("pack"), step("pick", "pick A"), step("pick", "pick B")], async () => cleanUndo);
+    expect(result).toEqual({ ok: true });
+    expect(ran).toEqual(["pick A", "pick B", "pack", "label", "ship"]);
+  });
+
+  it("stops at the first failure and undoes once", async () => {
+    const { ran, step } = recorder("label", { status: 409, error: "Carrier rejected the address", code: "CARRIER_LIVE" });
+    let undos = 0;
+    const result = await runQuickShip([step("pick"), step("pack"), step("label"), step("ship")], async () => {
+      undos += 1;
+      return cleanUndo;
+    });
+    expect(ran).toEqual(["pick", "pack", "label"]);
+    expect(undos).toBe(1);
+    expect(result).toEqual({
+      ok: false,
+      step: "label",
+      failure: {
+        status: 409,
+        code: "CARRIER_LIVE",
+        error: "Carrier rejected the address. No label was bought. The order is back where it started.",
+      },
+    });
+  });
+
+  it("does not undo when nothing failed", async () => {
+    const { step } = recorder();
+    let undos = 0;
+    await runQuickShip([step("pick"), step("ship")], async () => {
+      undos += 1;
+      return cleanUndo;
+    });
+    expect(undos).toBe(0);
+  });
+
+  it("treats a thrown step as a failure and still undoes", async () => {
+    let undone = false;
+    const result = await runQuickShip(
+      [
+        {
+          id: "pack",
+          run: async () => {
+            throw new Error("D1 went away");
+          },
+        },
+      ],
+      async () => {
+        undone = true;
+        return { shipped: false, voidedLabel: false };
+      },
+    );
+    expect(undone).toBe(true);
+    expect(result).toMatchObject({ ok: false, step: "pack", failure: { status: 500 } });
+    if (!result.ok) expect(result.failure.error).toMatch(/^D1 went away\. /);
+  });
+
+  it("counts the order as shipped when the ship went through despite an error", async () => {
+    const { step } = recorder("ship", { status: 500, error: "Tracking post-back failed", code: "X" });
+    expect(await runQuickShip([step("ship")], async () => ({ shipped: true }))).toEqual({ ok: true });
+  });
+
+  it("ends the step error as a sentence before the undo note", async () => {
+    const { step } = recorder("pick", { status: 409, error: "Only 1 of 2 LAMP free to ship (bay A-01-01)", code: "X" });
+    const result = await runQuickShip([step("pick")], async () => cleanUndo);
+    if (result.ok) throw new Error("expected a failure");
+    expect(result.failure.error).toBe("Only 1 of 2 LAMP free to ship (bay A-01-01). No label was bought. The order is back where it started.");
+  });
+
+  it("reports an undo that threw", async () => {
+    const { step } = recorder("pick");
+    const result = await runQuickShip([step("pick")], async () => {
+      throw new Error("lock timeout");
+    });
+    if (result.ok) throw new Error("expected a failure");
+    expect(result.failure.error).toMatch(/Pick and pack could not be undone \(lock timeout\)/);
+  });
+
+  it("says what the undo did", () => {
+    expect(quickShipUndoNote({ shipped: false, voidedLabel: true })).toBe("The label was voided. The order is back where it started.");
+    expect(quickShipUndoNote({ shipped: false, voidedLabel: false, voidError: "Too late to void" })).toBe(
+      "The label could not be voided (Too late to void), so void it on the order. The order is back where it started.",
+    );
+    expect(quickShipUndoNote({ shipped: false, voidedLabel: true, restoreError: "busy" })).toBe(
+      "The label was voided. Pick and pack could not be undone (busy), so unpick the order before shipping again.",
+    );
+  });
+});
+
+describe("quick ship restore", () => {
+  const snapshot: QuickShipSnapshot = {
+    startedAt: 1,
+    status: "open",
+    pickedAt: null,
+    packedAt: null,
+    pickLocationId: null,
+    hadLabel: false,
+    label: {
+      labelStatus: "none",
+      trackingNumber: null,
+      trackingCompany: null,
+      trackingUrl: null,
+      carrierService: "ups_ground",
+      carrierConnectionId: null,
+      carrierShipmentId: null,
+      carrierLabelId: null,
+      postageCents: null,
+      trackerStatus: null,
+      trackerUpdatedAt: null,
+      packageWeightOz: null,
+      packageLengthIn: null,
+      packageWidthIn: null,
+      packageHeightIn: null,
+    },
+    lines: [
+      { id: "l1", qtyPicked: 0, qtyPacked: 0 },
+      { id: "l2", qtyPicked: 1, qtyPacked: 0 },
+    ],
+    allocations: [{ id: "keep", qty: 2 }],
+  };
+
+  it("unpicks and unpacks only what the run did and resets reservations", () => {
+    const plan = planQuickShipRestore(snapshot, {
+      status: "packed",
+      labelStatus: "purchased",
+      trackingNumber: "1Z999",
+      lines: [
+        { id: "l1", qtyPicked: 2, qtyPacked: 2 },
+        { id: "l2", qtyPicked: 3, qtyPacked: 3 },
+      ],
+      allocations: [{ id: "new", qty: 1 }],
+    });
+    expect(plan).toEqual({
+      shipped: false,
+      voidLabel: true,
+      unpick: [
+        { lineId: "l1", qty: 2 },
+        { lineId: "l2", qty: 2 },
+      ],
+      lines: [
+        { lineId: "l1", qtyPicked: 0, qtyPacked: 0 },
+        { lineId: "l2", qtyPicked: 1, qtyPacked: 0 },
+      ],
+      releaseAllocationIds: ["new"],
+      resetAllocations: [{ id: "keep", qty: 2 }],
+      restoreOrder: true,
+    });
+  });
+
+  it("only unpacks when the order was already picked", () => {
+    const picked: QuickShipSnapshot = {
+      ...snapshot,
+      status: "picked",
+      lines: [{ id: "l1", qtyPicked: 2, qtyPacked: 0 }],
+      allocations: [],
+    };
+    const plan = planQuickShipRestore(picked, {
+      status: "packed",
+      labelStatus: null,
+      trackingNumber: null,
+      lines: [{ id: "l1", qtyPicked: 2, qtyPacked: 2 }],
+      allocations: [],
+    });
+    expect(plan.unpick).toEqual([]);
+    expect(plan.lines).toEqual([{ lineId: "l1", qtyPicked: 2, qtyPacked: 0 }]);
+    expect(plan.voidLabel).toBe(false);
+    expect(plan.restoreOrder).toBe(true);
+  });
+
+  it("keeps a label the order had before and never raises a count", () => {
+    const plan = planQuickShipRestore(
+      { ...snapshot, hadLabel: true, lines: [{ id: "l1", qtyPicked: 2, qtyPacked: 2 }] },
+      {
+        status: "packing",
+        labelStatus: "purchased",
+        trackingNumber: "1Z1",
+        lines: [{ id: "l1", qtyPicked: 1, qtyPacked: 1 }],
+        allocations: [{ id: "keep", qty: 2 }],
+      },
+    );
+    expect(plan.voidLabel).toBe(false);
+    expect(plan.unpick).toEqual([]);
+    expect(plan.lines).toEqual([]);
+    expect(plan.resetAllocations).toEqual([]);
+  });
+
+  it("leaves a shipped order alone", () => {
+    const plan = planQuickShipRestore(snapshot, {
+      status: "shipped",
+      labelStatus: "purchased",
+      trackingNumber: "1Z1",
+      lines: [{ id: "l1", qtyPicked: 2, qtyPacked: 2 }],
+      allocations: [],
+    });
+    expect(plan).toMatchObject({ shipped: true, voidLabel: false, unpick: [], restoreOrder: false });
+  });
+
+  it("does nothing when the first step failed before changing anything", () => {
+    const plan = planQuickShipRestore(snapshot, {
+      status: "open",
+      labelStatus: null,
+      trackingNumber: null,
+      lines: snapshot.lines,
+      allocations: snapshot.allocations,
+    });
+    expect(plan).toMatchObject({ voidLabel: false, unpick: [], lines: [], releaseAllocationIds: [], resetAllocations: [], restoreOrder: false });
   });
 });

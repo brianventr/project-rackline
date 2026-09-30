@@ -8,6 +8,10 @@ export const MANUFACTURER_MODE_LABEL = "Manufacturer";
 
 export const GARAGE_SWITCH_LABEL = "Garage";
 
+/** What a switch changes besides the menu. The server enforces each part (`workflow-policy.ts`). */
+export const MODE_SWITCH_RULES =
+  "Manufacturer turns off one-click ship, needs scans to pick and pack, and moves pick and pack from the office to the floor.";
+
 export function parseOperatingMode(value: unknown): OperatingMode {
   if (value === "garage" || value === "warehouse") return value;
   throw new Error("Operating mode must be garage or warehouse");
@@ -99,6 +103,16 @@ export function garageAllowsPath(path: string): boolean {
   return GARAGE_PATHS.some((entry) =>
     entry.exact ? bare === entry.prefix : bare === entry.prefix || bare.startsWith(`${entry.prefix}/`),
   );
+}
+
+/** Garage-only screens, and the Manufacturer page that does their job. */
+const MANUFACTURER_REPLACES: Record<string, string> = {
+  "/ship": "/outbound/waves",
+};
+
+/** Where Manufacturer sends a Garage-only screen, or null when the path opens as is. */
+export function manufacturerRedirect(path: string): string | null {
+  return MANUFACTURER_REPLACES[pathOnly(path)] ?? null;
 }
 
 export type GarageNavItem = { title: string; url: string };

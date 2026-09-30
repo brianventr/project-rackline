@@ -402,11 +402,16 @@ export function WorkspacesDiagram({ garage, className }: { garage: boolean; clas
 
 /* ------------------------------------------------------------------ modes */
 
-const GARAGE_SHOWS = ["Buy parts, receive, and put away", "Recipes, builds, and kits", "Pick, pack, and ship", "Runway and promise"];
+const GARAGE_SHOWS = [
+  "One click picks, packs, labels, and ships",
+  "Scans optional; the office can pick and pack",
+  "Buy parts, receive, recipes, builds, and kits",
+  "Runway and promise",
+];
 const MANUFACTURER_SHOWS = [
-  "Everything on the bench",
-  "Yard, ASNs, and waves",
-  "Replenishment, holds, and counts",
+  "Waves by carrier cutoff; one-click ship is off",
+  "Pick and pack by scan, on the floor",
+  "Yard, ASNs, replenishment, holds, and counts",
   "Equipment, 3PL clients, EDI, and traffic",
 ];
 

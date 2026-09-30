@@ -4,11 +4,14 @@ import type { AppDb } from "../db/stock";
 import { newId } from "../lib/ids";
 import {
   FULFILLMENT_CREATE_MUTATION,
+  SHOPIFY_TOKEN_UNREADABLE,
   buildFulfillmentCreateInput,
   demoFulfillmentOrderId,
   fulfillmentLineItemsForPackage,
 } from "./shopify";
 import { loadPackagesForOrders, type OrderPackageRow } from "../db/packages";
+import { openShopifyRow } from "../db/credentials";
+import { credentialSecret } from "../lib/credential-secret";
 import {
   ShopifyApiError,
   createShopifyGraphqlClient,
@@ -121,7 +124,7 @@ async function postFulfillmentCreate(
   const request = { query: FULFILLMENT_CREATE_MUTATION, variables: { fulfillment } };
   const now = Date.now();
 
-  if (input.connection.mode === "demo" || !input.connection.accessToken) {
+  if (input.connection.mode !== "live") {
     const fulfillmentId = `gid://shopify/Fulfillment/demo-${input.demoSuffix ?? input.order.id}`;
     if (input.packageId) {
       await db
@@ -155,6 +158,7 @@ async function postFulfillmentCreate(
   }
 
   try {
+    if (!input.connection.accessToken) throw new Error(SHOPIFY_TOKEN_UNREADABLE);
     const client = createShopifyGraphqlClient({
       shopDomain: input.connection.shopDomain,
       accessToken: input.connection.accessToken,
@@ -254,14 +258,15 @@ export async function fulfillShopifyOrder(
     return { status: "skipped", error: "Ship the carton before fulfilling Shopify" };
   }
 
-  const [connection] = await db
+  const [stored] = await db
     .select()
     .from(schema.shopifyConnections)
     .where(eq(schema.shopifyConnections.organizationId, organizationId))
     .limit(1);
-  if (!connection) {
+  if (!stored) {
     return { status: "failed", error: "Shopify is not connected" };
   }
+  const connection = await openShopifyRow(db, credentialSecret, stored);
 
   const resolved = await resolveFulfillmentOrder(db, organizationId, channel, connection);
   if (resolved.error) return { status: "failed", error: resolved.error };

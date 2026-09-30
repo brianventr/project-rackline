@@ -117,11 +117,58 @@ export function takeFromSlices(
   return { taken, rest };
 }
 
-export function netPickSlices(picks: PickSlice[], unpicks: PickSlice[]): PickSlice[] {
-  let rest = picks.map((slice) => ({ ...slice, serials: [...slice.serials] }));
-  for (const unpick of unpicks) {
-    const next = takeFromSlices(rest, unpick.itemId, unpick.qty);
-    rest = next.rest;
+export type PickHistoryEntry = PickSlice & { type: "pick" | "unpick"; createdAt: number };
+
+/**
+ * What is still picked on an order: its picks and unpicks replayed oldest first. An unpick takes back
+ * the serials it names, or else the newest pick of the same lot, so a pick, unpick, and re-pick of
+ * the same serial nets to the re-pick.
+ */
+export function netPickSlices(history: PickHistoryEntry[]): PickSlice[] {
+  const ordered = [...history].sort(
+    (a, b) => a.createdAt - b.createdAt || (a.type === b.type ? 0 : a.type === "pick" ? -1 : 1),
+  );
+  let stack: PickSlice[] = [];
+  for (const entry of ordered) {
+    const { type, createdAt: _createdAt, ...slice } = entry;
+    if (type === "pick") stack.push({ ...slice, serials: [...slice.serials] });
+    else stack = returnToStock(stack, slice);
   }
-  return rest.filter((slice) => slice.qty > 0);
+  return stack.filter((slice) => slice.qty > 0);
+}
+
+function shrink(slice: PickSlice, take: number, serials: string[]): PickSlice {
+  const qty = slice.qty - take;
+  const weightGrams =
+    slice.weightGrams == null || qty === 0 ? null : slice.weightGrams - Math.floor((slice.weightGrams * take) / slice.qty);
+  return { ...slice, qty, serials, weightGrams };
+}
+
+function returnToStock(stack: PickSlice[], unpick: PickSlice): PickSlice[] {
+  const rest = [...stack];
+  let need = unpick.qty;
+  for (const serial of unpick.serials) {
+    if (need <= 0) break;
+    for (let index = rest.length - 1; index >= 0; index -= 1) {
+      const slice = rest[index]!;
+      if (slice.itemId !== unpick.itemId || slice.qty <= 0 || !slice.serials.includes(serial)) continue;
+      rest[index] = shrink(slice, 1, slice.serials.filter((code) => code !== serial));
+      need -= 1;
+      break;
+    }
+  }
+  const matchers = [
+    (slice: PickSlice) => slice.itemId === unpick.itemId && slice.lotCode === unpick.lotCode,
+    (slice: PickSlice) => slice.itemId === unpick.itemId,
+  ];
+  for (const matches of matchers) {
+    for (let index = rest.length - 1; index >= 0 && need > 0; index -= 1) {
+      const slice = rest[index]!;
+      if (slice.qty <= 0 || !matches(slice)) continue;
+      const take = Math.min(slice.qty, need);
+      rest[index] = shrink(slice, take, slice.serials.slice(take));
+      need -= take;
+    }
+  }
+  return rest;
 }

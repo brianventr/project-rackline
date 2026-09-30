@@ -27,6 +27,8 @@ import { loadRunwayThisWeek } from "../db/runway";
 import { dailyTrend } from "../domain/trends";
 import { mediaItemKey, normalizeImageUrl } from "../domain/media";
 import { deleteManagedMedia, putMediaFile, readUploadedFile } from "../lib/media-store";
+import { resolveLabelPurchase } from "../domain/carriers";
+import { loadCarrierConnections } from "./carriers";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -107,10 +109,22 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     defaultCarrierConnectionId?: string | null;
     defaultCarrierService?: string | null;
   } = {};
-  if ("defaultCarrierConnectionId" in body) {
-    patch.defaultCarrierConnectionId = optionalString(body.defaultCarrierConnectionId) ?? null;
+  if ("defaultCarrierService" in body || "defaultCarrierConnectionId" in body) {
+    const serviceId = "defaultCarrierService" in body ? optionalString(body.defaultCarrierService) : warehouse.defaultCarrierService;
+    if (!serviceId) {
+      patch.defaultCarrierService = null;
+      patch.defaultCarrierConnectionId = null;
+    } else {
+      const purchase = resolveLabelPurchase({
+        connections: await loadCarrierConnections(db, organizationId),
+        serviceId,
+        connectionId: optionalString(body.defaultCarrierConnectionId) ?? null,
+      });
+      if (!purchase.ok) badRequest(purchase.error);
+      patch.defaultCarrierService = purchase.service.id;
+      patch.defaultCarrierConnectionId = purchase.connectionId;
+    }
   }
-  if ("defaultCarrierService" in body) patch.defaultCarrierService = optionalString(body.defaultCarrierService) ?? null;
   const name = optionalString(body.name);
   if (name) patch.name = name;
   if ("shipFromAddress" in body) {
