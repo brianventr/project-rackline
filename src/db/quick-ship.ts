@@ -44,6 +44,23 @@ export async function snapshotQuickShip(db: AppDb, organizationId: string, order
     packedAt: order.packedAt,
     pickLocationId: order.pickLocationId,
     hadLabel: order.labelStatus === "purchased" && Boolean(order.trackingNumber),
+    label: {
+      labelStatus: order.labelStatus,
+      trackingNumber: order.trackingNumber,
+      trackingCompany: order.trackingCompany,
+      trackingUrl: order.trackingUrl,
+      carrierService: order.carrierService,
+      carrierConnectionId: order.carrierConnectionId,
+      carrierShipmentId: order.carrierShipmentId,
+      carrierLabelId: order.carrierLabelId,
+      postageCents: order.postageCents,
+      trackerStatus: order.trackerStatus,
+      trackerUpdatedAt: order.trackerUpdatedAt,
+      packageWeightOz: order.packageWeightOz,
+      packageLengthIn: order.packageLengthIn,
+      packageWidthIn: order.packageWidthIn,
+      packageHeightIn: order.packageHeightIn,
+    },
     lines: lines.map((line) => ({ id: line.id, qtyPicked: line.qtyPicked, qtyPacked: line.qtyPacked })),
     allocations: allocations.map((row) => ({ id: row.id, qty: row.qty })),
   };
@@ -71,11 +88,19 @@ export async function planQuickShipUndo(
 
 /**
  * Puts the units quick-ship picked back in the bays they came from, unpacks what it packed, and resets
- * the order's status and reservations to the snapshot, all in one batch.
+ * the order's status and reservations to the snapshot, all in one batch. `labelVoided` also puts back
+ * the service, parcel, and tracking fields the voided label wrote.
  */
 export async function restoreQuickShip(
   db: AppDb,
-  input: { organizationId: string; userId: string; orderId: string; snapshot: QuickShipSnapshot; plan: QuickShipRestore },
+  input: {
+    organizationId: string;
+    userId: string;
+    orderId: string;
+    snapshot: QuickShipSnapshot;
+    plan: QuickShipRestore;
+    labelVoided: boolean;
+  },
 ): Promise<void> {
   const { organizationId, orderId, snapshot, plan } = input;
   const order = await loadOrder(db, organizationId, orderId);
@@ -125,6 +150,7 @@ export async function restoreQuickShip(
             .where(eq(schema.orders.id, orderId)),
         ]
       : []),
+    ...(input.labelVoided ? [db.update(schema.orders).set(snapshot.label).where(eq(schema.orders.id, orderId))] : []),
   ];
 
   if (plan.unpick.length > 0) {

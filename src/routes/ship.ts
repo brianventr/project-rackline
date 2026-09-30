@@ -519,14 +519,15 @@ async function undoQuickShip(
     const voided = await call("POST", `/orders/${orderId}/label/void`, {});
     if (!voided.ok) voidError = voided.error;
   }
+  const labelVoided = plan.voidLabel && !voidError;
   let restoreError: string | null = null;
   try {
-    await restoreQuickShip(db, { organizationId, userId: c.get("user")!.id, orderId, snapshot, plan });
+    await restoreQuickShip(db, { organizationId, userId: c.get("user")!.id, orderId, snapshot, plan, labelVoided });
   } catch (err) {
     console.error(err);
     restoreError = err instanceof Error ? err.message : "Restore failed";
   }
-  return { shipped: false, voidedLabel: plan.voidLabel && !voidError, voidError, restoreError };
+  return { shipped: false, voidedLabel: labelVoided, voidError, restoreError };
 }
 
 shipRoute.post("/orders/:id/quick-ship", async (c) => {

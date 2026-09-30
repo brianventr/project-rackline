@@ -200,6 +200,25 @@ export function quickShipUndoNote(undone: Extract<QuickShipUndone, { shipped: fa
   return notes.join(" ");
 }
 
+/** The order columns buying a label writes. */
+export type QuickShipLabelFields = {
+  labelStatus: string;
+  trackingNumber: string | null;
+  trackingCompany: string | null;
+  trackingUrl: string | null;
+  carrierService: string | null;
+  carrierConnectionId: string | null;
+  carrierShipmentId: string | null;
+  carrierLabelId: string | null;
+  postageCents: number | null;
+  trackerStatus: string | null;
+  trackerUpdatedAt: number | null;
+  packageWeightOz: number | null;
+  packageLengthIn: number | null;
+  packageWidthIn: number | null;
+  packageHeightIn: number | null;
+};
+
 /** What an order looked like before quick-ship touched it. */
 export type QuickShipSnapshot = {
   startedAt: number;
@@ -208,6 +227,8 @@ export type QuickShipSnapshot = {
   packedAt: number | null;
   pickLocationId: string | null;
   hadLabel: boolean;
+  /** Written back once a label this run bought is voided, so its service and parcel don't stick to the order. */
+  label: QuickShipLabelFields;
   lines: { id: string; qtyPicked: number; qtyPacked: number }[];
   /** Open reservations with their qty. */
   allocations: { id: string; qty: number }[];
