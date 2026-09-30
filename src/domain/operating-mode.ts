@@ -23,6 +23,7 @@ const GARAGE_PATHS: { prefix: string; exact?: boolean }[] = [
   { prefix: "/welcome", exact: true },
   { prefix: "/live", exact: true },
   { prefix: "/dashboard", exact: true },
+  { prefix: "/ship" },
   { prefix: "/floor", exact: true },
   { prefix: "/floor/lookup" },
   { prefix: "/floor/print" },
@@ -81,6 +82,18 @@ export function pathOnly(path: string): string {
   return bare || "/";
 }
 
+/**
+ * Garage ships from the Ship queue in one step. The floor pick, pack, and ship screens stay reachable by link
+ * (boxed orders, weighed SKUs, short ships) but are not offered as floor tiles or ranked jobs.
+ */
+const GARAGE_FLOOR_BEHIND_SHIP = ["/floor/pick", "/floor/pack", "/floor/ship"];
+
+export function garageOffersOnFloor(path: string): boolean {
+  const bare = pathOnly(path);
+  if (GARAGE_FLOOR_BEHIND_SHIP.some((prefix) => bare === prefix || bare.startsWith(`${prefix}/`))) return false;
+  return garageAllowsPath(path);
+}
+
 export function garageAllowsPath(path: string): boolean {
   const bare = pathOnly(path);
   return GARAGE_PATHS.some((entry) =>
@@ -97,6 +110,7 @@ export const GARAGE_NAV: GarageNavGroup[] = [
   {
     label: "Bench",
     items: [
+      { title: "Ship", url: "/ship" },
       { title: "Today", url: "/today" },
       { title: "Floor", url: "/floor" },
       { title: "Shelf map", url: "/map" },

@@ -149,6 +149,10 @@ export type Item = {
   trackExpiry?: boolean;
   imageUrl?: string | null;
   unitCostCents?: number;
+  shipWeightOz?: number | null;
+  shipLengthIn?: number | null;
+  shipWidthIn?: number | null;
+  shipHeightIn?: number | null;
   onHand?: {
     locationId: string;
     locationCode: string;
@@ -1584,3 +1588,53 @@ export type {
   RunwayStatus,
   RunwayWindow,
 } from "@/domain/runway";
+
+export type PackagePreset = {
+  id: string;
+  name: string;
+  lengthIn: number;
+  widthIn: number;
+  heightIn: number;
+  tareOz: number;
+  isDefault: boolean;
+};
+
+export type ShipQueueOrder = {
+  id: string;
+  number: string;
+  status: string;
+  source: string;
+  customerName: string;
+  createdAt: number;
+  shippedAt: number | null;
+  shipToAddress: string | null;
+  shipToCity: string | null;
+  shipToRegion: string | null;
+  shipToCountry: string | null;
+  trackingNumber: string | null;
+  trackingUrl: string | null;
+  postageCents: number | null;
+  lines: { id: string; sku: string; itemName: string; imageUrl: string | null; qty: number; shipWeightOz: number | null }[];
+  parcel: { weightOz?: number; lengthIn?: number; widthIn?: number; heightIn?: number };
+  missingWeight: string[];
+  serviceId: string | null;
+  serviceName: string | null;
+  serviceLive: boolean;
+  ready: boolean;
+  blocker: { code: string; error: string; sku: string | null } | null;
+};
+
+export type ShipQueue = {
+  policy: { mode: "garage" | "warehouse"; quickShip: boolean };
+  presets: PackagePreset[];
+  services: { id: string; name: string; company: string; connectionId: string | null; provider: string }[];
+  defaults: { presetId: string | null; carrierService: string | null; carrierConnectionId: string | null };
+  setup: { id: string; label: string; done: boolean; to: string }[];
+  orders: ShipQueueOrder[];
+};
+
+export type QuickShipOutcome =
+  | { orderId: string; ok: true; number: string; trackingNumber: string | null }
+  | { orderId: string; ok: false; number?: string; status: number; code?: string; error: string };
+
+export type QuickShipBatch = { shipped: number; failed: number; total: number; outcomes: QuickShipOutcome[] };

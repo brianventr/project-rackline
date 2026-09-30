@@ -74,7 +74,9 @@ import { hasUnpicked } from "@/domain/partial-pick";
 import { hasUnpacked } from "@/domain/partial-pack";
 import { canShipLabeledCarton, canUncartonOrderPackage } from "@/domain/cartons";
 import { planShortShip } from "@/domain/short-ship";
+import { workflowPolicy } from "@/domain/workflow-policy";
 import { useWarehouse, inWarehouse } from "../warehouse";
+import { useSession } from "../session";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { PickMap } from "../components/PickMap";
 
@@ -422,6 +424,8 @@ function NewOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o
 }
 
 function OrderDetail({ id }: { id: string }) {
+  const me = useSession();
+  const policy = workflowPolicy(me.organization.operatingMode);
   const [order, setOrder] = useState<Order | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [pickLocation, setPickLocation] = useState("");
@@ -493,6 +497,16 @@ function OrderDetail({ id }: { id: string }) {
   }
 
   const sumQty = (values: Record<string, string>) => Object.values(values).reduce((sum, value) => sum + (Number(value) || 0), 0);
+
+  const quickShip = () =>
+    run(
+      "Ship",
+      async () => {
+        await api(`/api/orders/${id}/quick-ship`, { method: "POST", body: JSON.stringify({}) });
+        return api<Order>(`/api/orders/${id}`);
+      },
+      (next) => `Shipped ${next?.number ?? "order"}${next?.trackingNumber ? ` · ${next.trackingNumber}` : ""}.`,
+    );
 
   const startPick = () =>
     run("Start pick", () => api<Order>(`/api/orders/${id}/start`, { method: "POST" }), () => "Pick started. Stock is reserved for this order.");
@@ -741,11 +755,16 @@ function OrderDetail({ id }: { id: string }) {
     (order.shopifySyncStatus === "failed" || packages.some((pkg) => pkg.shippedAt && !pkg.shopifyFulfillmentId));
 
   let primary: DocumentAction | null = null;
-  if (picking) primary = { label: "Pick", icon: PackageMinus, onSelect: pick, disabled: !thisPick };
+  const quickShipOk =
+    policy.quickShip && !hasPackages && ["open", "draft", "picking", "picked", "packing", "packed"].includes(order.status);
+  if (quickShipOk) primary = { label: shipLabel, icon: Truck, onSelect: quickShip };
+  else if (picking) primary = { label: "Pick", icon: PackageMinus, onSelect: pick, disabled: !thisPick };
   else if (packing) primary = { label: "Pack", icon: PackageCheck, onSelect: pack, disabled: !thisPack };
   else if (canShipOrder(order.status)) primary = { label: shipLabel, icon: Truck, onSelect: ship };
 
   const menu: DocumentAction[] = [
+    ...(quickShipOk && picking ? [{ label: "Pick", icon: PackageMinus, onSelect: pick, disabled: !thisPick }] : []),
+    ...(quickShipOk && packing ? [{ label: "Pack", icon: PackageCheck, onSelect: pack, disabled: !thisPack }] : []),
     ...(canStartPick(order.status) && remaining
       ? [{ label: "Start pick (reserve stock)", icon: Play, onSelect: startPick }]
       : []),
