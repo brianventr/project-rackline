@@ -1,5 +1,4 @@
-import { and, eq, isNull, type SQL } from "drizzle-orm";
-import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { and, eq } from "drizzle-orm";
 import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { readStoredSecret } from "../lib/secret-box";
@@ -10,9 +9,9 @@ type ShopifyRow = typeof schema.shopifyConnections.$inferSelect;
 /** The sealing key, asked for only when a row has something to open. */
 export type SecretSource = () => string;
 
-function unchanged(column: SQLiteColumn, value: string | null): SQL {
-  return value === null ? isNull(column) : eq(column, value);
-}
+/** Carrier columns sealed at rest. FedEx keeps its OAuth client secret in the meter number. */
+export const CARRIER_SECRET_FIELDS = ["apiKey", "apiSecret", "meterNumber"] as const;
+export type CarrierSecretField = (typeof CARRIER_SECRET_FIELDS)[number];
 
 /** Sealing plain text in place is a convenience; a read must not fail because of it. */
 async function reseal(write: Promise<unknown>): Promise<void> {
@@ -24,28 +23,34 @@ async function reseal(write: Promise<unknown>): Promise<void> {
 }
 
 /**
- * A carrier row with its API key and secret in the clear. Keys still stored as plain text are sealed
- * in place, unless another write changed them since this read.
+ * A carrier row with its API key, secret, and meter number in the clear. Values still stored as plain
+ * text are sealed in place, unless another write changed them since this read.
  */
 export async function openCarrierRow(db: AppDb, secret: SecretSource, row: CarrierRow): Promise<CarrierRow> {
-  if (!row.apiKey && !row.apiSecret) return row;
+  if (!CARRIER_SECRET_FIELDS.some((field) => row[field])) return row;
   const key = secret();
-  const [apiKey, apiSecret] = await Promise.all([readStoredSecret(key, row.apiKey), readStoredSecret(key, row.apiSecret)]);
-  if (apiKey.reseal || apiSecret.reseal) {
+  const opened = { ...row };
+  const resealed: Partial<Record<CarrierSecretField, string>> = {};
+  for (const field of CARRIER_SECRET_FIELDS) {
+    const read = await readStoredSecret(key, row[field]);
+    opened[field] = read.value;
+    if (read.reseal) resealed[field] = read.reseal;
+  }
+  const fields = Object.keys(resealed) as CarrierSecretField[];
+  if (fields.length > 0) {
     await reseal(
       db
         .update(schema.carrierConnections)
-        .set({ apiKey: apiKey.reseal ?? row.apiKey, apiSecret: apiSecret.reseal ?? row.apiSecret })
+        .set(resealed)
         .where(
           and(
             eq(schema.carrierConnections.id, row.id),
-            unchanged(schema.carrierConnections.apiKey, row.apiKey),
-            unchanged(schema.carrierConnections.apiSecret, row.apiSecret),
+            ...fields.map((field) => eq(schema.carrierConnections[field], row[field]!)),
           ),
         ),
     );
   }
-  return { ...row, apiKey: apiKey.value, apiSecret: apiSecret.value };
+  return opened;
 }
 
 /**
@@ -61,10 +66,7 @@ export async function openShopifyRow(db: AppDb, secret: SecretSource, row: Shopi
         .update(schema.shopifyConnections)
         .set({ accessToken: token.reseal })
         .where(
-          and(
-            eq(schema.shopifyConnections.id, row.id),
-            unchanged(schema.shopifyConnections.accessToken, row.accessToken),
-          ),
+          and(eq(schema.shopifyConnections.id, row.id), eq(schema.shopifyConnections.accessToken, row.accessToken)),
         ),
     );
   }

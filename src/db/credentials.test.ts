@@ -22,7 +22,11 @@ function fakeDb(options: { failWrite?: boolean } = {}) {
   return { db: db as unknown as AppDb, writes };
 }
 
-function carrierRow(keys: { apiKey: string | null; apiSecret: string | null }): typeof schema.carrierConnections.$inferSelect {
+function carrierRow(keys: {
+  apiKey: string | null;
+  apiSecret: string | null;
+  meterNumber?: string | null;
+}): typeof schema.carrierConnections.$inferSelect {
   return {
     id: "car-1",
     organizationId: "org-1",
@@ -33,7 +37,7 @@ function carrierRow(keys: { apiKey: string | null; apiSecret: string | null }): 
     status: "connected",
     apiKey: keys.apiKey,
     apiSecret: keys.apiSecret,
-    meterNumber: null,
+    meterNumber: keys.meterNumber ?? null,
     enabledServicesJson: "[]",
     webhookSecret: null,
     isDefault: false,
@@ -85,8 +89,17 @@ describe("openCarrierRow", () => {
     const sealedKey = await sealSecret(SECRET, "ups-id-4321");
     const opened = await openCarrierRow(db, () => SECRET, carrierRow({ apiKey: sealedKey, apiSecret: "ups-secret-8765" }));
     expect(opened).toMatchObject({ apiKey: "ups-id-4321", apiSecret: "ups-secret-8765" });
-    expect(writes[0]!.values.apiKey).toBe(sealedKey);
+    expect(Object.keys(writes[0]!.values)).toEqual(["apiSecret"]);
     expect(isSealed(writes[0]!.values.apiSecret as string)).toBe(true);
+  });
+
+  it("opens and seals a FedEx client secret kept in the meter number", async () => {
+    const { db, writes } = fakeDb();
+    const row = carrierRow({ apiKey: await sealSecret(SECRET, "fedex-id-1111"), apiSecret: null, meterNumber: "fedex-secret-2222" });
+    const opened = await openCarrierRow(db, () => SECRET, row);
+    expect(opened).toMatchObject({ apiKey: "fedex-id-1111", apiSecret: null, meterNumber: "fedex-secret-2222" });
+    expect(Object.keys(writes[0]!.values)).toEqual(["meterNumber"]);
+    expect(await openSecret(SECRET, writes[0]!.values.meterNumber as string)).toBe("fedex-secret-2222");
   });
 
   it("reads a key sealed under another secret as missing and leaves it stored", async () => {

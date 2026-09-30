@@ -26,7 +26,7 @@ import { isDirectProvider } from "../domain/direct-carrier";
 import { normalizeTrackerStatus, parseTrackerWebhook, verifyTrackerHmac } from "../domain/tracker";
 import { loadPackagesForOrders, orderPatchFromPackages } from "../db/packages";
 import { buildingDefaultService } from "../domain/ship-defaults";
-import { openCarrierRow } from "../db/credentials";
+import { CARRIER_SECRET_FIELDS, openCarrierRow, type CarrierSecretField } from "../db/credentials";
 import { credentialSecret } from "../lib/credential-secret";
 import { sealSecret } from "../lib/secret-box";
 
@@ -52,21 +52,26 @@ async function loadCarrierConnection(db: AppEnv["Variables"]["db"], organization
 }
 
 /**
- * The API key and secret a write sets, sealed. A field left undefined is not in the result, so the
+ * The carrier secrets a write sets, sealed. A field left undefined is not in the result, so the
  * stored value stays as it is, even one this deployment cannot open.
  */
-async function sealedKeys(creds: Pick<CarrierCredentials, "apiKey" | "apiSecret">) {
-  const out: { apiKey?: string | null; apiSecret?: string | null } = {};
-  for (const field of ["apiKey", "apiSecret"] as const) {
+async function sealedKeys(creds: Pick<CarrierCredentials, CarrierSecretField>) {
+  const out: Partial<Record<CarrierSecretField, string | null>> = {};
+  for (const field of CARRIER_SECRET_FIELDS) {
     const value = creds[field];
     if (value !== undefined) out[field] = value ? await sealSecret(credentialSecret(), value) : null;
   }
   return out;
 }
 
-/** A written row as the API shows it: hints come from the keys in the clear, not the sealed columns. */
+/** A written row as the API shows it: hints come from the values in the clear, not the sealed columns. */
 function withKeys(row: typeof schema.carrierConnections.$inferSelect, creds: CarrierCredentials) {
-  return asLike({ ...row, apiKey: creds.apiKey ?? null, apiSecret: creds.apiSecret ?? null });
+  return asLike({
+    ...row,
+    apiKey: creds.apiKey ?? null,
+    apiSecret: creds.apiSecret ?? null,
+    meterNumber: creds.meterNumber ?? null,
+  });
 }
 
 export async function recordCarrierEvent(
@@ -266,7 +271,6 @@ carriersRoute.post("/carriers", async (c) => {
     nickname: optionalString(body.nickname) || provider.name,
     accountNumber: creds.accountNumber,
     ...(await sealedKeys(creds)),
-    meterNumber: creds.meterNumber,
     webhookSecret: optionalString(body.webhookSecret) ?? null,
     mode,
     status: "connected",
@@ -319,8 +323,8 @@ carriersRoute.patch("/carriers/:id", async (c) => {
       ...(await sealedKeys({
         apiKey: body.apiKey === undefined ? undefined : creds.apiKey,
         apiSecret: body.apiSecret === undefined ? undefined : creds.apiSecret,
+        meterNumber: body.meterNumber === undefined ? undefined : creds.meterNumber,
       })),
-      meterNumber: creds.meterNumber,
       webhookSecret:
         body.webhookSecret === undefined ? existing.webhookSecret : keepOrReplace(body.webhookSecret, existing.webhookSecret),
       mode,

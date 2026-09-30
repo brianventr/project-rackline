@@ -1,7 +1,7 @@
 /**
  * AES-GCM for credentials at rest: channel keys and tokens, the Shopify Admin token, and carrier API
- * keys. The key is derived from BETTER_AUTH_SECRET with HKDF, so rotating that secret makes stored
- * credentials unreadable and the owner reconnects.
+ * keys and secrets. The key is derived from BETTER_AUTH_SECRET with HKDF, so rotating that secret makes
+ * stored credentials unreadable and the owner reconnects.
  */
 const PREFIX = "sb1:";
 const INFO = new TextEncoder().encode("rackline-channel-credentials");
