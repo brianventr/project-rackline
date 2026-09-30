@@ -78,6 +78,8 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     country?: string | null;
     timeZone?: string | null;
     mapNorth?: number;
+    defaultCarrierConnectionId?: string | null;
+    defaultCarrierService?: string | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -102,7 +104,13 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     lng?: number | null;
     timeZone?: string;
     mapNorth?: number;
+    defaultCarrierConnectionId?: string | null;
+    defaultCarrierService?: string | null;
   } = {};
+  if ("defaultCarrierConnectionId" in body) {
+    patch.defaultCarrierConnectionId = optionalString(body.defaultCarrierConnectionId) ?? null;
+  }
+  if ("defaultCarrierService" in body) patch.defaultCarrierService = optionalString(body.defaultCarrierService) ?? null;
   const name = optionalString(body.name);
   if (name) patch.name = name;
   if ("shipFromAddress" in body) {
@@ -532,6 +540,10 @@ catalogRoute.patch("/items/:id", async (c) => {
     altPerStock?: number | null;
     baselineShipRate?: number | null;
     imageUrl?: string | null;
+    shipWeightOz?: number | null;
+    shipLengthIn?: number | null;
+    shipWidthIn?: number | null;
+    shipHeightIn?: number | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -550,7 +562,21 @@ catalogRoute.patch("/items/:id", async (c) => {
     altPerStock?: number | null;
     baselineShipRate?: number | null;
     imageUrl?: string | null;
+    shipWeightOz?: number | null;
+    shipLengthIn?: number | null;
+    shipWidthIn?: number | null;
+    shipHeightIn?: number | null;
   } = {};
+  for (const key of ["shipWeightOz", "shipLengthIn", "shipWidthIn", "shipHeightIn"] as const) {
+    if (body[key] === undefined) continue;
+    if (body[key] === null) {
+      patch[key] = null;
+      continue;
+    }
+    const value = requireInt(body[key], key);
+    if (value < 0) badRequest(`${key} cannot be negative`);
+    patch[key] = value || null;
+  }
   if (body.reorderPoint !== undefined) {
     const reorderPoint = requireInt(body.reorderPoint, "reorderPoint");
     if (reorderPoint < 0) badRequest("Reorder point cannot be negative");
