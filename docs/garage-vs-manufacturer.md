@@ -101,7 +101,7 @@ You can search by order, customer, city, or SKU, and export to CSV.
 
 Rackline buys the label last, once the picks and the pack have gone through, because postage is the one step that costs money and is hard to take back. Before any stock moves, it checks what it can without calling the carrier: the service is enabled, a live account has its API key, both addresses have a street, city, region, and postal code, and you are allowed to pick, pack, and ship.
 
-If any step fails after that, Rackline undoes the whole run. It voids a label it bought, puts the picked units back in the bays they came from, unpacks what it packed, and returns the order's status and reservations to where they were. The message names what failed and ends with "The order is back where it started", so **Ship** again starts clean. If an undo step itself fails (the carrier refuses the void, say), the message says what to do by hand. If the ship went through and only a later step errored, the order counts as shipped.
+If any step fails after that, Rackline undoes the whole run. It voids a label it bought, puts the picked units back in the bays they came from, unpacks what it packed, and returns the order's status, reservations, service, and parcel size to where they were. The message names what failed and ends with "The order is back where it started", so **Ship** again starts clean. If an undo step itself fails (the carrier refuses the void, say), the message says what to do by hand. If the ship went through and only a later step errored, the order counts as shipped.
 
 The queue sends these orders to **Needs attention** instead of guessing:
 
