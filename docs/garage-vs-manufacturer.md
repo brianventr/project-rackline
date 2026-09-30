@@ -15,7 +15,7 @@ Most of this is the same in both modes. New organizations start in Garage.
 
 ### Deployment (one time)
 
-1. Set `BETTER_AUTH_SECRET` as a Wrangler secret, 32 characters or more. Sign-in needs it, and it is also the key that seals WooCommerce and Etsy credentials. A deployed Worker without it refuses to store channel keys.
+1. Set `BETTER_AUTH_SECRET` as a Wrangler secret, 32 characters or more. Sign-in needs it, and it is also the key that seals stored credentials: WooCommerce and Etsy keys, the Shopify Admin token, and carrier API keys and secrets (the FedEx client secret lives in the meter number field). A deployed Worker without it refuses to store them.
 2. Optional: set `MAIL_API_KEY` and `MAIL_FROM` for purchase-order email, password resets, and teammate invites.
 3. Optional: set `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET` to allow **Install Shopify app** (OAuth). Pasting an Admin token works without them.
 4. Optional: set `ETSY_API_KEY` (your Etsy app keystring) to allow a live Etsy connection. `ETSY_SHARED_SECRET` is optional. In your Etsy app, register the callback `https://<your-domain>/api/channels/etsy/oauth/callback`.
@@ -255,6 +255,7 @@ A 409 means Rackline refused the post to protect the ledger. Nothing was half wr
 - **`CHANNEL_NOT_LIVE`.** Sync needs a live connection.
 - **`MISSING_APP`.** The Shopify OAuth install needs `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET`.
 - **`MISSING_LOCATION`.** Pick a Shopify location before pushing live sellable qty.
+- **`SHOPIFY_TOKEN`.** Rackline cannot read the Shopify access token, usually because `BETTER_AUTH_SECRET` changed. Paste the token again on Settings → Shopify, or reinstall the app. Fulfillment post-back fails with the same message, and **Retry Shopify** works once the token is back.
 
 ### Questions that come up
 
@@ -264,7 +265,13 @@ A 409 means Rackline refused the post to protect the ledger. Nothing was half wr
 
 **WooCommerce says it connected but orders do not arrive.** The key probably could not create the webhook. Copy the URL shown on Settings → Channels into WooCommerce → Settings → Advanced → Webhooks. The 15-minute pull still catches processing orders in the meantime.
 
-**Channel keys stopped working after a redeploy.** WooCommerce and Etsy credentials are sealed with `BETTER_AUTH_SECRET`. If that secret changes, the stored keys can no longer be read, and you have to reconnect the channel. A deployed Worker with a secret shorter than 32 characters will not store channel keys at all. Only local `http://localhost` uses a built-in development key.
+**Store or carrier keys stopped working after a redeploy.** WooCommerce and Etsy credentials, the Shopify Admin token, and carrier API keys and secrets are sealed with `BETTER_AUTH_SECRET`. If that secret changes, the stored values can no longer be read, and Rackline treats them as missing rather than guessing:
+
+- Reconnect a WooCommerce or Etsy channel.
+- On Settings → Shopify, paste the token again, or reinstall the app. A live store never falls back to demo: stock sync, the location list, and fulfillment fail with "Rackline cannot read the Shopify access token" until the token is back.
+- On Settings → Carriers, the account shows its keys as missing. Paste them again; until then, a live label is refused with "Live postage needs an API key".
+
+A Shopify token or carrier key saved by an older version of Rackline, before these were sealed, keeps working and is sealed the first time it is read. A deployed Worker with a secret shorter than 32 characters will not store credentials at all. Only local `http://localhost` uses a built-in development key.
 
 **An order shipped but the store still shows it unfulfilled.** Open the order. If the post-back failed, the menu has **Retry Shopify**, or **Retry WooCommerce tracking** / **Retry Etsy tracking**. If Tracking post-back says **Manual**, the channel has no live connection (Etsy by CSV), so there is nothing to retry: mark it shipped in the channel. Faire orders never post back either.
 
