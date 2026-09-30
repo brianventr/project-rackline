@@ -11,6 +11,7 @@ import {
   netPickSlices,
   remainingToUnpick,
   takeFromSlices,
+  type PickHistoryEntry,
   type PickSlice,
   type UnpickLine,
 } from "../domain/partial-unpick";
@@ -48,6 +49,7 @@ export async function loadNetPickSlices(db: AppDb, organizationId: string, order
       lotCode: schema.inventoryMovements.lotCode,
       serialsJson: schema.inventoryMovements.serialsJson,
       weightGrams: schema.inventoryMovements.weightGrams,
+      createdAt: schema.inventoryMovements.createdAt,
     })
     .from(schema.inventoryMovements)
     .where(
@@ -57,22 +59,22 @@ export async function loadNetPickSlices(db: AppDb, organizationId: string, order
         inArray(schema.inventoryMovements.type, ["pick", "unpick"]),
       ),
     );
-  const picks: PickSlice[] = [];
-  const unpicks: PickSlice[] = [];
+  const history: PickHistoryEntry[] = [];
   for (const row of rows) {
-    const slice: PickSlice = {
+    const locationId = (row.type === "unpick" ? row.toLocationId : row.fromLocationId) ?? "";
+    if (!locationId) continue;
+    history.push({
+      type: row.type === "pick" ? "pick" : "unpick",
+      createdAt: row.createdAt,
       itemId: row.itemId,
-      locationId: (row.type === "unpick" ? row.toLocationId : row.fromLocationId) ?? "",
+      locationId,
       qty: row.qty,
       lotCode: row.lotCode,
       serials: parseSerialsJson(row.serialsJson),
       weightGrams: row.weightGrams,
-    };
-    if (!slice.locationId) continue;
-    if (row.type === "pick") picks.push(slice);
-    else unpicks.push(slice);
+    });
   }
-  return netPickSlices(picks, unpicks);
+  return netPickSlices(history);
 }
 
 function statusAfterUnpick(lines: { qty: number; qtyPicked: number; qtyPacked: number; sku: string; id: string }[]): string {
