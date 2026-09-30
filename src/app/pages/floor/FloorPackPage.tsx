@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Box } from "lucide-react";
 import { api, errorText, type Order, type ScanHit } from "../../api";
@@ -7,13 +7,13 @@ import { Term } from "../../components/term";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { canPackOrder, canStartPack, canCancelOrder, normalizeOrderStatus } from "@/domain/status";
-import { hasUnpacked } from "@/domain/partial-pack";
+import { hasUnpacked, packUnitScan, type PackStationLine } from "@/domain/partial-pack";
 import { cartonShipGate, canUncartonOrderPackage, hasUncartoned } from "@/domain/cartons";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
-import { checkScanEvidence, workflowPolicy } from "@/domain/workflow-policy";
-import { EMPTY_SCAN_LOG, afterPost, recordScan, scanEvidence, type ScanLog } from "./scan-log";
+import { checkScanEvidence, countScans, workflowPolicy } from "@/domain/workflow-policy";
+import { EMPTY_SCAN_LOG, afterPost, recordUnitScan, scanEvidence, type ScanLog } from "./scan-log";
 
 const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -36,21 +36,49 @@ export function FloorPackPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [active, setActive] = useState<Order | null>(null);
-  const [qtys, setQtys] = useState<Record<string, string>>({});
+  // Scans resolve out of order, so each one reads and writes the latest qtys and log through refs.
+  const [qtys, setQtysState] = useState<Record<string, string>>({});
+  const qtysRef = useRef(qtys);
+  const setQtys = (next: Record<string, string>) => {
+    qtysRef.current = next;
+    setQtysState(next);
+  };
   const [weightOz, setWeightOz] = useState("16");
   const [lengthIn, setLengthIn] = useState("12");
   const [widthIn, setWidthIn] = useState("9");
   const [heightIn, setHeightIn] = useState("6");
   const [error, setError] = useState<string | null>(null);
   const needScan = workflowPolicy(me.organization.operatingMode).scanVerifiedPack;
-  const [scanLog, setScanLog] = useState<ScanLog>(EMPTY_SCAN_LOG);
+  const [scanLog, setScanLogState] = useState<ScanLog>(EMPTY_SCAN_LOG);
+  const scanLogRef = useRef(scanLog);
+  const setScanLog = (next: ScanLog) => {
+    scanLogRef.current = next;
+    setScanLogState(next);
+  };
+
+  const activeId = useRef<string | null>(null);
 
   function applyOrder(order: Order) {
-    setActive((current) => {
-      if (current?.id !== order.id) setScanLog(EMPTY_SCAN_LOG);
-      return order;
-    });
+    if (activeId.current !== order.id) setScanLog(EMPTY_SCAN_LOG);
+    activeId.current = order.id;
+    setActive(order);
     setQtys(needScan ? Object.fromEntries((order.lines ?? []).map((line) => [line.id, "0"])) : packQtyDefaults(order));
+  }
+
+  function closeOrder() {
+    activeId.current = null;
+    setActive(null);
+  }
+
+  /** What this pack posts, read before start-pack swaps in the started order. */
+  function thisPackPost(order: Order) {
+    const inPack = qtysRef.current;
+    return {
+      lines: (order.lines ?? [])
+        .map((line) => ({ lineId: line.id, qty: Number(inPack[line.id] || 0) }))
+        .filter((line) => line.qty > 0),
+      scan: scanEvidence(scanLogRef.current),
+    };
   }
 
   async function load() {
@@ -88,7 +116,6 @@ export function FloorPackPage() {
       setError(null);
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
         .then(async (hit) => {
-          setScanLog((log) => recordScan(log, hit));
           if (hit.kind === "order") {
             const order = await api<Order>(`/api/orders/${hit.order.id}`);
             // Pack takes picked or packing tickets, plus packed ones that may still need a carton boxed or dropped.
@@ -100,52 +127,65 @@ export function FloorPackPage() {
             report?.(openFloorRow(order, me.user.id, jobForRef(jobs, "order", order.id, "pack"), applyOrder, setError));
             return;
           }
-          if (hit.kind === "item" && active) {
-            const line = (active.lines ?? []).find((row) => row.itemId === hit.item.id || row.sku === hit.item.sku);
-            if (!line) {
-              setError(`${hit.item.sku} is not on this order.`);
-              report?.(false);
-              return;
-            }
-            if ((line.packRemaining ?? 0) <= 0) {
-              setError(`${line.sku} is already packed.`);
-              report?.(false);
-              return;
-            }
-            setQtys((current) => ({ ...current, [line.id]: String(line.packRemaining ?? 0) }));
-            report?.(true);
+          const unit = active ? scannedUnit(hit, active) : null;
+          if (!active || !unit) {
+            setError(
+              needScan
+                ? "Scan a picked order, then scan each unit as it goes in the box."
+                : "Scan a picked order, then scan a SKU to pack remaining qty.",
+            );
+            report?.(false);
             return;
           }
-          setError("Scan a picked order, then scan a SKU to pack remaining qty.");
-          report?.(false);
+          if ("problem" in unit) {
+            setError(unit.problem);
+            report?.(false);
+            return;
+          }
+          const log = scanLogRef.current;
+          if (needScan && unit.serial && log.serials.includes(unit.serial)) {
+            setError(`Serial ${unit.serial} is already scanned for this pack.`);
+            report?.(false);
+            return;
+          }
+          const lines = packStationLines(active, needScan ? qtysRef.current : {});
+          const result = packUnitScan(lines, unit, needScan ? countScans(log.skus, { sku: unit.sku, barcode: null }) : 0);
+          if (!result.ok) {
+            setError(result.problem);
+            report?.(false);
+            return;
+          }
+          if (needScan) {
+            setScanLog(recordUnitScan(log, unit));
+            if (result.add) setQtys({ ...qtysRef.current, [result.add.lineId]: String(result.add.qty) });
+          } else if (result.add) {
+            const lineId = result.add.lineId;
+            const line = lines.find((row) => row.lineId === lineId);
+            setQtys({ ...qtysRef.current, [lineId]: String(line?.remaining ?? 0) });
+          }
+          report?.(true);
         })
         .catch((err) => {
           setError(errorText(err, "That barcode did not scan. Try again."));
           report?.(false);
         });
     },
-    [active, jobs, me.user.id],
+    [active, jobs, me.user.id, needScan],
   );
 
   async function pack() {
     if (!active) return;
     setError(null);
+    const post = thisPackPost(active);
     try {
       if (canStartPack(active.status)) {
-        const started = await api<Order>(`/api/orders/${active.id}/start-pack`, { method: "POST" });
-        applyOrder(started);
+        setActive(await api<Order>(`/api/orders/${active.id}/start-pack`, { method: "POST" }));
       }
-      const lines = (active.lines ?? [])
-        .map((line) => ({
-          lineId: line.id,
-          qty: Number(qtys[line.id] || 0),
-        }))
-        .filter((line) => line.qty > 0);
       const packed = await api<Order>(`/api/orders/${active.id}/pack`, {
         method: "POST",
-        body: JSON.stringify({ lines, scan: scanEvidence(scanLog) }),
+        body: JSON.stringify(post),
       });
-      setScanLog(afterPost);
+      setScanLog(afterPost(scanLogRef.current));
       applyOrder(packed);
       await load();
     } catch (err) {
@@ -156,30 +196,23 @@ export function FloorPackPage() {
   async function packIntoCarton() {
     if (!active) return;
     setError(null);
+    const post = thisPackPost(active);
     try {
       if (canStartPack(active.status)) {
-        const started = await api<Order>(`/api/orders/${active.id}/start-pack`, { method: "POST" });
-        applyOrder(started);
+        setActive(await api<Order>(`/api/orders/${active.id}/start-pack`, { method: "POST" }));
       }
-      const lines = (active.lines ?? [])
-        .map((line) => ({
-          lineId: line.id,
-          qty: Number(qtys[line.id] || 0),
-        }))
-        .filter((line) => line.qty > 0);
       const packed = await api<Order>(`/api/orders/${active.id}/packages`, {
         method: "POST",
         body: JSON.stringify({
           pack: true,
-          lines,
-          scan: scanEvidence(scanLog),
+          ...post,
           weightOz: Number(weightOz),
           lengthIn: Number(lengthIn),
           widthIn: Number(widthIn),
           heightIn: Number(heightIn),
         }),
       });
-      setScanLog(afterPost);
+      setScanLog(afterPost(scanLogRef.current));
       applyOrder(packed);
       await load();
     } catch (err) {
@@ -257,6 +290,7 @@ export function FloorPackPage() {
       ? checkScanEvidence(
           (active.lines ?? []).map((line) => ({ lineId: line.id, qty: Number(qtys[line.id] || 0), sku: line.sku, barcode: line.barcode ?? null })),
           scanEvidence(scanLog),
+          { perUnit: true },
         )
       : null;
 
@@ -324,7 +358,7 @@ export function FloorPackPage() {
                       max={line.packRemaining}
                       className="h-11 text-base"
                       value={qtys[line.id] ?? "0"}
-                      onChange={(e) => setQtys((current) => ({ ...current, [line.id]: e.target.value }))}
+                      onChange={(e) => setQtys({ ...qtysRef.current, [line.id]: e.target.value })}
                     />
                   </Field>
                 ) : (
@@ -343,7 +377,7 @@ export function FloorPackPage() {
                   {scanProblem}.
                 </p>
               ) : needScan && !thisPack ? (
-                <p className="text-sm text-muted-foreground">Scan each SKU as it goes in the box.</p>
+                <p className="text-sm text-muted-foreground">Scan each unit as it goes in the box. Every scan adds one.</p>
               ) : null}
               <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap [&>*]:min-w-0 [&>*:last-child:nth-child(odd)]:col-span-2">
                 <Button className="h-11" disabled={!thisPack || Boolean(scanProblem)} variant="secondary" onClick={() => void packIntoCarton()}>
@@ -462,7 +496,7 @@ export function FloorPackPage() {
           }).ok === false ? (
             <p className="text-sm text-muted-foreground">Label each carton on Ship before closing the order.</p>
           ) : null}
-          <button type="button" className={textLink} onClick={() => setActive(null)}>
+          <button type="button" className={textLink} onClick={closeOrder}>
             Back to list
           </button>
         </Card>
@@ -473,4 +507,34 @@ export function FloorPackPage() {
 
 function packQtyDefaults(order: Order): Record<string, string> {
   return Object.fromEntries((order.lines ?? []).map((line) => [line.id, String(line.packRemaining ?? 0)]));
+}
+
+type PackUnit = { itemId: string; sku: string; serial?: string };
+
+/** The unit an item, serial, or lot scan names on this order. Null when the scan names no unit. */
+function scannedUnit(hit: ScanHit, order: Order): PackUnit | { problem: string } | null {
+  if (hit.kind === "item") return { itemId: hit.item.id, sku: hit.item.sku };
+  if (hit.kind === "serial") return { itemId: hit.serial.itemId, sku: hit.serial.sku, serial: hit.serial.serialCode };
+  if (hit.kind !== "lot") return null;
+  const onOrder = new Map<string, PackUnit>();
+  for (const row of hit.onHand) {
+    if ((order.lines ?? []).some((line) => line.itemId === row.itemId)) onOrder.set(row.itemId, { itemId: row.itemId, sku: row.sku });
+  }
+  const units = [...onOrder.values()];
+  if (units.length === 1) return units[0]!;
+  if (units.length > 1) return { problem: `Lot ${hit.lotCode} holds more than one SKU on this order. Scan the SKU instead.` };
+  return { problem: hit.onHand.length ? `Lot ${hit.lotCode} is not on this order.` : `Scan the SKU for lot ${hit.lotCode}.` };
+}
+
+function packStationLines(order: Order, inPack: Record<string, string>): PackStationLine[] {
+  return (order.lines ?? []).map((line) => {
+    const qty = Math.floor(Number(inPack[line.id]));
+    return {
+      lineId: line.id,
+      itemId: line.itemId,
+      sku: line.sku,
+      remaining: line.packRemaining ?? 0,
+      inPack: Number.isFinite(qty) && qty > 0 ? qty : 0,
+    };
+  });
 }

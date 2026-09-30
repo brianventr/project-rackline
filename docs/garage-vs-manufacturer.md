@@ -70,8 +70,8 @@ In **Garage**, this is one button on the Ship queue:
 In **Manufacturer**, it is a floor flow:
 
 1. Group orders into a wave from the wave planner, or pick orders one at a time.
-2. **Floor → Pick** or **Floor → Wave** (batch pick). The operator scans the bay and each SKU before the post is accepted.
-3. **Floor → Pack.** The operator scans each SKU into the box. Boxes (`BOX-1`, `BOX-2`) are optional; once one exists, every packed unit has to be in a labeled box before ship.
+2. **Floor → Pick** or **Floor → Wave** (batch pick). The operator scans the bay and each SKU once, then types the qty, before the post is accepted.
+3. **Floor → Pack.** The operator scans every unit into the box; each scan adds one. Boxes (`BOX-1`, `BOX-2`) are optional; once one exists, every packed unit has to be in a labeled box before ship.
 4. **Floor → Ship** or the order page. Buy the label, or paste a tracking number, then ship. The service starts on the order's own, then the building's default. With boxes, each labeled box can ship on its own.
 
 ### Tracking goes back
@@ -135,14 +135,19 @@ Manufacturer is built like a traditional WMS. Work is planned, directed, and pro
 The mode sets a workflow policy on the server, not just in the menu:
 
 - **Quick-ship is off.** Opening the Ship queue (`/ship`) takes you to Outbound → Waves instead, and the one-click ship calls answer HTTP 409 `WAREHOUSE_FLOW`: "Manufacturer mode ships through the floor." The batch label page (`/ship/labels`) still opens.
-- **Pick is scan-verified.** A pick post must carry a scan of the bay it is picked from and a scan of each SKU on it. A serial or lot barcode counts as its SKU. Otherwise the server answers 409 `SCAN_REQUIRED`, for example "Scan bay A-01-02 before posting."
-- **Pack is scan-verified.** Each SKU packed in the post must have been scanned.
-- **Batch pick is scan-verified** on Floor → Wave, with the same bay-and-SKU rule.
+- **Pick is scan-verified.** A pick post must carry a scan of the bay it is picked from and one scan of each SKU on it. You type the qty after the SKU scan, so picking 12 of a SKU takes one scan, not 12. A serial or lot barcode counts as its SKU. Otherwise the server answers 409 `SCAN_REQUIRED`, for example "Scan bay A-01-02 before posting."
+- **Pack is scan-verified per unit.** A pack post needs one scan for every unit it packs, counted per SKU. Packing 3 of a SKU takes 3 scans; with 2 the server answers 409 `SCAN_REQUIRED`: "Scan every unit of CORD: 2 of 3 scanned." This applies to plain pack and to **Pack into carton**.
+- **Batch pick is scan-verified** on Floor → Wave, with the same bay-and-SKU rule as pick.
 - **Office pick and pack hand off to the floor.** On an order page, the main button becomes **Pick on floor** or **Pack on floor** and opens the handheld screen for that order. Office qty fields for pick and pack are hidden. Starting a pick (reserving stock) and shipping a packed order still work from the office.
 
 ### Floor screens and scan proof
 
-Floor Pick, Pack, and Wave keep a record of what was scanned since the last post: the bay you are standing at and the SKUs you scanned. That record goes with the post. Quantities start at zero and are keyed after the scan. The post button stays disabled, with the reason shown, until the scans match. After a post, the SKUs clear and the bay stays, because you are still standing there. The pick can run guided (one stop at a time) or as a list, with an optional pick map.
+Floor Pick, Pack, and Wave keep a record of what was scanned since the last post: the bay you are standing at and the SKUs you scanned. That record goes with the post. Quantities start at zero. The post button stays disabled, with the reason shown, until the scans match. After a post, the SKUs clear and the bay stays, because you are still standing there.
+
+- **Pick and Wave:** scan the SKU once, then type the qty.
+- **Pack:** scan each unit as it goes in the box. Every scan of an item, serial, or lot barcode adds 1 to that line, up to what is left to pack. Scanning the same serial twice counts once, and a scan past what is left is refused ("All 2 SHADE left to pack are already scanned."). If you type a qty ahead of your scans, the next scans count toward it before adding more.
+
+The pick can run guided (one stop at a time) or as a list, with an optional pick map.
 
 ### Wave planner
 
@@ -189,7 +194,7 @@ Settings → Integrations changes with the mode:
 | Home after sign-in | Ship queue, for everyone | Today for owners and office, Floor for operators |
 | How an order ships | One click or bulk (up to 50): pick, pack, label, ship, post-back | Wave → scan pick → scan pack → ship |
 | Quick-ship | On | Off: `/ship` opens Waves, and the API answers 409 `WAREHOUSE_FLOW` |
-| Scan to pick or pack | Optional | Required (409 `SCAN_REQUIRED`) |
+| Scan to pick or pack | Optional | Required (409 `SCAN_REQUIRED`): pick scans each SKU once, pack scans every unit |
 | Office pick and pack | Yes, on the order page | Hands off to Floor Pick and Pack |
 | Waves | Hidden | Planner by cutoff, zone, and client; batch pick |
 | Carrier cutoffs | Hidden | Per carrier, on the planner and Today's strip |
@@ -230,7 +235,7 @@ Owners switch with the toggle in the top bar, or on Settings → Warehouse → O
 A 409 means Rackline refused the post to protect the ledger. Nothing was half written. The ones you are most likely to see:
 
 - **`WAREHOUSE_FLOW`.** You tried one-click ship in Manufacturer. Pick and pack on the floor, or switch to Garage.
-- **`SCAN_REQUIRED`.** A Manufacturer pick or pack was missing a scan. Scan the bay shown, then each SKU, then key the qty.
+- **`SCAN_REQUIRED`.** A Manufacturer pick or pack was missing a scan. For a pick, scan the bay shown, then each SKU once, then type the qty. For a pack, scan every unit going in the box.
 - **`INSUFFICIENT_ATP`.** Not enough free stock. It may be on hand but held, or reserved for another order already being picked.
 - **`NEED_CARTON_FLOW`.** The order is packed in boxes. Open it and label and ship each box.
 - **`NEED_SCAN`.** A catch-weight SKU needs weighing on Floor → Pick before the Ship queue can finish it.

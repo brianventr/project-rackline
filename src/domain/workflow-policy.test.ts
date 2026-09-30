@@ -6,6 +6,7 @@ import {
   assertQuickShip,
   assertScanned,
   checkScanEvidence,
+  countScans,
   requiresScan,
   workflowPolicy,
 } from "./workflow-policy";
@@ -50,8 +51,38 @@ describe("scan evidence", () => {
     expect(checkScanEvidence([{ ...lines[0]!, qty: 0 }], { itemScans: [] })).toBeNull();
   });
 
+  it("takes one scan per SKU on a pick, whatever qty is typed after it", () => {
+    expect(checkScanEvidence(lines, { locationScan: "A-01-01", itemScans: ["LAMP", "CORD"] }, { bay })).toBeNull();
+  });
+
+  it("needs one scan per unit on a pack", () => {
+    expect(checkScanEvidence(lines, { itemScans: ["LAMP", "CORD"] }, { perUnit: true })).toBe(
+      "Scan every unit of LAMP: 1 of 3 scanned",
+    );
+    expect(checkScanEvidence(lines, { itemScans: ["CORD"] }, { perUnit: true })).toBe("Scan LAMP before posting");
+    expect(checkScanEvidence(lines, { itemScans: ["LAMP", "lamp", "0123456789", "CORD"] }, { perUnit: true })).toBeNull();
+    expect(checkScanEvidence(lines, { itemScans: ["LAMP", "LAMP", "LAMP", "LAMP", "CORD"] }, { perUnit: true })).toBeNull();
+  });
+
+  it("adds up a SKU that sits on two lines before counting its scans", () => {
+    const split = [
+      { lineId: "l1", qty: 2, sku: "LAMP", barcode: null },
+      { lineId: "l3", qty: 1, sku: "lamp", barcode: null },
+    ];
+    expect(checkScanEvidence(split, { itemScans: ["LAMP", "LAMP"] }, { perUnit: true })).toBe(
+      "Scan every unit of LAMP: 2 of 3 scanned",
+    );
+    expect(checkScanEvidence(split, { itemScans: ["LAMP", "LAMP", "LAMP"] }, { perUnit: true })).toBeNull();
+  });
+
+  it("counts scans of a SKU by SKU or barcode", () => {
+    expect(countScans([" lamp", "0123456789", "CORD", ""], { sku: "LAMP", barcode: "0123456789" })).toBe(2);
+    expect(countScans(null, { sku: "LAMP", barcode: null })).toBe(0);
+  });
+
   it("throws SCAN_REQUIRED only when the policy asks for scans", () => {
     expect(() => assertScanned(GARAGE_POLICY, "pick", lines, null, bay)).not.toThrow();
+    expect(() => assertScanned(GARAGE_POLICY, "pack", lines, null)).not.toThrow();
     try {
       assertScanned(WAREHOUSE_POLICY, "pick", lines, { locationScan: "A-01-01" }, bay);
       throw new Error("expected a throw");
@@ -60,6 +91,13 @@ describe("scan evidence", () => {
       expect((err as WorkflowPolicyError).code).toBe("SCAN_REQUIRED");
       expect((err as Error).message).toMatch(/Scan LAMP/);
     }
-    expect(() => assertScanned(WAREHOUSE_POLICY, "pack", lines, { itemScans: ["LAMP", "CORD"] }, bay)).not.toThrow();
+    expect(() => assertScanned(WAREHOUSE_POLICY, "pick", lines, { locationScan: "A-01-01", itemScans: ["LAMP", "CORD"] }, bay)).not.toThrow();
+  });
+
+  it("makes a Manufacturer pack scan every unit and ignores the bay", () => {
+    expect(() => assertScanned(WAREHOUSE_POLICY, "pack", lines, { itemScans: ["LAMP", "CORD"] }, bay)).toThrow(
+      "Scan every unit of LAMP: 1 of 3 scanned. Manufacturer mode packs by scan on the floor.",
+    );
+    expect(() => assertScanned(WAREHOUSE_POLICY, "pack", lines, { itemScans: ["LAMP", "LAMP", "LAMP", "CORD"] }, bay)).not.toThrow();
   });
 });
