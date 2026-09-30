@@ -5,6 +5,7 @@ import { AppShell } from "./pages/AppShell";
 import { AuthPage } from "./pages/AuthPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { LandingPage } from "./pages/LandingPage";
+import { ComparePage, IndustryPage, UseCasePage } from "./marketing/MarketingRoutes";
 import { TodayPage } from "./pages/TodayPage";
 import { WelcomePage } from "./pages/WelcomePage";
 import { LivePage } from "./pages/LivePage";
@@ -50,9 +51,13 @@ import { ClientsPage } from "./pages/setup/ClientsPage";
 import { ZonesPage } from "./pages/setup/ZonesPage";
 import { BillingPage } from "./pages/setup/BillingPage";
 import { EdiPage } from "./pages/setup/EdiPage";
+import { ImportsPage } from "./pages/setup/ImportsPage";
+import { AccountingPage } from "./pages/setup/AccountingPage";
+import { ChannelsPage } from "./pages/setup/ChannelsPage";
 import { SettingsLayout } from "./pages/setup/SettingsLayout";
 import { ReplenishmentsPage } from "./pages/ReplenishmentsPage";
 import { KitsPage } from "./pages/KitsPage";
+import { SchedulePage } from "./pages/SchedulePage";
 import { WavesPage } from "./pages/WavesPage";
 import { AsnsPage } from "./pages/AsnsPage";
 import { YardPage } from "./pages/YardPage";
@@ -60,6 +65,7 @@ import { LaborPage } from "./pages/LaborPage";
 import { TrafficPage } from "./pages/TrafficPage";
 import { RunwayPage } from "./pages/RunwayPage";
 import { PromisePage } from "./pages/PromisePage";
+import { RecallPage } from "./pages/RecallPage";
 import { FloorWavePage } from "./pages/floor/FloorWavePage";
 import { FloorAsnPage } from "./pages/floor/FloorAsnPage";
 import { FloorYardPage } from "./pages/floor/FloorYardPage";
@@ -114,6 +120,9 @@ export function App() {
       <Route path="/signup" element={me ? <Navigate to={signedInHome} replace /> : <AuthPage mode="signup" />} />
       <Route path="/forgot" element={me ? <Navigate to={signedInHome} replace /> : <AuthPage mode="forgot" />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/industries/:slug" element={<IndustryPage />} />
+      <Route path="/use-cases/:slug" element={<UseCasePage />} />
+      <Route path="/compare/:slug" element={<ComparePage />} />
       <Route element={<Guard me={me} />}>
         <Route path="/today" element={<TodayPage />} />
         <Route
@@ -152,6 +161,7 @@ export function App() {
         <Route path="/analytics/traffic" element={<TrafficPage />} />
         <Route path="/analytics/runway" element={<RunwayPage />} />
         <Route path="/analytics/promise" element={<PromisePage />} />
+        <Route path="/analytics/recall" element={<RecallPage />} />
         <Route path="/dashboard" element={<Navigate to="/today" replace />} />
         <Route path="/floor" element={<FloorLauncherPage />} />
         <Route path="/floor/lookup" element={<FloorLookupPage />} />
@@ -209,6 +219,7 @@ export function App() {
         <Route path="/stock/replenish/:id" element={<ReplenishmentsPage />} />
         <Route path="/stock/ledger" element={<LedgerPage />} />
         <Route path="/make/recipes" element={me ? <BomsPage me={me} /> : null} />
+        <Route path="/make/schedule" element={<SchedulePage />} />
         <Route path="/make/work-orders" element={<WorkOrdersPage />} />
         <Route path="/make/work-orders/:id" element={<WorkOrdersPage />} />
         <Route path="/make/kits" element={<KitsPage />} />
@@ -235,6 +246,9 @@ export function App() {
           <Route index element={null} />
           <Route path="integrations" element={<IntegrationsPage />} />
           <Route path="shopify" element={me ? <ShopifyPage me={me} /> : null} />
+          <Route path="channels" element={<ChannelsPage />} />
+          <Route path="imports" element={<ImportsPage />} />
+          <Route path="accounting" element={<AccountingPage />} />
           <Route path="carriers" element={<CarriersPage />} />
           <Route path="warehouse" element={<WarehouseSetupPage />} />
           <Route path="clients" element={<ClientsPage />} />

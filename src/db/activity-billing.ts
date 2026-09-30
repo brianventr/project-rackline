@@ -1,7 +1,7 @@
 import { and, eq, gte, isNotNull, lte, sql } from "drizzle-orm";
 import * as schema from "./schema";
 import type { AppDb } from "./stock";
-import { rateActivity, type ActivityLine } from "../domain/billing";
+import { rateActivity, type ActivityLine, type BillingRates, ACTIVITY_RATES } from "../domain/billing";
 
 const PERIOD_MS = 30 * 86_400_000;
 
@@ -19,6 +19,7 @@ export async function loadActivityDrafts(
   db: AppDb,
   organizationId: string,
   now = Date.now(),
+  rates: BillingRates = ACTIVITY_RATES,
 ): Promise<{ periodStart: number; periodEnd: number; drafts: ActivityDraft[] }> {
   const periodEnd = now;
   const periodStart = now - PERIOD_MS;
@@ -97,7 +98,7 @@ export async function loadActivityDrafts(
   for (const [clientId, activity] of buckets) {
     const client = known.get(clientId);
     if (!client) continue;
-    const rated = rateActivity(activity);
+    const rated = rateActivity(activity, rates);
     if (!rated) continue;
     drafts.push({
       clientId,
