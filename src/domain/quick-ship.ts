@@ -185,7 +185,7 @@ export async function runQuickShip(steps: QuickShipStep[], undo: () => Promise<Q
 
 function asSentence(text: string): string {
   const trimmed = text.trim();
-  return /[.!?)]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+  return /[.!?]["')]?$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
 export function quickShipUndoNote(undone: Extract<QuickShipUndone, { shipped: false }>): string {

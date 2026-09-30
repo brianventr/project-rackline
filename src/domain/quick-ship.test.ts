@@ -226,6 +226,13 @@ describe("quick ship run", () => {
     expect(await runQuickShip([step("ship")], async () => ({ shipped: true }))).toEqual({ ok: true });
   });
 
+  it("ends the step error as a sentence before the undo note", async () => {
+    const { step } = recorder("pick", { status: 409, error: "Only 1 of 2 LAMP free to ship (bay A-01-01)", code: "X" });
+    const result = await runQuickShip([step("pick")], async () => cleanUndo);
+    if (result.ok) throw new Error("expected a failure");
+    expect(result.failure.error).toBe("Only 1 of 2 LAMP free to ship (bay A-01-01). No label was bought. The order is back where it started.");
+  });
+
   it("reports an undo that threw", async () => {
     const { step } = recorder("pick");
     const result = await runQuickShip([step("pick")], async () => {
