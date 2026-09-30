@@ -19,6 +19,7 @@ import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
 import { markShippedReminder } from "@/domain/channels/adapter";
+import { shortDay } from "@/domain/rate-choice";
 
 const TABS: TabDef<ShipQueueOrder>[] = [
   { id: "ready", label: "Ready to ship", match: (row) => row.status !== "shipped" && row.ready },
@@ -221,14 +222,26 @@ export function ShipQueuePage() {
             ) : (
               <span className="font-mono text-xs">{row.trackingNumber ?? "—"}</span>
             )}
-            {row.shipReason ? <span className="text-[11px] text-muted-foreground">{row.shipReason}</span> : null}
+            {row.postageCents || row.shipReason ? (
+              <span className="text-[11px] text-muted-foreground">
+                {[row.postageCents ? money(row.postageCents) : null, row.shipReason].filter(Boolean).join(" · ")}
+              </span>
+            ) : null}
           </span>
+        ) : pickedService || serviceId ? (
+          <Reasoned text={pickedService?.name ?? serviceId} reason="Picked" />
         ) : (
           <Reasoned
-            text={pickedService?.name ?? (serviceId || row.serviceName)}
-            reason={[pickedService || serviceId ? "Picked" : row.serviceReason, row.serviceLive ? "Live postage" : null]
-              .filter(Boolean)
-              .join(" · ")}
+            text={row.serviceName ?? (row.quotePending ? "Quoted when shipped" : null)}
+            reason={[row.serviceReason, row.serviceLive ? "Live postage" : null].filter(Boolean).join(" · ")}
+            detail={
+              row.quote
+                ? {
+                    text: `${money(row.quote.amountCents)} · ${row.quote.late ? "late, " : ""}arrives ${shortDay(Number(row.quote.arrivesOn.replaceAll("-", "")))}`,
+                    warn: row.quote.late,
+                  }
+                : null
+            }
           />
         ),
     },
@@ -445,13 +458,28 @@ function withParam(previous: URLSearchParams, key: string, value: string | null)
   return next;
 }
 
+function money(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
 /** A value with the small grey line that says why it was chosen. */
-function Reasoned({ text, reason }: { text: string | null | undefined; reason?: string | null }) {
+function Reasoned({
+  text,
+  reason,
+  detail,
+}: {
+  text: string | null | undefined;
+  reason?: string | null;
+  detail?: { text: string; warn?: boolean } | null;
+}) {
   if (!text) return <Muted>—</Muted>;
   return (
     <span className="flex flex-col text-sm">
       <span>{text}</span>
       {reason ? <span className="text-[11px] text-muted-foreground">{reason}</span> : null}
+      {detail ? (
+        <span className={detail.warn ? "text-[11px] text-tone-warning" : "text-[11px] text-muted-foreground"}>{detail.text}</span>
+      ) : null}
     </span>
   );
 }

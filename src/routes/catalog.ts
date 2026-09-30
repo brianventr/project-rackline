@@ -28,6 +28,8 @@ import { dailyTrend } from "../domain/trends";
 import { mediaItemKey, normalizeImageUrl } from "../domain/media";
 import { deleteManagedMedia, putMediaFile, readUploadedFile } from "../lib/media-store";
 import { resolveLabelPurchase } from "../domain/carriers";
+import { isRateStrategy, type RateStrategy } from "../domain/ship-rules";
+import { MAX_DELIVERY_DAYS } from "../domain/rate-choice";
 import { loadCarrierConnections } from "./carriers";
 
 export const catalogRoute = new Hono<AppEnv>();
@@ -82,6 +84,8 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     mapNorth?: number;
     defaultCarrierConnectionId?: string | null;
     defaultCarrierService?: string | null;
+    rateStrategy?: string;
+    deliveryDays?: number | string | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -108,7 +112,20 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     mapNorth?: number;
     defaultCarrierConnectionId?: string | null;
     defaultCarrierService?: string | null;
+    rateStrategy?: RateStrategy;
+    deliveryDays?: number | null;
   } = {};
+  if ("rateStrategy" in body) {
+    if (!isRateStrategy(body.rateStrategy)) badRequest("Rate choice must be default, cheapest, fastest, or on_time");
+    patch.rateStrategy = body.rateStrategy;
+  }
+  if ("deliveryDays" in body) {
+    const days = optionalInt(body.deliveryDays, "deliveryDays");
+    if (days !== undefined && (days < 1 || days > MAX_DELIVERY_DAYS)) {
+      badRequest(`Delivery promise must be 1 to ${MAX_DELIVERY_DAYS} working days`);
+    }
+    patch.deliveryDays = days ?? null;
+  }
   if ("defaultCarrierService" in body || "defaultCarrierConnectionId" in body) {
     const serviceId = "defaultCarrierService" in body ? optionalString(body.defaultCarrierService) : warehouse.defaultCarrierService;
     if (!serviceId) {

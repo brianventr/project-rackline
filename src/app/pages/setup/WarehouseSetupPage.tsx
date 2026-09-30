@@ -27,6 +27,8 @@ import {
   type OperatingMode,
 } from "@/domain/operating-mode";
 import { isValidTimeZone } from "@/domain/time-zone";
+import { RATE_STRATEGIES, RATE_STRATEGY_LABELS } from "@/domain/ship-rules";
+import { MAX_DELIVERY_DAYS } from "@/domain/rate-choice";
 import { describeNorth, NORTH_PRESETS, normalizeHeading } from "@/domain/compass";
 import { CompassRose } from "../../components/CompassRose";
 
@@ -40,8 +42,9 @@ function mapSize(label: string) {
 
 /**
  * PATCH /api/warehouses/:id (`src/routes/catalog.ts`): a blank name keeps the old one, map sizes are
- * whole numbers above 0, the timezone must be an IANA name (`parseTimeZone`), and the default service
- * must be enabled on a connected carrier account (`resolveLabelPurchase`).
+ * whole numbers above 0, the timezone must be an IANA name (`parseTimeZone`), the default service
+ * must be enabled on a connected carrier account (`resolveLabelPurchase`), and the delivery promise
+ * is blank or 1 to `MAX_DELIVERY_DAYS` working days.
  */
 const buildingFormSchema = z.object({
   name: optionalText,
@@ -65,6 +68,14 @@ const buildingFormSchema = z.object({
     tooSmall: "North must be 0 or more.",
   }).refine((value) => value <= 359, { message: "North must be 359 or less." }),
   defaultCarrierService: z.string(),
+  rateStrategy: z.string(),
+  deliveryDays: z.string().superRefine((value, ctx) => {
+    const text = value.trim();
+    const days = Number(text);
+    if (text && (!Number.isInteger(days) || days < 1 || days > MAX_DELIVERY_DAYS)) {
+      ctx.addIssue({ code: "custom", message: `Promise 1 to ${MAX_DELIVERY_DAYS} working days, or leave it blank.`, input: value });
+    }
+  }),
 });
 
 export function WarehouseSetupPage() {
@@ -85,6 +96,8 @@ export function WarehouseSetupPage() {
     mapHeight: "8",
     mapNorth: "0",
     defaultCarrierService: "",
+    rateStrategy: "default",
+    deliveryDays: "",
   });
   const [newName, setNewName] = useState("");
   const [services, setServices] = useState<CarrierServiceOption[]>([]);
@@ -117,6 +130,8 @@ export function WarehouseSetupPage() {
           mapHeight: String(current.mapHeight),
           mapNorth: String(current.mapNorth ?? 0),
           defaultCarrierService: service,
+          rateStrategy: current.rateStrategy || "default",
+          deliveryDays: current.deliveryDays ? String(current.deliveryDays) : "",
         });
       })
       .catch((err: unknown) => write.setError(errorText(err, "Could not load this warehouse.")));
@@ -158,6 +173,8 @@ export function WarehouseSetupPage() {
             region: values.region,
             country: values.country,
             timeZone: values.timeZone,
+            rateStrategy: values.rateStrategy,
+            deliveryDays: values.deliveryDays.trim() ? Number(values.deliveryDays) : null,
             ...defaultPatch,
           }),
         }),
@@ -266,7 +283,7 @@ export function WarehouseSetupPage() {
 
           <div className="space-y-3 border-t pt-4">
             <SectionHeading
-              title="Default service"
+              title="Default service and rate choice"
               description={
                 garage
                   ? "The ship queue, quick-ship, and an order's Ship step start on this service when the order doesn't name one."
@@ -286,6 +303,28 @@ export function WarehouseSetupPage() {
                     listed.
                   </>
                 }
+              />
+              <SelectField
+                form={form}
+                name="rateStrategy"
+                label="Rate choice"
+                options={RATE_STRATEGIES.map((strategy) => ({ value: strategy, label: RATE_STRATEGY_LABELS[strategy] }))}
+                description={
+                  <>
+                    {garage ? "Quick-ship" : "One-click ship in Garage mode"} uses this when no{" "}
+                    <Link to="/setup/shipping-rules" className="underline">
+                      shipping rule
+                    </Link>{" "}
+                    or order names a service. Cheapest, fastest, and on time compare quotes from every connected account.
+                  </>
+                }
+              />
+              <TextField
+                form={form}
+                name="deliveryDays"
+                label="Delivery promise (working days)"
+                placeholder="5"
+                description="Order day to doorstep. Cheapest on time picks the cheapest quote that arrives by then."
               />
             </div>
           </div>

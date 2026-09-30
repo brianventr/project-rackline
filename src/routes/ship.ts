@@ -8,12 +8,34 @@ import { requireOwner } from "../lib/org";
 import { newId } from "../lib/ids";
 import { internalApi, type InternalResult } from "../lib/internal-api";
 import { loadAtpBaysByItem, loadOpenAllocations } from "../db/allocations";
-import { loadCarrierConnections } from "./carriers";
+import { loadCarrierConnections, recordCarrierEvent } from "./carriers";
 import { ordersRoute } from "./orders";
-import { enabledServicesFromConnections, resolveLabelPurchase, resolveService } from "../domain/carriers";
-import { isLivePostage, liveShipAddress } from "../domain/carrier-live";
+import {
+  enabledServicesFromConnections,
+  quoteRates,
+  resolveLabelPurchase,
+  resolveService,
+  type CarrierRateQuote,
+} from "../domain/carriers";
+import { isLivePostage, liveShipAddress, resolveParcel, type ParcelDims } from "../domain/carrier-live";
+import { shopLiveRates } from "../lib/live-postage";
+import { asCarrierLiveError } from "../lib/carrier-client";
 import { buildingDefaultService, orderParcel, parsePresetInput, pickPreset, type PackagePreset } from "../domain/ship-defaults";
-import { parseShipRuleInput, reorderShipRules, type ShipRule, type ShipRuleInput } from "../domain/ship-rules";
+import { isRateStrategy, parseShipRuleInput, reorderShipRules, type ShipRule, type ShipRuleInput } from "../domain/ship-rules";
+import {
+  arrivalYmd,
+  chooseRate,
+  expiringCache,
+  mapWithLimit,
+  promiseYmd,
+  rateQuoteKey,
+  withTimeout,
+  RATE_QUOTE_TTL_MS,
+  RATE_SHOP_CONCURRENCY,
+  RATE_SHOP_TIMEOUT_MS,
+} from "../domain/rate-choice";
+import { formatShipDay } from "../domain/promise";
+import { parseCarrierCutoffs } from "../domain/wave-plan";
 import {
   holdMessage,
   planShipment,
@@ -57,6 +79,8 @@ type QuickShipBody = {
 };
 
 const MAX_BULK = 50;
+/** Shippable queue rows, oldest first, that may ask live carrier accounts per load; the rest are quoted when shipped. */
+const QUEUE_LIVE_QUOTES = 25;
 
 async function loadPresets(db: Db, organizationId: string): Promise<PackagePreset[]> {
   return db
@@ -110,6 +134,8 @@ type ShipContext = {
   presets: PackagePreset[];
   connections: Awaited<ReturnType<typeof loadCarrierConnections>>;
   services: ReturnType<typeof enabledServicesFromConnections>;
+  /** Live accounts that failed or timed out during this request, with why; they are not asked again. */
+  rateFailures: Map<string, string>;
 };
 
 async function loadShipContext(db: Db, organizationId: string): Promise<ShipContext> {
@@ -118,7 +144,113 @@ async function loadShipContext(db: Db, organizationId: string): Promise<ShipCont
     loadPresets(db, organizationId),
     loadCarrierConnections(db, organizationId),
   ]);
-  return { rules, presets, connections, services: enabledServicesFromConnections(connections) };
+  return { rules, presets, connections, services: enabledServicesFromConnections(connections), rateFailures: new Map() };
+}
+
+/** Per isolate, so a queue load and the quick-ship right after it usually see the same live quotes. */
+const liveQuotes = expiringCache<CarrierRateQuote[]>(RATE_QUOTE_TTL_MS, 500);
+
+/**
+ * Quotes for one order from every connected account. Demo accounts answer from `quoteRates` at once. Live accounts
+ * answer from the cache, or are shopped when `shopLive` is set; `unpriced` says one of them was neither.
+ */
+async function shopOrderRates(
+  db: Db,
+  ctx: ShipContext,
+  warehouse: WarehouseRow | null | undefined,
+  order: OrderRow,
+  parcel: Partial<ParcelDims>,
+  shopLive: boolean,
+): Promise<{ quotes: CarrierRateQuote[]; errors: string[]; unpriced: boolean }> {
+  const live = ctx.connections.filter(
+    (row) => isLivePostage(row.provider, row.mode) && row.apiKey && ctx.services.some((service) => service.connectionId === row.id),
+  );
+  const liveIds = new Set(live.map((row) => row.id));
+  const quotes = quoteRates({
+    services: ctx.services.filter((row) => !row.connectionId || !liveIds.has(row.connectionId)),
+    shipFrom: warehouse?.shipFromAddress ?? null,
+    shipTo: order.shipToAddress,
+  });
+  const errors: string[] = [];
+  let unpriced = false;
+  if (!live.length) return { quotes, errors, unpriced };
+  const shipFrom = liveShipAddress({
+    name: warehouse?.name || "Warehouse",
+    text: warehouse?.shipFromAddress,
+    city: warehouse?.city,
+    region: warehouse?.region,
+    country: warehouse?.country,
+  });
+  const shipTo = liveShipAddress({
+    name: order.customerName,
+    text: order.shipToAddress,
+    city: order.shipToCity,
+    region: order.shipToRegion,
+    country: order.shipToCountry,
+  });
+  if ("error" in shipFrom) return { quotes, errors: [shipFrom.error], unpriced };
+  if ("error" in shipTo) return { quotes, errors: [shipTo.error], unpriced };
+  const dims = resolveParcel(parcel);
+  for (const connection of live) {
+    const account = connection.nickname || connection.provider;
+    const failed = ctx.rateFailures.get(connection.id);
+    if (failed) {
+      errors.push(failed);
+      continue;
+    }
+    const services = ctx.services.filter((row) => row.connectionId === connection.id);
+    const key = rateQuoteKey({
+      organizationId: order.organizationId,
+      orderId: order.id,
+      connectionId: connection.id,
+      parcel: dims,
+      shipFrom: JSON.stringify(shipFrom),
+      shipTo: JSON.stringify(shipTo),
+      serviceIds: services.map((row) => row.id),
+    });
+    const cached = liveQuotes.get(key, Date.now());
+    if (cached) {
+      quotes.push(...cached);
+      continue;
+    }
+    if (!shopLive) {
+      unpriced = true;
+      continue;
+    }
+    const request = { orderId: order.id, parcel: dims, mode: "live", for: "rate choice" };
+    try {
+      const shopped = await withTimeout(
+        shopLiveRates({ connection, services, shipFrom, shipTo, parcel: dims }),
+        RATE_SHOP_TIMEOUT_MS,
+        `${account} did not answer with rates in time`,
+      );
+      liveQuotes.set(key, shopped.rates, Date.now());
+      quotes.push(...shopped.rates);
+      await recordCarrierEvent(db, {
+        organizationId: order.organizationId,
+        connectionId: connection.id,
+        orderId: order.id,
+        kind: "rates",
+        status: "ok",
+        request,
+        response: { rates: shopped.rates, shipmentId: shopped.shipmentId ?? null },
+      });
+    } catch (err) {
+      const error = `${account}: ${asCarrierLiveError(err).message}`;
+      ctx.rateFailures.set(connection.id, error);
+      errors.push(error);
+      await recordCarrierEvent(db, {
+        organizationId: order.organizationId,
+        connectionId: connection.id,
+        orderId: order.id,
+        kind: "rates",
+        status: "failed",
+        request,
+        response: { error },
+      });
+    }
+  }
+  return { quotes, errors, unpriced };
 }
 
 type ShipDecision = {
@@ -128,19 +260,30 @@ type ShipDecision = {
   connectionId: string | null;
   serviceName: string | null;
   live: boolean;
+  /** The chosen service's quote, when there is one: always for demo accounts, for live ones once shopped. */
+  quote: { amountCents: number; arrivesOn: string; late: boolean } | null;
+  /** A rate choice waits for a live account that was not asked this time; quick-ship asks it. */
+  quotePending: boolean;
+  /** The rate choice had nothing to pick from. */
+  rateError: string | null;
   boxReason: string | null;
   serviceReason: string | null;
   summary: string | null;
 };
 
+type DecideInput = {
+  warehouse: WarehouseRow | null | undefined;
+  order: OrderRow;
+  lines: ShipLine[];
+  /** Picked at the bench for this ship. */
+  picked?: QuickShipBody;
+  /** Ask live carrier accounts that have no cached quote. Defaults to yes. */
+  shopLive?: boolean;
+};
+
 /** The box, service, and parcel quick-ship would use, and why. The queue, the scan station, and quick-ship all ask here. */
-function decideShip(
-  ctx: ShipContext,
-  warehouse: WarehouseRow | null | undefined,
-  order: OrderRow,
-  lines: ShipLine[],
-  picked: QuickShipBody = {},
-): ShipDecision {
+async function decideShip(db: Db, ctx: ShipContext, input: DecideInput): Promise<ShipDecision> {
+  const { warehouse, order, lines, picked = {} } = input;
   const typed = picked.weightOz
     ? { packageWeightOz: picked.weightOz, packageLengthIn: picked.lengthIn, packageWidthIn: picked.widthIn, packageHeightIn: picked.heightIn }
     : order;
@@ -150,16 +293,30 @@ function decideShip(
     presets: ctx.presets,
     connections: ctx.connections,
     buildingDefault: buildingDefaultService(ctx.connections, warehouse),
+    buildingStrategy: warehouse && isRateStrategy(warehouse.rateStrategy) ? warehouse.rateStrategy : "default",
     picked,
   });
   const parcel = orderParcel({ lines, preset: plan.box.preset, order: typed });
-  const serviceId = plan.service.kind === "service" ? plan.service.serviceId : null;
-  const connectionId = plan.service.kind === "service" ? plan.service.connectionId : null;
+  const strategy = plan.service.kind === "strategy" ? plan.service.strategy : null;
+  const rates = await shopOrderRates(db, ctx, warehouse, order, parcel.parcel, strategy !== null && input.shopLive !== false);
+  const timeZone = warehouse?.timeZone || "UTC";
+  const timing = { now: Date.now(), timeZone, cutoffs: parseCarrierCutoffs(warehouse?.carrierCutoffsJson) };
+  const promise = promiseYmd(order.createdAt, timeZone, warehouse?.deliveryDays);
+  const accountConnected = ctx.services.some((row) => row.provider !== "rackline");
+  const priced = strategy !== null && !rates.unpriced;
+  const choice = priced ? chooseRate(rates.quotes, strategy, { timing, promise, accountConnected }) : null;
+  const serviceId = plan.service.kind === "service" ? plan.service.serviceId : (choice?.quote.id ?? null);
+  const connectionId = plan.service.kind === "service" ? plan.service.connectionId : (choice?.quote.connectionId ?? null);
+  const quote =
+    choice?.quote ??
+    rates.quotes.find((row) => row.id === serviceId && (!connectionId || row.connectionId === connectionId)) ??
+    null;
+  const arrival = choice?.arrival ?? (quote ? arrivalYmd(quote, timing) : null);
   const service = resolveService(serviceId);
   const connection = ctx.connections.find((row) => row.id === connectionId);
   const serviceName = service ? `${service.company} ${service.service}` : null;
   const boxReason = shipBoxReason(plan);
-  const serviceReason = shipServiceReason(plan);
+  const serviceReason = shipServiceReason(plan, choice?.reason);
   return {
     plan,
     parcel,
@@ -167,6 +324,12 @@ function decideShip(
     connectionId,
     serviceName,
     live: connection ? isLivePostage(connection.provider, connection.mode) : false,
+    quote:
+      quote && arrival != null
+        ? { amountCents: quote.amountCents, arrivesOn: formatShipDay(arrival), late: promise != null && arrival > promise }
+        : null,
+    quotePending: strategy !== null && rates.unpriced,
+    rateError: priced && !choice ? (rates.errors[0] ?? "No connected carrier account quoted this order") : null,
     boxReason,
     serviceReason,
     summary: shipReasonSummary({ boxName: plan.box.preset?.name ?? null, boxReason, serviceName, serviceReason }),
@@ -228,28 +391,48 @@ shipRoute.get("/ship/queue", async (c) => {
   const reservations = await loadOpenAllocations(db, organizationId, { warehouseId });
   const defaultPreset = pickPreset(presets);
 
+  const linesFor = (orderId: string) => lines.filter((line) => line.orderId === orderId);
+  const open = visible.filter((order) => order.status !== "shipped");
+  const shipPlans = new Map(
+    open.map((order) => [
+      order.id,
+      planQuickShip(
+        { status: order.status, packageCount: packageCount.get(order.id) ?? 0, lines: linesFor(order.id) },
+        withOwnReservations(
+          bays,
+          reservations.filter((row) => row.orderId === order.id),
+        ),
+      ),
+    ]),
+  );
+  const shopLive = new Set(
+    open
+      .filter((order) => shipPlans.get(order.id)?.ok)
+      .slice(0, QUEUE_LIVE_QUOTES)
+      .map((order) => order.id),
+  );
+  const decisions = new Map(
+    await mapWithLimit(open, RATE_SHOP_CONCURRENCY, async (order) => {
+      const decision = await decideShip(db, ctx, { warehouse, order, lines: linesFor(order.id), shopLive: shopLive.has(order.id) });
+      return [order.id, decision] as const;
+    }),
+  );
+
   const rows = visible.map((order) => {
-    const orderLines = lines.filter((line) => line.orderId === order.id);
-    const shipped = order.status === "shipped";
-    const decision = shipped ? null : decideShip(ctx, warehouse, order, orderLines);
+    const orderLines = linesFor(order.id);
+    const decision = decisions.get(order.id) ?? null;
     const parcel = decision?.parcel ?? orderParcel({ lines: orderLines, preset: defaultPreset, order });
-    const plan = shipped
-      ? null
-      : planQuickShip(
-          { status: order.status, packageCount: packageCount.get(order.id) ?? 0, lines: orderLines },
-          withOwnReservations(
-            bays,
-            reservations.filter((row) => row.orderId === order.id),
-          ),
-        );
+    const plan = shipPlans.get(order.id) ?? null;
     const blocker =
       plan && !plan.ok
         ? { code: plan.code, error: plan.error, sku: plan.sku ?? null }
         : decision?.plan.problem
           ? { code: "SHIP_RULE_SERVICE", error: decision.plan.problem, sku: null }
-          : decision?.plan.hold
-            ? { code: "SHIP_RULE_HOLD", error: holdMessage(decision.plan), sku: null }
-            : null;
+          : decision?.rateError
+            ? { code: "NO_RATE", error: decision.rateError, sku: null }
+            : decision?.plan.hold
+              ? { code: "SHIP_RULE_HOLD", error: holdMessage(decision.plan), sku: null }
+              : null;
     const box = decision?.plan.box;
     return {
       id: order.id,
@@ -279,10 +462,12 @@ shipRoute.get("/ship/queue", async (c) => {
       box: box?.preset
         ? { presetId: box.preset.id, name: box.preset.name, source: box.source, reason: decision?.boxReason ?? null, note: box.note }
         : null,
-      serviceId: decision?.serviceId ?? order.carrierService,
+      serviceId: decision ? decision.serviceId : order.carrierService,
       serviceName: decision ? decision.serviceName : null,
       serviceReason: decision?.serviceReason ?? null,
       serviceLive: decision?.live ?? false,
+      quote: decision?.quote ?? null,
+      quotePending: decision?.quotePending ?? false,
       rule: decision?.plan.rule ?? null,
       shipReason: order.shipReason,
       ready: Boolean(plan?.ok) && !blocker,
@@ -304,6 +489,8 @@ shipRoute.get("/ship/queue", async (c) => {
       presetId: defaultPreset?.id ?? null,
       carrierService: fallback?.serviceId ?? null,
       carrierConnectionId: fallback?.connectionId ?? null,
+      rateStrategy: isRateStrategy(warehouse.rateStrategy) ? warehouse.rateStrategy : "default",
+      deliveryDays: warehouse.deliveryDays,
     },
     setup: shipSetupSteps({
       storeConnected: signals.stores > 0,
@@ -614,11 +801,12 @@ async function quickShipOne(
     .limit(1);
   const ctx = options.ctx ?? (await loadShipContext(db, organizationId));
   const { connections } = ctx;
-  const decision = decideShip(ctx, warehouse, order, lines, body);
+  const decision = await decideShip(db, ctx, { warehouse, order, lines, picked: body });
   const current = order as ShipOrderRow;
   const hasLabel = Boolean(current.trackingNumber) && current.labelStatus === "purchased";
   if (decision.plan.hold && !options.releaseHold) return fail(409, holdMessage(decision.plan), "SHIP_RULE_HOLD");
   if (decision.plan.problem && !hasLabel) return fail(409, decision.plan.problem, "SHIP_RULE_SERVICE");
+  if (decision.rateError && !hasLabel) return fail(409, decision.rateError, "NO_RATE");
   const { parcel, serviceId: carrierService, connectionId: carrierConnectionId } = decision;
   const connection = connections.find((row) => row.id === carrierConnectionId) ?? null;
   const live = Boolean(connection && isLivePostage(connection.provider, connection.mode));
@@ -679,6 +867,7 @@ async function quickShipOne(
           await call("POST", `/orders/${order.id}/label`, {
             carrierService,
             carrierConnectionId: carrierConnectionId ?? undefined,
+            quotedCents: decision.quote?.amountCents,
             ...parcel.parcel,
           }),
         ),
@@ -753,6 +942,28 @@ async function undoQuickShip(
   return { shipped: false, voidedLabel: labelVoided, voidError, restoreError };
 }
 
+/** Shops live rates for the whole batch a few orders at a time, so the one-by-one ship loop finds them cached. */
+async function warmLiveRates(db: Db, ctx: ShipContext, organizationId: string, ids: string[], body: QuickShipBody) {
+  if (!ctx.connections.some((row) => isLivePostage(row.provider, row.mode) && row.apiKey)) return;
+  const orders = await db
+    .select()
+    .from(schema.orders)
+    .where(and(eq(schema.orders.organizationId, organizationId), inArray(schema.orders.id, ids)));
+  const lines = await loadShipLines(
+    db,
+    orders.map((row) => row.id),
+  );
+  const buildings = await db.select().from(schema.warehouses).where(eq(schema.warehouses.organizationId, organizationId));
+  await mapWithLimit(orders, RATE_SHOP_CONCURRENCY, (order) =>
+    decideShip(db, ctx, {
+      warehouse: buildings.find((row) => row.id === order.warehouseId),
+      order,
+      lines: lines.filter((line) => line.orderId === order.id),
+      picked: body,
+    }),
+  );
+}
+
 shipRoute.post("/orders/:id/quick-ship", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -774,6 +985,7 @@ shipRoute.post("/ship/quick-ship", async (c) => {
   if (ids.length > MAX_BULK) badRequest(`Ship at most ${MAX_BULK} orders at a time`);
   const call = internalApi(c, [ordersRoute]);
   const ctx = await loadShipContext(db, organizationId);
+  await warmLiveRates(db, ctx, organizationId, ids, body);
   const outcomes: QuickShipOutcome[] = [];
   for (const id of ids) {
     try {

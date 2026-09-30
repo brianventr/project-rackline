@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import {
   describeShipRuleConditions,
+  RATE_STRATEGIES,
   RATE_STRATEGY_LABELS,
   SHIP_RULE_CHANNEL_LABELS,
   SHIP_RULE_CHANNELS,
@@ -90,7 +91,7 @@ export function ShippingRulesPage() {
         <EmptyState
           icon={Split}
           title="No shipping rules yet."
-          body="Without rules, every order ships in the default box with the building's default service. Add a rule to send small orders in a mailer, heavy ones by ground, or hold orders for a look before they ship."
+          body="Without rules, every order ships in the default box with the service the building's rate choice picks. Add a rule to send small orders in a mailer, heavy ones by the cheapest quote, or hold orders for a look before they ship."
           action={
             <Button size="sm" onClick={() => setSheet({ mode: "new" })}>
               New rule
@@ -189,7 +190,8 @@ export function ShippingRulesPage() {
       )}
 
       <p className="text-sm text-muted-foreground">
-        Orders no rule matches ship in the default box with the building's default service. Change those in{" "}
+        Orders no rule matches ship in the default box, with the service the building's rate choice picks: its default
+        service, or the cheapest, fastest, or cheapest on-time quote. Change those in{" "}
         <Link to="/ship?setup=box" className="underline">
           Boxes
         </Link>{" "}
@@ -458,8 +460,14 @@ function RuleSheet({ state, data, onClose }: { state: SheetState; data: ShipRule
           </Field>
           <Field label="Service">
             <Select value={form.service} onChange={(event) => set("service", event.target.value)}>
-              <option value="">The building's choice</option>
-              <option value="rate:default">{RATE_STRATEGY_LABELS.default}</option>
+              <option value="">The building's rate choice</option>
+              <optgroup label="Rate choice">
+                {RATE_STRATEGIES.map((strategy) => (
+                  <option key={strategy} value={`rate:${strategy}`}>
+                    {RATE_STRATEGY_LABELS[strategy]}
+                  </option>
+                ))}
+              </optgroup>
               <optgroup label="Always ship with">
                 {services.map((row) => (
                   <option key={`${row.connectionId ?? "rl"}-${row.id}`} value={`svc:${row.connectionId ?? ""}:${row.id}`}>

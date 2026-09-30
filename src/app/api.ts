@@ -241,6 +241,9 @@ export type WarehouseMapInfo = {
   timeZone?: string | null;
   defaultCarrierService?: string | null;
   defaultCarrierConnectionId?: string | null;
+  /** `RateStrategy` from `domain/ship-rules.ts`. */
+  rateStrategy?: string;
+  deliveryDays?: number | null;
 };
 
 export type LiveFlowId = "inbound" | "outbound" | "make" | "stock" | "yard";
@@ -1685,9 +1688,13 @@ export type ShipQueueOrder = {
   } | null;
   serviceId: string | null;
   serviceName: string | null;
-  /** `Rule: Small parcels`, `Default service`, `Order's service`. */
+  /** `Rule: Small parcels`, `Default service`, `Order's service`, `Cheapest`. */
   serviceReason: string | null;
   serviceLive: boolean;
+  /** The chosen service's quote. `arrivesOn` is `YYYY-MM-DD`; `late` means after the delivery promise. */
+  quote: { amountCents: number; arrivesOn: string; late: boolean } | null;
+  /** The rate choice is made when the order ships, because a live carrier account has not quoted it yet. */
+  quotePending: boolean;
   rule: { id: string; name: string } | null;
   /** Written when quick-ship bought the label: `Mailer (Auto) · UPS Ground (Cheapest)`. */
   shipReason: string | null;
@@ -1701,7 +1708,13 @@ export type ShipQueue = {
   policy: { mode: "garage" | "warehouse"; quickShip: boolean };
   presets: PackagePreset[];
   services: ShipServiceChoice[];
-  defaults: { presetId: string | null; carrierService: string | null; carrierConnectionId: string | null };
+  defaults: {
+    presetId: string | null;
+    carrierService: string | null;
+    carrierConnectionId: string | null;
+    rateStrategy: import("@/domain/ship-rules").RateStrategy;
+    deliveryDays: number | null;
+  };
   setup: { id: string; label: string; done: boolean; to: string }[];
   orders: ShipQueueOrder[];
 };

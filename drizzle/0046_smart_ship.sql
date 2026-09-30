@@ -24,3 +24,7 @@ CREATE TABLE `ship_rules` (
 CREATE INDEX `ship_rules_org_position` ON `ship_rules` (`organization_id`, `position`);
 
 ALTER TABLE `orders` ADD `ship_reason` text;
+
+-- Automatic rate choice per building, and the delivery promise the on-time choice aims for.
+ALTER TABLE `warehouses` ADD `rate_strategy` text DEFAULT 'default' NOT NULL;
+ALTER TABLE `warehouses` ADD `delivery_days` integer;

@@ -96,6 +96,10 @@ export const warehouses = sqliteTable("warehouses", {
   defaultCarrierService: text("default_carrier_service"),
   /** Carrier company → pickup cutoff (minutes from local midnight); see `domain/wave-plan.ts`. */
   carrierCutoffsJson: text("carrier_cutoffs_json"),
+  /** How quick-ship picks a service when neither a rule nor the order names one: `RateStrategy`. */
+  rateStrategy: text("rate_strategy").notNull().default("default"),
+  /** Working days from order to doorstep the shop promises; the on-time rate choice aims for it. */
+  deliveryDays: integer("delivery_days"),
 });
 
 export const locations = sqliteTable(
