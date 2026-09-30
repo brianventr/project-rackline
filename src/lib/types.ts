@@ -10,6 +10,9 @@ export type Bindings = {
   MAIL_FROM?: string;
   SHOPIFY_API_KEY?: string;
   SHOPIFY_API_SECRET?: string;
+  /** Etsy app keystring; enables "Connect Etsy" OAuth and the receipt poll. */
+  ETSY_API_KEY?: string;
+  ETSY_SHARED_SECRET?: string;
   MEDIA?: R2Bucket;
   /** Cloudflare Workers static assets (Vite plugin). */
   ASSETS?: Fetcher;

@@ -8,6 +8,8 @@ import { docNumber, newId } from "../lib/ids";
 import { chainPlans, planPick, type MovementDraft, type StockPlan } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { fulfillShopifyOrder } from "../domain/shopify-fulfill";
+import { fulfillChannelOrder } from "../db/channel-sync";
+import { postsTrackingBack } from "../domain/channels/adapter";
 import { canPackOrder, canPickOrder, canShipOrder, canShipCartonOrder, canStartPack, canStartPick, canCancelOrder, canUnpickOrder } from "../domain/status";
 import { destPatchFromAddress } from "../domain/geo";
 import { buildShippingLabel } from "../domain/shipping-label";
@@ -976,7 +978,7 @@ ordersRoute.post("/orders/:id/packages/:pkgId/ship", async (c) => {
       createdAt: order.createdAt,
     });
   }
-  return c.json(await shipOrderCartons(db, organizationId, user.id, order, [pkg]));
+  return c.json(await shipOrderCartons(db, c.env, organizationId, user.id, order, [pkg]));
 });
 
 ordersRoute.get("/orders/:id/packages/:pkgId/label", async (c) => {
@@ -1776,6 +1778,7 @@ async function loadPickWeightsByItem(
 
 async function shipOrderCartons(
   db: AppEnv["Variables"]["db"],
+  env: AppEnv["Bindings"],
   organizationId: string,
   userId: string,
   order: Awaited<ReturnType<typeof orderWithLines>>,
@@ -1879,9 +1882,14 @@ async function shipOrderCartons(
       if (shopify.status === "failed") break;
     }
   }
-  const shipped = await orderWithLines(db, organizationId, order.id);
+  let shipped = await orderWithLines(db, organizationId, order.id);
+  let channel;
+  if (shipped.status === "shipped" && postsTrackingBack(order.source)) {
+    channel = await fulfillChannelOrder(db, env, organizationId, order.id);
+    shipped = await orderWithLines(db, organizationId, order.id);
+  }
   await syncDocumentJob(db, orderJobInput(shipped));
-  return { ...shipped, shopify };
+  return { ...shipped, shopify, channel };
 }
 
 ordersRoute.post("/orders/:id/ship", async (c) => {
@@ -1916,7 +1924,7 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   if (!shipGate.ok) conflict(shipGate.error, shipGate.code);
 
   if (order.packages.length > 0) {
-    return c.json(await shipOrderCartons(db, organizationId, user.id, order, order.packages));
+    return c.json(await shipOrderCartons(db, c.env, organizationId, user.id, order, order.packages));
   }
 
   const locationId = order.pickLocationId;
@@ -1975,9 +1983,12 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   if (order.source === "shopify") {
     shopify = await fulfillShopifyOrder(db, organizationId, order.id);
   }
+  const channel = postsTrackingBack(order.source)
+    ? await fulfillChannelOrder(db, c.env, organizationId, order.id)
+    : undefined;
   const shipped = await orderWithLines(db, organizationId, order.id);
   await syncDocumentJob(db, orderJobInput(shipped));
-  return c.json({ ...shipped, shopify });
+  return c.json({ ...shipped, shopify, channel });
 });
 
 ordersRoute.post("/orders/:id/unpick", async (c) => {
