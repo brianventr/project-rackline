@@ -6,7 +6,7 @@ import { isGarageMode } from "./operating-mode";
  */
 export type WorkflowPolicy = {
   mode: "garage" | "warehouse";
-  /** One call picks from suggested bays, packs, buys the label, and ships. */
+  /** One call picks from suggested bays, packs, then buys the label and ships, undoing it all on failure. */
   quickShip: boolean;
   /** Floor pick must scan the bay and every unit's SKU before posting. */
   scanVerifiedPick: boolean;

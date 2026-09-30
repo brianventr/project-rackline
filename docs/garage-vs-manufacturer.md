@@ -63,8 +63,8 @@ An order that arrives is a promise, not a reservation. Stock is reserved when pi
 In **Garage**, this is one button on the Ship queue:
 
 1. Rackline plans the pick from the suggested bays. Lots go first-expiring first, and serials go first-in.
-2. It buys the label from the chosen service.
-3. It posts the picks, packs every unit, and marks the order shipped.
+2. It posts the picks and packs every unit.
+3. It buys the label from the chosen service and marks the order shipped.
 4. It posts tracking back to the store.
 
 In **Manufacturer**, it is a floor flow:
@@ -99,7 +99,9 @@ You can search by order, customer, city, or SKU, and export to CSV.
 
 **Ship** on a row, or select rows and **Create labels & ship**, runs pick → pack → label → ship → post-back for each order. Bulk runs take up to 50 orders. Each order is handled on its own, so one failure does not stop the rest. You get a count of shipped and failed orders and the first error. Shipped orders open the batch label page.
 
-Rackline buys the label before it picks. If a pick fails, it puts back what was picked, releases the reservation, and voids the label it just bought, so nothing is half done. If the pick succeeds but pack or ship fails, the stock stays picked and the label is kept. The message says so, and **Ship** again finishes the job.
+Rackline buys the label last, once the picks and the pack have gone through, because postage is the one step that costs money and is hard to take back. Before any stock moves, it checks what it can without calling the carrier: the service is enabled, a live account has its API key, both addresses have a street, city, region, and postal code, and you are allowed to pick, pack, and ship.
+
+If any step fails after that, Rackline undoes the whole run. It voids a label it bought, puts the picked units back in the bays they came from, unpacks what it packed, and returns the order's status and reservations to where they were. The message names what failed and ends with "The order is back where it started", so **Ship** again starts clean. If an undo step itself fails (the carrier refuses the void, say), the message says what to do by hand. If the ship went through and only a later step errored, the order counts as shipped.
 
 The queue sends these orders to **Needs attention** instead of guessing:
 

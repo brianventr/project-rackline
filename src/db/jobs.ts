@@ -67,7 +67,7 @@ export type FloorJobView = Omit<FloorJobRow, "pinned"> & {
   reason?: string;
 };
 
-async function membershipVerbs(db: AppDb, organizationId: string, userId: string, role: string): Promise<FloorVerb[]> {
+export async function membershipVerbs(db: AppDb, organizationId: string, userId: string, role: string): Promise<FloorVerb[]> {
   const [row] = await db
     .select({ floorVerbs: schema.memberships.floorVerbs, role: schema.memberships.role })
     .from(schema.memberships)
