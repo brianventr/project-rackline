@@ -626,8 +626,14 @@ function OrderDetail({ id }: { id: string }) {
   const retryChannel = () =>
     run(
       "Post tracking",
-      () => api<{ status: string; error?: string }>(`/api/channels/orders/${id}/post-back`, { method: "POST" }),
-      (r) => (r.status === "fulfilled" ? "Tracking sent to the channel." : null),
+      async () => {
+        const result = await api<{ status: string; error?: string }>(`/api/channels/orders/${id}/post-back`, {
+          method: "POST",
+        });
+        if (result.status !== "fulfilled") throw new Error(result.error || "The channel did not accept the tracking number.");
+        return api<Order>(`/api/orders/${id}`);
+      },
+      () => "Tracking sent to the channel.",
     );
 
   const retryShopify = () =>
