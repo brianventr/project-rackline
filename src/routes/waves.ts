@@ -1,9 +1,11 @@
 import { Hono } from "hono";
+import { loadWorkflowPolicy } from "../db/workflow";
+import { assertScanned, type ScanEvidence } from "../domain/workflow-policy";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
-import { getOrgLocation } from "../lib/org";
+import { getOrgItem, getOrgLocation } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
 import {
   allocateBatchPick,
@@ -232,7 +234,7 @@ wavesRoute.post("/waves/:id/release", async (c) => {
 });
 
 wavesRoute.post("/waves/:id/batch-pick", async (c) => {
-  const body = await c.req.json<{ locationId?: string; itemId?: string; qty?: number }>();
+  const body = await c.req.json<{ locationId?: string; itemId?: string; qty?: number; scan?: ScanEvidence }>();
   const locationId = requireString(body.locationId, "locationId");
   const itemId = requireString(body.itemId, "itemId");
   const qty = requireInt(body.qty, "qty");
@@ -242,10 +244,18 @@ wavesRoute.post("/waves/:id/batch-pick", async (c) => {
   const wave = await waveDetail(db, organizationId, c.req.param("id"));
   if (wave.mode !== "batch") conflict("Wave is not in batch mode");
   if (!canPickWave(wave.status)) conflict("Wave is not released for picking");
-  await getOrgLocation(db, organizationId, locationId);
+  const bay = await getOrgLocation(db, organizationId, locationId);
 
   const batchLine = wave.batchLines.find((line) => line.itemId === itemId);
   if (!batchLine) badRequest("SKU is not on this wave batch");
+  const item = await getOrgItem(db, organizationId, itemId);
+  assertScanned(
+    await loadWorkflowPolicy(db, organizationId),
+    "pick",
+    [{ lineId: itemId, qty, sku: item.sku, barcode: item.barcode }],
+    body.scan,
+    bay,
+  );
   if (qty > batchLine.remaining) {
     throw new OverBatchPickError(batchLine.sku, batchLine.remaining, qty);
   }

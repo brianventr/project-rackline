@@ -63,15 +63,22 @@ export function assertQuickShip(policy: WorkflowPolicy): void {
 export type ScanEvidence = {
   /** Bay barcode or code the operator scanned. */
   locationScan?: string | null;
-  /** One SKU barcode (or SKU) per unit scanned, in any order. */
-  unitScans?: string[] | null;
+  /** SKU or item barcode scans made for this post, in any order. Serial and lot scans count as their SKU. */
+  itemScans?: string[] | null;
 };
 
-export type ScanCheckLine = { lineId: string; qty: number; sku: string; barcode: string };
+export type ScanCheckLine = { lineId: string; qty: number; sku: string; barcode: string | null };
+
+export type ScanVerb = "pick" | "pack";
+
+export function requiresScan(policy: WorkflowPolicy, verb: ScanVerb): boolean {
+  return verb === "pick" ? policy.scanVerifiedPick : policy.scanVerifiedPack;
+}
 
 /**
- * Verifies the scans cover the posted qty. Returns the first problem as a message, or null when the scans cover it.
- * Matching is case-insensitive on SKU or barcode.
+ * Verifies a floor post was scanned: the bay (for picks) and each posted line's SKU at least once.
+ * Qty is keyed after the SKU scan, as on a directed-pick RF screen. Returns the first problem, or null.
+ * Matching is case-insensitive on SKU or item barcode.
  */
 export function checkScanEvidence(
   lines: ScanCheckLine[],
@@ -85,22 +92,24 @@ export function checkScanEvidence(
       return `Scanned ${scanned}, but this pick is from ${options.bay.code}`;
     }
   }
-  const counts = new Map<string, number>();
-  for (const raw of evidence?.unitScans ?? []) {
-    const key = raw.trim().toUpperCase();
-    if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
+  const scanned = new Set((evidence?.itemScans ?? []).map((raw) => raw.trim().toUpperCase()).filter(Boolean));
   for (const line of lines) {
     if (line.qty <= 0) continue;
-    const keys = [line.sku.toUpperCase(), line.barcode.toUpperCase()].filter(Boolean);
-    let need = line.qty;
-    for (const key of new Set(keys)) {
-      const have = counts.get(key) ?? 0;
-      const take = Math.min(have, need);
-      counts.set(key, have - take);
-      need -= take;
-    }
-    if (need > 0) return `Scan ${need} more ${line.sku}`;
+    const keys = [line.sku, line.barcode ?? ""].map((key) => key.toUpperCase()).filter(Boolean);
+    if (!keys.some((key) => scanned.has(key))) return `Scan ${line.sku} before posting`;
   }
   return null;
+}
+
+/** Throws the 409 the floor shows when a Manufacturer post is missing its scans. */
+export function assertScanned(
+  policy: WorkflowPolicy,
+  verb: ScanVerb,
+  lines: ScanCheckLine[],
+  evidence: ScanEvidence | null | undefined,
+  bay?: { code: string; barcode: string } | null,
+): void {
+  if (!requiresScan(policy, verb)) return;
+  const problem = checkScanEvidence(lines, evidence, { bay: verb === "pick" ? bay : null });
+  if (problem) throw new WorkflowPolicyError(`${problem}. Manufacturer mode ${verb}s by scan on the floor.`, "SCAN_REQUIRED");
 }

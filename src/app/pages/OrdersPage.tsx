@@ -777,6 +777,8 @@ function OrderDetail({ id }: { id: string }) {
   const quickShipOk =
     policy.quickShip && !hasPackages && ["open", "draft", "picking", "picked", "packing", "packed"].includes(order.status);
   if (quickShipOk) primary = { label: shipLabel, icon: Truck, onSelect: quickShip };
+  else if (picking && !policy.officePickPack) primary = { label: "Pick on floor", icon: ScanLine, to: `/floor/pick?id=${order.id}` };
+  else if (packing && !policy.officePickPack) primary = { label: "Pack on floor", icon: ScanLine, to: `/floor/pack?id=${order.id}` };
   else if (picking) primary = { label: "Pick", icon: PackageMinus, onSelect: pick, disabled: !thisPick };
   else if (packing) primary = { label: "Pack", icon: PackageCheck, onSelect: pack, disabled: !thisPack };
   else if (canShipOrder(order.status)) primary = { label: shipLabel, icon: Truck, onSelect: ship };
@@ -791,7 +793,9 @@ function OrderDetail({ id }: { id: string }) {
     ...(canPickOrder(order.status) ? [{ label: "Pick list", icon: ClipboardList, to: `/outbound/orders/${order.id}/pick-list` }] : []),
     { label: "Pack slip", icon: FileText, to: `/outbound/orders/${order.id}/pack-slip` },
     ...(!hasPackages ? [{ label: "Shipping label", icon: Printer, to: `/outbound/orders/${order.id}/shipping-label` }] : []),
-    ...(packing ? [{ label: "Pack into carton", icon: Box, onSelect: packIntoCarton, disabled: !thisPack }] : []),
+    ...(packing && policy.officePickPack
+      ? [{ label: "Pack into carton", icon: Box, onSelect: packIntoCarton, disabled: !thisPack }]
+      : []),
     ...(unpickable && !unpickMode
       ? [{ label: "Unpick…", icon: Undo2, onSelect: () => { setUnpickMode(true); setView("lines"); } }]
       : []),
@@ -830,6 +834,8 @@ function OrderDetail({ id }: { id: string }) {
       : []),
   ];
 
+  const officePicking = picking && policy.officePickPack;
+  const officePacking = packing && policy.officePickPack;
   const units = orderUnits(order);
   const tracksAnything = lines.some((line) => line.trackLot || line.trackSerial || line.catchWeight);
   const hasAllocations = lines.some((line) => (line.allocations ?? []).length || (line.allocatedQty ?? 0) > 0);
@@ -844,9 +850,9 @@ function OrderDetail({ id }: { id: string }) {
     "Shipped",
     ...(hasAllocations ? ["Allocated"] : []),
     ...(remaining ? ["Pick from"] : []),
-    ...(picking ? ["This pick"] : []),
-    ...(picking && tracksAnything ? ["Lot / serial"] : []),
-    ...(packing ? ["This pack"] : []),
+    ...(officePicking ? ["This pick"] : []),
+    ...(officePicking && tracksAnything ? ["Lot / serial"] : []),
+    ...(officePacking ? ["This pack"] : []),
     ...(unpickMode ? ["This unpick"] : []),
   ];
 
@@ -1041,7 +1047,7 @@ function OrderDetail({ id }: { id: string }) {
                       )}
                     </td>
                   ) : null}
-                  {picking ? (
+                  {officePicking ? (
                     <td>
                       {line.remaining > 0 ? (
                         <Input
@@ -1058,7 +1064,7 @@ function OrderDetail({ id }: { id: string }) {
                       )}
                     </td>
                   ) : null}
-                  {picking && tracksAnything ? (
+                  {officePicking && tracksAnything ? (
                     <td className="space-y-1">
                       {line.trackLot ? (
                         <Input
@@ -1081,7 +1087,7 @@ function OrderDetail({ id }: { id: string }) {
                       />
                     </td>
                   ) : null}
-                  {packing ? (
+                  {officePacking ? (
                     <td>
                       {(line.packRemaining ?? 0) > 0 ? (
                         <Input

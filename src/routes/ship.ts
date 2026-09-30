@@ -27,7 +27,8 @@ import {
   withOwnReservations,
   type QuickShipOutcome,
 } from "../domain/quick-ship";
-import { assertQuickShip, workflowPolicy } from "../domain/workflow-policy";
+import { assertQuickShip } from "../domain/workflow-policy";
+import { loadWorkflowPolicy } from "../db/workflow";
 import { normalizeOrderStatus } from "../domain/status";
 import { orderJobInput, syncDocumentJob } from "../db/jobs";
 
@@ -46,15 +47,6 @@ type QuickShipBody = {
 };
 
 const MAX_BULK = 50;
-
-async function loadPolicy(db: Db, organizationId: string) {
-  const [org] = await db
-    .select({ operatingMode: schema.organizations.operatingMode })
-    .from(schema.organizations)
-    .where(eq(schema.organizations.id, organizationId))
-    .limit(1);
-  return workflowPolicy(org?.operatingMode);
-}
 
 async function loadPresets(db: Db, organizationId: string): Promise<PackagePreset[]> {
   return db
@@ -119,7 +111,7 @@ shipRoute.get("/ship/queue", async (c) => {
     .limit(1);
   if (!warehouse) notFound("Warehouse not found");
 
-  const policy = await loadPolicy(db, organizationId);
+  const policy = await loadWorkflowPolicy(db, organizationId);
   const presets = await loadPresets(db, organizationId);
   const connections = await loadCarrierConnections(db, organizationId);
   const services = enabledServicesFromConnections(connections);
@@ -466,7 +458,7 @@ async function quickShipOne(
 shipRoute.post("/orders/:id/quick-ship", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  assertQuickShip(await loadPolicy(db, organizationId));
+  assertQuickShip(await loadWorkflowPolicy(db, organizationId));
   const body = await c.req.json<QuickShipBody>().catch(() => ({}) as QuickShipBody);
   const call = internalApi(c, [ordersRoute]);
   const outcome = await quickShipOne(c, call, c.req.param("id"), body);
@@ -477,7 +469,7 @@ shipRoute.post("/orders/:id/quick-ship", async (c) => {
 shipRoute.post("/ship/quick-ship", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  assertQuickShip(await loadPolicy(db, organizationId));
+  assertQuickShip(await loadWorkflowPolicy(db, organizationId));
   const body = await c.req.json<QuickShipBody & { ids?: unknown }>().catch(() => ({}) as QuickShipBody & { ids?: unknown });
   const ids = Array.isArray(body.ids) ? [...new Set(body.ids.filter((id): id is string => typeof id === "string" && id.length > 0))] : [];
   if (ids.length === 0) badRequest("Pick at least one order to ship");
