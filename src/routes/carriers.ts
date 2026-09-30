@@ -26,14 +26,47 @@ import { isDirectProvider } from "../domain/direct-carrier";
 import { normalizeTrackerStatus, parseTrackerWebhook, verifyTrackerHmac } from "../domain/tracker";
 import { loadPackagesForOrders, orderPatchFromPackages } from "../db/packages";
 import { buildingDefaultService } from "../domain/ship-defaults";
+import { openCarrierRow } from "../db/credentials";
+import { credentialSecret } from "../lib/credential-secret";
+import { sealSecret } from "../lib/secret-box";
 
 export const carriersRoute = new Hono<AppEnv>();
 
+/** Every carrier row for the org, with API keys and secrets in the clear. */
 export async function loadCarrierConnections(db: AppEnv["Variables"]["db"], organizationId: string) {
-  return db
+  const rows = await db
     .select()
     .from(schema.carrierConnections)
     .where(eq(schema.carrierConnections.organizationId, organizationId));
+  return Promise.all(rows.map((row) => openCarrierRow(db, credentialSecret, row)));
+}
+
+async function loadCarrierConnection(db: AppEnv["Variables"]["db"], organizationId: string, id: string) {
+  const [row] = await db
+    .select()
+    .from(schema.carrierConnections)
+    .where(and(eq(schema.carrierConnections.id, id), eq(schema.carrierConnections.organizationId, organizationId)))
+    .limit(1);
+  if (!row) notFound("Carrier account not found");
+  return openCarrierRow(db, credentialSecret, row);
+}
+
+/**
+ * The API key and secret a write sets, sealed. A field left undefined is not in the result, so the
+ * stored value stays as it is, even one this deployment cannot open.
+ */
+async function sealedKeys(creds: Pick<CarrierCredentials, "apiKey" | "apiSecret">) {
+  const out: { apiKey?: string | null; apiSecret?: string | null } = {};
+  for (const field of ["apiKey", "apiSecret"] as const) {
+    const value = creds[field];
+    if (value !== undefined) out[field] = value ? await sealSecret(credentialSecret(), value) : null;
+  }
+  return out;
+}
+
+/** A written row as the API shows it: hints come from the keys in the clear, not the sealed columns. */
+function withKeys(row: typeof schema.carrierConnections.$inferSelect, creds: CarrierCredentials) {
+  return asLike({ ...row, apiKey: creds.apiKey ?? null, apiSecret: creds.apiSecret ?? null });
 }
 
 export async function recordCarrierEvent(
@@ -232,8 +265,7 @@ carriersRoute.post("/carriers", async (c) => {
     provider: providerId,
     nickname: optionalString(body.nickname) || provider.name,
     accountNumber: creds.accountNumber,
-    apiKey: creds.apiKey,
-    apiSecret: creds.apiSecret,
+    ...(await sealedKeys(creds)),
     meterNumber: creds.meterNumber,
     webhookSecret: optionalString(body.webhookSecret) ?? null,
     mode,
@@ -244,7 +276,7 @@ carriersRoute.post("/carriers", async (c) => {
     updatedAt: now,
   });
   const [row] = await db.select().from(schema.carrierConnections).where(eq(schema.carrierConnections.id, id)).limit(1);
-  return c.json(serializeCarrierConnection(asLike(row!)), 201);
+  return c.json(serializeCarrierConnection(withKeys(row!, creds)), 201);
 });
 
 carriersRoute.patch("/carriers/:id", async (c) => {
@@ -262,14 +294,7 @@ carriersRoute.patch("/carriers/:id", async (c) => {
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const [existing] = await db
-    .select()
-    .from(schema.carrierConnections)
-    .where(
-      and(eq(schema.carrierConnections.id, c.req.param("id")), eq(schema.carrierConnections.organizationId, organizationId)),
-    )
-    .limit(1);
-  if (!existing) notFound("Carrier account not found");
+  const existing = await loadCarrierConnection(db, organizationId, c.req.param("id"));
   const mode = body.mode === undefined ? existing.mode : body.mode === "live" ? "live" : "demo";
   const creds: CarrierCredentials = {
     accountNumber:
@@ -291,8 +316,10 @@ carriersRoute.patch("/carriers/:id", async (c) => {
     .set({
       nickname: optionalString(body.nickname) || existing.nickname,
       accountNumber: creds.accountNumber,
-      apiKey: creds.apiKey,
-      apiSecret: creds.apiSecret,
+      ...(await sealedKeys({
+        apiKey: body.apiKey === undefined ? undefined : creds.apiKey,
+        apiSecret: body.apiSecret === undefined ? undefined : creds.apiSecret,
+      })),
       meterNumber: creds.meterNumber,
       webhookSecret:
         body.webhookSecret === undefined ? existing.webhookSecret : keepOrReplace(body.webhookSecret, existing.webhookSecret),
@@ -304,21 +331,14 @@ carriersRoute.patch("/carriers/:id", async (c) => {
     })
     .where(eq(schema.carrierConnections.id, existing.id))
     .returning();
-  return c.json(serializeCarrierConnection(asLike(row)));
+  return c.json(serializeCarrierConnection(withKeys(row, creds)));
 });
 
 carriersRoute.post("/carriers/:id/test", async (c) => {
   requireOwner(c.get("role"));
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const [existing] = await db
-    .select()
-    .from(schema.carrierConnections)
-    .where(
-      and(eq(schema.carrierConnections.id, c.req.param("id")), eq(schema.carrierConnections.organizationId, organizationId)),
-    )
-    .limit(1);
-  if (!existing) notFound("Carrier account not found");
+  const existing = await loadCarrierConnection(db, organizationId, c.req.param("id"));
   const now = Date.now();
   let result: { ok: true; message: string } | { ok: false; error: string } = testConnectionResult({
     provider: existing.provider,
@@ -383,7 +403,7 @@ carriersRoute.post("/carriers/:id/test", async (c) => {
   });
   const [row] = await db.select().from(schema.carrierConnections).where(eq(schema.carrierConnections.id, existing.id)).limit(1);
   if (!ok) badRequest(result.error);
-  return c.json({ connection: serializeCarrierConnection(asLike(row!)), ...response });
+  return c.json({ connection: serializeCarrierConnection(withKeys(row!, existing)), ...response });
 });
 
 carriersRoute.delete("/carriers/:id", async (c) => {

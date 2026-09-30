@@ -1,6 +1,7 @@
 /**
- * AES-GCM for channel credentials at rest. The key is derived from BETTER_AUTH_SECRET with HKDF,
- * so rotating that secret makes stored channel tokens unreadable and the owner reconnects.
+ * AES-GCM for credentials at rest: channel keys and tokens, the Shopify Admin token, and carrier API
+ * keys. The key is derived from BETTER_AUTH_SECRET with HKDF, so rotating that secret makes stored
+ * credentials unreadable and the owner reconnects.
  */
 const PREFIX = "sb1:";
 const INFO = new TextEncoder().encode("rackline-channel-credentials");
@@ -53,6 +54,24 @@ export async function openSecret(secret: string, sealed: string | null | undefin
   } catch {
     return null;
   }
+}
+
+export function isSealed(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.startsWith(PREFIX);
+}
+
+/**
+ * A stored credential in the clear. A sealed value is opened, or null when this secret cannot open it.
+ * A plain value, stored before its column was sealed, reads as is, and `reseal` holds it sealed so the
+ * caller can write it back.
+ */
+export async function readStoredSecret(
+  secret: string,
+  stored: string | null | undefined,
+): Promise<{ value: string | null; reseal: string | null }> {
+  if (!stored) return { value: null, reseal: null };
+  if (isSealed(stored)) return { value: await openSecret(secret, stored), reseal: null };
+  return { value: stored, reseal: await sealSecret(secret, stored) };
 }
 
 /** Deployed workers must set BETTER_AUTH_SECRET; only a localhost auth URL may fall back to a dev key. */

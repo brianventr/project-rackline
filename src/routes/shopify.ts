@@ -11,6 +11,7 @@ import { newId } from "../lib/ids";
 import {
   REQUIRED_SCOPES,
   SHOPIFY_API_VERSION,
+  SHOPIFY_TOKEN_UNREADABLE,
   buildDemoOrderPayload,
   maskSecret,
   normalizeShopDomain,
@@ -37,6 +38,9 @@ import {
   syncShopifySellable,
 } from "../db/shopify-sellable";
 import { demoShopifyLocationGid } from "../domain/shopify-sellable";
+import { openShopifyRow } from "../db/credentials";
+import { credentialSecret } from "../lib/credential-secret";
+import { sealSecret } from "../lib/secret-box";
 import {
   assertOauthShop,
   shopifyAuthorizeUrl,
@@ -48,6 +52,10 @@ import {
 export const shopifyPublicRoute = new Hono<AppEnv>();
 export const shopifyRoute = new Hono<AppEnv>();
 
+async function opened(db: AppEnv["Variables"]["db"], row: ShopifyConnectionRow | undefined) {
+  return row ? openShopifyRow(db, credentialSecret, row) : null;
+}
+
 async function connectionByShop(db: AppEnv["Variables"]["db"], shopDomain: string) {
   const domain = normalizeShopDomain(shopDomain);
   const [row] = await db
@@ -55,7 +63,7 @@ async function connectionByShop(db: AppEnv["Variables"]["db"], shopDomain: strin
     .from(schema.shopifyConnections)
     .where(eq(schema.shopifyConnections.shopDomain, domain))
     .limit(1);
-  return row ?? null;
+  return opened(db, row);
 }
 
 async function connectionByOrg(db: AppEnv["Variables"]["db"], organizationId: string) {
@@ -64,7 +72,7 @@ async function connectionByOrg(db: AppEnv["Variables"]["db"], organizationId: st
     .from(schema.shopifyConnections)
     .where(eq(schema.shopifyConnections.organizationId, organizationId))
     .limit(1);
-  return row ?? null;
+  return opened(db, row);
 }
 
 function publicUrls(origin: string) {
@@ -256,12 +264,13 @@ shopifyPublicRoute.get("/shopify/oauth/callback", async (c) => {
   }
   const existing = await connectionByOrg(db, state.organizationId);
   const now = Date.now();
+  const sealedToken = await sealSecret(credentialSecret(), accessToken);
   if (existing) {
     await db
       .update(schema.shopifyConnections)
       .set({
         shopDomain: shop,
-        accessToken,
+        accessToken: sealedToken,
         webhookSecret: apiSecret,
         mode: "live",
         apiVersion: existing.apiVersion || SHOPIFY_API_VERSION,
@@ -273,7 +282,7 @@ shopifyPublicRoute.get("/shopify/oauth/callback", async (c) => {
       id: newId(),
       organizationId: state.organizationId,
       shopDomain: shop,
-      accessToken,
+      accessToken: sealedToken,
       webhookSecret: apiSecret,
       apiVersion: SHOPIFY_API_VERSION,
       shopifyLocationGid: null,
@@ -337,15 +346,16 @@ shopifyRoute.put("/shopify/connection", async (c) => {
   const now = Date.now();
   const webhookSecret = body.webhookSecret?.trim() || existing?.webhookSecret;
   if (!webhookSecret) badRequest("webhookSecret is required");
-  const accessToken =
-    body.accessToken === undefined ? (existing?.accessToken ?? null) : body.accessToken?.trim() || null;
+  // Left out, the stored token stays as it is, even one this deployment cannot open.
+  const token = body.accessToken === undefined ? undefined : body.accessToken?.trim() || null;
+  const accessToken = token ? await sealSecret(credentialSecret(), token) : token;
 
   if (existing) {
     await db
       .update(schema.shopifyConnections)
       .set({
         shopDomain,
-        accessToken,
+        ...(accessToken === undefined ? {} : { accessToken }),
         webhookSecret,
         apiVersion: body.apiVersion?.trim() || existing.apiVersion || SHOPIFY_API_VERSION,
         shopifyLocationGid:
@@ -359,7 +369,7 @@ shopifyRoute.put("/shopify/connection", async (c) => {
       id: newId(),
       organizationId,
       shopDomain,
-      accessToken,
+      accessToken: accessToken ?? null,
       webhookSecret,
       apiVersion: body.apiVersion?.trim() || SHOPIFY_API_VERSION,
       shopifyLocationGid: body.shopifyLocationGid ?? null,
@@ -486,6 +496,7 @@ shopifyRoute.post("/shopify/inventory/sync", async (c) => {
   const result = await syncShopifySellable(db, organizationId, { itemIds, strict: true });
   if (result.code === "NOT_CONNECTED") badRequest(result.error || "Shopify is not connected");
   if (result.code === "MISSING_LOCATION") conflict(result.error || "Set a Shopify location before pushing sellable qty.", "MISSING_LOCATION");
+  if (result.code === "SHOPIFY_TOKEN") conflict(result.error || SHOPIFY_TOKEN_UNREADABLE, "SHOPIFY_TOKEN");
   return c.json(result);
 });
 

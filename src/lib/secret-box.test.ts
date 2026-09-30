@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channelSecret, openSecret, sealSecret } from "./secret-box";
+import { channelSecret, isSealed, openSecret, readStoredSecret, sealSecret } from "./secret-box";
 
 describe("secret box", () => {
   it("round-trips a value and never stores it in the clear", async () => {
@@ -15,6 +15,35 @@ describe("secret box", () => {
     expect(await openSecret("one", "token")).toBeNull();
     expect(await openSecret("one", null)).toBeNull();
     expect(await sealSecret("one", "")).toBeNull();
+  });
+
+  it("tells a sealed value from plain text", async () => {
+    expect(isSealed(await sealSecret("one", "token"))).toBe(true);
+    expect(isSealed("shpat_1234")).toBe(false);
+    expect(isSealed(null)).toBe(false);
+  });
+
+  it("reads a sealed credential and leaves it as stored", async () => {
+    const sealed = await sealSecret("one", "shpat_live_1234");
+    expect(await readStoredSecret("one", sealed)).toEqual({ value: "shpat_live_1234", reseal: null });
+  });
+
+  it("reads a plain credential from before sealing as is, and offers it sealed", async () => {
+    const read = await readStoredSecret("one", "EZAK_plain_5678");
+    expect(read.value).toBe("EZAK_plain_5678");
+    expect(read.reseal).toMatch(/^sb1:/);
+    expect(read.reseal).not.toContain("EZAK_plain_5678");
+    expect(await openSecret("one", read.reseal)).toBe("EZAK_plain_5678");
+  });
+
+  it("reads a credential sealed under another secret as missing, and never reseals it", async () => {
+    const sealed = await sealSecret("old-secret", "shpat_live_1234");
+    expect(await readStoredSecret("new-secret", sealed)).toEqual({ value: null, reseal: null });
+  });
+
+  it("reads nothing as nothing", async () => {
+    expect(await readStoredSecret("one", null)).toEqual({ value: null, reseal: null });
+    expect(await readStoredSecret("one", "")).toEqual({ value: null, reseal: null });
   });
 
   it("only falls back to a dev key on localhost", () => {
