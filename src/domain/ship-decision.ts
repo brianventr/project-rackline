@@ -1,5 +1,6 @@
+import { fitBox } from "./box-fit";
 import { enabledServicesFromConnections, resolveLabelPurchase, type CarrierConnectionLike } from "./carriers";
-import { pickPreset, type PackagePreset } from "./ship-defaults";
+import { pickPreset, type PackagePreset, type ShipWeightLine } from "./ship-defaults";
 import { matchShipRule, RATE_STRATEGY_LABELS, type RateStrategy, type ShipRule, type ShipRuleOrder } from "./ship-rules";
 
 export type ShipBoxSource = "picked" | "rule" | "auto" | "default";
@@ -11,6 +12,8 @@ export type ShipBoxChoice = {
   source: ShipBoxSource | null;
   /** Why the box was not picked automatically, when picking could have helped. */
   note: string | null;
+  /** The items fit no box, so the label still goes out on the default box's size. */
+  tooBig: boolean;
 };
 
 export type ShipServicePlan =
@@ -28,7 +31,11 @@ export type ShipPlan = {
 };
 
 export type ShipPlanInput = {
-  order: ShipRuleOrder & { carrierService?: string | null; carrierConnectionId?: string | null };
+  order: Omit<ShipRuleOrder, "lines"> & {
+    lines: ShipWeightLine[];
+    carrierService?: string | null;
+    carrierConnectionId?: string | null;
+  };
   rules: ShipRule[];
   presets: PackagePreset[];
   connections: CarrierConnectionLike[];
@@ -40,9 +47,10 @@ export type ShipPlanInput = {
 };
 
 /**
- * Box and service for one order. Box: picked at the bench, then the matched rule's box, then the default box.
- * Service: picked at the bench, then the matched rule's service or rate choice, then a service already on the
- * order, then the building's rate choice (its default service unless set to cheapest, fastest, or on time).
+ * Box and service for one order. Box: picked at the bench, then the matched rule's box, then the smallest box the
+ * items fit (`fitBox`), then the default box. Service: picked at the bench, then the matched rule's service or rate
+ * choice, then a service already on the order, then the building's rate choice (its default service unless set to
+ * cheapest, fastest, or on time).
  */
 export function planShipment(input: ShipPlanInput): ShipPlan {
   const rule = matchShipRule(input.rules, input.order);
@@ -57,15 +65,33 @@ export function planShipment(input: ShipPlanInput): ShipPlan {
 }
 
 function planBox(input: ShipPlanInput, rule: ShipRule | null): ShipBoxChoice {
+  const { presets } = input;
   const picked = input.picked?.presetId?.trim();
   if (picked) {
-    const preset = input.presets.find((row) => row.id === picked) ?? null;
-    return { preset, source: preset ? "picked" : null, note: null };
+    const preset = presets.find((row) => row.id === picked) ?? null;
+    return { preset, source: preset ? "picked" : null, note: null, tooBig: false };
   }
-  const ruled = rule?.presetId ? input.presets.find((row) => row.id === rule.presetId) : null;
-  if (ruled) return { preset: ruled, source: "rule", note: null };
-  const fallback = pickPreset(input.presets);
-  return { preset: fallback, source: fallback ? "default" : null, note: null };
+  const ruled = rule?.presetId ? presets.find((row) => row.id === rule.presetId) : null;
+  if (ruled) return { preset: ruled, source: "rule", note: null, tooBig: false };
+
+  const fallback = pickPreset(presets);
+  const fallbackBox = (note: string | null, tooBig = false): ShipBoxChoice => ({
+    preset: fallback,
+    source: fallback ? "default" : null,
+    note,
+    tooBig,
+  });
+  if (!presets.length) return fallbackBox(null);
+  const fit = fitBox({ lines: input.order.lines, presets, weighedOz: input.order.weightOz });
+  if (fit.kind === "fit") return { preset: fit.preset, source: presets.length > 1 ? "auto" : "default", note: null, tooBig: false };
+  if (fit.kind === "too_big") return fallbackBox(`Too big for ${presets.length === 1 ? presets[0]!.name : "every box"}`, true);
+  return fallbackBox(presets.length > 1 ? unsizedNote(fit.skus) : null);
+}
+
+function unsizedNote(skus: string[]): string | null {
+  if (!skus.length) return null;
+  const named = skus.length > 2 ? `${skus.slice(0, 2).join(", ")} and ${skus.length - 2} more` : skus.join(" and ");
+  return `No ship size on ${named}`;
 }
 
 function planService(input: ShipPlanInput, rule: ShipRule | null): { plan: ShipServicePlan; problem: string | null } {

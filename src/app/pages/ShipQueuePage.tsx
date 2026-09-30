@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Circle, Package, PackageCheck, Printer, Scale, Split, Store, Truck, Warehouse } from "lucide-react";
 import { toast } from "sonner";
@@ -20,6 +20,7 @@ import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
 import { markShippedReminder } from "@/domain/channels/adapter";
 import { shortDay } from "@/domain/rate-choice";
+import { formatOz } from "@/domain/ship-defaults";
 
 const TABS: TabDef<ShipQueueOrder>[] = [
   { id: "ready", label: "Ready to ship", match: (row) => row.status !== "shipped" && row.ready },
@@ -203,9 +204,19 @@ export function ShipQueuePage() {
       sortValue: (row) => row.box?.name ?? "",
       csv: (row) => (row.status === "shipped" ? "" : (pickedPreset?.name ?? row.box?.name ?? "")),
       cell: (row) => {
-        const name = row.status === "shipped" ? null : (pickedPreset?.name ?? row.box?.name);
-        if (!name) return <Muted>—</Muted>;
-        return <Reasoned text={name} reason={pickedPreset ? "Picked" : row.box?.reason} />;
+        if (row.status === "shipped") return <Muted>—</Muted>;
+        if (pickedPreset) return <Reasoned text={pickedPreset.name} reason="Picked" />;
+        const box = row.box;
+        if (!box) return <Muted>—</Muted>;
+        const auto = box.source === "auto";
+        return (
+          <Reasoned
+            text={box.name}
+            badge={auto ? "auto" : null}
+            reason={auto ? null : box.reason}
+            detail={box.note ? { text: box.note, warn: box.tooBig } : null}
+          />
+        );
       },
     },
     {
@@ -465,17 +476,26 @@ function money(cents: number): string {
 /** A value with the small grey line that says why it was chosen. */
 function Reasoned({
   text,
+  badge,
   reason,
   detail,
 }: {
   text: string | null | undefined;
+  badge?: string | null;
   reason?: string | null;
   detail?: { text: string; warn?: boolean } | null;
 }) {
   if (!text) return <Muted>—</Muted>;
   return (
     <span className="flex flex-col text-sm">
-      <span>{text}</span>
+      <span className="flex items-center gap-1.5">
+        {text}
+        {badge ? (
+          <ToneBadge tone="info" dot={false}>
+            {badge}
+          </ToneBadge>
+        ) : null}
+      </span>
       {reason ? <span className="text-[11px] text-muted-foreground">{reason}</span> : null}
       {detail ? (
         <span className={detail.warn ? "text-[11px] text-tone-warning" : "text-[11px] text-muted-foreground"}>{detail.text}</span>
@@ -535,6 +555,42 @@ function SetupChecklist({ steps, owner, onBox }: { steps: ShipQueue["setup"]; ow
   );
 }
 
+const EMPTY_BOX = {
+  name: "",
+  lengthIn: "",
+  widthIn: "",
+  heightIn: "",
+  tareOz: "",
+  innerLengthIn: "",
+  innerWidthIn: "",
+  innerHeightIn: "",
+  maxWeightOz: "",
+};
+
+function boxForm(preset: PackagePreset): typeof EMPTY_BOX {
+  const text = (value: number | null) => (value == null ? "" : String(value));
+  return {
+    name: preset.name,
+    lengthIn: String(preset.lengthIn),
+    widthIn: String(preset.widthIn),
+    heightIn: String(preset.heightIn),
+    tareOz: String(preset.tareOz),
+    innerLengthIn: text(preset.innerLengthIn),
+    innerWidthIn: text(preset.innerWidthIn),
+    innerHeightIn: text(preset.innerHeightIn),
+    maxWeightOz: text(preset.maxWeightOz),
+  };
+}
+
+function boxSummary(preset: PackagePreset): string {
+  const parts = [`${preset.lengthIn}×${preset.widthIn}×${preset.heightIn} in`, `${preset.tareOz} oz`];
+  if (preset.innerLengthIn && preset.innerWidthIn && preset.innerHeightIn) {
+    parts.push(`inside ${preset.innerLengthIn}×${preset.innerWidthIn}×${preset.innerHeightIn}`);
+  }
+  if (preset.maxWeightOz) parts.push(`holds ${formatOz(preset.maxWeightOz)}`);
+  return parts.join(" · ");
+}
+
 function BoxesSheet({
   open,
   onOpenChange,
@@ -544,27 +600,43 @@ function BoxesSheet({
   onOpenChange: (open: boolean) => void;
   presets: PackagePreset[];
 }) {
-  const [form, setForm] = useState({ name: "", lengthIn: "", widthIn: "", heightIn: "", tareOz: "" });
+  const [form, setForm] = useState(EMPTY_BOX);
+  const [editing, setEditing] = useState<PackagePreset | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const sorted = useMemo(() => [...presets].sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name)), [presets]);
+  const field = (name: keyof typeof EMPTY_BOX) => ({
+    value: form[name],
+    onChange: (event: ChangeEvent<HTMLInputElement>) => setForm({ ...form, [name]: event.target.value }),
+  });
 
-  async function add() {
+  function edit(preset: PackagePreset | null) {
+    setError(null);
+    setEditing(preset);
+    setForm(preset ? boxForm(preset) : EMPTY_BOX);
+  }
+
+  async function save() {
     setError(null);
     setBusy(true);
     try {
-      await apiMutate("/api/ship/presets", {
+      await apiMutate(editing ? `/api/ship/presets/${editing.id}` : "/api/ship/presets", {
+        method: editing ? "PATCH" : "POST",
         body: JSON.stringify({
           name: form.name,
           lengthIn: Number(form.lengthIn),
           widthIn: Number(form.widthIn),
           heightIn: Number(form.heightIn),
           tareOz: form.tareOz ? Number(form.tareOz) : 0,
+          innerLengthIn: form.innerLengthIn.trim(),
+          innerWidthIn: form.innerWidthIn.trim(),
+          innerHeightIn: form.innerHeightIn.trim(),
+          maxWeightOz: form.maxWeightOz.trim(),
         }),
         refresh: "/api/ship",
       });
       toast.success(`Saved ${form.name}.`);
-      setForm({ name: "", lengthIn: "", widthIn: "", heightIn: "", tareOz: "" });
+      edit(null);
     } catch (err) {
       setError(errorText(err, "Could not save the box."));
     } finally {
@@ -587,11 +659,14 @@ function BoxesSheet({
   return (
     <FormSheet
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(next) => {
+        if (!next) edit(null);
+        onOpenChange(next);
+      }}
       title="Boxes"
-      description="Your usual boxes. The default box's size and weight go on every label unless a shipping rule or you pick another."
-      submitLabel="Add box"
-      onSubmit={add}
+      description="Your usual boxes. Quick-ship packs each order in the smallest box its items fit, from their ship sizes; orders without sizes get the default box. A shipping rule or a box you pick comes first."
+      submitLabel={editing ? "Save box" : "Add box"}
+      onSubmit={save}
       busy={busy}
       error={error}
     >
@@ -601,9 +676,7 @@ function BoxesSheet({
             <li key={preset.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
               <span>
                 <span className="font-medium">{preset.name}</span>{" "}
-                <span className="text-muted-foreground">
-                  {preset.lengthIn}×{preset.widthIn}×{preset.heightIn} in · {preset.tareOz} oz
-                </span>
+                <span className="text-muted-foreground">{boxSummary(preset)}</span>
               </span>
               <span className="flex items-center gap-1">
                 {preset.isDefault ? (
@@ -613,6 +686,9 @@ function BoxesSheet({
                     Make default
                   </Button>
                 )}
+                <Button type="button" size="sm" variant="ghost" onClick={() => edit(preset)}>
+                  Edit
+                </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => void update(preset, "DELETE")}>
                   Remove
                 </Button>
@@ -623,23 +699,53 @@ function BoxesSheet({
       ) : (
         <p className="text-sm text-muted-foreground">No boxes yet. Add the one you use most; it becomes the default.</p>
       )}
+      {editing ? (
+        <p className="flex items-center justify-between text-sm">
+          <span>
+            Editing <span className="font-medium">{editing.name}</span>
+          </span>
+          <Button type="button" size="sm" variant="ghost" onClick={() => edit(null)}>
+            Add a new box instead
+          </Button>
+        </p>
+      ) : null}
       <Field label="Name">
-        <Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="10×8 mailer" required />
+        <Input {...field("name")} placeholder="10×8 mailer" required />
       </Field>
+      <p className="text-xs text-muted-foreground">Outside size, for the label.</p>
       <div className="grid grid-cols-3 gap-2">
         <Field label="Length (in)">
-          <Input inputMode="numeric" value={form.lengthIn} onChange={(event) => setForm({ ...form, lengthIn: event.target.value })} required />
+          <Input inputMode="numeric" {...field("lengthIn")} required />
         </Field>
         <Field label="Width (in)">
-          <Input inputMode="numeric" value={form.widthIn} onChange={(event) => setForm({ ...form, widthIn: event.target.value })} required />
+          <Input inputMode="numeric" {...field("widthIn")} required />
         </Field>
         <Field label="Height (in)">
-          <Input inputMode="numeric" value={form.heightIn} onChange={(event) => setForm({ ...form, heightIn: event.target.value })} required />
+          <Input inputMode="numeric" {...field("heightIn")} required />
         </Field>
       </div>
-      <Field label="Empty box weight (oz)">
-        <Input inputMode="numeric" value={form.tareOz} onChange={(event) => setForm({ ...form, tareOz: event.target.value })} placeholder="0" />
-      </Field>
+      <p className="text-xs text-muted-foreground">
+        Inside size, optional. Used to check what fits; blank uses the outside size.
+      </p>
+      <div className="grid grid-cols-3 gap-2">
+        <Field label="Inside length">
+          <Input inputMode="decimal" {...field("innerLengthIn")} placeholder="—" />
+        </Field>
+        <Field label="Inside width">
+          <Input inputMode="decimal" {...field("innerWidthIn")} placeholder="—" />
+        </Field>
+        <Field label="Inside height">
+          <Input inputMode="decimal" {...field("innerHeightIn")} placeholder="—" />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Empty box weight (oz)">
+          <Input inputMode="numeric" {...field("tareOz")} placeholder="0" />
+        </Field>
+        <Field label="Max weight (oz)">
+          <Input inputMode="numeric" {...field("maxWeightOz")} placeholder="No limit" />
+        </Field>
+      </div>
     </FormSheet>
   );
 }

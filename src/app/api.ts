@@ -1658,6 +1658,10 @@ export type PackagePreset = {
   heightIn: number;
   tareOz: number;
   isDefault: boolean;
+  innerLengthIn: number | null;
+  innerWidthIn: number | null;
+  innerHeightIn: number | null;
+  maxWeightOz: number | null;
 };
 
 export type ShipQueueOrder = {
@@ -1684,7 +1688,9 @@ export type ShipQueueOrder = {
     name: string;
     source: "picked" | "rule" | "auto" | "default" | null;
     reason: string | null;
+    /** Why no box was picked automatically: `No ship size on CORD`, `Too big for every box`. */
     note: string | null;
+    tooBig: boolean;
   } | null;
   serviceId: string | null;
   serviceName: string | null;

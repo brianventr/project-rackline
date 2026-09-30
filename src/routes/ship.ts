@@ -92,6 +92,10 @@ async function loadPresets(db: Db, organizationId: string): Promise<PackagePrese
       heightIn: schema.packagePresets.heightIn,
       tareOz: schema.packagePresets.tareOz,
       isDefault: schema.packagePresets.isDefault,
+      innerLengthIn: schema.packagePresets.innerLengthIn,
+      innerWidthIn: schema.packagePresets.innerWidthIn,
+      innerHeightIn: schema.packagePresets.innerHeightIn,
+      maxWeightOz: schema.packagePresets.maxWeightOz,
     })
     .from(schema.packagePresets)
     .where(eq(schema.packagePresets.organizationId, organizationId));
@@ -460,7 +464,14 @@ shipRoute.get("/ship/queue", async (c) => {
       parcel: parcel.parcel,
       missingWeight: parcel.missingWeight,
       box: box?.preset
-        ? { presetId: box.preset.id, name: box.preset.name, source: box.source, reason: decision?.boxReason ?? null, note: box.note }
+        ? {
+            presetId: box.preset.id,
+            name: box.preset.name,
+            source: box.source,
+            reason: decision?.boxReason ?? null,
+            note: box.note,
+            tooBig: box.tooBig,
+          }
         : null,
       serviceId: decision ? decision.serviceId : order.carrierService,
       serviceName: decision ? decision.serviceName : null,

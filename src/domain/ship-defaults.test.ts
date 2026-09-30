@@ -106,9 +106,34 @@ describe("ship defaults", () => {
       widthIn: 8,
       heightIn: 2,
       tareOz: 0,
+      innerLengthIn: null,
+      innerWidthIn: null,
+      innerHeightIn: null,
+      maxWeightOz: null,
     });
     expect(() => parsePresetInput({ name: "", lengthIn: 1, widthIn: 1, heightIn: 1 })).toThrow(/name/);
     expect(() => parsePresetInput({ name: "X", lengthIn: 0, widthIn: 1, heightIn: 1 })).toThrow(/Length/);
     expect(() => parsePresetInput({ name: "X", lengthIn: 1, widthIn: 1, heightIn: 1, tareOz: -1 })).toThrow(/weight/);
+  });
+
+  it("takes an optional inside size and max weight", () => {
+    const outside = { name: "Box", lengthIn: 12, widthIn: 10, heightIn: 6, tareOz: 8 };
+    expect(parsePresetInput({ ...outside, innerLengthIn: "11.75", innerWidthIn: 9.5, innerHeightIn: 5.333, maxWeightOz: "640" })).toMatchObject({
+      innerLengthIn: 11.75,
+      innerWidthIn: 9.5,
+      innerHeightIn: 5.33,
+      maxWeightOz: 640,
+    });
+    expect(parsePresetInput({ ...outside, innerLengthIn: "", innerWidthIn: null, innerHeightIn: undefined, maxWeightOz: "" })).toMatchObject({
+      innerLengthIn: null,
+      maxWeightOz: null,
+    });
+    expect(() => parsePresetInput({ ...outside, innerLengthIn: 11, innerWidthIn: 9 })).toThrow(/all three/);
+    expect(() => parsePresetInput({ ...outside, innerLengthIn: 11, innerWidthIn: 11, innerHeightIn: 5 })).toThrow(
+      "Inside width can't be more than the outside width",
+    );
+    expect(() => parsePresetInput({ ...outside, innerLengthIn: 11, innerWidthIn: 0, innerHeightIn: 5 })).toThrow(/Inside width/);
+    expect(() => parsePresetInput({ ...outside, maxWeightOz: 8 })).toThrow(/Max weight/);
+    expect(() => parsePresetInput({ ...outside, maxWeightOz: 9.5 })).toThrow(/Max weight/);
   });
 });

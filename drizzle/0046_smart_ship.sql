@@ -28,3 +28,9 @@ ALTER TABLE `orders` ADD `ship_reason` text;
 -- Automatic rate choice per building, and the delivery promise the on-time choice aims for.
 ALTER TABLE `warehouses` ADD `rate_strategy` text DEFAULT 'default' NOT NULL;
 ALTER TABLE `warehouses` ADD `delivery_days` integer;
+
+-- Inside size and weight limit per box, so quick-ship can pick the smallest box that fits.
+ALTER TABLE `package_presets` ADD `inner_length_in` real;
+ALTER TABLE `package_presets` ADD `inner_width_in` real;
+ALTER TABLE `package_presets` ADD `inner_height_in` real;
+ALTER TABLE `package_presets` ADD `max_weight_oz` integer;

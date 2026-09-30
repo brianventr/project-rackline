@@ -4,11 +4,18 @@ import { resolveLabelPurchase, type CarrierConnectionLike } from "./carriers";
 export type PackagePreset = {
   id: string;
   name: string;
+  /** Outside size: what goes on the label. */
   lengthIn: number;
   widthIn: number;
   heightIn: number;
   tareOz: number;
   isDefault: boolean;
+  /** Inside size, used to pick a box that fits; the outside size stands in when unset. */
+  innerLengthIn?: number | null;
+  innerWidthIn?: number | null;
+  innerHeightIn?: number | null;
+  /** Heaviest parcel the box should carry, box included. */
+  maxWeightOz?: number | null;
 };
 
 export type ShipWeightLine = {
@@ -130,21 +137,56 @@ export function parsePresetInput(body: {
   widthIn?: unknown;
   heightIn?: unknown;
   tareOz?: unknown;
-}): { name: string; lengthIn: number; widthIn: number; heightIn: number; tareOz: number } {
+  innerLengthIn?: unknown;
+  innerWidthIn?: unknown;
+  innerHeightIn?: unknown;
+  maxWeightOz?: unknown;
+}): {
+  name: string;
+  lengthIn: number;
+  widthIn: number;
+  heightIn: number;
+  tareOz: number;
+  innerLengthIn: number | null;
+  innerWidthIn: number | null;
+  innerHeightIn: number | null;
+  maxWeightOz: number | null;
+} {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) throw new Error("Box name is required");
+  const blank = (value: unknown) => value === undefined || value === null || value === "";
   const dim = (value: unknown, label: string) => {
     const n = typeof value === "number" ? value : Number(value);
     if (!Number.isInteger(n) || n <= 0) throw new Error(`${label} must be a whole number of inches above 0`);
     return n;
   };
-  const tare = body.tareOz === undefined || body.tareOz === null || body.tareOz === "" ? 0 : Number(body.tareOz);
+  const tare = blank(body.tareOz) ? 0 : Number(body.tareOz);
   if (!Number.isInteger(tare) || tare < 0) throw new Error("Box weight must be a whole number of ounces");
+  const outside = { length: dim(body.lengthIn, "Length"), width: dim(body.widthIn, "Width"), height: dim(body.heightIn, "Height") };
+
+  const insideRaw = { length: body.innerLengthIn, width: body.innerWidthIn, height: body.innerHeightIn };
+  const given = Object.values(insideRaw).filter((value) => !blank(value)).length;
+  if (given > 0 && given < 3) throw new Error("Give all three inside sides, or leave the inside size blank");
+  const inside = (side: keyof typeof outside) => {
+    if (!given) return null;
+    const n = Number(insideRaw[side]);
+    if (!Number.isFinite(n) || n <= 0) throw new Error(`Inside ${side} must be a number of inches above 0`);
+    if (n > outside[side]) throw new Error(`Inside ${side} can't be more than the outside ${side}`);
+    return Math.round(n * 100) / 100;
+  };
+  const maxWeight = blank(body.maxWeightOz) ? null : Number(body.maxWeightOz);
+  if (maxWeight !== null && (!Number.isInteger(maxWeight) || maxWeight <= tare)) {
+    throw new Error("Max weight must be a whole number of ounces above the empty box weight");
+  }
   return {
     name,
-    lengthIn: dim(body.lengthIn, "Length"),
-    widthIn: dim(body.widthIn, "Width"),
-    heightIn: dim(body.heightIn, "Height"),
+    lengthIn: outside.length,
+    widthIn: outside.width,
+    heightIn: outside.height,
     tareOz: tare,
+    innerLengthIn: inside("length"),
+    innerWidthIn: inside("width"),
+    innerHeightIn: inside("height"),
+    maxWeightOz: maxWeight,
   };
 }

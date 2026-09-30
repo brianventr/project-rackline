@@ -1298,6 +1298,12 @@ export const packagePresets = sqliteTable(
     tareOz: integer("tare_oz").notNull().default(0),
     isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at").notNull(),
+    /** Inside size for picking a box that fits; the outside size stands in when unset. */
+    innerLengthIn: real("inner_length_in"),
+    innerWidthIn: real("inner_width_in"),
+    innerHeightIn: real("inner_height_in"),
+    /** Heaviest parcel the box should carry, box included. */
+    maxWeightOz: integer("max_weight_oz"),
   },
   (t) => [uniqueIndex("package_presets_org_name").on(t.organizationId, t.name)],
 );

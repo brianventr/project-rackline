@@ -45,7 +45,7 @@ describe("planShipment", () => {
     const plan = planShipment(input());
     expect(plan.rule).toBeNull();
     expect(plan.hold).toBe(false);
-    expect(plan.box).toEqual({ preset: mailer, source: "default", note: null });
+    expect(plan.box).toEqual({ preset: mailer, source: "default", note: "No ship size on LAMP", tooBig: false });
     expect(plan.service).toEqual({ kind: "service", serviceId: "usps_priority", connectionId: "c-usps", source: "default" });
     expect(shipBoxReason(plan)).toBe("Default box");
     expect(shipServiceReason(plan)).toBe("Default service");
@@ -116,6 +116,54 @@ describe("planShipment", () => {
   it("picks the first non-Rackline service when the building has no default", () => {
     expect(planShipment(input({ buildingDefault: null })).service).toMatchObject({ serviceId: "ups_ground", connectionId: "c-ups" });
     expect(planShipment(input({ buildingDefault: null, connections: [] })).service).toMatchObject({ serviceId: "rackline_ground" });
+  });
+});
+
+describe("automatic box", () => {
+  const sized = (sides: [number, number, number], weightOz = 12): ShipPlanInput["order"] => ({
+    warehouseId: "w1",
+    source: "shopify",
+    lines: [{ sku: "LAMP", qty: 1, shipWeightOz: weightOz, shipLengthIn: sides[0], shipWidthIn: sides[1], shipHeightIn: sides[2] }],
+  });
+
+  it("packs in the smallest box the items fit when no rule or pick names one", () => {
+    const flat = planShipment(input({ order: sized([9, 7, 1]) }));
+    expect(flat.box).toEqual({ preset: mailer, source: "auto", note: null, tooBig: false });
+    expect(shipBoxReason(flat)).toBe("Auto");
+    expect(planShipment(input({ order: sized([11, 11, 6]) })).box).toMatchObject({ preset: box, source: "auto" });
+  });
+
+  it("keeps a rule's box and a picked box ahead of the automatic one", () => {
+    expect(planShipment(input({ order: sized([9, 7, 1]), rules: [rule("r", { presetId: "box" })] })).box).toMatchObject({
+      preset: box,
+      source: "rule",
+    });
+    expect(planShipment(input({ order: sized([11, 11, 6]), picked: { presetId: "mailer" } })).box).toMatchObject({
+      preset: mailer,
+      source: "picked",
+    });
+  });
+
+  it("falls back to the default box, flagged, when nothing fits", () => {
+    expect(planShipment(input({ order: sized([30, 20, 4]) })).box).toEqual({
+      preset: mailer,
+      source: "default",
+      note: "Too big for every box",
+      tooBig: true,
+    });
+    expect(planShipment(input({ order: sized([30, 20, 4]), presets: [mailer] })).box).toMatchObject({ note: "Too big for Mailer", tooBig: true });
+  });
+
+  it("names SKUs with no ship size only when there is a box to choose", () => {
+    expect(planShipment(input({ presets: [mailer] })).box).toEqual({ preset: mailer, source: "default", note: null, tooBig: false });
+    const lines = ["A", "B", "C"].map((sku) => ({ sku, qty: 1 }));
+    expect(planShipment(input({ order: { ...input().order, lines } })).box.note).toBe("No ship size on A, B and 1 more");
+  });
+
+  it("checks a typed or scale weight against a box's max weight", () => {
+    const capped = { ...mailer, maxWeightOz: 16 };
+    expect(planShipment(input({ order: sized([9, 7, 1]), presets: [capped, box] })).box.preset?.id).toBe("mailer");
+    expect(planShipment(input({ order: { ...sized([9, 7, 1]), weightOz: 20 }, presets: [capped, box] })).box.preset?.id).toBe("box");
   });
 });
 
