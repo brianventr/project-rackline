@@ -56,6 +56,7 @@ import { accountingRoute } from "./routes/accounting";
 import { channelsRoute } from "./routes/channels";
 import { recallRoute } from "./routes/recall";
 import { scheduleRoute } from "./routes/schedule";
+import { shipRoute } from "./routes/ship";
 import { marketingPageByPath } from "./domain/marketing-pages";
 import { injectMarketingMeta, robotsTxt, sitemapXml } from "./domain/marketing-seo";
 
@@ -202,6 +203,7 @@ app.route("/api", mediaRoute);
 app.route("/api", catalogRoute);
 app.route("/api", receiptsRoute);
 app.route("/api", purchasesRoute);
+app.route("/api", shipRoute);
 app.route("/api", ordersRoute);
 app.route("/api", returnsRoute);
 app.route("/api", adjustmentsRoute);
