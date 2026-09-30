@@ -1,9 +1,17 @@
 # Copy to .dev.vars for local `npm run dev`. Do not commit .dev.vars.
 # Production: `npx wrangler secret put BETTER_AUTH_SECRET`
 
+# Also seals store tokens and carrier API keys at rest; change it and they must be pasted again or reconnected.
 BETTER_AUTH_SECRET=replace-me-with-32-plus-random-chars
 BETTER_AUTH_URL=http://localhost:5173
 
 # Optional. Purchase-order send, password reset, and teammate invite.
 # MAIL_API_KEY=
 # MAIL_FROM=Rackline <floor@your-domain>
+
+# Optional. Live Etsy: your Etsy app's keystring turns on Connect Etsy shop and the receipt poll.
+# Register http://localhost:5173/api/channels/etsy/oauth/callback as a callback URL in the Etsy app.
+# Without it, Etsy orders come in by CSV and Send a sample order runs in demo.
+# ETSY_API_KEY=
+# Optional, with ETSY_API_KEY. The Etsy app's shared secret; when set, calls send keystring:shared_secret as x-api-key.
+# ETSY_SHARED_SECRET=
