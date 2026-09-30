@@ -523,6 +523,9 @@ export type Order = {
   shopifySyncStatus?: string | null;
   shopifySyncError?: string | null;
   shopifyFulfillmentId?: string | null;
+  externalOrderId?: string | null;
+  channelSyncStatus?: string | null;
+  channelSyncError?: string | null;
   trackingNumber?: string | null;
   trackingCompany?: string | null;
   trackingUrl?: string | null;
@@ -584,6 +587,31 @@ export type OrderPackage = {
   units?: number;
   lines?: OrderPackageLine[];
 };
+
+export type ChannelHealth = "disconnected" | "csv" | "live" | "demo" | "error" | "pending" | "paused";
+
+export type ChannelStatus = {
+  id: "shopify" | "woocommerce" | "etsy" | "faire";
+  name: string;
+  auth: "oauth" | "api_key" | "csv";
+  liveOrders: boolean;
+  trackingPostBack: boolean;
+  csvImport: boolean;
+  blurb: string;
+  health: ChannelHealth;
+  mode: string | null;
+  externalShop: string | null;
+  lastSyncAt: number | null;
+  lastSyncError: string | null;
+  webhookUrl: string | null;
+  /** False when the deployment lacks the channel's app keys (Etsy). */
+  configured: boolean;
+  openOrders: number;
+  failedPostBacks: number;
+  setupPath: string;
+};
+
+export type ChannelsPayload = { operatingMode: "garage" | "warehouse"; channels: ChannelStatus[] };
 
 export type ShopifyConnection = {
   connected: boolean;

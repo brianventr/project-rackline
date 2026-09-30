@@ -86,6 +86,9 @@ export function OrdersPage() {
   return <OrderList />;
 }
 
+const CHANNEL_NAMES: Record<string, string> = { woocommerce: "WooCommerce", etsy: "Etsy", faire: "Faire" };
+const CHANNEL_POSTS_BACK = new Set(["woocommerce", "etsy"]);
+
 const ORDER_TABS: TabDef<Order>[] = [
   { id: "active", label: "Active", match: (order) => isOpenOrder(order.status) },
   { id: "pick", label: "To pick", match: (order) => ["open", "draft", "picking"].includes(order.status) },
@@ -620,6 +623,13 @@ function OrderDetail({ id }: { id: string }) {
   const uncarton = (pkgId: string, number: string) =>
     run("Drop carton", () => api<Order>(`/api/orders/${id}/packages/${pkgId}/uncarton`, { method: "POST" }), () => `Dropped ${number}. Its units can be boxed again.`);
 
+  const retryChannel = () =>
+    run(
+      "Post tracking",
+      () => api<{ status: string; error?: string }>(`/api/channels/orders/${id}/post-back`, { method: "POST" }),
+      (r) => (r.status === "fulfilled" ? "Tracking sent to the channel." : null),
+    );
+
   const retryShopify = () =>
     run("Shopify fulfill", () => api<Order>(`/api/orders/${id}/shopify/fulfill`, { method: "POST" }), () => "Sent fulfillment to Shopify.");
 
@@ -754,6 +764,9 @@ function OrderDetail({ id }: { id: string }) {
     order.source === "shopify" &&
     (order.shopifySyncStatus === "failed" || packages.some((pkg) => pkg.shippedAt && !pkg.shopifyFulfillmentId));
 
+  const channelName = CHANNEL_NAMES[order.source ?? ""];
+  const channelRetry = Boolean(channelName) && order.status === "shipped" && order.channelSyncStatus === "failed";
+
   let primary: DocumentAction | null = null;
   const quickShipOk =
     policy.quickShip && !hasPackages && ["open", "draft", "picking", "picked", "packing", "packed"].includes(order.status);
@@ -777,6 +790,7 @@ function OrderDetail({ id }: { id: string }) {
       ? [{ label: "Unpick…", icon: Undo2, onSelect: () => { setUnpickMode(true); setView("lines"); } }]
       : []),
     ...(shopifyRetry ? [{ label: "Retry Shopify", icon: RefreshCw, onSelect: retryShopify }] : []),
+    ...(channelRetry ? [{ label: `Retry ${channelName} tracking`, icon: RefreshCw, onSelect: retryChannel }] : []),
     ...(shortShipOk
       ? [
           {
@@ -847,6 +861,11 @@ function OrderDetail({ id }: { id: string }) {
               <Store className="size-3" />
               Shopify {order.shopifyOrderName ?? ""}
             </ToneBadge>
+          ) : channelName ? (
+            <ToneBadge tone="success" dot={false}>
+              <Store className="size-3" />
+              {channelName}
+            </ToneBadge>
           ) : null
         }
         primary={primary}
@@ -879,10 +898,19 @@ function OrderDetail({ id }: { id: string }) {
                   <Link className="underline" to="/setup/shopify">
                     Shopify
                   </Link>
+                ) : channelName ? (
+                  <Link className="underline" to="/setup/channels">
+                    {channelName}
+                  </Link>
                 ) : (
                   "Floor"
                 )}
               </DocumentFact>
+              {CHANNEL_POSTS_BACK.has(order.source ?? "") ? (
+                <DocumentFact label="Tracking post-back">
+                  <StatusBadge status={order.channelSyncStatus || "inbound"} />
+                </DocumentFact>
+              ) : null}
               {order.source === "shopify" ? (
                 <DocumentFact label="Shopify sync">
                   <StatusBadge status={order.shopifySyncStatus || "inbound"} />
@@ -916,6 +944,7 @@ function OrderDetail({ id }: { id: string }) {
                 <RelativeTime at={order.createdAt} />
               </DocumentFact>
               {order.shopifySyncError ? <p className="text-sm text-destructive">{order.shopifySyncError}</p> : null}
+              {order.channelSyncError ? <p className="text-sm text-destructive">{order.channelSyncError}</p> : null}
             </Card>
           </DocumentRail>
         }
