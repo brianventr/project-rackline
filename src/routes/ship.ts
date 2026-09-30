@@ -38,6 +38,7 @@ import { loadWorkflowPolicy } from "../db/workflow";
 import { membershipVerbs } from "../db/jobs";
 import { JobVerbDeniedError, verbAllowed, type FloorVerb } from "../domain/jobs";
 import { planQuickShipUndo, restoreQuickShip, snapshotQuickShip } from "../db/quick-ship";
+import { loadSetupSignals } from "../db/setup-signals";
 
 export const shipRoute = new Hono<AppEnv>();
 
@@ -123,15 +124,7 @@ shipRoute.get("/ship/queue", async (c) => {
   const connections = await loadCarrierConnections(db, organizationId);
   const services = enabledServicesFromConnections(connections);
   const fallback = buildingDefaultService(connections, warehouse);
-  const [shopify] = await db
-    .select({ id: schema.shopifyConnections.id })
-    .from(schema.shopifyConnections)
-    .where(eq(schema.shopifyConnections.organizationId, organizationId))
-    .limit(1);
-  const channels = await db
-    .select({ id: schema.channelConnections.id, status: schema.channelConnections.status })
-    .from(schema.channelConnections)
-    .where(eq(schema.channelConnections.organizationId, organizationId));
+  const signals = await loadSetupSignals(db, organizationId);
 
   const orders = await db
     .select()
@@ -242,8 +235,8 @@ shipRoute.get("/ship/queue", async (c) => {
       carrierConnectionId: fallback?.connectionId ?? null,
     },
     setup: shipSetupSteps({
-      storeConnected: Boolean(shopify) || channels.some((row) => row.status === "active"),
-      carrierConnected: connections.some((row) => row.provider !== "rackline"),
+      storeConnected: signals.stores > 0,
+      carrierConnected: signals.carriers > 0,
       hasShipFrom: Boolean(warehouse.shipFromAddress?.trim()),
       hasBox: presets.length > 0,
     }),

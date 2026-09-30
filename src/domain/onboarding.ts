@@ -3,7 +3,9 @@
  * derived entirely from data it already has, plus the sample catalog it can load to practice on.
  */
 
-export type OnboardingStepId = "sku" | "bays" | "stock" | "shipped" | "shopify" | "carrier" | "teammate";
+import { isGarageMode } from "./operating-mode";
+
+export type OnboardingStepId = "sku" | "bays" | "stock" | "shipped" | "store" | "carrier" | "teammate";
 
 export type OnboardingStepMeta = {
   id: OnboardingStepId;
@@ -56,11 +58,11 @@ export const ONBOARDING_STEPS: readonly OnboardingStepMeta[] = [
     ownerOnly: false,
   },
   {
-    id: "shopify",
-    title: "Connect Shopify",
-    body: "Pull store orders in and push stock levels back.",
+    id: "store",
+    title: "Connect a store",
+    body: "Pull orders in from Shopify, Etsy, WooCommerce, or Faire.",
     cta: "Connect",
-    path: "/setup/shopify",
+    path: "/setup/integrations",
     optional: true,
     ownerOnly: true,
   },
@@ -86,13 +88,42 @@ export const ONBOARDING_STEPS: readonly OnboardingStepMeta[] = [
 
 export const ONBOARDING_STEP_IDS: readonly OnboardingStepId[] = ONBOARDING_STEPS.map((step) => step.id);
 
+/** Garage ships from the Ship queue, so its ship step opens there instead of a new order form. */
+const GARAGE_SHIP_STEP: Pick<OnboardingStepMeta, "body" | "cta" | "path"> = {
+  body: "Store orders land in the Ship queue. Ship one and Rackline picks, packs, and buys the label.",
+  cta: "Open Ship queue",
+  path: "/ship",
+};
+
+/** The steps as an org in this operating mode sees them. Ids, order, and done rules do not change with the mode. */
+export function onboardingSteps(mode: string | null | undefined): readonly OnboardingStepMeta[] {
+  if (!isGarageMode(mode)) return ONBOARDING_STEPS;
+  return ONBOARDING_STEPS.map((step) => (step.id === "shipped" ? { ...step, ...GARAGE_SHIP_STEP } : step));
+}
+
+/** Skips saved under a step's old id. */
+const RENAMED_STEP_IDS = new Map<string, OnboardingStepId>([["shopify", "store"]]);
+
+/** The optional step ids in a stored skip list, renamed where needed, deduped and sorted. Anything else is dropped. */
+export function skippedStepIds(stored: unknown): OnboardingStepId[] {
+  if (!Array.isArray(stored)) return [];
+  const ids = new Set<OnboardingStepId>();
+  for (const value of stored) {
+    if (typeof value !== "string") continue;
+    const id = RENAMED_STEP_IDS.get(value) ?? value;
+    const step = ONBOARDING_STEPS.find((row) => row.id === id);
+    if (step?.optional) ids.add(step.id);
+  }
+  return [...ids].sort();
+}
+
 /** How many of a thing a step needs before it counts as done. A teammate means a second member. */
 const THRESHOLD: Record<OnboardingStepId, number> = {
   sku: 1,
   bays: 1,
   stock: 1,
   shipped: 1,
-  shopify: 1,
+  store: 1,
   carrier: 1,
   teammate: 2,
 };
@@ -114,7 +145,7 @@ export function evaluateOnboarding(counts: Record<OnboardingStepId, number>): On
 }
 
 /**
- * Progress through the required steps. Optional steps (Shopify, a carrier, a teammate) get their own
+ * Progress through the required steps. Optional steps (a store, a carrier, a teammate) get their own
  * check marks but never hold the checklist open, so `done`/`total` count required steps only and
  * `complete` is true once every required step is done. An empty list is not complete.
  */
@@ -146,6 +177,25 @@ export function stockSignal(positiveBalanceRows: number, nonSeedReceives: number
   return shelf > 0 ? shelf : cleanCount(nonSeedReceives);
 }
 
+export type SetupSignals = { stores: number; carriers: number };
+
+/**
+ * Stores and carriers an org has connected. Getting started on Today and the Ship queue's setup card
+ * both count these, so their check marks agree. A store is a Shopify connection or an active sales
+ * channel (Etsy, WooCommerce, Faire, live or by CSV). A carrier is any connection but Rackline Ground,
+ * which every org has.
+ */
+export function setupSignals(input: {
+  shopifyConnections: number;
+  channelStatuses: readonly string[];
+  carrierProviders: readonly string[];
+}): SetupSignals {
+  return {
+    stores: cleanCount(input.shopifyConnections) + input.channelStatuses.filter((status) => status === "active").length,
+    carriers: input.carrierProviders.filter((provider) => provider !== "rackline").length,
+  };
+}
+
 function plural(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`;
 }
@@ -164,7 +214,7 @@ export function onboardingCountLabel(id: OnboardingStepId, count: number): strin
       return n ? "Stock received" : null;
     case "shipped":
       return n ? `${plural(n, "order", "orders")} shipped` : null;
-    case "shopify":
+    case "store":
     case "carrier":
       return n ? "Connected" : null;
     case "teammate":

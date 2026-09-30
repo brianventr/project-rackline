@@ -24,7 +24,7 @@ Most of this is the same in both modes. New organizations start in Garage.
 ### In the app
 
 1. **Sign up.** You get an organization in Garage and one building.
-2. **Getting started** on Today (owners) walks four required steps: add a SKU, set up your building, receive stock, and ship an order. Optional steps are Shopify, a carrier, and a teammate.
+2. **Getting started** on Today (owners) walks four required steps: add a SKU, set up your building, receive stock, and ship an order. In Garage, the ship step opens the Ship queue; in Manufacturer, it opens a new order. Optional steps are a store, a carrier, and a teammate.
 3. **Set up your building** (`/welcome`) builds a dock, a rack of bays, a bench, and an outbound bay, then draws the map.
 4. **Get to one-click shipping** is the checklist at the top of the Ship queue in Garage. It has four steps, and each one opens the page that fixes it:
    - Connect a store (Settings → Integrations)
@@ -32,7 +32,7 @@ Most of this is the same in both modes. New organizations start in Garage.
    - Set your ship-from address (Settings → Warehouse)
    - Add your usual box (the **Boxes** sheet on the Ship queue)
 
-   The card disappears once all four are done.
+   The card disappears once all four are done. Its store and carrier steps are the same checks as the optional steps in Getting started, so they tick off together in both places. A store is Shopify or any active Etsy, WooCommerce, or Faire channel, live or by CSV. An empty queue offers **New order**, so you can ship one by hand before a store is connected.
 5. **Ship weights.** On each SKU (Stock → Items), enter a ship weight in ounces, and optionally length, width and height. The Ship queue uses these to weigh every parcel.
 6. **Carrier.** On Settings → Carriers, connect UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine. Enable services and **Set as default**. Rackline Ground is always there for testing. Then pick the building's **Default service** on Settings → Warehouse, or with **Save as default** next to the Ship queue's service picker.
 7. **Manufacturer only:** add zones (Settings → Zones), set carrier cutoffs (the **Cutoffs** button on Outbound → Waves), and add 3PL clients if you hold stock for other brands.

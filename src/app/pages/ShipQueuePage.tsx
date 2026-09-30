@@ -53,6 +53,7 @@ export function ShipQueuePage() {
   const data = queue.data;
   const effectivePreset = presetId || data?.defaults.presetId || "";
   const setupLeft = (data?.setup ?? []).filter((step) => !step.done);
+  const storeConnected = !!data?.setup.some((step) => step.id === "store" && step.done);
   const defaultServiceId = data?.defaults.carrierService ?? null;
   // The route gate sends Manufacturer to Waves; this covers a session opened before the mode switched.
   const quickShip = data?.policy.quickShip !== false;
@@ -352,11 +353,22 @@ export function ShipQueuePage() {
           <EmptyState
             icon={PackageCheck}
             title="Nothing to ship."
-            body="Connect a store and new orders show up here, ready for a label."
+            body={
+              storeConnected
+                ? "New store orders show up here, ready for a label. You can also add an order by hand."
+                : "Connect a store and new orders show up here, ready for a label. Or add an order by hand."
+            }
             action={
-              <Button size="sm" asChild>
-                <Link to="/setup/integrations">Connect a store</Link>
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                {storeConnected ? null : (
+                  <Button size="sm" asChild>
+                    <Link to="/setup/integrations">Connect a store</Link>
+                  </Button>
+                )}
+                <Button size="sm" variant={storeConnected ? "primary" : "outline"} asChild>
+                  <Link to="/outbound/orders?new=1">New order</Link>
+                </Button>
+              </div>
             }
           />
         }

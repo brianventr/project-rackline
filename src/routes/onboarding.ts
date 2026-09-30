@@ -7,6 +7,7 @@ import type { AppEnv } from "../lib/types";
 import { conflict, requireString } from "../lib/http";
 import { getOrgWarehouse, requireOwner } from "../lib/org";
 import { newId } from "../lib/ids";
+import { loadSetupSignals } from "../db/setup-signals";
 import { suggestPlacement, type PlaceableLocation } from "../domain/map-layout";
 import {
   buildSampleCatalog,
@@ -32,7 +33,7 @@ async function exists(query: Promise<unknown[]>): Promise<number> {
  * empty warehouse must not send an org that already ships back to "Getting started".
  */
 async function loadOnboardingCounts(db: AppDb, organizationId: string): Promise<Record<OnboardingStepId, number>> {
-  const [items, locations, shelfRows, receives, shipped, shopify, carriers, members] = await Promise.all([
+  const [items, locations, shelfRows, receives, shipped, signals, members] = await Promise.all([
     countRows(
       db.select({ n: sql<number>`count(*)` }).from(schema.items).where(eq(schema.items.organizationId, organizationId)),
     ),
@@ -67,23 +68,7 @@ async function loadOnboardingCounts(db: AppDb, organizationId: string): Promise<
         .from(schema.orders)
         .where(and(eq(schema.orders.organizationId, organizationId), eq(schema.orders.status, "shipped"))),
     ),
-    countRows(
-      db
-        .select({ n: sql<number>`count(*)` })
-        .from(schema.shopifyConnections)
-        .where(eq(schema.shopifyConnections.organizationId, organizationId)),
-    ),
-    countRows(
-      db
-        .select({ n: sql<number>`count(*)` })
-        .from(schema.carrierConnections)
-        .where(
-          and(
-            eq(schema.carrierConnections.organizationId, organizationId),
-            ne(schema.carrierConnections.provider, "rackline"),
-          ),
-        ),
-    ),
+    loadSetupSignals(db, organizationId),
     countRows(
       db
         .select({ n: sql<number>`count(*)` })
@@ -96,8 +81,8 @@ async function loadOnboardingCounts(db: AppDb, organizationId: string): Promise<
     bays: locations,
     stock: stockSignal(shelfRows, receives),
     shipped,
-    shopify,
-    carrier: carriers,
+    store: signals.stores,
+    carrier: signals.carriers,
     teammate: members,
   };
 }
