@@ -47,6 +47,7 @@ import {
   GARAGE_MODE_LABEL,
   GARAGE_SWITCH_LABEL,
   MANUFACTURER_MODE_LABEL,
+  MODE_SWITCH_RULES,
   isGarageMode,
 } from "@/domain/operating-mode";
 import { api, type ScanHit } from "@/app/api";
@@ -291,7 +292,7 @@ function DisplayMenu({ onFloor, onShowShortcuts }: { onFloor: boolean; onShowSho
   );
 }
 
-const MODE_HINT = "Same parts, orders, and builds. Manufacturer opens the rest of the floor.";
+const MODE_HINT = `Same parts, orders, and builds. ${MODE_SWITCH_RULES}`;
 
 function GarageModeSwitch() {
   const { garage, owner, busy, setMode } = useOperatingMode();

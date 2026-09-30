@@ -8,6 +8,10 @@ export const MANUFACTURER_MODE_LABEL = "Manufacturer";
 
 export const GARAGE_SWITCH_LABEL = "Garage";
 
+/** What a switch changes besides the menu. The server enforces each part (`workflow-policy.ts`). */
+export const MODE_SWITCH_RULES =
+  "Manufacturer turns off one-click ship, needs scans to pick and pack, and moves pick and pack from the office to the floor.";
+
 export function parseOperatingMode(value: unknown): OperatingMode {
   if (value === "garage" || value === "warehouse") return value;
   throw new Error("Operating mode must be garage or warehouse");

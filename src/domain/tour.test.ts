@@ -11,7 +11,7 @@ import {
   tourStepIndex,
   tourStepsFor,
 } from "./tour";
-import { garageAllowsPath } from "./operating-mode";
+import { MODE_SWITCH_RULES, garageAllowsPath } from "./operating-mode";
 
 describe("tour steps", () => {
   it("gives owners the office story and operators the floor story, both ending on a next step", () => {
@@ -60,6 +60,16 @@ describe("tour steps", () => {
     expect(tourStepIndex(steps, "flow")).toBe(2);
     expect(tourStepIndex(steps, "floor")).toBe(0);
     expect(tourStepIndex(steps, null)).toBe(0);
+  });
+
+  it("says a mode switch changes how work moves, not only what shows", () => {
+    const modes = TOUR_STEPS.find((step) => step.id === "modes")!;
+    const text = modes.body.join(" ");
+    expect(text).toContain(MODE_SWITCH_RULES);
+    expect(text).not.toMatch(/changes what shows/);
+    expect(MODE_SWITCH_RULES).toMatch(/turns off one-click ship/);
+    expect(MODE_SWITCH_RULES).toMatch(/scans to pick and pack/);
+    expect(MODE_SWITCH_RULES).toMatch(/from the office to the floor/);
   });
 
   it("maps roles onto an audience", () => {

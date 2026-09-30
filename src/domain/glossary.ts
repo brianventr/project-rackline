@@ -1,4 +1,4 @@
-import { garageAllowsPath, manufacturerRedirect } from "./operating-mode";
+import { MODE_SWITCH_RULES, garageAllowsPath, manufacturerRedirect } from "./operating-mode";
 
 /**
  * Plain-language definitions for the warehouse words Rackline uses on screen.
@@ -435,8 +435,8 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     id: "garage-mode",
     term: "Garage Mode",
     aliases: ["garage", "bench", "founder bench", "full warehouse"],
-    short: "The short setup new shops start in: receive, make, pick, pack, ship, recipes, and runway. Open the full warehouse in Settings.",
-    long: "The full warehouse adds yard, waves, ASNs, equipment, replenish, holds, counts, 3PL clients, EDI, and traffic on the same ledger.",
+    short: "The short setup new shops start in: one-click ship from the Ship queue, optional scans, and office pick and pack.",
+    long: `Switch in Settings → Warehouse. ${MODE_SWITCH_RULES} It also opens yard, waves, ASNs, equipment, replenish, holds, counts, 3PL clients, EDI, and traffic on the same ledger.`,
     path: "/setup/warehouse",
   },
 ];

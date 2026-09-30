@@ -19,7 +19,13 @@ import { useOperatingMode } from "../../use-operating-mode";
 import { useWrite } from "../../use-write";
 import { cn } from "@/lib/utils";
 import { optionalText, wholeNumber } from "@/domain/form-schemas";
-import { GARAGE_MODE_LABEL, GARAGE_SWITCH_LABEL, MANUFACTURER_MODE_LABEL, type OperatingMode } from "@/domain/operating-mode";
+import {
+  GARAGE_MODE_LABEL,
+  GARAGE_SWITCH_LABEL,
+  MANUFACTURER_MODE_LABEL,
+  MODE_SWITCH_RULES,
+  type OperatingMode,
+} from "@/domain/operating-mode";
 import { isValidTimeZone } from "@/domain/time-zone";
 import { describeNorth, NORTH_PRESETS, normalizeHeading } from "@/domain/compass";
 import { CompassRose } from "../../components/CompassRose";
@@ -121,8 +127,8 @@ export function WarehouseSetupPage() {
       "Change mode",
       () => operating.setMode(operatingMode),
       operatingMode === "garage"
-        ? "Garage Mode is on. Same parts, orders, and builds."
-        : "Manufacturer is on. The rest of the floor is open.",
+        ? "Garage Mode is on. One-click ship is back on the Ship queue, and scans are optional."
+        : "Manufacturer is on. Orders ship through waves, with pick and pack scanned on the floor.",
     );
 
   async function save(values: ZodFormOutput<typeof buildingFormSchema>) {
@@ -188,7 +194,7 @@ export function WarehouseSetupPage() {
             description={
               <>
                 Switching between <Term id="garage-mode">Garage Mode</Term> and Manufacturer keeps the same parts, orders, and
-                builds. Only what shows on the floor changes.
+                builds. {MODE_SWITCH_RULES}
               </>
             }
           />
@@ -198,8 +204,9 @@ export function WarehouseSetupPage() {
               title={GARAGE_MODE_LABEL}
               body={
                 <>
-                  The bench founders and inventors start on. Receive, make, pick, and ship. Yard, waves,{" "}
-                  <Term id="asn">ASN</Term>, equipment, and <Term id="3pl-client">3PL</Term> stay packed away.
+                  The bench founders and inventors start on. Orders ship in one click from the Ship queue, scans are
+                  optional, and the office can pick and pack. Yard, waves, <Term id="asn">ASN</Term>, equipment, and{" "}
+                  <Term id="3pl-client">3PL</Term> stay packed away.
                 </>
               }
               current={garage}
@@ -210,7 +217,7 @@ export function WarehouseSetupPage() {
             <ModeOption
               icon={Factory}
               title={MANUFACTURER_MODE_LABEL}
-              body="Yard, waves, ASN, equipment, and 3PL are on this floor, next to the founder bench."
+              body="Orders ship through waves and the floor. One-click ship is off, and pick and pack need scans on the floor. Yard, ASN, equipment, and 3PL open too."
               current={!garage}
               switchLabel={`Switch to ${MANUFACTURER_MODE_LABEL}`}
               disabled={operating.busy || write.busy || !operating.owner}

@@ -9,6 +9,7 @@ import {
   normalizeGlossaryText,
   searchGlossary,
 } from "./glossary";
+import { MODE_SWITCH_RULES } from "./operating-mode";
 
 /** Office and floor routes in src/app/App.tsx that a glossary entry may link to. */
 const ROUTES = new Set([
@@ -78,6 +79,14 @@ describe("GLOSSARY", () => {
       expect(`${entry.short} ${entry.long ?? ""}`, entry.id).not.toContain("!");
       if (entry.long) expect(entry.long.endsWith("."), entry.id).toBe(true);
     }
+  });
+
+  it("says Garage Mode changes the ship, scan, and office rules, not only the menu", () => {
+    const garage = glossaryEntry("garage-mode")!;
+    expect(garage.short).toContain("one-click ship");
+    expect(garage.short).toContain("optional scans");
+    expect(garage.short).toContain("office pick and pack");
+    expect(garage.long).toContain(MODE_SWITCH_RULES);
   });
 
   it("says a hold blocks stock rather than skipping it", () => {
