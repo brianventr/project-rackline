@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
+import { CutoffStrip } from "./wave-planner";
 import { Link, useNavigate } from "react-router-dom";
 import NumberFlow from "@number-flow/react";
 import {
@@ -368,6 +369,8 @@ export function TodayPage() {
       {me.role === "owner" ? <OnboardingChecklist /> : null}
 
       <ErrorBanner error={error ?? dashboard.error?.message ?? null} />
+
+      {!garage && warehouseId ? <CutoffStrip warehouseId={warehouseId} /> : null}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5 [&>*:last-child:nth-child(odd)]:col-span-2 lg:[&>*:last-child:nth-child(odd)]:col-span-1">
         {headline.map((item) => (

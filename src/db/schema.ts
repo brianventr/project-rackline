@@ -94,6 +94,8 @@ export const warehouses = sqliteTable("warehouses", {
   mapNorth: integer("map_north").notNull().default(0),
   defaultCarrierConnectionId: text("default_carrier_connection_id"),
   defaultCarrierService: text("default_carrier_service"),
+  /** Carrier company → pickup cutoff (minutes from local midnight); see `domain/wave-plan.ts`. */
+  carrierCutoffsJson: text("carrier_cutoffs_json"),
 });
 
 export const locations = sqliteTable(

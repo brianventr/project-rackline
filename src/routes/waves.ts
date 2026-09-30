@@ -5,7 +5,9 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
-import { getOrgItem, getOrgLocation } from "../lib/org";
+import { getOrgItem, getOrgLocation, getOrgWarehouse, requireOwner } from "../lib/org";
+import { loadWavePlan } from "../db/wave-plan";
+import { cutoffsFromInput } from "../domain/wave-plan";
 import { docNumber, newId } from "../lib/ids";
 import {
   allocateBatchPick,
@@ -118,6 +120,31 @@ wavesRoute.get("/waves", async (c) => {
     countByWave.set(link.waveId, (countByWave.get(link.waveId) ?? 0) + 1);
   }
   return c.json(rows.map((row) => ({ ...row, orderCount: countByWave.get(row.id) ?? 0 })));
+});
+
+wavesRoute.get("/waves/plan", async (c) => {
+  const warehouseId = requireString(c.req.query("warehouseId"), "warehouseId");
+  return c.json(await loadWavePlan(c.get("db"), c.get("organizationId")!, warehouseId));
+});
+
+wavesRoute.put("/waves/cutoffs", async (c) => {
+  requireOwner(c.get("role"));
+  const body = await c.req.json<{ warehouseId?: string; cutoffs?: Record<string, unknown> }>();
+  const warehouseId = requireString(body.warehouseId, "warehouseId");
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  await getOrgWarehouse(db, organizationId, warehouseId);
+  let cutoffs;
+  try {
+    cutoffs = cutoffsFromInput(body.cutoffs ?? {});
+  } catch (err) {
+    badRequest(err instanceof Error ? err.message : "Cutoff must be HH:MM");
+  }
+  await db
+    .update(schema.warehouses)
+    .set({ carrierCutoffsJson: JSON.stringify(cutoffs) })
+    .where(eq(schema.warehouses.id, warehouseId));
+  return c.json(await loadWavePlan(db, organizationId, warehouseId));
 });
 
 wavesRoute.get("/waves/:id", async (c) => {

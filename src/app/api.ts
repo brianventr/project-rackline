@@ -1314,6 +1314,32 @@ export type WaveBatchLine = {
   itemName: string;
 };
 
+export type WavePlanGroup = {
+  key: string;
+  carrier: string | null;
+  cutoffAt: number;
+  cutoffLabel: string;
+  urgency: "missed" | "now" | "today" | "later";
+  minutesLeft: number;
+  missedToday: boolean;
+  zoneId: string | null;
+  zoneName: string | null;
+  clientId: string | null;
+  clientName: string | null;
+  orderIds: string[];
+  numbers: string[];
+  units: number;
+};
+
+export type WavePlan = {
+  asOf: number;
+  timeZone: string;
+  cutoffs: { carrier: string; minutes: number; label: string; set: boolean }[];
+  groups: WavePlanGroup[];
+  waiting: { orderId: string; number: string; reason: string }[];
+  unwaved: number;
+};
+
 export type Wave = {
   id: string;
   number: string;
