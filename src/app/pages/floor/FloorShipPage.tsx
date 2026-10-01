@@ -24,6 +24,7 @@ import { useWarehouse } from "../../warehouse";
 import { jobForRef, useOpenJobs } from "../../jobs";
 import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 import { startingShipService } from "@/domain/ship-service";
+import { ScaleWeight } from "../../scale/ScaleWeight";
 
 const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -435,6 +436,7 @@ export function FloorShipPage() {
               />
             </Field>
           </div>
+          <ScaleWeight size="lg" onUse={(oz) => setWeightOz(String(oz))} />
           {active.postageCents ? (
             <p className="text-sm text-muted-foreground">Postage ${(active.postageCents / 100).toFixed(2)}</p>
           ) : null}

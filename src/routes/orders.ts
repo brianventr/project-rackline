@@ -1313,6 +1313,8 @@ type LabelBody = {
   carrierConnectionId?: string;
   shipToAddress?: string;
   liveRateId?: string;
+  /** The quote a rate choice picked; recorded as postage when the carrier does not report a price. */
+  quotedCents?: number;
   weightOz?: number;
   lengthIn?: number;
   widthIn?: number;
@@ -1603,6 +1605,8 @@ ordersRoute.post("/orders/:id/label", async (c) => {
   if (status === "cancelled") conflict("Cancelled orders cannot take a label");
   const packageGate = orderLevelLabelGate(order.packages.length);
   if (!packageGate.ok) conflict(packageGate.error, packageGate.code);
+  const quotedCents = optionalInt(body.quotedCents, "quotedCents");
+  if (quotedCents !== undefined && quotedCents < 0) badRequest("quotedCents cannot be negative");
   const { label, purchase, parcel, liveLabel, connection } = await purchaseOrderLabel(db, organizationId, order, body);
   const live = Boolean(liveLabel);
   await db
@@ -1616,7 +1620,7 @@ ordersRoute.post("/orders/:id/label", async (c) => {
       labelStatus: "purchased",
       carrierShipmentId: liveLabel?.shipmentId ?? order.carrierShipmentId,
       carrierLabelId: liveLabel?.labelId ?? order.carrierLabelId,
-      postageCents: liveLabel?.postageCents ?? order.postageCents,
+      postageCents: liveLabel?.postageCents ?? quotedCents ?? order.postageCents,
       trackerStatus: live ? "pre_transit" : order.trackerStatus,
       trackerUpdatedAt: live ? Date.now() : order.trackerUpdatedAt,
       ...parcelPatch(parcel),
@@ -1640,7 +1644,7 @@ ordersRoute.post("/orders/:id/label", async (c) => {
       trackingUrl: label.trackingUrl,
       shipmentId: liveLabel?.shipmentId ?? null,
       labelId: liveLabel?.labelId ?? null,
-      postageCents: liveLabel?.postageCents ?? null,
+      postageCents: liveLabel?.postageCents ?? quotedCents ?? null,
       message: postagePurchaseMessage({ provider: live ? connection?.provider : null }),
     },
   });

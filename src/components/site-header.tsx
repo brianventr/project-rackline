@@ -38,6 +38,7 @@ import {
 import { CommandPalette } from "@/components/command-palette";
 import { ShortcutsDialog, useGlobalShortcuts } from "@/components/keyboard-shortcuts";
 import { useScanner } from "@/app/scanner/ScannerProvider";
+import { scanOwnedByPage } from "@/app/scanner/scan-capture";
 import { useSession } from "@/app/session";
 import { useOperatingMode } from "@/app/use-operating-mode";
 import { useDensity } from "@/app/density";
@@ -338,6 +339,7 @@ function ScanNavigate({ enabled }: { enabled: boolean }) {
     const scan = scanner.lastScan;
     if (!scan || scan.at === handledAt.current) return;
     handledAt.current = scan.at;
+    if (scanOwnedByPage()) return;
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(scan.raw)}`)
       .then((hit) => {
         const path = pathForScan(hit);
