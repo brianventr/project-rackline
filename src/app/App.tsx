@@ -79,6 +79,7 @@ import { PackSlipPage } from "./pages/PackSlipPage";
 import { OrderPickListPage, WavePickListPage } from "./pages/PickListPage";
 import { ScannerProvider } from "./scanner/ScannerProvider";
 import { PrintProvider } from "./print/PrintProvider";
+import { ScaleProvider } from "./scale/ScaleProvider";
 import { homePath, OwnerOnly } from "./warehouse";
 
 function Guard({ me }: { me: Me | null }) {
@@ -86,7 +87,9 @@ function Guard({ me }: { me: Me | null }) {
   return (
     <ScannerProvider>
       <PrintProvider>
-        <AppShell me={me} />
+        <ScaleProvider>
+          <AppShell me={me} />
+        </ScaleProvider>
       </PrintProvider>
     </ScannerProvider>
   );

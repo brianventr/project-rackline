@@ -81,6 +81,7 @@ import { useWarehouse, inWarehouse } from "../warehouse";
 import { useSession } from "../session";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { PickMap } from "../components/PickMap";
+import { ScaleWeight } from "../scale/ScaleWeight";
 
 export function OrdersPage() {
   const { id } = useParams();
@@ -1250,6 +1251,9 @@ function OrderDetail({ id }: { id: string }) {
                     <Field label="Height in">
                       <Input type="number" min={1} value={heightIn} onChange={(e) => setHeightIn(e.target.value)} />
                     </Field>
+                  </div>
+                  <div className="mt-2">
+                    <ScaleWeight onUse={(oz) => setWeightOz(String(oz))} />
                   </div>
                 </div>
                 {!hasPackages && (order.labelStatus && order.labelStatus !== "none") ? (
