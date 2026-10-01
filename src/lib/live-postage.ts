@@ -8,6 +8,7 @@ import {
   type ReturnLabelRequest,
 } from "../domain/carrier-live";
 import type { CarrierProviderId, CarrierRateQuote, EnabledCarrierService } from "../domain/carriers";
+import type { CustomsDeclaration } from "../domain/customs";
 import { isDirectProvider } from "../domain/direct-carrier";
 import { buyAggregatorLabel, shopAggregatorRates, voidAggregatorLabel } from "./carrier-client";
 import { buyDirectLabel, shopDirectRates, voidDirectLabel } from "./direct-carrier";
@@ -30,6 +31,8 @@ export async function buyLivePostage(input: {
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
   returnLabel?: ReturnLabelRequest | null;
+  /** Set for an international label; each carrier body declares it its own way. */
+  customs?: CustomsDeclaration | null;
 }): Promise<LiveLabelResult> {
   const { connection } = input;
   if (!connection.apiKey) throw new CarrierLiveError("Live postage needs an API key");
@@ -43,6 +46,7 @@ export async function buyLivePostage(input: {
       shipTo: input.shipTo,
       parcel: input.parcel,
       returnLabel: input.returnLabel,
+      customs: input.customs,
     });
   }
   if (isLiveDirect(connection.provider, connection.mode) && isDirectProvider(connection.provider)) {
@@ -57,6 +61,7 @@ export async function buyLivePostage(input: {
       shipTo: input.shipTo,
       parcel: input.parcel,
       returnLabel: input.returnLabel,
+      customs: input.customs,
     });
   }
   throw new CarrierLiveError("Live postage is not enabled for this carrier.");
@@ -68,6 +73,7 @@ export async function shopLiveRates(input: {
   shipFrom: LiveShipAddress;
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
+  customs?: CustomsDeclaration | null;
 }): Promise<{ rates: CarrierRateQuote[]; shipmentId?: string | null; raw: unknown }> {
   const { connection } = input;
   if (!connection.apiKey) throw new CarrierLiveError("Live postage needs an API key");
@@ -79,6 +85,7 @@ export async function shopLiveRates(input: {
       shipFrom: input.shipFrom,
       shipTo: input.shipTo,
       parcel: input.parcel,
+      customs: input.customs,
     });
   }
   if (isLiveDirect(connection.provider, connection.mode) && isDirectProvider(connection.provider)) {
@@ -92,6 +99,7 @@ export async function shopLiveRates(input: {
       shipFrom: input.shipFrom,
       shipTo: input.shipTo,
       parcel: input.parcel,
+      customs: input.customs,
     });
   }
   throw new CarrierLiveError("Live postage is not enabled for this carrier.");

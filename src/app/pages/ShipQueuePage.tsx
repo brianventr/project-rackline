@@ -342,6 +342,11 @@ export function ShipQueuePage() {
                   {shipping === row.id ? "Shipping…" : "Ship anyway"}
                 </Button>
               ) : null}
+              {row.blocker.code === "CUSTOMS_REQUIRED" && row.blocker.itemId ? (
+                <Button size="xs" variant="outline" asChild>
+                  <Link to={`/stock/items/${row.blocker.itemId}?tab=settings`}>Add customs</Link>
+                </Button>
+              ) : null}
             </span>
           );
         }

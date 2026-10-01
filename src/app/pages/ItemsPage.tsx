@@ -34,6 +34,7 @@ import { formatAsBuiltPart } from "@/domain/as-built";
 import { isBelowReorder } from "@/domain/reorder";
 import { cn } from "@/lib/utils";
 import { SkuHandlers } from "./LaborPage";
+import { ItemCustomsCard } from "./ItemCustomsCard";
 import { usePrint } from "../print/PrintProvider";
 import { useWarehouse, inWarehouse } from "../warehouse";
 
@@ -511,7 +512,8 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
   const navigate = useNavigate();
   const [item, setItem] = useState<Item | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [view, setView] = useState("stock");
+  const [params] = useSearchParams();
+  const [view, setView] = useState(() => (params.get("tab") === "settings" ? "settings" : "stock"));
   const { error, run } = useWrite();
   const form = useZodForm(itemEditSchema, EMPTY_ITEM_FORM);
   const watched = useWatch({ control: form.control });
@@ -880,6 +882,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
                 </div>
               </div>
             </Card>
+            <ItemCustomsCard item={item} />
           </TabsContent>
         </Tabs>
       </DocumentFrame>

@@ -7,11 +7,13 @@ import {
   type ReturnLabelRequest,
 } from "../domain/carrier-live";
 import { returnLabelRefusal } from "../domain/return-label";
+import type { CustomsDeclaration } from "../domain/customs";
 import type { CarrierRateQuote, EnabledCarrierService } from "../domain/carriers";
 import {
   dhlRateQuery,
   dhlShipmentBody,
   directClientSecret,
+  directCustomsRefusal,
   directServiceCode,
   fedexRateBody,
   fedexShipBody,
@@ -50,6 +52,7 @@ type ShipInput = DirectCreds & {
   shipFrom: LiveShipAddress;
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
+  customs?: CustomsDeclaration | null;
 };
 
 function errorMessage(payload: unknown, fallback: string): string {
@@ -160,6 +163,7 @@ function labelResult(provider: DirectProvider, parsed: NonNullable<ReturnType<ty
     labelId: parsed.labelId,
     postageCents: parsed.postageCents,
     labelUrl: parsed.labelUrl ?? null,
+    customsFormUrl: parsed.customsFormUrl ?? null,
     provider,
   };
 }
@@ -215,7 +219,9 @@ export async function shopDirectRates(input: Omit<ShipInput, "serviceId"> & { se
     shipFrom: input.shipFrom,
     shipTo: input.shipTo,
     parcel: input.parcel,
+    customs: input.customs ?? null,
   };
+  if (input.customs && directCustomsRefusal(input.provider)) return { rates: [], raw: null };
   if (input.provider === "ups") {
     const token = await upsToken(creds.apiKey, creds.secret!);
     const res = await fetch(`${UPS_ORIGIN}/api/rating/v2409/Rate`, {
@@ -267,12 +273,15 @@ export async function buyDirectLabel(input: ShipInput & { returnLabel?: ReturnLa
   const creds = requireCreds(input);
   const refusal = input.returnLabel ? returnLabelRefusal({ provider: input.provider, mode: "live" }) : null;
   if (refusal) throw new CarrierLiveError(refusal);
+  const customsRefusal = input.customs ? directCustomsRefusal(input.provider) : null;
+  if (customsRefusal) throw new CarrierLiveError(customsRefusal, "CUSTOMS_UNSUPPORTED");
   const ship = {
     accountNumber: creds.accountNumber,
     serviceId: input.serviceId,
     shipFrom: input.shipFrom,
     shipTo: input.shipTo,
     parcel: input.parcel,
+    customs: input.customs ?? null,
   };
   if (input.provider === "ups") {
     const token = await upsToken(creds.apiKey, creds.secret!);

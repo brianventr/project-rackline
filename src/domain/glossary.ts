@@ -354,6 +354,21 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     long: "Connect scale asks the browser once; after that the scale is found again when the page opens. It shows on the order's Shipping tab, Floor Ship, and Scan to ship. Without one, type the weight.",
   },
   {
+    id: "hs-code",
+    term: "HS code",
+    aliases: ["harmonized code", "harmonized system code", "tariff code", "hs tariff number", "schedule b"],
+    short: "The 6 to 10 digit tariff number customs uses to classify a product, like 9405.20 for a desk lamp.",
+    long: "Set it under Customs on the item's Settings, with the country of origin and the declared value per unit. An international label without them stops with CUSTOMS_REQUIRED, and the order waits under Needs attention.",
+    path: "/stock/items",
+  },
+  {
+    id: "customs-form",
+    term: "Customs form",
+    aliases: ["customs declaration", "cn22", "cn23", "commercial invoice", "declared value", "country of origin"],
+    short: "The declaration that rides with an international parcel: what is inside, where it was made, and what it is worth.",
+    long: "Rackline sends it with the label purchase whenever the ship-to country differs from the building's. When the carrier returns its own form, the label page links it to print with the label; otherwise the page prints Rackline's copy after the label.",
+  },
+  {
     id: "short-ship",
     term: "Short ship",
     aliases: ["ship short", "partial ship"],

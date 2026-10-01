@@ -1,5 +1,6 @@
 import { createAuthClient } from "better-auth/react";
 import { composeErrorText, explainError, type ExplainedError } from "@/domain/error-copy";
+import type { CustomsDeclaration, CustomsGap } from "@/domain/customs";
 
 export const authClient = createAuthClient({
   basePath: "/api/auth",
@@ -159,6 +160,10 @@ export type Item = {
   shipLengthIn?: number | null;
   shipWidthIn?: number | null;
   shipHeightIn?: number | null;
+  hsCode?: string | null;
+  originCountry?: string | null;
+  customsDescription?: string | null;
+  customsValueCents?: number | null;
   onHand?: {
     locationId: string;
     locationCode: string;
@@ -809,6 +814,24 @@ export type ShippingLabel = {
   connectionId?: string | null;
   labelStatus?: string | null;
   packageNumber?: string | null;
+};
+
+export type ItemCustoms = Required<Pick<Item, "id" | "sku" | "hsCode" | "originCountry" | "customsDescription" | "customsValueCents">>;
+
+export type { CustomsDeclaration, CustomsGap };
+
+/** `GET /api/orders/:id/customs`: what prints with an international label. */
+export type OrderCustoms = {
+  international: boolean;
+  fromCountry: string | null;
+  toCountry: string | null;
+  /** The carrier's own customs form for this label, when it returned one. */
+  formUrl: string | null;
+  formKind: "CN22" | "CN23" | null;
+  declaration: CustomsDeclaration | null;
+  /** The declaration is the one the label's purchase sent, rather than what the items say now. */
+  declared: boolean;
+  gaps: CustomsGap[];
 };
 
 export type TrackingLink = { token: string; path: string; url: string };
@@ -1812,7 +1835,8 @@ export type ShipQueueOrder = {
   /** Written when quick-ship bought the label: `Mailer (Auto) · UPS Ground (Cheapest)`. */
   shipReason: string | null;
   ready: boolean;
-  blocker: { code: string; error: string; sku: string | null } | null;
+  /** `itemId` is set when the fix is on an item, as for `CUSTOMS_REQUIRED`. */
+  blocker: { code: string; error: string; sku: string | null; itemId?: string | null } | null;
 };
 
 /** `POST /api/ship/decide`: one order's box, service, and quote at a given weight, and what would stop quick-ship. */

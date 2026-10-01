@@ -66,6 +66,20 @@ const SAMPLE: Record<ErrorCode, { status: number; body: Record<string, unknown> 
       error: "A direct UPS account cannot buy return labels in Rackline yet. Choose a service on EasyPost, ShipEngine, or FedEx.",
     },
   },
+  CUSTOMS_REQUIRED: {
+    status: 409,
+    body: {
+      error: "LAMP needs an HS code and a declared value to ship abroad. Add them under Customs on the item.",
+      sku: "LAMP",
+      items: [{ sku: "LAMP", itemId: "i1", missing: ["hsCode", "customsValueCents"] }],
+    },
+  },
+  CUSTOMS_UNSUPPORTED: {
+    status: 409,
+    body: {
+      error: "A direct USPS account cannot buy international labels in Rackline yet. Choose a USPS service on EasyPost or ShipEngine.",
+    },
+  },
   NEED_PACKAGE: { status: 409, body: { error: "Buy a label for every carton before shipping" } },
   SHIPPED: { status: 409, body: { error: "Carton is already shipped" } },
   CANCELLED: { status: 409, body: { error: "Cancelled orders cannot drop a carton" } },
@@ -240,6 +254,31 @@ describe("explainError — every code", () => {
       message: "A direct UPS account cannot buy return labels in Rackline yet.",
       hint: "Choose a service on EasyPost, ShipEngine, FedEx, or Rackline Ground.",
     });
+  });
+
+  it("customs codes name the SKU and the fix", () => {
+    expect(explain("CUSTOMS_REQUIRED")).toMatchObject({
+      message: "LAMP needs an HS code and a declared value to ship abroad.",
+      hint: "Add them under Customs on the item.",
+    });
+    expect(explainError(409, { code: "CUSTOMS_REQUIRED" }, "")).toMatchObject({
+      message: "An item on this order has no customs details.",
+      hint: "Add its HS code, country of origin, and declared value under Customs on the item.",
+    });
+    expect(explain("CUSTOMS_UNSUPPORTED")).toMatchObject({
+      message: "A direct USPS account cannot buy international labels in Rackline yet.",
+      hint: "Choose a USPS service on EasyPost or ShipEngine.",
+    });
+    const itn = explainError(
+      409,
+      {
+        code: "CUSTOMS_UNSUPPORTED",
+        error:
+          "One tariff code on this parcel is worth over $2,500, which needs an export filing (an ITN) that Rackline cannot file yet. Buy this label on the carrier's site.",
+      },
+      "x",
+    );
+    expect(itn.hint).toBe("Buy this label on the carrier's site.");
   });
 
   it("NEED_PACKAGE picks the right carton step", () => {

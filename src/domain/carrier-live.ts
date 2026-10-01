@@ -34,7 +34,7 @@ export type ReturnLabelRequest = { rmaNumber: string };
 export class CarrierLiveError extends Error {
   constructor(
     message: string,
-    public code: "CARRIER_LIVE" | "LIVE_ADDRESS" | "NO_RATE" = "CARRIER_LIVE",
+    public code: "CARRIER_LIVE" | "LIVE_ADDRESS" | "NO_RATE" | "CUSTOMS_UNSUPPORTED" = "CARRIER_LIVE",
   ) {
     super(message);
     this.name = "CarrierLiveError";
@@ -219,6 +219,8 @@ export type LiveLabelResult = {
   postageCents?: number | null;
   /** The carrier's printable label, when its API hands back a link. */
   labelUrl?: string | null;
+  /** The carrier's customs form (CN22 or commercial invoice) for an international label, when it links one. */
+  customsFormUrl?: string | null;
   provider: CarrierProviderId;
 };
 

@@ -8,9 +8,12 @@ import {
   type ReturnLabelRequest,
 } from "../domain/carrier-live";
 import type { CarrierProviderId, CarrierRateQuote, EnabledCarrierService } from "../domain/carriers";
+import type { CustomsDeclaration } from "../domain/customs";
 import {
+  easyPostCustomsFormUrl,
   easyPostLabelUrl,
   easyPostShipmentBody,
+  shipEngineCustomsFormUrl,
   shipEngineLabelBody,
   shipEngineLabelUrl,
   shipEngineRateBody,
@@ -140,6 +143,7 @@ export async function shopEasyPostRates(input: {
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
   returnLabel?: ReturnLabelRequest | null;
+  customs?: CustomsDeclaration | null;
 }): Promise<{ rates: CarrierRateQuote[]; shipmentId: string | null; raw: unknown }> {
   const shipment = await easyPost<EasyPostShipment>(input.apiKey, "/shipments", easyPostShipmentBody(input));
   return {
@@ -157,6 +161,7 @@ export async function buyEasyPostLabel(input: {
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
   returnLabel?: ReturnLabelRequest | null;
+  customs?: CustomsDeclaration | null;
 }): Promise<LiveLabelResult> {
   const created = await shopEasyPostRates(input);
   const mapped = created.rates.map((row) => ({
@@ -182,6 +187,7 @@ export async function buyEasyPostLabel(input: {
     labelId: bought.postage_label ? bought.id ?? created.shipmentId : created.shipmentId,
     postageCents: match.amountCents,
     labelUrl: easyPostLabelUrl(bought),
+    customsFormUrl: input.customs ? easyPostCustomsFormUrl(bought) : null,
     provider: "easypost",
   };
 }
@@ -196,6 +202,7 @@ export async function shopShipEngineRates(input: {
   shipFrom: LiveShipAddress;
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
+  customs?: CustomsDeclaration | null;
 }): Promise<{ rates: CarrierRateQuote[]; raw: unknown }> {
   const payload = await shipEngine<{ rate_response?: { rates?: ShipEngineRate[] } }>(
     input.apiKey,
@@ -227,6 +234,7 @@ export async function buyShipEngineLabel(input: {
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
   returnLabel?: ReturnLabelRequest | null;
+  customs?: CustomsDeclaration | null;
 }): Promise<LiveLabelResult> {
   const payload = await shipEngine<{
     label_id?: string;
@@ -246,6 +254,7 @@ export async function buyShipEngineLabel(input: {
     labelId: payload.label_id ?? null,
     postageCents: payload.shipment_cost?.amount != null ? Math.round(Number(payload.shipment_cost.amount) * 100) : null,
     labelUrl: shipEngineLabelUrl(payload),
+    customsFormUrl: input.customs ? shipEngineCustomsFormUrl(payload) : null,
     provider: "shipengine",
   };
 }
@@ -261,6 +270,7 @@ export async function shopAggregatorRates(input: {
   shipFrom: LiveShipAddress;
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
+  customs?: CustomsDeclaration | null;
 }): Promise<{ rates: CarrierRateQuote[]; shipmentId?: string | null; raw: unknown }> {
   if (input.provider === "easypost") return shopEasyPostRates(input);
   if (input.provider === "shipengine") return shopShipEngineRates(input);
@@ -276,6 +286,7 @@ export async function buyAggregatorLabel(input: {
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
   returnLabel?: ReturnLabelRequest | null;
+  customs?: CustomsDeclaration | null;
 }): Promise<LiveLabelResult> {
   if (input.provider === "easypost") return buyEasyPostLabel(input);
   if (input.provider === "shipengine") return buyShipEngineLabel(input);

@@ -161,6 +161,10 @@ describe("searchGlossary", () => {
       ["auto-ship", "scan-to-ship"],
       ["scale", "scale"],
       ["use scale weight", "scale"],
+      ["HS code", "hs-code"],
+      ["tariff code", "hs-code"],
+      ["CN22", "customs-form"],
+      ["commercial invoice", "customs-form"],
     ];
     for (const [query, id] of expected) expect(top(query), query).toBe(id);
   });

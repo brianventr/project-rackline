@@ -1,4 +1,5 @@
 import type { LiveShipAddress, ParcelDims, ReturnLabelRequest } from "./carrier-live";
+import type { CustomsDeclaration } from "./customs";
 
 export const DIRECT_PROVIDERS = ["ups", "fedex", "usps", "dhl"] as const;
 export type DirectProvider = (typeof DIRECT_PROVIDERS)[number];
@@ -50,15 +51,41 @@ const CODE_TABLE: Record<DirectProvider, Record<string, string>> = {
   dhl: DHL_CODES,
 };
 
-export function directServiceCode(provider: DirectProvider, serviceId: string): string {
-  const code = CODE_TABLE[provider][serviceId];
-  if (!code) throw new Error(`Unknown ${provider} service ${serviceId}`);
+/** The nearest international service for each domestic one: UPS Standard, Expedited, and Express; FedEx Economy and Priority. */
+const INTL_CODE_TABLE: Partial<Record<DirectProvider, Record<string, string>>> = {
+  ups: { ups_ground: "11", ups_2day: "08", ups_next_day: "07" },
+  fedex: { fedex_ground: "INTERNATIONAL_ECONOMY", fedex_home: "INTERNATIONAL_ECONOMY", fedex_2day: "FEDEX_INTERNATIONAL_PRIORITY" },
+  dhl: DHL_CODES,
+};
+
+/** FedEx still answers rate requests with the service's older name now and then. */
+const RATE_CODE_ALIASES: Partial<Record<DirectProvider, Record<string, string>>> = {
+  fedex: { INTERNATIONAL_PRIORITY: "fedex_2day" },
+};
+
+export function directServiceCode(provider: DirectProvider, serviceId: string, international = false): string {
+  const code = (international ? INTL_CODE_TABLE[provider] : CODE_TABLE[provider])?.[serviceId];
+  if (!code) throw new Error(`Unknown ${international ? "international " : ""}${provider} service ${serviceId}`);
   return code;
 }
 
 export function serviceIdForDirectCode(provider: DirectProvider, code: string): string | null {
-  const hit = Object.entries(CODE_TABLE[provider]).find(([, value]) => value === code);
-  return hit?.[0] ?? null;
+  for (const table of [CODE_TABLE[provider], INTL_CODE_TABLE[provider] ?? {}]) {
+    const hit = Object.entries(table).find(([, value]) => value === code);
+    if (hit) return hit[0];
+  }
+  return RATE_CODE_ALIASES[provider]?.[code] ?? null;
+}
+
+/** Why a direct account cannot take this international label, or null when it can. */
+export function directCustomsRefusal(provider: DirectProvider): string | null {
+  return provider === "usps"
+    ? "A direct USPS account cannot buy international labels in Rackline yet. Choose a USPS service on EasyPost or ShipEngine."
+    : null;
+}
+
+function dollars(cents: number): number {
+  return Math.round(cents) / 100;
 }
 
 export type ParsedDirectLabel = {
@@ -68,6 +95,7 @@ export type ParsedDirectLabel = {
   postageCents: number | null;
   trackingUrl: string | null;
   labelUrl?: string | null;
+  customsFormUrl?: string | null;
 };
 
 export type ParsedDirectRate = {
@@ -108,17 +136,22 @@ export function upsShipment(input: {
   shipFrom: LiveShipAddress;
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
+  customs?: CustomsDeclaration | null;
 }) {
   const weight = poundsFromOz(input.parcel.weightOz).toFixed(1);
+  const customs = input.customs ?? null;
   return {
-    Description: "Rackline",
+    Description: customs ? customs.items.map((item) => item.description).join(", ").slice(0, 50) : "Rackline",
     Shipper: upsParty(input.shipFrom.name, input.shipFrom, input.accountNumber),
     ShipTo: upsParty(input.shipTo.name, input.shipTo),
     ShipFrom: upsParty(input.shipFrom.name, input.shipFrom),
     PaymentInformation: {
       ShipmentCharge: { Type: "01", BillShipper: { AccountNumber: input.accountNumber } },
     },
-    Service: { Code: directServiceCode("ups", input.serviceId) },
+    Service: { Code: directServiceCode("ups", input.serviceId, Boolean(customs)) },
+    ...(customs
+      ? { InvoiceLineTotal: { CurrencyCode: customs.currency, MonetaryValue: dollars(customs.valueCents).toFixed(2) } }
+      : {}),
     Package: {
       Packaging: { Code: "02" },
       Dimensions: {
@@ -132,11 +165,46 @@ export function upsShipment(input: {
   };
 }
 
-export function upsShipBody(input: Parameters<typeof upsShipment>[0]) {
+/** UPS takes product descriptions as up to three lines of 35 characters. */
+function upsDescription(text: string): string[] {
+  const lines: string[] = [];
+  for (let at = 0; at < text.length && lines.length < 3; at += 35) lines.push(text.slice(at, at + 35));
+  return lines;
+}
+
+/** The commercial invoice UPS builds from the shipment; it bills the customer in `SoldTo`. */
+export function upsInternationalForms(customs: CustomsDeclaration, soldTo: LiveShipAddress, date: Date) {
+  return {
+    FormType: "01",
+    InvoiceNumber: customs.invoiceNumber,
+    InvoiceDate: date.toISOString().slice(0, 10).replaceAll("-", ""),
+    ReasonForExport: "SALE",
+    CurrencyCode: customs.currency,
+    Contacts: { SoldTo: { ...upsParty(soldTo.name, soldTo), AttentionName: soldTo.name } },
+    Product: customs.items.map((item) => ({
+      Description: upsDescription(item.description),
+      Unit: {
+        Number: String(item.qty),
+        Value: dollars(item.unitValueCents).toFixed(2),
+        UnitOfMeasurement: { Code: "PCS" },
+      },
+      CommodityCode: item.hsCode,
+      OriginCountryCode: item.originCountry,
+    })),
+  };
+}
+
+export function upsShipBody(input: Parameters<typeof upsShipment>[0] & { date?: Date }) {
+  const customs = input.customs ?? null;
   return {
     ShipmentRequest: {
       Request: { RequestOption: "nonvalidate" },
-      Shipment: upsShipment(input),
+      Shipment: {
+        ...upsShipment(input),
+        ...(customs
+          ? { ShipmentServiceOptions: { InternationalForms: upsInternationalForms(customs, input.shipTo, input.date ?? new Date()) } }
+          : {}),
+      },
       LabelSpecification: { LabelImageFormat: { Code: "GIF" } },
     },
   };
@@ -198,6 +266,24 @@ function fedexAddress(address: LiveShipAddress) {
   };
 }
 
+export function fedexCustomsClearance(customs: CustomsDeclaration) {
+  return {
+    dutiesPayment: { paymentType: "RECIPIENT" },
+    isDocumentOnly: false,
+    totalCustomsValue: { amount: dollars(customs.valueCents), currency: customs.currency },
+    commodities: customs.items.map((item) => ({
+      description: item.description,
+      countryOfManufacture: item.originCountry,
+      harmonizedCode: item.hsCode,
+      quantity: item.qty,
+      quantityUnits: "PCS",
+      unitPrice: { amount: dollars(item.unitValueCents), currency: customs.currency },
+      customsValue: { amount: dollars(item.valueCents), currency: customs.currency },
+      weight: { units: "LB", value: poundsFromOz(item.weightOz) },
+    })),
+  };
+}
+
 /**
  * A FedEx return keeps the direction it travels: the customer is the shipper and the building the
  * recipient, with the account in the request paying for it.
@@ -209,15 +295,17 @@ export function fedexShipBody(input: {
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
   returnLabel?: ReturnLabelRequest | null;
+  customs?: CustomsDeclaration | null;
 }) {
   const ret = input.returnLabel ?? null;
+  const customs = input.customs ?? null;
   return {
     labelResponseOptions: "URL_ONLY",
     accountNumber: { value: input.accountNumber },
     requestedShipment: {
       shipper: { contact: { personName: input.shipFrom.name }, address: fedexAddress(input.shipFrom) },
       recipients: [{ contact: { personName: input.shipTo.name }, address: fedexAddress(input.shipTo) }],
-      serviceType: directServiceCode("fedex", input.serviceId),
+      serviceType: directServiceCode("fedex", input.serviceId, Boolean(customs)),
       packagingType: "YOUR_PACKAGING",
       pickupType: "DROPOFF_AT_FEDEX_LOCATION",
       shippingChargesPayment: { paymentType: "SENDER" },
@@ -226,6 +314,15 @@ export function fedexShipBody(input: {
             shipmentSpecialServices: {
               specialServiceTypes: ["RETURN_SHIPMENT"],
               returnShipmentDetail: { returnType: "PRINT_RETURN_LABEL" },
+            },
+          }
+        : {}),
+      ...(customs
+        ? {
+            customsClearanceDetail: fedexCustomsClearance(customs),
+            shippingDocumentSpecification: {
+              shippingDocumentTypes: ["COMMERCIAL_INVOICE"],
+              commercialInvoiceDetail: { documentFormat: { docType: "PDF", stockType: "PAPER_LETTER" } },
             },
           }
         : {}),
@@ -265,6 +362,10 @@ export function parseFedexLabel(payload: unknown): ParsedDirectLabel | null {
   const labelUrl = documents
     .map((doc) => asRecord(doc)?.url)
     .find((url): url is string => typeof url === "string" && /^https?:\/\//i.test(url));
+  const shipmentDocuments = Array.isArray(first.shipmentDocuments) ? first.shipmentDocuments : [];
+  const invoice = shipmentDocuments
+    .map((doc) => asRecord(doc))
+    .find((doc) => typeof doc?.url === "string" && /^https?:\/\//i.test(doc.url) && /INVOICE/i.test(String(doc.contentType ?? "INVOICE")));
   return {
     trackingNumber: tracking,
     shipmentId: tracking,
@@ -272,6 +373,7 @@ export function parseFedexLabel(payload: unknown): ParsedDirectLabel | null {
     postageCents: cents(detail?.totalNetCharge ?? piece?.baseRateAmount),
     trackingUrl: `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(tracking)}`,
     labelUrl: labelUrl ?? null,
+    customsFormUrl: typeof invoice?.url === "string" ? invoice.url : null,
   };
 }
 
@@ -347,14 +449,33 @@ export function parseUspsRate(payload: unknown, serviceId: string): ParsedDirect
   return [{ serviceId, amountCents, transitDays: null }];
 }
 
+export function dhlExportDeclaration(customs: CustomsDeclaration, invoiceDate: string) {
+  return {
+    lineItems: customs.items.map((item, index) => ({
+      number: index + 1,
+      description: item.description,
+      price: dollars(item.unitValueCents),
+      quantity: { value: item.qty, unitOfMeasurement: "PCS" },
+      commodityCodes: [{ typeCode: "outbound", value: item.hsCode }],
+      exportReasonType: "permanent",
+      manufacturerCountry: item.originCountry,
+      weight: { netValue: poundsFromOz(item.weightOz), grossValue: poundsFromOz(item.weightOz) },
+    })),
+    invoice: { number: customs.invoiceNumber, date: invoiceDate },
+    exportReason: "Sale",
+  };
+}
+
 export function dhlShipmentBody(input: {
   accountNumber: string;
   serviceId: string;
   shipFrom: LiveShipAddress;
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
+  customs?: CustomsDeclaration | null;
 }) {
   const planned = new Date().toISOString().slice(0, 10);
+  const customs = input.customs ?? null;
   return {
     plannedShippingDateAndTime: `${planned}T12:00:00 GMT+00:00`,
     pickup: { isRequested: false },
@@ -387,8 +508,15 @@ export function dhlShipmentBody(input: {
           dimensions: { length: input.parcel.lengthIn, width: input.parcel.widthIn, height: input.parcel.heightIn },
         },
       ],
-      isCustomsDeclarable: false,
-      description: "Rackline",
+      isCustomsDeclarable: Boolean(customs),
+      ...(customs
+        ? {
+            declaredValue: dollars(customs.valueCents),
+            declaredValueCurrency: customs.currency,
+            exportDeclaration: dhlExportDeclaration(customs, planned),
+          }
+        : {}),
+      description: customs ? customs.items.map((item) => item.description).join(", ").slice(0, 70) : "Rackline",
       unitOfMeasurement: "imperial",
       incoterm: "DAP",
     },
@@ -414,6 +542,7 @@ export function fedexRateBody(input: Omit<Parameters<typeof fedexShipBody>[0], "
   const requested = { ...ship.requestedShipment } as Record<string, unknown>;
   delete requested.serviceType;
   delete requested.labelSpecification;
+  delete requested.shippingDocumentSpecification;
   const recipients = requested.recipients;
   delete requested.recipients;
   const recipient = Array.isArray(recipients) ? recipients[0] : recipients;
@@ -454,7 +583,7 @@ export function dhlRateQuery(input: Omit<Parameters<typeof dhlShipmentBody>[0], 
     width: String(input.parcel.widthIn),
     height: String(input.parcel.heightIn),
     plannedShippingDate: new Date().toISOString().slice(0, 10),
-    isCustomsDeclarable: "false",
+    isCustomsDeclarable: input.customs ? "true" : "false",
     unitOfMeasurement: "imperial",
   });
   return params.toString();

@@ -38,6 +38,8 @@ export const ERROR_CODES = [
   "LIVE_ADDRESS",
   "NO_RATE",
   "RETURN_LABEL_UNSUPPORTED",
+  "CUSTOMS_REQUIRED",
+  "CUSTOMS_UNSUPPORTED",
   "NEED_PACKAGE",
   "SHIPPED",
   "CANCELLED",
@@ -359,6 +361,14 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
         : "This carrier account cannot buy return labels in Rackline yet.",
       hint: "Choose a service on EasyPost, ShipEngine, FedEx, or Rackline Ground.",
     };
+  },
+  CUSTOMS_REQUIRED: ({ text }) => {
+    const copy = splitSentences(text || "An item on this order has no customs details");
+    return { message: copy.message, hint: copy.hint ?? "Add its HS code, country of origin, and declared value under Customs on the item." };
+  },
+  CUSTOMS_UNSUPPORTED: ({ text }) => {
+    const copy = splitSentences(text || "This carrier account cannot buy this international label in Rackline yet");
+    return { message: copy.message, hint: copy.hint ?? "Choose a service on EasyPost or ShipEngine, or buy this label on the carrier's site." };
   },
   NEED_PACKAGE: ({ text }) => needPackageCopy(text),
   SHIPPED: ({ text }) => {

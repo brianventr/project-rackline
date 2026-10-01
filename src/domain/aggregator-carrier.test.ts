@@ -1,15 +1,41 @@
 import { describe, expect, it } from "vitest";
 import {
+  easyPostCustomsFormUrl,
   easyPostLabelUrl,
   easyPostShipmentBody,
+  shipEngineCustomsFormUrl,
   shipEngineLabelBody,
   shipEngineLabelUrl,
   shipEngineRateBody,
 } from "./aggregator-carrier";
+import type { CustomsDeclaration } from "./customs";
 
 const building = { name: "Northwind", street1: "14 Dock St", city: "Portland", state: "OR", zip: "97209", country: "US" };
 const customer = { name: "Ada Park", street1: "9 Bay Ave", city: "Austin", state: "TX", zip: "78701", country: "US" };
+const abroad = { name: "Lena Roy", street1: "22 King St W", city: "Toronto", state: "ON", zip: "M5H 1A1", country: "CA" };
 const parcel = { weightOz: 20, lengthIn: 12, widthIn: 9, heightIn: 6 };
+const customs: CustomsDeclaration = {
+  contents: "merchandise",
+  signer: "Northwind Makers",
+  invoiceNumber: "#1004",
+  currency: "USD",
+  fromCountry: "US",
+  toCountry: "CA",
+  items: [
+    {
+      sku: "LAMP",
+      description: "Desk lamp",
+      qty: 2,
+      unitValueCents: 4500,
+      valueCents: 9000,
+      weightOz: 16,
+      hsCode: "940520",
+      originCountry: "US",
+    },
+  ],
+  valueCents: 9000,
+  exportFiling: "NOEEI 30.36",
+};
 
 describe("EasyPost shipment body", () => {
   it("sends an outbound parcel the way it travels", () => {
@@ -69,5 +95,67 @@ describe("label links", () => {
     );
     expect(shipEngineLabelUrl({ label_download: { href: "https://se.example/l" } })).toBe("https://se.example/l");
     expect(shipEngineLabelUrl(null)).toBeNull();
+  });
+
+  it("finds the customs form and nothing else", () => {
+    const forms = [
+      { form_type: "label_qr_code", form_url: "https://ep.example/qr.png" },
+      { form_type: "commercial_invoice", form_url: "https://ep.example/ci.pdf" },
+    ];
+    expect(easyPostCustomsFormUrl({ forms })).toBe("https://ep.example/ci.pdf");
+    expect(easyPostCustomsFormUrl({ forms: [forms[0]] })).toBeNull();
+    expect(easyPostCustomsFormUrl({ forms: [{ form_type: "cn23", form_url: "ftp://nope" }] })).toBeNull();
+    expect(easyPostCustomsFormUrl({})).toBeNull();
+    expect(shipEngineCustomsFormUrl({ form_download: { href: "https://se.example/form.pdf" } })).toBe("https://se.example/form.pdf");
+    expect(shipEngineCustomsFormUrl({ label_download: { href: "https://se.example/l" } })).toBeNull();
+  });
+});
+
+describe("customs on international bodies", () => {
+  it("EasyPost declares line totals, the tariff code, and the export exemption", () => {
+    const body = easyPostShipmentBody({ shipFrom: building, shipTo: abroad, parcel, customs });
+    expect(body.shipment.customs_info).toEqual({
+      contents_type: "merchandise",
+      customs_certify: true,
+      customs_signer: "Northwind Makers",
+      non_delivery_option: "return",
+      restriction_type: "none",
+      eel_pfc: "NOEEI 30.36",
+      customs_items: [
+        {
+          description: "Desk lamp",
+          quantity: 2,
+          value: 90,
+          weight: 16,
+          hs_tariff_number: "940520",
+          origin_country: "US",
+          code: "LAMP",
+          currency: "USD",
+        },
+      ],
+    });
+    expect("customs_info" in easyPostShipmentBody({ shipFrom: building, shipTo: customer, parcel }).shipment).toBe(false);
+  });
+
+  it("ShipEngine declares the per-unit value on both the rate and the label", () => {
+    const expected = {
+      contents: "merchandise",
+      non_delivery: "return_to_sender",
+      customs_items: [
+        {
+          description: "Desk lamp",
+          quantity: 2,
+          value: { currency: "usd", amount: 45 },
+          harmonized_tariff_code: "940520",
+          country_of_origin: "US",
+          sku: "LAMP",
+        },
+      ],
+    };
+    expect(shipEngineRateBody({ shipFrom: building, shipTo: abroad, parcel, customs }).shipment.customs).toEqual(expected);
+    expect(shipEngineLabelBody({ serviceId: "ups_ground", shipFrom: building, shipTo: abroad, parcel, customs }).shipment.customs).toEqual(
+      expected,
+    );
+    expect("customs" in shipEngineLabelBody({ serviceId: "ups_ground", shipFrom: building, shipTo: customer, parcel }).shipment).toBe(false);
   });
 });

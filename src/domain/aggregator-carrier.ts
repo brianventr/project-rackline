@@ -1,10 +1,54 @@
 import { shipEngineServiceCode, type LiveShipAddress, type ParcelDims, type ReturnLabelRequest } from "./carrier-live";
+import type { CustomsDeclaration } from "./customs";
 
 type Route = {
   shipFrom: LiveShipAddress;
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
+  customs?: CustomsDeclaration | null;
 };
+
+function dollars(cents: number): number {
+  return Math.round(cents) / 100;
+}
+
+/** EasyPost wants each customs line's total value and total weight, not per unit. */
+export function easyPostCustomsInfo(customs: CustomsDeclaration) {
+  return {
+    contents_type: customs.contents,
+    customs_certify: true,
+    customs_signer: customs.signer,
+    non_delivery_option: "return",
+    restriction_type: "none",
+    ...(customs.exportFiling ? { eel_pfc: customs.exportFiling } : {}),
+    customs_items: customs.items.map((item) => ({
+      description: item.description,
+      quantity: item.qty,
+      value: dollars(item.valueCents),
+      weight: item.weightOz,
+      hs_tariff_number: item.hsCode,
+      origin_country: item.originCountry,
+      code: item.sku,
+      currency: customs.currency,
+    })),
+  };
+}
+
+/** ShipEngine wants each customs line's value per unit. */
+export function shipEngineCustoms(customs: CustomsDeclaration) {
+  return {
+    contents: customs.contents,
+    non_delivery: "return_to_sender",
+    customs_items: customs.items.map((item) => ({
+      description: item.description,
+      quantity: item.qty,
+      value: { currency: customs.currency.toLowerCase(), amount: dollars(item.unitValueCents) },
+      harmonized_tariff_code: item.hsCode,
+      country_of_origin: item.originCountry,
+      sku: item.sku,
+    })),
+  };
+}
 
 export function easyPostAddress(address: LiveShipAddress) {
   return {
@@ -61,6 +105,7 @@ export function easyPostShipmentBody(input: Route & { returnLabel?: ReturnLabelR
         height: input.parcel.heightIn,
         weight: input.parcel.weightOz,
       },
+      ...(input.customs ? { customs_info: easyPostCustomsInfo(input.customs) } : {}),
       ...(ret ? { is_return: true, reference: ret.rmaNumber } : {}),
     },
   };
@@ -74,6 +119,7 @@ export function shipEngineRateBody(input: Route) {
       ship_from: shipEngineAddress(input.shipFrom),
       ship_to: shipEngineAddress(input.shipTo),
       packages: shipEnginePackages(input.parcel),
+      ...(input.customs ? { customs: shipEngineCustoms(input.customs) } : {}),
     },
   };
 }
@@ -89,6 +135,7 @@ export function shipEngineLabelBody(input: Route & { serviceId: string; returnLa
       ship_from: shipEngineAddress(input.shipFrom),
       ship_to: shipEngineAddress(input.shipTo),
       packages: shipEnginePackages(input.parcel),
+      ...(input.customs ? { customs: shipEngineCustoms(input.customs) } : {}),
     },
   };
 }
@@ -111,4 +158,24 @@ export function easyPostLabelUrl(shipment: unknown): string | null {
 export function shipEngineLabelUrl(payload: unknown): string | null {
   const download = asRecord(asRecord(payload)?.label_download);
   return link(download?.pdf) ?? link(download?.href);
+}
+
+/**
+ * The customs form EasyPost generated with an international label: the commercial invoice or a CN form.
+ * Postal labels often carry the CN22 on the label itself, and then there is none. Other forms, like QR codes, are not customs.
+ */
+export function easyPostCustomsFormUrl(shipment: unknown): string | null {
+  const forms = asRecord(shipment)?.forms;
+  if (!Array.isArray(forms)) return null;
+  for (const form of forms) {
+    const row = asRecord(form);
+    const url = link(row?.form_url);
+    if (url && /invoice|cn2[23]|customs/i.test(String(row?.form_type ?? ""))) return url;
+  }
+  return null;
+}
+
+export function shipEngineCustomsFormUrl(payload: unknown): string | null {
+  const download = asRecord(asRecord(payload)?.form_download);
+  return link(download?.href) ?? link(download?.pdf);
 }

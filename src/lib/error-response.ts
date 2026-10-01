@@ -16,6 +16,7 @@ import { ClientStockError } from "../domain/client-stock";
 import { JobClaimedError, JobNotReadyError, JobVerbDeniedError } from "../domain/jobs";
 import { EquipmentCustodyError } from "../domain/equipment";
 import { CarrierLiveError } from "../domain/carrier-live";
+import { CustomsRequiredError } from "../domain/customs";
 import { ShopifyIngestError } from "../domain/shopify-ingest";
 import { ImageUrlError } from "../domain/media";
 import { BomStepError } from "../domain/bom-steps";
@@ -158,6 +159,9 @@ export function mapDomainError(err: unknown): MappedError | null {
   }
   if (err instanceof CarrierLiveError) {
     return { status: 409, body: { error: err.message, code: err.code } };
+  }
+  if (err instanceof CustomsRequiredError) {
+    return { status: 409, body: { error: err.message, code: err.code, sku: err.sku, items: err.gaps } };
   }
   if (err instanceof JobNotReadyError) {
     return { status: 409, body: { error: err.message, code: "JOB_NOT_READY", notBefore: err.notBefore } };
