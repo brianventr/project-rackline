@@ -889,6 +889,57 @@ export const serials = sqliteTable(
   (t) => [uniqueIndex("serials_org_item_code").on(t.organizationId, t.itemId, t.serialCode)],
 );
 
+/** A tote, pallet, or carton with an LP- code. Its lines are a share of its bay's balances, never more. */
+export const licensePlates = sqliteTable(
+  "license_plates",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    type: text("type").notNull().default("tote"),
+    /** Null once the plate has shipped. */
+    locationId: text("location_id").references(() => locations.id, { onDelete: "set null" }),
+    status: text("status").notNull().default("open"),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("license_plates_org_code").on(t.organizationId, t.code),
+    index("license_plates_location").on(t.organizationId, t.locationId),
+  ],
+);
+
+export const licensePlateLines = sqliteTable(
+  "license_plate_lines",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    plateId: text("plate_id")
+      .notNull()
+      .references(() => licensePlates.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    qty: integer("qty").notNull(),
+    lotCode: text("lot_code"),
+    serial: text("serial"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    index("license_plate_lines_plate").on(t.plateId),
+    index("license_plate_lines_item").on(t.organizationId, t.itemId),
+  ],
+);
+
 export const replenishments = sqliteTable("replenishments", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id")

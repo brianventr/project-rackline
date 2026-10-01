@@ -21,6 +21,7 @@ import { ImageUrlError } from "../domain/media";
 import { BomStepError } from "../domain/bom-steps";
 import { WorkflowPolicyError } from "../domain/workflow-policy";
 import { CapacityInputError, LocationFullError } from "../domain/capacity";
+import { PlateInputError, PlateOverLooseError, PlateShortError, PlateStateError } from "../domain/license-plates";
 
 export type ErrorStatus = 400 | 401 | 403 | 404 | 409;
 export type MappedError = { status: ErrorStatus; body: Record<string, unknown> };
@@ -186,7 +187,48 @@ export function mapDomainError(err: unknown): MappedError | null {
       },
     };
   }
-  if (err instanceof ImageUrlError || err instanceof BomStepError || err instanceof CapacityInputError) {
+  if (err instanceof PlateStateError) {
+    return {
+      status: 409,
+      body: { error: err.message, code: "PLATE_STATUS", plateCode: err.plateCode, plateStatus: err.status, action: err.action },
+    };
+  }
+  if (err instanceof PlateOverLooseError) {
+    return {
+      status: 409,
+      body: {
+        error: err.message,
+        code: "PLATE_OVER_LOOSE",
+        plateCode: err.plateCode,
+        sku: err.sku,
+        locationCode: err.locationCode,
+        onHand: err.onHand,
+        loose: err.loose,
+        qty: err.qty,
+        lotCode: err.lotCode,
+      },
+    };
+  }
+  if (err instanceof PlateShortError) {
+    return {
+      status: 409,
+      body: {
+        error: err.message,
+        code: "PLATE_SHORT",
+        plateCode: err.plateCode,
+        sku: err.sku,
+        onPlate: err.onPlate,
+        needed: err.needed,
+        serial: err.serial,
+      },
+    };
+  }
+  if (
+    err instanceof ImageUrlError ||
+    err instanceof BomStepError ||
+    err instanceof CapacityInputError ||
+    err instanceof PlateInputError
+  ) {
     return { status: 400, body: { error: err.message } };
   }
   if (err instanceof HttpError) {

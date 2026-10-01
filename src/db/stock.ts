@@ -29,6 +29,8 @@ import {
 } from "./client-stock";
 import { loadOpenAssignmentForOperator } from "./equipment";
 import { capacityStatements, type CapacityLocation, type CapacityOverride } from "./capacity";
+import { plateStatements } from "./license-plates";
+import type { PlateOp } from "../domain/license-plates";
 export type AppDb = DrizzleD1Database<typeof import("./schema")>;
 
 export async function loadBalanceMap(
@@ -86,6 +88,8 @@ export async function persistStockPlan(
     extra?: BatchItem<"sqlite">[];
     skipShopifySync?: boolean;
     capacityOverride?: CapacityOverride;
+    /** What the plan does to license plates; plates at the bays it takes from are reconciled either way. */
+    plateOps?: PlateOp[];
   },
 ): Promise<void> {
   const statements: BatchItem<"sqlite">[] = [...((input.extra as BatchItem<"sqlite">[] | undefined) ?? [])];
@@ -141,6 +145,15 @@ export async function persistStockPlan(
       movements,
       locations: bays,
       override: input.capacityOverride,
+    })),
+  );
+  statements.push(
+    ...(await plateStatements(db, {
+      organizationId: input.organizationId,
+      now: input.now,
+      movements,
+      balances: input.plan.balances,
+      ops: input.plateOps,
     })),
   );
 
@@ -252,6 +265,7 @@ export async function postReceiveLines(
     }[];
     extra?: BatchItem<"sqlite">[];
     capacityOverride?: CapacityOverride;
+    plateOps?: PlateOp[];
   },
 ): Promise<void> {
   const loaded = await loadBalanceMap(
@@ -302,5 +316,6 @@ export async function postReceiveLines(
     plan,
     extra: input.extra,
     capacityOverride: input.capacityOverride,
+    plateOps: input.plateOps,
   });
 }

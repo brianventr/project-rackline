@@ -2,6 +2,7 @@ import { isCapacityMeasure, locationFullSentence } from "./capacity";
 import { equipmentClassLabel } from "./equipment";
 import { formatExpiresOn } from "./expiry";
 import { isFloorVerb, VERB_LABELS } from "./jobs";
+import { overLooseText, plateShortText } from "./license-plates";
 
 /** What the person sees when a request fails: one plain sentence, and the fix when there is one. */
 export type ExplainedError = { message: string; hint: string | null; code: string | null };
@@ -27,6 +28,9 @@ export const ERROR_CODES = [
   "INSUFFICIENT_ATP",
   "CLIENT_STOCK",
   "LOCATION_FULL",
+  "PLATE_STATUS",
+  "PLATE_OVER_LOOSE",
+  "PLATE_SHORT",
   "JOB_CLAIMED",
   "JOB_NOT_READY",
   "JOB_VERB_DENIED",
@@ -290,6 +294,33 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
       return { message: text ? splitSentences(text).message : "That bay is full.", hint };
     }
     return { message: locationFullSentence(bay, { measure, limit, after }), hint };
+  },
+  PLATE_STATUS: ({ text }) => {
+    const copy = splitSentences(text || "That plate cannot do that right now");
+    return { message: copy.message, hint: copy.hint ?? "Refresh to see where the plate stands." };
+  },
+  PLATE_OVER_LOOSE: ({ body, text }) => {
+    const sku = str(body, "sku");
+    const bay = str(body, "locationCode");
+    const onHand = num(body, "onHand");
+    const loose = num(body, "loose");
+    const qty = num(body, "qty");
+    if (!sku || !bay || onHand == null || loose == null || qty == null) {
+      const copy = splitSentences(text || "That bay does not have that much loose");
+      return { message: copy.message, hint: copy.hint ?? "Lower the qty, or break one of the other plates first." };
+    }
+    return splitSentences(overLooseText(sku, bay, onHand, loose, qty, str(body, "lotCode")));
+  },
+  PLATE_SHORT: ({ body, text }) => {
+    const plate = str(body, "plateCode");
+    const sku = str(body, "sku");
+    const onPlate = num(body, "onPlate");
+    const needed = num(body, "needed");
+    if (!plate || !sku || onPlate == null || needed == null) {
+      const copy = splitSentences(text || "That plate does not hold that much");
+      return { message: copy.message, hint: copy.hint ?? "Scan the bay to pick the rest loose." };
+    }
+    return splitSentences(plateShortText(plate, sku, onPlate, needed, str(body, "serial")));
   },
   JOB_CLAIMED: ({ body }) => {
     const name = str(body, "claimedByName");
