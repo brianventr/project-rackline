@@ -15,6 +15,14 @@ import { lineExpiry } from "../lib/expiry";
 import { guardFloorJob, syncDocumentJob } from "../db/jobs";
 import { plateForReceive } from "../db/license-plates";
 import { receiveOntoPlate } from "../domain/license-plates";
+import { loadReceiptQc, openQcCountByReceipt } from "../db/qc-samples";
+import { QcSampleError, parseQcDecision, qcDecisionEffect, qcReceiveSplit } from "../domain/qc-receive";
+import { planAdjust } from "../domain/inventory";
+import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
+import { coveringHold } from "../domain/holds";
+import { loadOpenHolds } from "../db/holds";
+import { normalizeImageUrl, ImageUrlError } from "../domain/media";
+import { scheduleShopifySellableSync } from "../db/shopify-sellable";
 
 export const receiptsRoute = new Hono<AppEnv>();
 
@@ -47,13 +55,16 @@ async function receiptWithLines(db: AppEnv["Variables"]["db"], organizationId: s
       trackSerial: schema.items.trackSerial,
       catchWeight: schema.items.catchWeight,
       trackExpiry: schema.items.trackExpiry,
+      qcSamplePercent: schema.items.qcSamplePercent,
     })
     .from(schema.receiptLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.receiptLines.itemId))
     .where(eq(schema.receiptLines.receiptId, id));
+  const qc = await loadReceiptQc(db, organizationId, id);
   return {
     ...receipt,
     lines: lines.map((line) => ({ ...line, remaining: remainingOnLine(asExpected(line)) })),
+    qc,
   };
 }
 
@@ -95,13 +106,18 @@ receiptsRoute.get("/receipts", async (c) => {
     list.push(line);
     byReceipt.set(line.receiptId, list);
   }
+  const openQc = await openQcCountByReceipt(
+    db,
+    organizationId,
+    rows.map((row) => row.id),
+  );
   return c.json(
     rows.map((row) => {
       const receiptLines = (byReceipt.get(row.id) ?? []).map((line) => ({
         ...line,
         remaining: remainingOnLine(asExpected(line)),
       }));
-      return { ...row, lines: receiptLines };
+      return { ...row, lines: receiptLines, openQc: openQc.get(row.id) ?? 0 };
     }),
   );
 });
@@ -273,14 +289,40 @@ receiptsRoute.post("/receipts/:id/receive", async (c) => {
   const qtyByItem = new Map(applied.next.map((line) => [line.itemId, line.qtyReceived]));
   const posted = applied.posted.map((line) => {
     const extra = incoming.find((row) => row.itemId === line.itemId);
+    const docLine = receipt.lines.find((row) => row.itemId === line.itemId);
+    const split = qcReceiveSplit(docLine?.id ?? line.itemId, line.qty, docLine?.qcSamplePercent ?? null);
     return {
       ...line,
       lotCode: extra?.lotCode,
       serials: extra?.serials.length ? extra.serials : null,
       weightGrams: extra?.weightGrams,
       expiresOn: extra?.expiresOn,
+      split,
+      receiptLineId: docLine?.id ?? null,
     };
   });
+  const plateLines = posted
+    .filter((line) => line.split.plateQty > 0)
+    .map((line) => ({
+      ...line,
+      qty: line.split.plateQty,
+      serials: line.split.sampleQty === 0 ? line.serials : null,
+    }));
+  const qcInserts = posted
+    .filter((line) => line.split.sampleQty > 0 && line.receiptLineId)
+    .map((line) =>
+      db.insert(schema.receiptQcSamples).values({
+        id: newId(),
+        organizationId,
+        receiptId: receipt.id,
+        receiptLineId: line.receiptLineId!,
+        itemId: line.itemId,
+        locationId,
+        qty: line.split.sampleQty,
+        status: "open",
+        createdAt: now,
+      }),
+    );
 
   await postReceiveLines(db, {
     organizationId,
@@ -290,8 +332,9 @@ receiptsRoute.post("/receipts/:id/receive", async (c) => {
     refType: "receipt",
     refId: receipt.id,
     lines: posted,
-    plateOps: plate ? receiveOntoPlate(plate, locationId, posted) : undefined,
+    plateOps: plate ? receiveOntoPlate(plate, locationId, plateLines) : undefined,
     extra: [
+      ...qcInserts,
       ...receipt.lines.map((line) =>
         db
           .update(schema.receiptLines)
@@ -323,4 +366,120 @@ receiptsRoute.post("/receipts/:id/receive", async (c) => {
     createdAt: received.createdAt,
   });
   return c.json(received);
+});
+
+receiptsRoute.post("/receipts/:id/qc/:sampleId", async (c) => {
+  const body = await c.req
+    .json<{ decision?: string; photoUrl?: string | null }>()
+    .catch(() => ({}) as { decision?: string; photoUrl?: string | null });
+  let decision;
+  try {
+    decision = parseQcDecision(body.decision);
+  } catch (err) {
+    if (err instanceof QcSampleError) badRequest(err.message);
+    throw err;
+  }
+  let photoUrl: string | null = null;
+  if (body.photoUrl != null && body.photoUrl !== "") {
+    try {
+      photoUrl = normalizeImageUrl(body.photoUrl);
+    } catch (err) {
+      if (err instanceof ImageUrlError) badRequest("Photo must be an http(s) link or a Rackline image path");
+      throw err;
+    }
+  }
+
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const user = c.get("user")!;
+  const receipt = await receiptWithLines(db, organizationId, c.req.param("id"));
+  const sample = receipt.qc.find((row) => row.id === c.req.param("sampleId"));
+  if (!sample) notFound("QC sample not found");
+  if (sample.status !== "open") conflict("This sample is already decided");
+
+  const effect = qcDecisionEffect(decision, sample.qty);
+  const now = Date.now();
+  const decided = {
+    status: decision === "restock" ? "restocked" : decision === "hold" ? "held" : "scrapped",
+    photoUrl,
+    decidedBy: user.id,
+    decidedAt: now,
+  };
+
+  if (effect.createsHold) {
+    const location = await getOrgLocation(db, organizationId, sample.locationId);
+    const open = await loadOpenHolds(db, organizationId, location.warehouseId);
+    const existing = coveringHold(open, sample.locationId, sample.itemId, null);
+    if (existing) {
+      await db
+        .update(schema.receiptQcSamples)
+        .set({ ...decided, holdId: existing.id })
+        .where(eq(schema.receiptQcSamples.id, sample.id));
+    } else {
+      const holdId = newId();
+      const number = docNumber("HLD");
+      await db.batch([
+        db.insert(schema.inventoryHolds).values({
+          id: holdId,
+          organizationId,
+          warehouseId: location.warehouseId,
+          number,
+          status: "open",
+          locationId: sample.locationId,
+          itemId: sample.itemId,
+          lotCode: null,
+          reason: "QC",
+          notes: `${receipt.number} sample`,
+          createdAt: now,
+        }),
+        db
+          .update(schema.receiptQcSamples)
+          .set({ ...decided, holdId })
+          .where(eq(schema.receiptQcSamples.id, sample.id)),
+      ]);
+      await syncDocumentJob(db, {
+        organizationId,
+        warehouseId: location.warehouseId,
+        refType: "hold",
+        refId: holdId,
+        status: "open",
+        number,
+        title: "QC",
+        fromLocationId: sample.locationId,
+        itemId: sample.itemId,
+        createdAt: now,
+      });
+    }
+    await scheduleShopifySellableSync(db, organizationId, [sample.itemId]);
+    return c.json(await receiptWithLines(db, organizationId, receipt.id));
+  }
+
+  if (effect.adjustmentQty !== 0) {
+    const item = await getOrgItem(db, organizationId, sample.itemId);
+    const loaded = await loadBalanceMap(db, organizationId, [{ locationId: sample.locationId, itemId: sample.itemId }]);
+    const plan = planAdjust({
+      itemId: sample.itemId,
+      sku: item.sku,
+      locationId: sample.locationId,
+      qtyDelta: effect.adjustmentQty,
+      reason: "QC scrap",
+      refId: sample.id,
+      balances: qtyMap(loaded),
+    });
+    await persistStockPlan(db, {
+      organizationId,
+      createdBy: user.id,
+      now,
+      loaded,
+      plan,
+      extra: [
+        db.update(schema.receiptQcSamples).set(decided).where(eq(schema.receiptQcSamples.id, sample.id)),
+      ],
+    });
+    return c.json(await receiptWithLines(db, organizationId, receipt.id));
+  }
+
+  await db.update(schema.receiptQcSamples).set(decided).where(eq(schema.receiptQcSamples.id, sample.id));
+  await scheduleShopifySellableSync(db, organizationId, [sample.itemId]);
+  return c.json(await receiptWithLines(db, organizationId, receipt.id));
 });

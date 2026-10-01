@@ -16,6 +16,7 @@ import {
   buildInventorySetQuantitiesInput,
 } from "../domain/shopify";
 import { loadOpenHolds, loadHeldLotQuantities } from "./holds";
+import { withOpenQc } from "./qc-samples";
 import { openShopifyRow } from "./credentials";
 import { credentialSecret } from "../lib/credential-secret";
 import { publicErrorText } from "../lib/db-errors";
@@ -107,7 +108,7 @@ export async function loadSellableRows(
 
   const holds = await loadOpenHolds(db, organizationId);
   const lotQtys = await loadHeldLotQuantities(db, organizationId, holds);
-  const availableRows = applyHoldsToOnHand(balances, holds, lotQtys);
+  const availableRows = applyHoldsToOnHand(await withOpenQc(db, organizationId, balances), holds, lotQtys);
 
   const onHandByItem = new Map<string, number>();
   const availableByItem = new Map<string, number>();

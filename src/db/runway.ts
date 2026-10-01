@@ -3,6 +3,7 @@ import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { applyHoldsToOnHand } from "../domain/holds";
 import { loadHeldLotQuantities, loadOpenHolds } from "./holds";
+import { withOpenQc } from "./qc-samples";
 import { isOpenPickStatus, remainingToPickQty } from "../domain/shopify-sellable";
 import { majorityVendor } from "../domain/reorder";
 import {
@@ -75,7 +76,7 @@ export async function loadRunway(
 
   const holds = await loadOpenHolds(db, organizationId, warehouseId);
   const lotQtys = await loadHeldLotQuantities(db, organizationId, holds);
-  const availableRows = applyHoldsToOnHand(balances, holds, lotQtys);
+  const availableRows = applyHoldsToOnHand(await withOpenQc(db, organizationId, balances), holds, lotQtys);
 
   const onHandByItem = new Map<string, number>();
   const availableByItem = new Map<string, number>();

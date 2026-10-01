@@ -619,3 +619,17 @@ Each step has to be confirmed once for every unit in this complete. Posting 3 ne
 - The photo on a step is there so you can see the part. It is not proof, and checking it off on the screen does not count.
 
 Until the steps for this complete are confirmed, the complete button stays disabled and the server answers 409 `STEPS_REQUIRED`, naming the next step, for example "Confirm step 1, Thread the cord, before completing." Each scan or confirm is saved as it happens.
+
+## 19. QC at receive
+
+An item can pull a sample of each receipt for inspection. The percent is on the item page, from 0 to 100. Blank turns it off. 0 and blank receive the line the way they always have. 100 sets every unit of that line aside.
+
+The sample is chosen from the receipt line id and the percent, the same way every time, so it does not depend on chance. Unsampled units are received into the bay and, if you scanned a plate, onto that plate. Sampled units are received onto the bay once and are not available until someone passes them. They are not put on the plate, so a later hold or scrap does not count them a second time.
+
+On Floor → Receive, the sampled units show with three actions. An owner or anyone who can receive can take them:
+
+- **Restock** makes those units available in the bay. They are not received again.
+- **Hold** opens an inventory hold for that SKU in the bay, the same kind of hold as Stock → Holds, with reason QC. No return is created.
+- **Scrap** posts one adjustment out, so the units leave on hand once.
+
+One photo link can be saved with the decision. The receipt can be finished while QC is still open. Those units stay unavailable until the decision. A hold locks the SKU at that bay the way any hold does, including units of the same SKU that were not in the sample.

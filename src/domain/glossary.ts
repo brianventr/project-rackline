@@ -304,6 +304,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/floor/adjust",
   },
   {
+    id: "qc-sample",
+    term: "QC sample",
+    aliases: ["sample percent", "incoming qc", "receive sample"],
+    short: "Units pulled from a receipt for inspection. They stay unavailable until restocked, held, or scrapped. No return is opened.",
+    long: "The percent is on the item. Blank is off, and 0 receives everything as usual. The receipt line id picks which units, so the same line always samples the same way. The receipt can finish while those units are still aside.",
+    path: "/inbound/receipts",
+  },
+  {
     id: "hold",
     term: "Hold",
     aliases: ["qc hold", "quarantine", "lock", "held", "held stock"],

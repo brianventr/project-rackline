@@ -188,6 +188,8 @@ export const items = sqliteTable(
     originCountry: text("origin_country"),
     customsDescription: text("customs_description"),
     customsValueCents: integer("customs_value_cents"),
+    /** Percent of each receipt (0-100) pulled for QC. Null means QC is off. */
+    qcSamplePercent: integer("qc_sample_percent"),
   },
   (t) => [
     uniqueIndex("items_org_sku").on(t.organizationId, t.sku),
@@ -357,6 +359,40 @@ export const receiptLines = sqliteTable(
     qtyReceived: integer("qty_received").notNull().default(0),
   },
   (t) => [uniqueIndex("receipt_lines_receipt_item").on(t.receiptId, t.itemId)],
+);
+
+/** Units from a receipt line waiting on QC. Open rows are on hand and not available. */
+export const receiptQcSamples = sqliteTable(
+  "receipt_qc_samples",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    receiptId: text("receipt_id")
+      .notNull()
+      .references(() => receipts.id, { onDelete: "cascade" }),
+    receiptLineId: text("receipt_line_id")
+      .notNull()
+      .references(() => receiptLines.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id),
+    locationId: text("location_id")
+      .notNull()
+      .references(() => locations.id),
+    qty: integer("qty").notNull(),
+    status: text("status").notNull(),
+    photoUrl: text("photo_url"),
+    decidedBy: text("decided_by"),
+    decidedAt: integer("decided_at"),
+    holdId: text("hold_id"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("receipt_qc_samples_receipt").on(t.receiptId, t.status),
+    index("receipt_qc_samples_open").on(t.organizationId, t.status),
+  ],
 );
 
 export const orders = sqliteTable(
