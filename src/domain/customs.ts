@@ -63,50 +63,6 @@ export const CN22_LIMIT_CENTS = 40_000;
 
 export const CUSTOMS_DESCRIPTION_MAX = 100;
 
-/** Where goods are commonly made, by name, beyond the countries the address gazetteer knows. */
-const ORIGIN_NAMES: Record<string, string> = {
-  china: "CN",
-  "peoples republic of china": "CN",
-  prc: "CN",
-  vietnam: "VN",
-  "viet nam": "VN",
-  india: "IN",
-  taiwan: "TW",
-  "south korea": "KR",
-  korea: "KR",
-  bangladesh: "BD",
-  indonesia: "ID",
-  thailand: "TH",
-  malaysia: "MY",
-  philippines: "PH",
-  cambodia: "KH",
-  pakistan: "PK",
-  "sri lanka": "LK",
-  "hong kong": "HK",
-  turkey: "TR",
-  turkiye: "TR",
-  italy: "IT",
-  spain: "ES",
-  portugal: "PT",
-  poland: "PL",
-  "czech republic": "CZ",
-  czechia: "CZ",
-  switzerland: "CH",
-  sweden: "SE",
-  denmark: "DK",
-  belgium: "BE",
-  austria: "AT",
-  brazil: "BR",
-  israel: "IL",
-  "new zealand": "NZ",
-};
-
-/** The two-letter code for a country of origin, typed as a code or a common name. */
-export function originCountryCode(value: string | null | undefined): string | null {
-  const name = value?.trim().toLowerCase().replace(/[.']/g, "").replace(/\s+/g, " ");
-  return (name && ORIGIN_NAMES[name]) || countryCode(value);
-}
-
 /** HS and Schedule B codes are 6 to 10 digits; dots and spaces people type between groups are dropped. */
 export function normalizeHsCode(value: string | null | undefined): string | null {
   const digits = value?.replace(/[\s.\-]/g, "") ?? "";
@@ -126,7 +82,7 @@ export function customsGaps(lines: CustomsLine[]): CustomsGap[] {
     seen.add(line.sku);
     const missing: CustomsField[] = [];
     if (!normalizeHsCode(line.hsCode)) missing.push("hsCode");
-    if (!originCountryCode(line.originCountry)) missing.push("originCountry");
+    if (!countryCode(line.originCountry)) missing.push("originCountry");
     if (!line.customsValueCents || line.customsValueCents <= 0) missing.push("customsValueCents");
     if (missing.length) gaps.push({ sku: line.sku, itemId: line.itemId ?? null, missing });
   }
@@ -224,7 +180,7 @@ export function customsForLabel(input: {
     valueCents: line.customsValueCents! * line.qty,
     weightOz: weights[index]!,
     hsCode: normalizeHsCode(line.hsCode)!,
-    originCountry: originCountryCode(line.originCountry)!,
+    originCountry: countryCode(line.originCountry)!,
   }));
   const filing = exportFilingFor(fromCountry, toCountry, items);
   if (filing === "ITN") {
@@ -323,7 +279,7 @@ export function parseCustomsPatch(body: Record<string, unknown>): { ok: true; pa
   if ("originCountry" in body) {
     const raw = text(body.originCountry);
     if (raw === null) return { ok: false, error: "Country of origin must be text." };
-    const code = raw ? originCountryCode(raw) : null;
+    const code = raw ? countryCode(raw) : null;
     if (raw && !code) return { ok: false, error: "Country of origin should be a two-letter code, like US or CN." };
     patch.originCountry = code;
   }

@@ -32,12 +32,86 @@ export function orderAddress(
   return { text: text ?? order.shipToAddress, city: order.shipToCity, region: order.shipToRegion, country: order.shipToCountry };
 }
 
+/**
+ * Countries people ship to and buy from, by name, beyond the ones the gazetteer knows. Names that are also a
+ * US state or territory (Georgia, Jersey, Puerto Rico) stay out, so a last line reading "Georgia" stays a state.
+ */
+const COUNTRY_NAMES: Record<string, string> = {
+  china: "CN",
+  "peoples republic of china": "CN",
+  prc: "CN",
+  "hong kong": "HK",
+  taiwan: "TW",
+  "south korea": "KR",
+  "republic of korea": "KR",
+  korea: "KR",
+  singapore: "SG",
+  vietnam: "VN",
+  "viet nam": "VN",
+  thailand: "TH",
+  malaysia: "MY",
+  philippines: "PH",
+  indonesia: "ID",
+  india: "IN",
+  pakistan: "PK",
+  bangladesh: "BD",
+  "sri lanka": "LK",
+  cambodia: "KH",
+  "united arab emirates": "AE",
+  uae: "AE",
+  "saudi arabia": "SA",
+  qatar: "QA",
+  israel: "IL",
+  turkey: "TR",
+  turkiye: "TR",
+  italy: "IT",
+  spain: "ES",
+  portugal: "PT",
+  belgium: "BE",
+  luxembourg: "LU",
+  switzerland: "CH",
+  austria: "AT",
+  denmark: "DK",
+  sweden: "SE",
+  norway: "NO",
+  finland: "FI",
+  iceland: "IS",
+  poland: "PL",
+  "czech republic": "CZ",
+  czechia: "CZ",
+  slovakia: "SK",
+  hungary: "HU",
+  romania: "RO",
+  bulgaria: "BG",
+  greece: "GR",
+  croatia: "HR",
+  slovenia: "SI",
+  estonia: "EE",
+  latvia: "LV",
+  lithuania: "LT",
+  ukraine: "UA",
+  brazil: "BR",
+  argentina: "AR",
+  chile: "CL",
+  colombia: "CO",
+  peru: "PE",
+  "costa rica": "CR",
+  "new zealand": "NZ",
+  "south africa": "ZA",
+  nigeria: "NG",
+  kenya: "KE",
+  egypt: "EG",
+  morocco: "MA",
+};
+
 /** The ISO two-letter code for a country name, alias, or code; null when the text is none of those. */
 export function countryCode(value: string | null | undefined): string | null {
   const text = value?.trim();
   if (!text) return null;
   const known = lookupCountry(text);
   if (known) return known.code;
+  const named = COUNTRY_NAMES[text.toLowerCase().replace(/[.']/g, "").replace(/\s+/g, " ")];
+  if (named) return named;
   return /^[A-Za-z]{2}$/.test(text) ? text.toUpperCase() : null;
 }
 
@@ -222,7 +296,7 @@ export function shipAddressParts(input: ShipAddressInput): ShipAddressParts {
   if (!locality) {
     const leadingStreet = oneLine && lines.length > 1 && /\d/.test(lines[0]!) ? lines[0]! : null;
     const rest = leadingStreet ? lines.slice(1).join(", ") : oneLine ? text : lines.join("\n");
-    const parsed = parseAddressText(country ? `${rest}\n${country}` : rest);
+    const parsed = parseAddressText(country && lookupCountry(country) ? `${rest}\n${country}` : rest);
     const parsedStreet = leadingStreet ?? parsed.street ?? "";
     const street = parsedStreet.split(/\n+/).map((line) => line.trim()).filter(Boolean);
     return {

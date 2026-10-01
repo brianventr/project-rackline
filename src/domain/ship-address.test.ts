@@ -118,6 +118,14 @@ describe("country rules", () => {
     expect(countryCode("usa")).toBe("US");
     expect(countryCode("cn")).toBe("CN");
     expect(countryCode("Narnia")).toBeNull();
+    expect(countryCode("People's Republic of China")).toBe("CN");
+    expect(countryCode("Hong Kong")).toBe("HK");
+    expect(countryCode("Georgia")).toBeNull();
+  });
+
+  it("reads a country the gazetteer does not know from the last line", () => {
+    expect(shipAddressParts({ text: "1 Queen's Road Central\nCentral\nHong Kong" })).toMatchObject({ city: "Central", country: "HK" });
+    expect(shipAddressParts({ text: "1 Peachtree St NE\nAtlanta\nGeorgia" }).country).not.toBe("GE");
   });
 
   it("knows which countries need a region or a postal code", () => {
