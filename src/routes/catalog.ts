@@ -14,8 +14,8 @@ import { suggestPutawayJobs, suggestPutawayBay } from "../domain/directed-putawa
 import { loadPutawayBaysByItem } from "../db/putaway-bays";
 import { loadUnputawayReceivedCartons } from "../db/asn-packages";
 import { countVariance } from "../domain/blind-count";
-import { applyHoldsToOnHand, matchingHoldForMove } from "../domain/holds";
-import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
+import { matchingHoldForMove } from "../domain/holds";
+import { availableOnHand, loadOpenHolds } from "../db/holds";
 import { annotateAtp, atpOnHand, loadOpenAllocations, loadOpenSoftAllocations } from "../db/allocations";
 import { addUtcDays, EXPIRING_WITHIN_DAYS, utcYyyymmdd } from "../domain/expiry";
 import { CERT_EXPIRING_WITHIN_DAYS, isCertExpiring } from "../domain/equipment";
@@ -33,6 +33,7 @@ import { MAX_DELIVERY_DAYS } from "../domain/rate-choice";
 import { loadCarrierConnections } from "./carriers";
 import { normalizePackSizes, PackSizeError } from "../domain/pack-sizes";
 import { assertNotPackBarcode, assertPackBarcodesFree, loadPacksForItem, replaceItemPacks } from "../db/item-packs";
+import { normalizeQcSamplePercent, QcSampleError } from "../domain/qc-receive";
 import { capacityPatch } from "../domain/capacity";
 import { loadBinFill } from "../db/capacity";
 import { withPlateShare } from "../domain/license-plates";
@@ -484,9 +485,7 @@ catalogRoute.get("/items/:id", async (c) => {
     .where(and(eq(schema.serials.organizationId, organizationId), eq(schema.serials.itemId, item.id)));
   const genealogy = await loadAsBuiltForItem(db, organizationId, item.id);
   const located = onHand.map((row) => ({ ...row, itemId: item.id }));
-  const openHolds = await loadOpenHolds(db, organizationId);
-  const heldLotQtys = await loadHeldLotQuantities(db, organizationId, openHolds);
-  const available = applyHoldsToOnHand(located, openHolds, heldLotQtys);
+  const available = await availableOnHand(db, organizationId, located);
   const allocations = await loadOpenAllocations(db, organizationId);
   const soft = await loadOpenSoftAllocations(db, organizationId);
   return c.json({
@@ -616,6 +615,7 @@ catalogRoute.patch("/items/:id", async (c) => {
     shipLengthIn?: number | null;
     shipWidthIn?: number | null;
     shipHeightIn?: number | null;
+    qcSamplePercent?: number | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -638,6 +638,7 @@ catalogRoute.patch("/items/:id", async (c) => {
     shipLengthIn?: number | null;
     shipWidthIn?: number | null;
     shipHeightIn?: number | null;
+    qcSamplePercent?: number | null;
   } = {};
   for (const key of ["shipWeightOz", "shipLengthIn", "shipWidthIn", "shipHeightIn"] as const) {
     if (body[key] === undefined) continue;
@@ -683,6 +684,14 @@ catalogRoute.patch("/items/:id", async (c) => {
     }
   }
   if ("imageUrl" in body) patch.imageUrl = normalizeImageUrl(body.imageUrl);
+  if ("qcSamplePercent" in body) {
+    try {
+      patch.qcSamplePercent = normalizeQcSamplePercent(body.qcSamplePercent);
+    } catch (err) {
+      if (err instanceof QcSampleError) badRequest(err.message);
+      throw err;
+    }
+  }
   if (Object.keys(patch).length === 0) badRequest("Nothing to update");
   if (patch.barcode && patch.barcode !== existing.barcode) await assertNotPackBarcode(db, organizationId, [patch.barcode]);
   if (patch.imageUrl !== undefined && existing.imageUrl && existing.imageUrl !== patch.imageUrl) {
@@ -809,9 +818,7 @@ catalogRoute.get("/inventory", async (c) => {
     .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
     .where(eq(schema.inventoryBalances.organizationId, organizationId))
     .orderBy(schema.items.sku, schema.locations.code);
-  const openHolds = await loadOpenHolds(db, organizationId);
-  const heldLotQtys = await loadHeldLotQuantities(db, organizationId, openHolds);
-  const available = applyHoldsToOnHand(rows, openHolds, heldLotQtys);
+  const available = await availableOnHand(db, organizationId, rows);
   const allocations = await loadOpenAllocations(db, organizationId);
   const soft = await loadOpenSoftAllocations(db, organizationId);
   return c.json(annotateAtp(rows, allocations, available, undefined, soft));

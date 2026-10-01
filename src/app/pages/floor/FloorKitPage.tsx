@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Factory } from "lucide-react";
 import { api, errorText, type KitBuild, type ScanHit } from "../../api";
+import { confirmedQty } from "@/domain/step-confirm";
 import { Button, Card, DoneBanner, Field, Input, StatusBadge } from "../../components/ui";
 import { Term } from "../../components/term";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,6 +10,7 @@ import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } fr
 import { canCompleteKit, canDekit } from "@/domain/status";
 import { AsBuiltList } from "../../components/as-built";
 import { KitRecipeCard } from "../../components/kit-recipe";
+import { StepGate, stepShortfall } from "../../components/step-gate";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 
@@ -27,10 +29,13 @@ export function FloorKitPage() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  function applyKit(kit: KitBuild) {
+  function applyKit(kit: KitBuild, resetQty = true) {
     setActive(kit);
-    setThisQty(String(kit.remaining ?? Math.max(0, kit.qty - (kit.qtyCompleted ?? 0))));
+    if (resetQty) setThisQty(String(kit.remaining ?? Math.max(0, kit.qty - (kit.qtyCompleted ?? 0))));
   }
+
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   /** Open a kit unless a teammate has claimed it. Resolves true when it opened. */
   async function openKit(id: string, nextJobs = jobs): Promise<boolean> {
@@ -63,6 +68,32 @@ export function FloorKitPage() {
     setError(null);
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
       .then(async (hit) => {
+        const open = activeRef.current;
+        if (open && hit.kind === "item") {
+          const ordered = [...(open.steps ?? [])].sort((a, b) => a.seq - b.seq);
+          const step = ordered.find(
+            (row) => row.componentItemId === hit.item.id && confirmedQty(open.confirmations ?? [], row.id) < open.qty,
+          );
+          if (!step) {
+            setError("That scan does not confirm a step.");
+            report?.(false);
+            return;
+          }
+          const room = open.qty - confirmedQty(open.confirmations ?? [], step.id);
+          const packQty = hit.pack?.qty && hit.pack.qty > 0 ? hit.pack.qty : 1;
+          try {
+            const updated = await api<KitBuild>(`/api/kits/${open.id}/steps/confirm`, {
+              method: "POST",
+              body: JSON.stringify({ stepId: step.id, code: raw, qty: Math.min(packQty, room) }),
+            });
+            applyKit(updated, false);
+            report?.(true);
+          } catch (err) {
+            setError(errorText(err, "Could not confirm that step."));
+            report?.(false);
+          }
+          return;
+        }
         if (hit.kind === "kit") {
           report?.(await openKit(hit.kit.id));
           return;
@@ -75,6 +106,20 @@ export function FloorKitPage() {
         report?.(false);
       });
   }, [jobs, me.user.id]);
+
+  async function confirmStep(body: { stepId?: string; code?: string; qty?: number }) {
+    if (!active) return;
+    setError(null);
+    try {
+      const updated = await api<KitBuild>(`/api/kits/${active.id}/steps/confirm`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      applyKit(updated, false);
+    } catch (err) {
+      setError(errorText(err, "Could not confirm that step."));
+    }
+  }
 
   async function complete() {
     if (!active) return;
@@ -106,10 +151,15 @@ export function FloorKitPage() {
   }
 
   const remaining = active ? (active.remaining ?? Math.max(0, active.qty - (active.qtyCompleted ?? 0))) : 0;
+  const posted = Number(thisQty);
+  const postedQty = Number.isInteger(posted) && posted > 0 ? posted : 0;
+  const stepProblem = active
+    ? stepShortfall(active.steps, active.confirmations, active.qtyCompleted ?? 0, postedQty)
+    : null;
 
   return (
     <FloorFrame title="Kit" description="Complete remaining qty from the recipe, or dekit a finished build." error={error}>
-      <FloorScanBox label="Scan kit" placeholder="KIT-DEMO1" onScan={onScan} ready={loaded} />
+      <FloorScanBox label={active ? "Scan component or kit" : "Scan kit"} placeholder="KIT-DEMO1" onScan={onScan} ready={loaded} />
       <DoneBanner>{done}</DoneBanner>
       {!active ? (
         loaded ? (
@@ -151,9 +201,18 @@ export function FloorKitPage() {
             itemName={active.itemName}
             imageUrl={active.imageUrl}
             components={active.components}
-            steps={active.steps}
-            checkable
+            steps={canCompleteKit(active.status) && remaining > 0 ? undefined : active.steps}
           />
+          {canCompleteKit(active.status) && remaining > 0 ? (
+            <StepGate
+              steps={active.steps}
+              confirmations={active.confirmations}
+              qtyCompleted={active.qtyCompleted ?? 0}
+              postedQty={postedQty}
+              documentQty={active.qty}
+              onConfirm={(body) => void confirmStep(body)}
+            />
+          ) : null}
           {canCompleteKit(active.status) && remaining > 0 ? (
             <Field label={`This complete (remaining ${remaining})`}>
               <Input
@@ -178,9 +237,16 @@ export function FloorKitPage() {
             </Field>
           ) : null}
           {canCompleteKit(active.status) && remaining > 0 ? (
-            <Button className="h-14 w-full text-lg sm:w-auto" onClick={() => void complete()}>
-              Complete kit
-            </Button>
+            <>
+              <Button
+                className="h-14 w-full text-lg sm:w-auto"
+                disabled={postedQty <= 0 || Boolean(stepProblem)}
+                onClick={() => void complete()}
+              >
+                Complete kit
+              </Button>
+              {stepProblem ? <p className="text-sm text-muted-foreground">{stepProblem}</p> : null}
+            </>
           ) : canDekit(active.status) ? (
             <div className="space-y-3">
               <p>

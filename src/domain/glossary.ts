@@ -312,6 +312,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/floor/adjust",
   },
   {
+    id: "qc-sample",
+    term: "QC sample",
+    aliases: ["sample percent", "incoming qc", "receive sample"],
+    short: "Units pulled from a receipt for inspection. They stay unavailable until restocked, held, or scrapped. No return is opened.",
+    long: "The percent is on the item. Blank is off, and 0 receives everything as usual. The receipt line id picks which units, so the same line always samples the same way. The receipt can finish while those units are still aside.",
+    path: "/inbound/receipts",
+  },
+  {
     id: "hold",
     term: "Hold",
     aliases: ["qc hold", "quarantine", "lock", "held", "held stock"],
@@ -512,6 +520,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     aliases: ["kitting", "kit build", "kits"],
     short: "Assemble a finished SKU from its recipe (KIT-). Components leave one bay and finished kits land in another.",
     long: "Partial completes are allowed. Unlike a work order, a fully completed kit can be dekitted.",
+    path: "/make/kits",
+  },
+  {
+    id: "step-confirmation",
+    term: "Step confirmation",
+    aliases: ["step gate", "confirm step", "recipe step scan"],
+    short: "Proof a recipe step was done for the units you are completing. Scan the component, or confirm a step that has no component. The photo is only a picture.",
+    long: "Completing a kit or work order waits until every step is confirmed for that qty. One confirmation can cover the qty, or you can confirm one unit at a time. A recipe with no steps still completes. Both modes use the same check.",
     path: "/make/kits",
   },
   {

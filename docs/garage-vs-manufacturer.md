@@ -608,7 +608,33 @@ The From address stays `MAIL_FROM`. You can set a sender name and a reply-to add
 - A return label the carrier would not sell or void shows in Exceptions, even though the original order has already shipped.
 - An order with no ship weight, on a service that buys live postage, waits under **Needs attention** (`NEED_WEIGHT`).
 
-## 18. Soft reserve
+## 18. Step confirmation
+
+Completing a kit or a work order waits until the recipe steps are confirmed for the quantity you are posting. This is the same in Garage and Manufacturer, on the floor and from the office. A recipe with no steps still completes. Posting zero, or completing a build that is already finished, is unchanged.
+
+Each step has to be confirmed once for every unit in this complete. Posting 3 needs each step confirmed 3 times, or one confirmation that covers those 3. Confirmations already recorded count, so finishing the last unit only asks for what is still short. They are kept on that kit or work order.
+
+- A step tied to a component is confirmed by scanning that component's SKU, barcode, or pack barcode. A pack barcode confirms the pack's eaches.
+- A step with no component is confirmed on its own.
+- The photo on a step is there so you can see the part. It is not proof, and checking it off on the screen does not count.
+
+Until the steps for this complete are confirmed, the complete button stays disabled and the server answers 409 `STEPS_REQUIRED`, naming the next step, for example "Confirm step 1, Thread the cord, before completing." Each scan or confirm is saved as it happens.
+
+## 19. QC at receive
+
+An item can pull a sample of each receipt for inspection. The percent is on the item page, from 0 to 100. Blank turns it off. 0 and blank receive the line the way they always have. 100 sets every unit of that line aside.
+
+The sample is chosen from the receipt line id and the percent, the same way every time, so it does not depend on chance. Unsampled units are received into the bay and, if you scanned a plate, onto that plate. Sampled units are received onto the bay once and are not available until someone passes them. They are not put on the plate, so a later hold or scrap does not count them a second time.
+
+On Floor → Receive, the sampled units show with three actions. An owner or anyone who can receive can take them:
+
+- **Restock** makes those units available in the bay. They are not received again.
+- **Hold** opens an inventory hold for that SKU in the bay, the same kind of hold as Stock → Holds, with reason QC. No return is created.
+- **Scrap** posts one adjustment out, so the units leave on hand once.
+
+One photo link can be saved with the decision. The receipt can be finished while QC is still open. Those units stay unavailable until the decision. A hold locks the SKU at that bay the way any hold does, including units of the same SKU that were not in the sample.
+
+## 20. Soft reserve
 
 Creating an order — a store webhook, a CSV paste, a crowdfunding import, or **New order** — reserves ATP for each line. The reserve counts against available qty for quick-ship, the ship queue, and the next order. It does not pin a bay. A 3PL client order only reserves that client's stock.
 
@@ -616,11 +642,11 @@ If the shelf is short, the order still lands. The covered qty is reserved and th
 
 The order page shows **Reserved**. Promise still shows the leave-by date, and a **Stock** column says how much is reserved. Asking Promise about a new qty does not reserve anything.
 
-## 19. Same-aisle interleave
+## 21. Same-aisle interleave
 
 After a putaway or a receive, the next ranked job is a pick in that aisle when one is there. That pick beats age, a Shopify order, and a shorter walk. It does not beat a pinned job, a starved pick face, or a lot expiring within 14 days. The reason says the pick is on the aisle the person just worked.
 
-## 20. ABC cycle counts
+## 22. ABC cycle counts
 
 Manufacturer classifies each SKU from picks and shipments over the last 30 days. The fastest SKUs, the ones that make up the first 80% of that movement, are A and are counted every 7 days. The next through 95% are B, every 30 days. The rest, including SKUs that did not move, are C, every 90 days.
 

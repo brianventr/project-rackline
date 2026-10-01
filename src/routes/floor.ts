@@ -29,6 +29,7 @@ import { loadPutawayBaysByItem } from "../db/putaway-bays";
 import { allLinesEntered, applyCountEntries, countHasItem, revealSystemQty } from "../domain/blind-count";
 import { applyHoldsToOnHand, HeldStockError, matchingHoldForMove } from "../domain/holds";
 import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
+import { withOpenQc } from "../db/qc-samples";
 import { allocatedQtyAt, applyAllocationsToOnHand, InsufficientAtpError } from "../domain/allocations";
 import { loadOpenAllocations } from "../db/allocations";
 import {
@@ -933,7 +934,11 @@ floorRoute.get("/scan", async (c) => {
     const holds = await loadOpenHolds(db, organizationId, location.warehouseId);
     const lotQtys = await loadHeldLotQuantities(db, organizationId, holds);
     const allocations = await loadOpenAllocations(db, organizationId, { warehouseId: location.warehouseId });
-    const withLocation = contents.map((row) => ({ ...row, locationId: location.id }));
+    const withLocation = await withOpenQc(
+      db,
+      organizationId,
+      contents.map((row) => ({ ...row, locationId: location.id })),
+    );
     const available = applyAllocationsToOnHand(applyHoldsToOnHand(withLocation, holds, lotQtys), allocations);
     const availableByItem = new Map(available.map((row) => [row.itemId, row.qty]));
     const annotated = contents.map((row) => {
@@ -1015,7 +1020,7 @@ floorRoute.get("/scan", async (c) => {
     const holds = await loadOpenHolds(db, organizationId);
     const lotQtys = await loadHeldLotQuantities(db, organizationId, holds);
     const allocations = await loadOpenAllocations(db, organizationId);
-    const holdAdjusted = applyHoldsToOnHand(onHand, holds, lotQtys);
+    const holdAdjusted = applyHoldsToOnHand(await withOpenQc(db, organizationId, onHand), holds, lotQtys);
     const available = applyAllocationsToOnHand(holdAdjusted, allocations);
     const annotated = available.map((row) => {
       const physical = onHand.find((entry) => entry.locationId === row.locationId)?.qty ?? row.qty;
@@ -1531,7 +1536,11 @@ floorRoute.post("/moves", async (c) => {
   const allocations = await loadOpenAllocations(db, organizationId, { warehouseId: from.warehouseId });
   const available = applyAllocationsToOnHand(
     applyHoldsToOnHand(
-      onHand.map((row) => ({ ...row, locationId: from.id })),
+      await withOpenQc(
+        db,
+        organizationId,
+        onHand.map((row) => ({ ...row, locationId: from.id })),
+      ),
       holds,
       lotQtys,
     ),

@@ -4,6 +4,7 @@ import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { getOrgWarehouse } from "../lib/org";
 import { loadHeldLotQuantities, loadOpenHolds } from "./holds";
+import { withOpenQc } from "./qc-samples";
 import { applyHoldsToOnHand, blocksLot } from "../domain/holds";
 import { LIVE_PACE_WINDOW_MS, movementTouch } from "../domain/live";
 import {
@@ -184,7 +185,7 @@ export async function loadPromiseFacts(
   ]);
 
   const lotHeld = await loadHeldLotQuantities(db, organizationId, holds);
-  const availableRows = applyHoldsToOnHand(balances, holds, lotHeld);
+  const availableRows = applyHoldsToOnHand(await withOpenQc(db, organizationId, balances), holds, lotHeld);
   const availableByItem = new Map<string, number>();
   for (const row of availableRows) {
     availableByItem.set(row.itemId, (availableByItem.get(row.itemId) ?? 0) + Math.max(0, row.qty));

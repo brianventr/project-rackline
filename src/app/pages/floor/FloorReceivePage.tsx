@@ -60,6 +60,7 @@ export function FloorReceivePage() {
   const [done, setDone] = useState<string | null>(null);
   const plates = !isGarageMode(me.organization.operatingMode) || garageAllowsPath("/floor/plates");
   const [plateCode, setPlateCode] = useState<string | null>(null);
+  const [qcPhotos, setQcPhotos] = useState<Record<string, string>>({});
   // Scans resolve out of order, so each one reads the latest qtys through the ref. Items in
   // `counted` have been scanned or typed since the qtys were prefilled; their scans add.
   const qtysRef = useRef(qtys);
@@ -85,14 +86,15 @@ export function FloorReceivePage() {
     setReceipts(
       nextReceipts.filter(
         (row) =>
-          canReceive(row.status) &&
-          hasRemaining(
-            (row.lines ?? []).map((line) => ({
-              itemId: line.itemId,
-              qtyExpected: line.qty,
-              qtyReceived: line.qtyReceived,
-            })),
-          ),
+          (row.openQc ?? 0) > 0 ||
+          (canReceive(row.status) &&
+            hasRemaining(
+              (row.lines ?? []).map((line) => ({
+                itemId: line.itemId,
+                qtyExpected: line.qty,
+                qtyReceived: line.qtyReceived,
+              })),
+            )),
       ),
     );
     setPurchases(
@@ -251,7 +253,12 @@ export function FloorReceivePage() {
       });
       setActiveReceipt(posted);
       prefill(posted.lines ?? []);
-      setDone(`${posted.number} posted to the dock${plateCode ? ` on ${plateCode}` : ""}.`);
+      const waiting = (posted.qc ?? []).filter((row) => row.status === "open").reduce((sum, row) => sum + row.qty, 0);
+      setDone(
+        waiting > 0
+          ? `${posted.number} posted. ${waiting} sampled ${waiting === 1 ? "unit is" : "units are"} waiting on QC.`
+          : `${posted.number} posted to the dock${plateCode ? ` on ${plateCode}` : ""}.`,
+      );
       setPlateCode(null);
       await load();
     } catch (err) {
@@ -286,6 +293,27 @@ export function FloorReceivePage() {
       failed(err, () => void receivePurchase(true));
     }
   }
+
+  async function decideQc(sampleId: string, decision: "restock" | "hold" | "scrap") {
+    if (!activeReceipt) return;
+    setError(null);
+    try {
+      const photo = qcPhotos[sampleId]?.trim();
+      const posted = await api<Receipt>(`/api/receipts/${activeReceipt.id}/qc/${sampleId}`, {
+        method: "POST",
+        body: JSON.stringify({ decision, ...(photo ? { photoUrl: photo } : {}) }),
+      });
+      setActiveReceipt(posted);
+      const sample = (activeReceipt.qc ?? []).find((row) => row.id === sampleId);
+      const verb = decision === "restock" ? "restocked" : decision === "hold" ? "held" : "scrapped";
+      setDone(`${sample?.qty ?? ""} ${sample?.sku ?? "units"} ${verb}.`);
+      await load();
+    } catch (err) {
+      setError(errorText(err, "Could not decide that sample."));
+    }
+  }
+
+  const openQc = (activeReceipt?.qc ?? []).filter((row) => row.status === "open");
 
   return (
     <FloorFrame
@@ -561,6 +589,36 @@ export function FloorReceivePage() {
             </Field>
           </div>
           <PlateChip code={plateCode} onClear={() => setPlateCode(null)} />
+          {openQc.length > 0 ? (
+            <div className="space-y-3">
+              <p className="text-sm font-medium">QC sample</p>
+              {openQc.map((sample) => (
+                <div key={sample.id} className="space-y-2 rounded-lg border p-3">
+                  <p className="text-sm">
+                    <span className="font-mono">{sample.sku}</span> · {sample.qty} unavailable
+                  </p>
+                  <Input
+                    className="h-11 text-base"
+                    placeholder="Photo link (optional)"
+                    aria-label={`${sample.sku} QC photo`}
+                    value={qcPhotos[sample.id] ?? ""}
+                    onChange={(event) => setQcPhotos((current) => ({ ...current, [sample.id]: event.target.value }))}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button className="h-11" onClick={() => void decideQc(sample.id, "restock")}>
+                      Restock
+                    </Button>
+                    <Button className="h-11" variant="secondary" onClick={() => void decideQc(sample.id, "hold")}>
+                      Hold
+                    </Button>
+                    <Button className="h-11" variant="secondary" onClick={() => void decideQc(sample.id, "scrap")}>
+                      Scrap
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {canReceive(activeReceipt!.status) &&
           hasRemaining(
             (activeReceipt!.lines ?? []).map((line) => ({
