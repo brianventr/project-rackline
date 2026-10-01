@@ -250,7 +250,7 @@ export function ExceptionsPage() {
       />
       {capped.length ? (
         <p className="rounded-lg border bg-tone-warning-bg px-3 py-2 text-sm text-tone-warning">
-          {listText(capped.map((source) => source.label), 5)}: showing the oldest {SOURCE_LIMIT}. Clear those and the rest come in.
+          {listText(capped.map((source) => source.label), 5)}: showing the {SOURCE_LIMIT} most urgent. Clear those and the rest come in.
         </p>
       ) : null}
 
