@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentProps } from "react";
+import { useMemo, type ComponentProps } from "react";
 import { Link } from "react-router-dom";
 import { Logo } from "@/components/logo";
 import { NavMain } from "@/components/nav-main";
@@ -17,7 +17,8 @@ import {
 import { useSession } from "@/app/session";
 import { homePath } from "@/app/warehouse";
 import { useDashboard } from "@/app/dashboard";
-import { navForSession } from "@/app/navigation";
+import { useExceptionInbox } from "@/app/exceptions";
+import { navForSession, type NavCounts } from "@/app/navigation";
 import { isGarageMode } from "@/domain/operating-mode";
 import { OnboardingProgress } from "@/app/components/onboarding";
 
@@ -25,6 +26,11 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
   const me = useSession();
   const garage = isGarageMode(me.organization.operatingMode);
   const dashboard = useDashboard();
+  const inbox = useExceptionInbox();
+  const counts = useMemo<NavCounts | null>(
+    () => (dashboard.data ? { ...dashboard.data, exceptions: inbox.data?.counts } : null),
+    [dashboard.data, inbox.data?.counts],
+  );
   const groups = navForSession(me.role, garage);
 
   return (
@@ -54,7 +60,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
             key={group.label}
             label={group.label}
             items={group.items}
-            dashboard={dashboard.data}
+            dashboard={counts}
             pinnedOpen={index === 0}
           />
         ))}

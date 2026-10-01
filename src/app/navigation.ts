@@ -1,5 +1,6 @@
 import {
   Activity,
+  AlertTriangle,
   ArrowDownToLine,
   ArrowRightLeft,
   ArrowUpFromLine,
@@ -47,9 +48,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { Dashboard } from "./api";
+import type { ExceptionCounts } from "@/domain/exceptions/inbox";
 import { garageAllowsPath, garageNavForRole } from "@/domain/operating-mode";
 
 export type NavCount = { value: number; tone?: "default" | "warning" };
+
+/** What sidebar badges read: the shared dashboard counts, plus the exception inbox's once it loads. */
+export type NavCounts = Dashboard & { exceptions?: ExceptionCounts };
 
 export type NavItem = {
   title: string;
@@ -59,7 +64,7 @@ export type NavItem = {
   keywords?: string;
   ownerOnly?: boolean;
   /** Open-work badge read from the shared dashboard counts. */
-  count?: (dashboard: Dashboard) => NavCount | null;
+  count?: (counts: NavCounts) => NavCount | null;
 };
 
 export type NavGroup = { label: string; items: NavItem[] };
@@ -104,6 +109,13 @@ export const OFFICE_NAV: NavGroup[] = [
     label: "Today",
     items: [
       { title: "Today", url: "/today", icon: LayoutDashboard, keywords: "home dashboard dispatch" },
+      {
+        title: "Exceptions",
+        url: "/exceptions",
+        icon: AlertTriangle,
+        keywords: "problems needs attention failed stuck held variance claim snooze resolve inbox",
+        count: (d) => n(d.exceptions?.open, d.exceptions?.blocking ? "warning" : "default"),
+      },
       { title: "Live", url: "/live", icon: Activity, ownerOnly: true, keywords: "wall pace" },
       { title: "Performance", url: "/labor", icon: Gauge, ownerOnly: true, keywords: "labor kpi staff" },
       { title: "Floor", url: "/floor", icon: ScanLine, keywords: "scan handheld jobs" },

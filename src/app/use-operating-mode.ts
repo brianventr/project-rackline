@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { isGarageMode, type OperatingMode } from "@/domain/operating-mode";
 import { api } from "./api";
+import { refreshApi } from "./query";
 import { useSession, useSetOperatingMode } from "./session";
 
 export function useOperatingMode() {
@@ -16,6 +17,7 @@ export function useOperatingMode() {
         body: JSON.stringify({ operatingMode }),
       });
       setOperatingMode(operatingMode);
+      void refreshApi("/api/exceptions");
     } finally {
       setBusy(false);
     }

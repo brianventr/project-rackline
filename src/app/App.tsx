@@ -7,6 +7,7 @@ import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { LandingPage } from "./pages/LandingPage";
 import { ComparePage, IndustryPage, UseCasePage } from "./marketing/MarketingRoutes";
 import { TodayPage } from "./pages/TodayPage";
+import { ExceptionsPage } from "./pages/ExceptionsPage";
 import { WelcomePage } from "./pages/WelcomePage";
 import { LivePage } from "./pages/LivePage";
 import { ItemsPage } from "./pages/ItemsPage";
@@ -39,6 +40,7 @@ import { FloorPackPage } from "./pages/floor/FloorPackPage";
 import { FloorShipPage } from "./pages/floor/FloorShipPage";
 import { FloorCountPage } from "./pages/floor/FloorCountPage";
 import { FloorHoldPage } from "./pages/floor/FloorHoldPage";
+import { FloorExceptionsPage } from "./pages/floor/FloorExceptionsPage";
 import { FloorPlatesPage } from "./pages/floor/FloorPlatesPage";
 import { FloorAssemblePage } from "./pages/floor/FloorAssemblePage";
 import { FloorReturnPage } from "./pages/floor/FloorReturnPage";
@@ -135,6 +137,7 @@ export function App() {
       <Route path="/compare/:slug" element={<ComparePage />} />
       <Route element={<Guard me={me} />}>
         <Route path="/today" element={<TodayPage />} />
+        <Route path="/exceptions" element={<ExceptionsPage />} />
         <Route
           path="/welcome"
           element={
@@ -187,6 +190,7 @@ export function App() {
         <Route path="/floor/ship" element={<FloorShipPage />} />
         <Route path="/floor/count" element={<FloorCountPage />} />
         <Route path="/floor/hold" element={<FloorHoldPage />} />
+        <Route path="/floor/exceptions" element={<FloorExceptionsPage />} />
         <Route path="/floor/plates" element={<FloorPlatesPage />} />
         <Route path="/floor/assemble" element={<FloorAssemblePage />} />
         <Route path="/floor/kit" element={<FloorKitPage />} />

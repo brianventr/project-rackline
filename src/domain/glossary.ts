@@ -482,6 +482,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/floor",
   },
   {
+    id: "exception-inbox",
+    term: "Exception inbox",
+    aliases: ["exceptions", "exception", "needs attention", "snooze", "resolve"],
+    short: "Failed labels, stuck parcels, held stock, and other problems from every screen, in one list you claim like a job.",
+    long: "Each problem is read live from where it lives, so fixing it there clears it on its own. Claim, snooze, or resolve it with a note; an owner can take over a claim. Garage leaves out counts, EDI, and bay capacity.",
+    path: "/exceptions",
+  },
+  {
     id: "cutoff",
     term: "Carrier cutoff",
     aliases: ["cutoff", "pickup", "carrier pickup", "last pickup"],

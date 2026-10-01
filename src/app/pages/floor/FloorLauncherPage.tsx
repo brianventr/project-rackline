@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
+  AlertTriangle,
   ArrowDownToLine,
   ArrowRight,
   ArrowUpFromLine,
@@ -34,6 +35,7 @@ import { MyDayCard } from "../LaborPage";
 import { useWarehouse } from "../../warehouse";
 import { useScanner } from "../../scanner/ScannerProvider";
 import { useApiQuery } from "../../query";
+import { useExceptionInbox } from "../../exceptions";
 import { api, type FloorJob, type Item } from "../../api";
 import { VERB_LABELS, type FloorVerb, isFloorVerb } from "@/domain/jobs";
 import { garageOffersOnFloor, isGarageMode, pathOnly } from "@/domain/operating-mode";
@@ -55,6 +57,8 @@ type Icon = ComponentType<{ className?: string }>;
 
 type VerbTile = { to: string; title: string; body: string; verb?: FloorVerb; icon: Icon };
 
+const EXCEPTIONS_TILE = "/floor/exceptions";
+
 const verbs: VerbTile[] = [
   { to: "/floor/lookup", title: "Lookup", body: "Scan a SKU, bay, document, serial, or lot.", icon: Search },
   { to: "/floor/print", title: "Print", body: "Print a bay, SKU, pick list, pack slip, or shipping label.", icon: Printer },
@@ -72,6 +76,7 @@ const verbs: VerbTile[] = [
   { to: "/floor/rtv", title: "Vendor return", body: "Ship remaining qty back to the vendor from a bay.", verb: "rtv", icon: ArrowUpFromLine },
   { to: "/floor/count", title: "Count", body: "Blind-count a bay. System qty stays hidden until you post.", verb: "count", icon: Calculator },
   { to: "/floor/hold", title: "Hold", body: "Lock a bay, SKU, or lot so pick and replenish skip it.", verb: "hold", icon: ShieldAlert },
+  { to: EXCEPTIONS_TILE, title: "Exceptions", body: "Claim a held bay, a count variance, or an over-full bay and fix it.", icon: AlertTriangle },
   { to: "/floor/plates", title: "Plates", body: "Build a tote, pallet, or carton in a bay, then move it in one scan.", icon: Package2 },
   { to: "/floor/assemble", title: "Assemble", body: "Complete a work order on the bench.", verb: "assemble", icon: Hammer },
   { to: "/floor/kit", title: "Kit", body: "Build a finished SKU from its recipe in one step.", verb: "kit", icon: Factory },
@@ -156,6 +161,8 @@ export function FloorLauncherPage() {
   const openJobs = useMemo(() => (openQ.data ?? []).filter(keep), [openQ.data, keep]);
   const mine = useMemo(() => openJobs.filter((job) => job.assigneeId === me.user.id), [openJobs, me.user.id]);
   const counts = useMemo(() => openWorkByVerb(openJobs, me.user.id), [openJobs, me.user.id]);
+  const inbox = useExceptionInbox();
+  const tileCount = (item: VerbTile) => (item.to === EXCEPTIONS_TILE ? inbox.data?.counts.floor : item.verb ? counts[item.verb] : undefined);
 
   const next = nextJobs[0];
   const itemsQ = useApiQuery<Item[]>(next?.itemId ? "/api/items" : null);
@@ -308,7 +315,7 @@ export function FloorLauncherPage() {
               <VerbTileLink
                 key={item.to}
                 item={item}
-                count={item.verb ? counts[item.verb] : undefined}
+                count={tileCount(item)}
                 compact
                 onTap={recordTap}
               />
@@ -325,7 +332,7 @@ export function FloorLauncherPage() {
               <VerbTileLink
                 key={item.to}
                 item={item}
-                count={item.verb ? counts[item.verb] : undefined}
+                count={tileCount(item)}
                 onTap={recordTap}
               />
             ))}
