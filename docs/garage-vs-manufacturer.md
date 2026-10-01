@@ -454,7 +454,7 @@ Plates show on the bay's page under Locations, with an **On plates** column, on 
 **Claim it like a job.** Anyone can claim an unclaimed problem, and a claimed one belongs to its claimer. An operator who works on someone else's claim gets 409 `EXCEPTION_CLAIMED`. An owner can unclaim it, take it over, or act on it anyway.
 
 - **Snooze** hides a problem for an hour, up to a week. It comes back on its own, or straight away with **Wake**.
-- **Resolve** takes a note that says what you did. Use it for a problem handled outside Rackline, such as a refund. A resolved problem stays under **Resolved** until its source clears. If the problem starts again later, it opens again, unclaimed.
+- **Resolve** takes a note that says what you did. Use it for a problem handled outside Rackline, such as a refund. A resolved problem stays under **Resolved** until its source clears. If the problem starts again later, it opens again, unclaimed. A bay that went over its limit without an override, because the limit came down or a count found more, has no start time, so it stays resolved until someone reopens it.
 - **Inline fixes** call the same endpoint, with the same guards, as the screen the fix belongs to. A fix that screen would refuse is refused here with the screen's own message. A fix that clears the problem takes it off the list.
 - Every claim, unclaim, snooze, resolve, reopen, and fix writes an `exception.*` row to the audit log.
 
