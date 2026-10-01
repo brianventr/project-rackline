@@ -665,3 +665,11 @@ A refusal from the server stays on the queue as a failure and is not sent again.
 Manufacturer pick and pack still need a server scan session. If opening that session or recording a scan cannot reach the server, it is queued ahead of the pick. Garage still sends its scan list on the pick and does not open a session.
 
 The installed app caches the floor shell, so Receive and Pick still open after a refresh while offline. Calls to `/api` are not cached. The dev server does not register the shell.
+
+## 24. Client rate cards and the client portal
+
+Manufacturer billing starts from the organization rate card on Settings → Billing: 2¢ per piece on hand, 25¢ per picked unit, and $1.50 per shipped carton, unless you change those cents. Each client on Settings → Clients can override any of the three. A blank field keeps the organization rate. Zero is a real price, not a blank. **Draft invoices** uses the card that belongs to the client whose activity is on the invoice.
+
+**Enable portal link** on the client mints a 128-bit token and shows the link once: `/portal/c/…`. **Rotate portal link** replaces it, and the old link stops working. The page needs no sign-in. It shows that client's on-hand totals (SKU, name, qty), open orders (number, status, destination city), recent shipments (order number, carrier, tracking number, status), and that client's own invoices. It does not show other clients, street addresses, or internal ids.
+
+The organization invoice list at `/api/billing/portal/…` is unchanged. That link lists the warehouse's invoices. The client link lists one client.

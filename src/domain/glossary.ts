@@ -553,6 +553,22 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/setup/clients",
   },
   {
+    id: "rate-card",
+    term: "Rate card",
+    aliases: ["client rate", "storage rate", "pick rate"],
+    short: "What you charge a 3PL client for storage, picks, and cartons. A blank field uses the organization rate.",
+    long: "The organization card is the default (storage 2¢, pick 25¢, carton $1.50 unless you change it). A client's own cents replace only the fields you set. Invoices for that client's activity use the card.",
+    path: "/setup/clients",
+  },
+  {
+    id: "client-portal",
+    term: "Client portal",
+    aliases: ["3pl portal", "client link"],
+    short: "A read-only link for one 3PL client: on-hand totals, open orders, recent shipments, and that client's invoices.",
+    long: "The link is 128 bits and is shown once. Rotate it to cut off the old one. It needs no sign-in, and it never shows another client, a street address, or an internal id.",
+    path: "/setup/clients",
+  },
+  {
     id: "job",
     term: "Floor job",
     aliases: ["job", "next job", "my jobs", "claim"],

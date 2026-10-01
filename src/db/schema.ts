@@ -1352,8 +1352,17 @@ export const clients = sqliteTable(
     code: text("code").notNull(),
     name: text("name").notNull(),
     createdAt: integer("created_at").notNull(),
+    /** Null uses the organization rate on `billing_accounts.rates_json`. */
+    storageCentsPerPiece: integer("storage_cents_per_piece"),
+    pickCentsPerUnit: integer("pick_cents_per_unit"),
+    cartonCents: integer("carton_cents"),
+    /** Public `/portal/c/:token` link. Null until an owner enables it. Shown once, then only the fact that it exists. */
+    portalToken: text("portal_token"),
   },
-  (t) => [uniqueIndex("clients_org_code").on(t.organizationId, t.code)],
+  (t) => [
+    uniqueIndex("clients_org_code").on(t.organizationId, t.code),
+    uniqueIndex("clients_portal_token").on(t.portalToken),
+  ],
 );
 
 export const clientBalances = sqliteTable(

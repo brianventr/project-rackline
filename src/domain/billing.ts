@@ -6,6 +6,13 @@ export type BillingRates = {
   cartonCents: number;
 };
 
+/** A client's own cents. Null on a field means that line uses the organization rate. */
+export type ClientRateCard = {
+  storageCentsPerPiece: number | null;
+  pickCentsPerUnit: number | null;
+  cartonCents: number | null;
+};
+
 export { ACTIVITY_RATES };
 export type { ActivityLine };
 
@@ -41,6 +48,20 @@ function pieces(value: number): number {
   return Math.floor(value);
 }
 
+/** Null or a missing card uses the organization rate. Zero is a real override. */
+export function ratesForClient(org: BillingRates, card?: Partial<ClientRateCard> | null): BillingRates {
+  return {
+    storageCentsPerPiece: rateOrOrg(card?.storageCentsPerPiece, org.storageCentsPerPiece),
+    pickCentsPerUnit: rateOrOrg(card?.pickCentsPerUnit, org.pickCentsPerUnit),
+    cartonCents: rateOrOrg(card?.cartonCents, org.cartonCents),
+  };
+}
+
+function rateOrOrg(value: number | null | undefined, fallback: number): number {
+  if (value == null) return fallback;
+  return positiveInt(value, fallback);
+}
+
 export function rateActivity(
   input: {
     storagePieces: number;
@@ -48,7 +69,9 @@ export function rateActivity(
     shippedCartons: number;
   },
   rates: BillingRates = ACTIVITY_RATES,
+  card?: Partial<ClientRateCard> | null,
 ): { lines: ActivityLine[]; amountCents: number } | null {
+  const applied = ratesForClient(rates, card);
   const lines: ActivityLine[] = [];
   const storage = pieces(input.storagePieces);
   const picks = pieces(input.pickedUnits);
@@ -58,8 +81,8 @@ export function rateActivity(
       kind: "storage",
       label: "On-hand pieces",
       qty: storage,
-      unitCents: rates.storageCentsPerPiece,
-      amountCents: storage * rates.storageCentsPerPiece,
+      unitCents: applied.storageCentsPerPiece,
+      amountCents: storage * applied.storageCentsPerPiece,
     });
   }
   if (picks > 0) {
@@ -67,8 +90,8 @@ export function rateActivity(
       kind: "pick",
       label: "Picked units",
       qty: picks,
-      unitCents: rates.pickCentsPerUnit,
-      amountCents: picks * rates.pickCentsPerUnit,
+      unitCents: applied.pickCentsPerUnit,
+      amountCents: picks * applied.pickCentsPerUnit,
     });
   }
   if (cartons > 0) {
@@ -76,8 +99,8 @@ export function rateActivity(
       kind: "carton",
       label: "Shipped cartons",
       qty: cartons,
-      unitCents: rates.cartonCents,
-      amountCents: cartons * rates.cartonCents,
+      unitCents: applied.cartonCents,
+      amountCents: cartons * applied.cartonCents,
     });
   }
   const amountCents = lines.reduce((sum, line) => sum + line.amountCents, 0);

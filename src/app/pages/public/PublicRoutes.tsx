@@ -1,10 +1,11 @@
 import { Route, Routes } from "react-router-dom";
+import { ClientPortalPage } from "./ClientPortalPage";
 import { ReturnLabelPage } from "./ReturnLabelPage";
 import { TrackingPage } from "./TrackingPage";
 
 /** Pages a customer opens from a link. They render without `/api/me` or a sign-in. */
 export function isPublicPath(pathname: string): boolean {
-  return /^\/[tr]\/[^/]+\/?$/.test(pathname);
+  return /^\/[tr]\/[^/]+\/?$/.test(pathname) || /^\/portal\/c\/[^/]+\/?$/.test(pathname);
 }
 
 export function PublicRoutes() {
@@ -12,6 +13,7 @@ export function PublicRoutes() {
     <Routes>
       <Route path="/t/:token" element={<TrackingPage />} />
       <Route path="/r/:token" element={<ReturnLabelPage />} />
+      <Route path="/portal/c/:token" element={<ClientPortalPage />} />
     </Routes>
   );
 }

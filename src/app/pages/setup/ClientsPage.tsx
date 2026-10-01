@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Building2, Pencil, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { Building2, Link2, Pencil, Plus, Receipt, Trash2 } from "lucide-react";
 import { api, type Client } from "../../api";
 import { Button, EmptyState, PageHeader } from "../../components/ui";
 import { DataTable, type DataColumn } from "../../components/data-table/DataTable";
@@ -32,7 +33,36 @@ const CLIENT_COLUMNS: DataColumn<Client>[] = [
     csv: (client) => new Date(client.createdAt).toISOString(),
     cell: (client) => <RelativeTime at={client.createdAt} />,
   },
+  {
+    id: "rates",
+    header: "Rates",
+    sortValue: (client) => client.pickCentsPerUnit ?? -1,
+    cell: (client) => <ClientRates client={client} />,
+  },
+  {
+    id: "portal",
+    header: "Portal",
+    sortValue: (client) => (client.portalEnabled ? 1 : 0),
+    cell: (client) => (client.portalEnabled ? "On" : "Off"),
+  },
 ];
+
+function ClientRates({ client }: { client: Client }) {
+  const bits: string[] = [];
+  if (client.storageCentsPerPiece != null) bits.push(`storage ${client.storageCentsPerPiece}¢`);
+  if (client.pickCentsPerUnit != null) bits.push(`pick ${client.pickCentsPerUnit}¢`);
+  if (client.cartonCents != null) bits.push(`carton ${client.cartonCents}¢`);
+  return <span className="text-muted-foreground">{bits.length ? bits.join(" · ") : "Organization rates"}</span>;
+}
+
+function centsOrBlank(raw: string): number | null {
+  if (raw.trim() === "") return null;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error("Enter a whole number of cents, or leave the field blank for the organization rate.");
+  }
+  return value;
+}
 
 type SheetState = { mode: "new" } | { mode: "edit"; client: Client } | null;
 
@@ -54,6 +84,45 @@ export function ClientsPage() {
             label={`${client.code} actions`}
             actions={[
               { label: "Edit", icon: Pencil, onSelect: () => setSheet({ mode: "edit", client }) },
+              {
+                label: "Rate card",
+                icon: Receipt,
+                onSelect: async () => {
+                  const storage = window.prompt(
+                    "Storage ¢ per piece. Leave blank to use the organization rate.",
+                    client.storageCentsPerPiece == null ? "" : String(client.storageCentsPerPiece),
+                  );
+                  if (storage == null) return;
+                  const pick = window.prompt(
+                    "Pick ¢ per unit. Leave blank to use the organization rate.",
+                    client.pickCentsPerUnit == null ? "" : String(client.pickCentsPerUnit),
+                  );
+                  if (pick == null) return;
+                  const carton = window.prompt(
+                    "Carton ¢. Leave blank to use the organization rate.",
+                    client.cartonCents == null ? "" : String(client.cartonCents),
+                  );
+                  if (carton == null) return;
+                  await apiMutate(`/api/clients/${client.id}/rates`, {
+                    method: "PUT",
+                    body: JSON.stringify({
+                      storageCentsPerPiece: centsOrBlank(storage),
+                      pickCentsPerUnit: centsOrBlank(pick),
+                      cartonCents: centsOrBlank(carton),
+                    }),
+                  });
+                  toast.success(`Rate card for ${client.code} saved.`);
+                },
+              },
+              {
+                label: client.portalEnabled ? "Rotate portal link" : "Enable portal link",
+                icon: Link2,
+                onSelect: async () => {
+                  const result = await apiMutate<{ path: string }>(`/api/clients/${client.id}/portal-token`);
+                  window.prompt("Copy this client portal link. It is shown once.", `${window.location.origin}${result.path}`);
+                  toast.success(`Portal link for ${client.code} is ready.`);
+                },
+              },
               {
                 label: "Delete client",
                 icon: Trash2,
