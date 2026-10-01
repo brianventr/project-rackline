@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   baysForItem,
+  putawayQty,
   shouldSuggestPutaway,
   suggestPutawayBay,
   suggestPutawayJobs,
@@ -99,6 +100,23 @@ describe("suggestPutawayBay", () => {
       )?.locationCode,
     ).toBe("B-01-01-2");
   });
+
+  it("skips a full bay", () => {
+    expect(suggestPutawayBay([pickFace, { ...bulk, room: 0 }], "recv")?.locationCode).toBe("A-01-02");
+    expect(suggestPutawayBay([{ ...bulk, room: 0 }], "recv")).toBeNull();
+  });
+
+  it("prefers a bay with room for the whole qty over a better one that fits only part", () => {
+    const tight = { ...bulk, room: 5 };
+    expect(suggestPutawayBay([tight, otherBulk], "recv", 12)?.locationCode).toBe("B-01-01-2");
+    expect(suggestPutawayBay([tight, otherBulk], "recv", 5)?.locationCode).toBe("A-01-01");
+    expect(suggestPutawayBay([tight, { ...otherBulk, room: 3 }], "recv", 12)?.locationCode).toBe("A-01-01");
+  });
+
+  it("scores exactly as before when no bay has a limit", () => {
+    const bays = [recv, pickFace, bulk, otherBulk];
+    expect(suggestPutawayBay(bays, "recv", 500)?.locationCode).toBe(suggestPutawayBay(bays, "recv")?.locationCode);
+  });
 });
 
 describe("suggestPutawayJobs", () => {
@@ -128,6 +146,24 @@ describe("suggestPutawayJobs", () => {
       ["LED-BULB", "A-01-01"],
       ["SHADE", "A-01-01"],
     ]);
+  });
+
+  it("suggests only what fits when no bay has room for all of it", () => {
+    const [job] = suggestPutawayJobs(
+      { id: "recv", code: "RECV", barcode: "RECV", type: "receiving" },
+      [{ itemId: "bulb", sku: "LED-BULB", itemName: "LED", qty: 12 }],
+      new Map([["bulb", [recv, { ...bulk, room: 8 }, { ...pickFace, room: 0 }]]]),
+    );
+    expect(job).toMatchObject({ qty: 8, suggested: { locationCode: "A-01-01", room: 8 } });
+  });
+});
+
+describe("putawayQty", () => {
+  it("caps the move at the bay's room", () => {
+    expect(putawayQty(12, { ...bulk, room: 8 })).toBe(8);
+    expect(putawayQty(12, { ...bulk, room: null })).toBe(12);
+    expect(putawayQty(12, {})).toBe(12);
+    expect(putawayQty(12, null)).toBe(12);
   });
 });
 

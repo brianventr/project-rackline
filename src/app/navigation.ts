@@ -9,7 +9,9 @@ import {
   Calculator,
   ClipboardList,
   Clock,
+  Contact,
   Container,
+  Factory,
   FileInput,
   Forklift,
   Gauge,
@@ -23,6 +25,7 @@ import {
   Map,
   MapPin,
   Package,
+  Package2,
   Plug,
   Printer,
   Radar,
@@ -138,6 +141,7 @@ export const OFFICE_NAV: NavGroup[] = [
         count: (d) => n(d.openTransfers + (d.putawayDue ?? 0)),
       },
       { title: "Purchases", url: "/inbound/purchases", icon: ShoppingCart, keywords: "po vendor buy", count: (d) => n(d.openPurchases) },
+      { title: "Vendors", url: "/inbound/vendors", icon: Factory, keywords: "supplier lead time terms cost" },
       {
         title: "Vendor returns",
         url: "/inbound/vendor-returns",
@@ -153,6 +157,7 @@ export const OFFICE_NAV: NavGroup[] = [
       { title: "On hand", url: "/stock", icon: Boxes, keywords: "inventory atp" },
       { title: "Items", url: "/stock/items", icon: Package, keywords: "sku catalog products" },
       { title: "Locations", url: "/stock/locations", icon: MapPin, keywords: "bays bins" },
+      { title: "Plates", url: "/stock/plates", icon: Package2, keywords: "license plate lpn tote pallet carton" },
       { title: "Counts", url: "/stock/counts", icon: Calculator, keywords: "cycle count", count: (d) => n(d.openCycleCounts) },
       { title: "Holds", url: "/stock/holds", icon: Lock, keywords: "qc quarantine lock", count: (d) => n(d.openHolds, "warning") },
       {
@@ -178,6 +183,7 @@ export const OFFICE_NAV: NavGroup[] = [
     label: "Outbound",
     items: [
       { title: "Orders", url: "/outbound/orders", icon: ClipboardList, keywords: "pick pack ship", count: (d) => n(d.openOrders) },
+      { title: "Customers", url: "/outbound/customers", icon: Contact, keywords: "buyer ship to address email" },
       { title: "Waves", url: "/outbound/waves", icon: Waves, keywords: "batch", count: (d) => n(d.openWaves) },
       { title: "Returns", url: "/outbound/returns", icon: Undo2, keywords: "rma customer", count: (d) => n(d.openReturns) },
     ],

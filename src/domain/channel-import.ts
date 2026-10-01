@@ -13,6 +13,7 @@ export type ChannelOrderRow = {
   sku: string;
   qty: number;
   address?: string;
+  email?: string;
 };
 
 export type ChannelParseResult = {
@@ -68,6 +69,7 @@ export function parseChannelCsv(channel: ChannelKind, csv: string): ChannelParse
   const skuIdx = idx(headers, ["sku", "listing sku", "product sku", "item sku"]);
   const qtyIdx = idx(headers, ["qty", "quantity", "units"]);
   const addressIdx = idx(headers, ["address", "ship to", "shipping address"]);
+  const emailIdx = idx(headers, ["email", "buyer email", "customer email", "email address"]);
   if (idIdx < 0) errors.push("Missing order id column");
   if (nameIdx < 0) errors.push("Missing customer/buyer column");
   if (skuIdx < 0) errors.push("Missing sku column");
@@ -91,6 +93,7 @@ export function parseChannelCsv(channel: ChannelKind, csv: string): ChannelParse
       sku,
       qty,
       address: addressIdx >= 0 ? cells[addressIdx] || undefined : undefined,
+      email: emailIdx >= 0 ? cells[emailIdx] || undefined : undefined,
     });
   }
   return { channel, rows, errors };
@@ -107,6 +110,7 @@ export function csvChannelOrders(channel: ChannelKind, rows: ChannelOrderRow[]):
       externalId,
       externalName: `${label} ${externalId}`,
       customerName: group[0]!.customerName,
+      customerEmail: group.find((row) => row.email)?.email ?? null,
       shipToAddress,
       dest,
       lines: [...qtyBySku].map(([sku, qty]) => ({ sku, title: sku, qty, externalLineId: null })),

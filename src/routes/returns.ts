@@ -5,6 +5,7 @@ import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
 import { getOrgItem, getOrgLocation } from "../lib/org";
+import { capacityOverride } from "../lib/capacity-override";
 import { docNumber, newId } from "../lib/ids";
 import { postReceiveLines } from "../db/stock";
 import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError } from "../domain/partial-receive";
@@ -16,6 +17,7 @@ import { parseDisposition, type ReturnDisposition } from "../domain/return-dispo
 import { coveringHold } from "../domain/holds";
 import { loadOpenHolds } from "../db/holds";
 import { guardFloorJob, syncDocumentJob } from "../db/jobs";
+import { ensureCustomer } from "../db/parties";
 
 export const returnsRoute = new Hono<AppEnv>();
 
@@ -150,13 +152,14 @@ returnsRoute.get("/returns/:id", async (c) => {
 returnsRoute.post("/returns", async (c) => {
   const body = await c.req.json<{
     warehouseId?: string;
+    customerId?: string;
     customerName?: string;
     orderId?: string | null;
     notes?: string;
     lines?: { itemId?: string; qty?: number }[];
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
-  const customerName = requireString(body.customerName, "customerName");
+  const customerName = body.customerId ? body.customerName?.trim() : requireString(body.customerName, "customerName");
   if (!Array.isArray(body.lines) || body.lines.length === 0) {
     badRequest("At least one return line is required");
   }
@@ -164,16 +167,22 @@ returnsRoute.post("/returns", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   let orderId: string | null = null;
+  let orderCustomerId: string | null = null;
   if (body.orderId) {
     const order = requireString(body.orderId, "orderId");
     const [row] = await db
-      .select({ id: schema.orders.id })
+      .select({ id: schema.orders.id, customerId: schema.orders.customerId })
       .from(schema.orders)
       .where(and(eq(schema.orders.id, order), eq(schema.orders.organizationId, organizationId)))
       .limit(1);
     if (!row) notFound("Order not found");
     orderId = row.id;
+    orderCustomerId = row.customerId;
   }
+  const customer = await ensureCustomer(db, organizationId, {
+    customerId: body.customerId || orderCustomerId,
+    name: customerName ?? "",
+  });
 
   const now = Date.now();
   const id = newId();
@@ -195,7 +204,8 @@ returnsRoute.post("/returns", async (c) => {
       organizationId,
       warehouseId,
       number: docNumber("RMA"),
-      customerName,
+      customerName: customerName || customer.name,
+      customerId: customer.id,
       status: "open",
       orderId,
       notes: body.notes?.trim() || null,
@@ -265,11 +275,13 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
       expiresOn?: unknown;
       disposition?: unknown;
     }[];
+    overrideCapacity?: boolean;
   }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
+  const override = capacityOverride(c, body.overrideCapacity);
   const rma = await rmaWithLines(db, organizationId, c.req.param("id"));
   if (!canReceiveReturn(rma.status)) conflict("Return is already received");
   await guardFloorJob(db, {
@@ -407,6 +419,7 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
         })
         .where(eq(schema.rmas.id, rma.id)),
     ],
+    capacityOverride: override,
   });
 
   const received = await rmaWithLines(db, organizationId, rma.id);

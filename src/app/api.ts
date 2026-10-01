@@ -1,6 +1,7 @@
 import { createAuthClient } from "better-auth/react";
 import { composeErrorText, explainError, type ExplainedError } from "@/domain/error-copy";
 import type { CustomsDeclaration, CustomsGap } from "@/domain/customs";
+import type { PlateStatus, PlateType } from "@/domain/license-plates";
 
 export const authClient = createAuthClient({
   basePath: "/api/auth",
@@ -141,12 +142,25 @@ export type AsBuiltLink = {
   qty: number;
 };
 
+export type ItemPack = {
+  level: "inner" | "case" | "pallet";
+  qty: number;
+  barcode: string | null;
+  weightOz: number | null;
+  lengthIn: number | null;
+  widthIn: number | null;
+  heightIn: number | null;
+};
+
 export type Item = {
   id: string;
   sku: string;
   name: string;
   type: string;
   barcode: string;
+  altUom?: string | null;
+  altPerStock?: number | null;
+  packs?: ItemPack[];
   reorderPoint: number;
   baselineShipRate?: number | null;
   pickMin?: number;
@@ -212,6 +226,12 @@ export type Location = {
   zoneId?: string | null;
   warehouseId: string;
   warehouseName: string;
+  /** Bin capacity; null means no limit. Weight in oz, volume in cubic inches. */
+  maxQty?: number | null;
+  maxWeightOz?: number | null;
+  maxVolumeCuIn?: number | null;
+  /** Tightest limit as a whole percent (can pass 100); null when the bay has no limits. */
+  fillPercent?: number | null;
 };
 
 export type MapContent = {
@@ -227,12 +247,63 @@ export type MapContent = {
   availableQty?: number;
   allocated?: number;
   suggestedLocation?: SuggestedLocation | null;
+  /** Of `qty`, the units on license plates and the units loose in the bay. */
+  onPlates?: number;
+  loose?: number;
 };
+
+export type PlateLine = {
+  id: string;
+  itemId: string;
+  sku: string;
+  itemName: string;
+  imageUrl: string | null;
+  qty: number;
+  lotCode: string | null;
+  serial: string | null;
+};
+
+/** A tote, pallet, or carton with an LP- code. Its lines are a share of its bay's stock. */
+export type Plate = {
+  id: string;
+  code: string;
+  type: PlateType;
+  status: PlateStatus;
+  /** Null once the plate has shipped. */
+  locationId: string | null;
+  locationCode: string | null;
+  locationName: string | null;
+  warehouseId: string;
+  units: number;
+  lines: PlateLine[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type PlateDetail = Plate & {
+  /** What the plate's bay holds of each item, and how much of it no plate holds yet. */
+  bayStock: {
+    itemId: string;
+    sku: string;
+    itemName: string;
+    imageUrl: string | null;
+    trackLot: boolean;
+    trackSerial: boolean;
+    qty: number;
+    onPlates: number;
+    loose: number;
+    /** Loose units in expired lots, which go on a plate only when their lot is typed. */
+    expired: number;
+  }[];
+};
+
+export type PlateSummary = Pick<Plate, "id" | "code" | "type" | "status" | "units">;
 
 export type MapLocation = Location & {
   unitsOnHand: number;
   skuCount: number;
   contents: MapContent[];
+  plates?: PlateSummary[];
 };
 
 export type WarehouseMapInfo = {
@@ -338,11 +409,17 @@ export type ScanLocationHit = {
   location: Location;
   contents: MapContent[];
   holds?: Hold[];
+  plates?: Plate[];
 };
+
+export type ScanPlateHit = { kind: "plate"; plate: Plate };
 
 export type ScanItemHit = {
   kind: "item";
   item: Item;
+  /** Set when the scan was a pack barcode: it counts `pack.qty` eaches. */
+  pack?: ItemPack | null;
+  packs?: ItemPack[];
   onHand: {
     locationId: string;
     locationCode: string;
@@ -426,7 +503,8 @@ export type ScanHit =
   | ScanYardHit
   | ScanEquipmentHit
   | ScanSerialHit
-  | ScanLotHit;
+  | ScanLotHit
+  | ScanPlateHit;
 
 export type MoveResult = {
   ok: true;
@@ -486,6 +564,8 @@ export type SuggestedLocation = {
   locationName: string;
   barcode: string;
   qty: number;
+  /** Putaway only: eaches that still fit under the bay's capacity. Null means no limit. */
+  room?: number | null;
 };
 
 export type OrderAllocation = {
@@ -531,6 +611,7 @@ export type Order = {
   id: string;
   number: string;
   customerName: string;
+  customerId?: string | null;
   status: string;
   createdAt: number;
   pickLocationId: string | null;
@@ -1298,12 +1379,15 @@ export type PurchaseLine = {
   trackSerial?: boolean;
   catchWeight?: boolean;
   trackExpiry?: boolean;
+  unitCostCents?: number | null;
 };
 
 export type Purchase = {
   id: string;
   number: string;
   vendorName: string;
+  vendorId?: string | null;
+  vendor?: Vendor | null;
   status: string;
   notes: string | null;
   createdAt: number;
@@ -1346,6 +1430,7 @@ export type Rma = {
   id: string;
   number: string;
   customerName: string;
+  customerId?: string | null;
   status: string;
   notes: string | null;
   createdAt: number;
@@ -1373,6 +1458,7 @@ export type VendorReturn = {
   id: string;
   number: string;
   vendorName: string;
+  vendorId?: string | null;
   status: string;
   notes: string | null;
   createdAt: number;
@@ -1883,6 +1969,64 @@ export type QuickShipOutcome =
   | { orderId: string; ok: false; number?: string; status: number; code?: string; error: string };
 
 export type QuickShipBatch = { shipped: number; failed: number; total: number; outcomes: QuickShipOutcome[] };
+
+export type Vendor = {
+  id: string;
+  name: string;
+  contactName: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  paymentTerms: string | null;
+  leadTimeDays: number | null;
+  currency: string;
+  notes: string | null;
+  createdAt: number;
+  updatedAt: number;
+  purchaseCount?: number;
+  openPurchaseCount?: number;
+  lastPurchaseAt?: number | null;
+};
+
+export type VendorCost = {
+  itemId: string;
+  sku: string;
+  itemName: string;
+  unitCostCents: number | null;
+  qtyOrdered: number;
+  purchaseId: string;
+  purchaseNumber: string;
+  at: number;
+};
+
+export type VendorDetail = {
+  vendor: Vendor;
+  purchases: (Omit<Purchase, "lines"> & { open: boolean; lineCount: number; unitsOrdered: number; unitsReceived: number; totalCents: number | null })[];
+  lastCosts: VendorCost[];
+  vendorReturns: VendorReturn[];
+};
+
+export type Customer = {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  shipToAddress: string | null;
+  notes: string | null;
+  channelRefs: { channel: string; ref: string }[];
+  createdAt: number;
+  updatedAt: number;
+  orderCount?: number;
+  openOrderCount?: number;
+  lastOrderAt?: number | null;
+  returnCount?: number;
+};
+
+export type CustomerDetail = {
+  customer: Customer;
+  orders: (Omit<Order, "lines"> & { open: boolean; lines: { sku: string; itemName: string; qty: number }[] })[];
+  returns: Rma[];
+};
 
 export type ShipRuleRow = import("@/domain/ship-rules").ShipRule & {
   createdAt: number;

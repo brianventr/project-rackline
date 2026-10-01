@@ -70,7 +70,10 @@ export type ScanEvidence = {
   itemScans?: string[] | null;
 };
 
-export type ScanCheckLine = { lineId: string; qty: number; sku: string; barcode: string | null };
+/** A pack barcode on the line's item: one scan of it counts `qty` units. */
+export type ScanPack = { barcode: string | null; qty: number };
+
+export type ScanCheckLine = { lineId: string; qty: number; sku: string; barcode: string | null; packs?: ScanPack[] };
 
 export type ScanVerb = "pick" | "pack";
 
@@ -105,24 +108,32 @@ export function checkScanEvidence(
   return null;
 }
 
-/** How many scans name this SKU, by SKU or item barcode. */
+/** Units scanned for this SKU: one per SKU or item barcode scan, a pack's qty per pack barcode scan. */
 export function countScans(
   itemScans: string[] | null | undefined,
-  sku: { sku: string; barcode: string | null },
+  sku: { sku: string; barcode: string | null; packs?: ScanPack[] },
 ): number {
   const keys = new Set([sku.sku, sku.barcode ?? ""].map((key) => key.trim().toUpperCase()).filter(Boolean));
-  return (itemScans ?? []).filter((raw) => keys.has(raw.trim().toUpperCase())).length;
+  const packs = new Map(
+    (sku.packs ?? []).flatMap((pack) => (pack.barcode?.trim() ? [[pack.barcode.trim().toUpperCase(), pack.qty] as const] : [])),
+  );
+  return (itemScans ?? []).reduce((sum, raw) => {
+    const key = raw.trim().toUpperCase();
+    return sum + (keys.has(key) ? 1 : (packs.get(key) ?? 0));
+  }, 0);
 }
 
+type PostedSku = { sku: string; barcode: string | null; packs?: ScanPack[]; qty: number };
+
 /** Posted qty per SKU, since one order can carry a SKU on two lines. */
-function postedBySku(lines: ScanCheckLine[]): { sku: string; barcode: string | null; qty: number }[] {
-  const bySku = new Map<string, { sku: string; barcode: string | null; qty: number }>();
+function postedBySku(lines: ScanCheckLine[]): PostedSku[] {
+  const bySku = new Map<string, PostedSku>();
   for (const line of lines) {
     if (line.qty <= 0) continue;
     const key = line.sku.trim().toUpperCase();
     const posted = bySku.get(key);
     if (posted) posted.qty += line.qty;
-    else bySku.set(key, { sku: line.sku, barcode: line.barcode, qty: line.qty });
+    else bySku.set(key, { sku: line.sku, barcode: line.barcode, packs: line.packs, qty: line.qty });
   }
   return [...bySku.values()];
 }

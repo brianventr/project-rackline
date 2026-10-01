@@ -5,16 +5,21 @@ import type { ScanEvidence } from "@/domain/workflow-policy";
 export type ScanLog = {
   locationId: string | null;
   locationCode: string | null;
+  /** Set when a license plate was scanned instead of its bay; the bay fields are the plate's bay. */
+  plateCode: string | null;
   /** Pick keeps each SKU once. Pack keeps one entry per unit, so a SKU repeats. */
   skus: string[];
   /** Serials pack already counted, so scanning one twice is not two units. */
   serials: string[];
 };
 
-export const EMPTY_SCAN_LOG: ScanLog = { locationId: null, locationCode: null, skus: [], serials: [] };
+export const EMPTY_SCAN_LOG: ScanLog = { locationId: null, locationCode: null, plateCode: null, skus: [], serials: [] };
 
 export function recordScan(log: ScanLog, hit: ScanHit): ScanLog {
-  if (hit.kind === "location") return { ...log, locationId: hit.location.id, locationCode: hit.location.code };
+  if (hit.kind === "location") return { ...log, locationId: hit.location.id, locationCode: hit.location.code, plateCode: null };
+  if (hit.kind === "plate") {
+    return { ...log, locationId: hit.plate.locationId, locationCode: hit.plate.locationCode, plateCode: hit.plate.code };
+  }
   const skus =
     hit.kind === "item"
       ? [hit.item.sku]
@@ -47,4 +52,9 @@ export function scanEvidence(log: ScanLog, bayId?: string | null): ScanEvidence 
     locationScan: bayId && log.locationId === bayId ? log.locationCode : null,
     itemScans: log.skus,
   };
+}
+
+/** The plate a pick from `bayId` comes off: the one scanned in that bay, if any. */
+export function scannedPlate(log: ScanLog, bayId?: string | null): string | null {
+  return bayId && log.locationId === bayId ? log.plateCode : null;
 }

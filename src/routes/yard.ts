@@ -5,6 +5,7 @@ import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireString } from "../lib/http";
 import { getOrgLocation, requireOwner } from "../lib/org";
+import { capacityOverride } from "../lib/capacity-override";
 import { docNumber, newId } from "../lib/ids";
 import { canAssignDock, canCheckInYard, canCheckOutYard, canReceiveAsn } from "../domain/status";
 import { asnHandoffPatch, canReceiveLinkedAsn, nextYardStatus } from "../domain/yard";
@@ -178,9 +179,11 @@ yardRoute.post("/yard/:id/check-out", async (c) => {
 });
 
 yardRoute.post("/yard/:id/receive-asn", async (c) => {
+  const body = await c.req.json<{ overrideCapacity?: boolean }>().catch(() => ({}) as { overrideCapacity?: boolean });
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
+  const override = capacityOverride(c, body.overrideCapacity);
   const visit = await visitDetail(db, organizationId, c.req.param("id"));
   if (!canReceiveLinkedAsn(visit)) conflict("Visit needs a linked ASN at dock");
   const asnId = visit.asnId!;
@@ -260,6 +263,7 @@ yardRoute.post("/yard/:id/receive-asn", async (c) => {
         })
         .where(eq(schema.asns.id, asnId)),
     ],
+    capacityOverride: override,
   });
   await recordLaborEvent(db, {
     organizationId,

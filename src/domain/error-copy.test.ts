@@ -39,6 +39,45 @@ const SAMPLE: Record<ErrorCode, { status: number; body: Record<string, unknown> 
     status: 409,
     body: { error: "Client stock insufficient: have 2, need 5", clientId: "c1", itemId: "i1", onHand: 2, needed: 5 },
   },
+  LOCATION_FULL: {
+    status: 409,
+    body: {
+      error: "A-01-02 would hold 72 units, over its limit of 60 units. Put the rest in another bay, or an owner can override.",
+      locationCode: "A-01-02",
+      measure: "qty",
+      limit: 60,
+      before: 50,
+      wouldBe: 72,
+    },
+  },
+  PLATE_STATUS: {
+    status: 409,
+    body: { error: "LP-000123 is closed. Reopen it to add stock.", plateCode: "LP-000123", plateStatus: "closed", action: "build" },
+  },
+  PLATE_OVER_LOOSE: {
+    status: 409,
+    body: {
+      error: "Only 4 SHADE at A-01-01 are loose, and this needs 6. The rest is already on plates, so add 4 or fewer.",
+      plateCode: "LP-000123",
+      sku: "SHADE",
+      locationCode: "A-01-01",
+      onHand: 20,
+      loose: 4,
+      qty: 6,
+      lotCode: null,
+    },
+  },
+  PLATE_SHORT: {
+    status: 409,
+    body: {
+      error: "LP-000123 holds 3 SHADE, and this needs 5. Pick 3 from it, then scan the bay for the rest.",
+      plateCode: "LP-000123",
+      sku: "SHADE",
+      onPlate: 3,
+      needed: 5,
+      serial: null,
+    },
+  },
   JOB_CLAIMED: { status: 409, body: { error: "This job is claimed by Sam", claimedById: "u2", claimedByName: "Sam" } },
   JOB_NOT_READY: { status: 409, body: { error: "This job is scheduled for later", notBefore: Date.UTC(2030, 0, 2, 15, 30) } },
   JOB_VERB_DENIED: { status: 403, body: { error: "You are not assigned the Pick verb", verb: "pick" } },
@@ -205,6 +244,49 @@ describe("explainError — every code", () => {
       hint: "The rest is on hold or promised to other orders. Lower the qty to 1, or receive more.",
     });
     expect(explain("INSUFFICIENT_ATP", { atp: 0, locationCode: undefined }).message).toBe("No LAMP is available.");
+  });
+
+  it("LOCATION_FULL names the bay, what it would hold, and its limit", () => {
+    expect(explain("LOCATION_FULL")).toEqual({
+      code: "LOCATION_FULL",
+      message: "A-01-02 would hold 72 units, over its limit of 60 units.",
+      hint: "Put the rest in another bay, or an owner can override the limit.",
+    });
+    expect(explain("LOCATION_FULL", { measure: "weight", limit: 4000, wouldBe: 4800 }).message).toBe(
+      "A-01-02 would weigh 300 lb, over its limit of 250 lb.",
+    );
+    expect(explain("LOCATION_FULL", { measure: undefined }).message).toBe("A-01-02 would hold 72 units, over its limit of 60 units.");
+  });
+
+  it("plate codes say what the plate or bay holds and what to do", () => {
+    expect(explain("PLATE_STATUS")).toEqual({
+      code: "PLATE_STATUS",
+      message: "LP-000123 is closed.",
+      hint: "Reopen it to add stock.",
+    });
+    expect(explain("PLATE_OVER_LOOSE")).toEqual({
+      code: "PLATE_OVER_LOOSE",
+      message: "Only 4 SHADE at A-01-01 are loose, and this needs 6.",
+      hint: "The rest is already on plates, so add 4 or fewer.",
+    });
+    expect(explain("PLATE_OVER_LOOSE", { loose: 0 })).toMatchObject({
+      message: "No SHADE at A-01-01 is loose.",
+      hint: "All of it is already on plates.",
+    });
+    expect(explain("PLATE_OVER_LOOSE", { onHand: 0, lotCode: "L2" }).message).toBe("A-01-01 holds no SHADE from lot L2.");
+    expect(explain("PLATE_OVER_LOOSE", { onHand: 6, loose: 0, qty: 1, expired: 6 })).toMatchObject({
+      message: "All the loose SHADE at A-01-01 is in expired lots.",
+      hint: "Type the lot to put it on the plate anyway.",
+    });
+    expect(explain("PLATE_SHORT")).toEqual({
+      code: "PLATE_SHORT",
+      message: "LP-000123 holds 3 SHADE, and this needs 5.",
+      hint: "Pick 3 from it, then scan the bay for the rest.",
+    });
+    expect(explain("PLATE_SHORT", { serial: "SN-9" })).toMatchObject({
+      message: "Serial SN-9 of SHADE is not on LP-000123.",
+      hint: "Scan the bay to pick it loose.",
+    });
   });
 
   it("CLIENT_STOCK", () => {

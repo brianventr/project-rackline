@@ -5,6 +5,7 @@ import { countZoneBays, hasFootprint } from "@/domain/zones";
 import { edgeLabels } from "@/domain/compass";
 import { CompassRose } from "./CompassRose";
 import type { PickMapMarker } from "@/domain/pick-map";
+import { fillTone, type FillTone } from "@/domain/capacity";
 import { cn } from "@/lib/utils";
 
 const WarehouseScene = lazy(() =>
@@ -27,6 +28,8 @@ type Props = {
   view: MapView;
   levelFilter: "all" | number;
   canDrag?: boolean;
+  /** Label each floor-plan cell with its fullest level's fill, where a bay has a capacity limit. */
+  showFill?: boolean;
   className?: string;
   onSelect: (location: MapLocation) => void;
   onSelectPin?: (pinId: string) => void;
@@ -65,9 +68,15 @@ function floorCells(locations: MapLocation[]) {
       label,
       units: sorted.reduce((sum, row) => sum + row.unitsOnHand, 0),
       levels,
+      fill: sorted.reduce<number | null>(
+        (max, row) => (row.fillPercent == null ? max : Math.max(max ?? 0, row.fillPercent)),
+        null,
+      ),
     };
   });
 }
+
+const FILL_BAR: Record<FillTone, string> = { ok: "#2d6a4f", near: "#c47b14", full: "#b3261e" };
 
 /** One stroke per drawn zone, in code order, matching the 3D scene's palette. */
 const ZONE_STROKES = ["#6d4fb3", "#1f8a7d", "#b04a6d", "#4a6fa8", "#7a8a22", "#b76a2e"];
@@ -103,6 +112,7 @@ export function WarehouseMap({
   view,
   levelFilter,
   canDrag,
+  showFill,
   className,
   onSelect,
   onSelectPin,
@@ -314,6 +324,7 @@ export function WarehouseMap({
             cell.locations.find((location) => location.unitsOnHand > 0) ??
             cell.locations[0]!;
           const emphasized = selected || from || to || pick;
+          const fill = showFill ? cell.fill : null;
           return (
             <g key={cell.key} className="cursor-pointer" onClick={() => onSelect(primary)}>
               <rect
@@ -360,8 +371,22 @@ export function WarehouseMap({
                 >
                   {cell.levels.length > 1 ? `L${cell.levels[0]}–${cell.levels[cell.levels.length - 1]} · ` : ""}
                   {cell.units > 0 ? `${cell.units} u` : "empty"}
+                  {fill != null ? ` · ${fill}%` : ""}
                 </text>
               )}
+              {fill != null ? (
+                <g pointerEvents="none">
+                  <rect x={x + 0.2} y={y + cell.sizeY - 0.34} width={cell.sizeX - 0.4} height="0.14" rx="0.07" fill="rgba(27,23,18,0.18)" />
+                  <rect
+                    x={x + 0.2}
+                    y={y + cell.sizeY - 0.34}
+                    width={((cell.sizeX - 0.4) * Math.min(100, fill)) / 100}
+                    height="0.14"
+                    rx="0.07"
+                    fill={FILL_BAR[fillTone(fill)]}
+                  />
+                </g>
+              ) : null}
               {cellMarkers.map((marker, index) => (
                 <g key={marker.locationId} pointerEvents="none">
                   <circle cx={x + 0.42} cy={y + 0.42 + index * 0.72} r="0.3" fill="#1b1712" />

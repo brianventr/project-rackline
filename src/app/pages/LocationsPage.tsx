@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useWatch } from "react-hook-form";
 import { ArrowRightLeft, Hammer, Map as MapIcon, MapPin, Plus, Printer, Tags, Trash2 } from "lucide-react";
-import { api, errorText, type InventoryRow, type Location, type Me } from "../api";
+import { api, errorText, type InventoryRow, type Location, type Me, type Plate } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
-import { Button, Card, EmptyState, ErrorBanner, PageHeader, Table, ToneBadge } from "../components/ui";
+import { Button, Card, EmptyState, ErrorBanner, PageHeader, StatusBadge, Table, ToneBadge } from "../components/ui";
 import { NumberField, SelectField, TextField, useZodForm, type ZodFormInput, type ZodFormOutput } from "../components/form-kit";
 import { SampleDataButton } from "../components/onboarding";
 import { Term } from "../components/term";
@@ -17,7 +17,7 @@ import {
   type DocumentAction,
 } from "../components/document";
 import { DataTable, type BulkAction, type DataColumn, type FacetDef, type TabDef } from "../components/data-table/DataTable";
-import { DocLink, Muted, SkuCell } from "../components/cells";
+import { DocLink, LineChips, Muted, SkuCell } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
 import { refreshApi, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
@@ -25,7 +25,11 @@ import { toast } from "sonner";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { usePrint } from "../print/PrintProvider";
 import { openTour } from "../tour";
+import { BinCapacityCard, FillMeter, type CapacityDetail } from "../components/bin-capacity";
 import { FORM_LOCATION_TYPES, locationFormSchema, wholeNumber } from "@/domain/form-schemas";
+import { hasCapacity } from "@/domain/capacity";
+import { isGarageMode } from "@/domain/operating-mode";
+import { PLATE_TYPE_LABELS } from "@/domain/license-plates";
 
 const types = ["receiving", "storage", "production", "shipping"];
 
@@ -36,9 +40,10 @@ type LocationContents = {
   itemType?: string;
   imageUrl?: string | null;
   qty: number;
+  onPlates?: number;
 }[];
 
-type LocationDetailRow = Location & { contents?: LocationContents };
+type LocationDetailRow = CapacityDetail & { contents?: LocationContents; plates?: Plate[] };
 
 type LocationRow = Location & { units: number; skus: number };
 
@@ -154,6 +159,17 @@ const LOCATION_COLUMNS: DataColumn<LocationRow>[] = [
       row.barcode !== row.code ? <span className="font-mono text-xs">{row.barcode}</span> : <Muted>Same as code</Muted>,
   },
 ];
+
+const FILL_COLUMN: DataColumn<LocationRow> = {
+  id: "fill",
+  header: "Fill",
+  align: "right",
+  sortValue: (row) => row.fillPercent ?? -1,
+  csv: (row) => row.fillPercent ?? "",
+  cell: (row) => (row.fillPercent != null ? <FillMeter percent={row.fillPercent} /> : <Muted>—</Muted>),
+};
+
+const MANUFACTURER_COLUMNS = LOCATION_COLUMNS.flatMap((column) => (column.id === "units" ? [column, FILL_COLUMN] : [column]));
 
 function deleteConfirmBody(rows: { code: string; units: number }[]) {
   const stocked = rows.filter((row) => row.units > 0).map((row) => row.code);
@@ -316,7 +332,7 @@ function LocationList({ me }: { me: Me }) {
         data={rows}
         loading={locations.isLoading || inventory.isLoading}
         error={locations.error?.message ?? inventory.error?.message}
-        columns={LOCATION_COLUMNS}
+        columns={isGarageMode(me.organization.operatingMode) ? LOCATION_COLUMNS : MANUFACTURER_COLUMNS}
         getRowId={(row) => row.id}
         rowHref={(row) => `/stock/locations/${row.id}`}
         tabs={LOCATION_TABS}
@@ -516,6 +532,9 @@ function LocationDetail({ me, id }: { me: Me; id: string }) {
   const contents = location.contents ?? [];
   const units = contents.reduce((sum, row) => sum + row.qty, 0);
   const role = slotRoleOf(location);
+  // Limits are enforced in both modes, so Garage still shows a bay's capacity once one is set.
+  const showCapacity = !isGarageMode(me.organization.operatingMode) || hasCapacity(location);
+  const plates = isGarageMode(me.organization.operatingMode) ? [] : (location.plates ?? []);
 
   async function remove() {
     const done = await run(
@@ -599,6 +618,7 @@ function LocationDetail({ me, id }: { me: Me; id: string }) {
                 ) : null}
               </div>
             </Card>
+            {showCapacity ? <BinCapacityCard key={location.id} location={location} canEdit={me.role === "owner"} /> : null}
             <Card>
               <div className="space-y-2">
                 <p className="text-sm font-medium">Barcode</p>
@@ -616,7 +636,7 @@ function LocationDetail({ me, id }: { me: Me; id: string }) {
             </span>
           </p>
           {contents.length ? (
-            <Table columns={["Item", "Type", "Qty"]}>
+            <Table columns={plates.length ? ["Item", "Type", "Qty", "On plates"] : ["Item", "Type", "Qty"]}>
               {contents.map((row) => (
                 <tr key={row.itemId}>
                   <td>
@@ -624,6 +644,9 @@ function LocationDetail({ me, id }: { me: Me; id: string }) {
                   </td>
                   <td>{row.itemType ? capitalize(row.itemType) : <Muted>—</Muted>}</td>
                   <td className="font-mono tabular-nums">{row.qty}</td>
+                  {plates.length ? (
+                    <td className="font-mono tabular-nums">{row.onPlates ? row.onPlates : <Muted>—</Muted>}</td>
+                  ) : null}
                 </tr>
               ))}
             </Table>
@@ -635,6 +658,33 @@ function LocationDetail({ me, id }: { me: Me; id: string }) {
             />
           )}
         </div>
+        {plates.length ? (
+          <div className="space-y-2">
+            <p className="text-sm font-medium">
+              <Term id="license-plate">Plates</Term> in this bay{" "}
+              <span className="font-normal text-muted-foreground">
+                · their stock is part of the qty above
+              </span>
+            </p>
+            <Table columns={["Plate", "Type", "Contents", "Units", "Status"]}>
+              {plates.map((plate) => (
+                <tr key={plate.id}>
+                  <td>
+                    <DocLink to={`/stock/plates/${plate.code}`}>{plate.code}</DocLink>
+                  </td>
+                  <td>{PLATE_TYPE_LABELS[plate.type]}</td>
+                  <td>
+                    <LineChips lines={plate.lines} />
+                  </td>
+                  <td className="font-mono tabular-nums">{plate.units}</td>
+                  <td>
+                    <StatusBadge status={plate.status} />
+                  </td>
+                </tr>
+              ))}
+            </Table>
+          </div>
+        ) : null}
       </DocumentFrame>
     </div>
   );

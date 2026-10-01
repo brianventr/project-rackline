@@ -5,8 +5,6 @@ import type { AppDb } from "./stock";
 import type { MovementDraft } from "../domain/inventory";
 import { InsufficientStockError } from "../domain/inventory";
 import {
-  allocateFifoLots,
-  allocateSerials,
   assertSerialQty,
   builtLotCode,
   generatedSerial,
@@ -21,6 +19,8 @@ import {
   requireExpiry,
   utcYyyymmdd,
 } from "../domain/expiry";
+import { allocateLooseFirstLots, allocateLooseFirstSerials } from "../domain/license-plates";
+import { loadPlates } from "./license-plates";
 import { badRequest } from "../lib/http";
 import { newId } from "../lib/ids";
 import {
@@ -161,7 +161,14 @@ async function expandOne(
       );
       throw new HeldStockError(item.sku, hit?.locationCode ?? movement.fromLocationId, hit?.number ?? "hold", hit?.reason ?? "QC");
     }
-    const allocated = allocateFifoLots(available, movement.qty, item.sku);
+    const allocated = allocateLooseFirstLots(
+      available,
+      await loadPlates(db, organizationId, { locationIds: [movement.fromLocationId] }),
+      movement.fromLocationId,
+      item.id,
+      movement.qty,
+      item.sku,
+    );
     const grams = splitCatchWeight(
       movement.weightGrams ?? null,
       allocated.map((row) => row.qty),
@@ -203,7 +210,8 @@ async function attachOutboundSerials(
   let serials = provided.length ? provided : movement.serials?.length ? normalizeSerials(movement.serials) : [];
   if (serials.length === 0 && movement.fromLocationId) {
     const onHand = await loadSerialsAt(db, organizationId, movement.fromLocationId, item.id);
-    serials = allocateSerials(onHand, movement.qty, item.sku);
+    const plates = await loadPlates(db, organizationId, { locationIds: [movement.fromLocationId] });
+    serials = allocateLooseFirstSerials(onHand, plates, item.id, movement.qty, item.sku);
   } else if (serials.length) {
     assertSerialQty(movement.qty, serials, item.sku);
   }

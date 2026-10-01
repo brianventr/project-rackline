@@ -8,6 +8,9 @@ export type PutawayBay = {
   aisle: string | null;
   warehouseId?: string;
   qty: number;
+  /** Eaches of this item that still fit under the bay's capacity. Null or missing: no limit. */
+  room?: number | null;
+  fillPercent?: number | null;
 };
 
 export type PutawayContent = {
@@ -54,18 +57,32 @@ export function putawayScore(bay: PutawayBay, aisle: string | null): number {
 function eligible(bay: PutawayBay, fromLocationId: string): boolean {
   if (bay.locationId === fromLocationId) return false;
   if (bay.type === "receiving" || bay.type === "shipping") return false;
+  if (bay.room != null && bay.room <= 0) return false;
   return true;
 }
 
-export function suggestPutawayBay(bays: PutawayBay[], fromLocationId: string): PutawayBay | null {
+function fits(bay: PutawayBay, qty: number): boolean {
+  return bay.room == null || bay.room >= qty;
+}
+
+/** Full bays are skipped, and a bay with room for all `qty` beats a better-scored one that fits only part. */
+export function suggestPutawayBay(bays: PutawayBay[], fromLocationId: string, qty = 1): PutawayBay | null {
   const aisle = pickAisle(bays);
   const ranked = bays
     .filter((bay) => eligible(bay, fromLocationId))
     .slice()
     .sort(
-      (a, b) => putawayScore(b, aisle) - putawayScore(a, aisle) || a.locationCode.localeCompare(b.locationCode),
+      (a, b) =>
+        Number(fits(b, qty)) - Number(fits(a, qty)) ||
+        putawayScore(b, aisle) - putawayScore(a, aisle) ||
+        a.locationCode.localeCompare(b.locationCode),
     );
   return ranked[0] ?? null;
+}
+
+/** What to move to the suggested bay: all of it, or only what fits when the bay has a limit. */
+export function putawayQty(qty: number, bay: Pick<PutawayBay, "room"> | null | undefined): number {
+  return bay?.room != null ? Math.min(qty, bay.room) : qty;
 }
 
 export function baysForItem(
@@ -92,14 +109,17 @@ export function suggestPutawayJobs(
   if (!shouldSuggestPutaway(from.type)) return [];
   return contents
     .filter((row) => row.qty > 0)
-    .map((row) => ({
-      itemId: row.itemId,
-      sku: row.sku,
-      itemName: row.itemName,
-      qty: row.qty,
-      fromLocationId: from.id,
-      fromCode: from.code,
-      fromBarcode: from.barcode,
-      suggested: suggestPutawayBay(baysByItem.get(row.itemId) ?? [], from.id),
-    }));
+    .map((row) => {
+      const suggested = suggestPutawayBay(baysByItem.get(row.itemId) ?? [], from.id, row.qty);
+      return {
+        itemId: row.itemId,
+        sku: row.sku,
+        itemName: row.itemName,
+        qty: putawayQty(row.qty, suggested),
+        fromLocationId: from.id,
+        fromCode: from.code,
+        fromBarcode: from.barcode,
+        suggested,
+      };
+    });
 }

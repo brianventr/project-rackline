@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Repeat } from "lucide-react";
 import { api, errorText, type ScanHit, type Transfer } from "../../api";
 import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
 import { Term } from "../../components/term";
+import { OverfillButton, useOverfill } from "../../components/bin-capacity";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { canPostTransfer } from "@/domain/status";
 import { hasUnmoved } from "@/domain/partial-transfer";
+import { scanIntoLine } from "@/domain/pack-sizes";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 
@@ -18,10 +20,16 @@ export function FloorTransferPage() {
   const [active, setActive] = useState<Transfer | null>(null);
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const { overfill, offer } = useOverfill();
   const [loaded, setLoaded] = useState(false);
+  // Pack scans add to the latest qty, read through the ref; `counted` lines were scanned or typed.
+  const qtysRef = useRef(qtys);
+  qtysRef.current = qtys;
+  const counted = useRef(new Set<string>());
 
   function applyTicket(transfer: Transfer) {
     setActive(transfer);
+    counted.current = new Set();
     setQtys(moveQtyDefaults(transfer));
   }
 
@@ -74,7 +82,24 @@ export function FloorTransferPage() {
               report?.(false);
               return;
             }
-            setQtys((current) => ({ ...current, [line.id]: String(line.remaining ?? 0) }));
+            if (!hit.pack && !counted.current.has(line.id)) {
+              setQtys((current) => ({ ...current, [line.id]: String(line.remaining ?? 0) }));
+              report?.(true);
+              return;
+            }
+            const scanned = scanIntoLine(
+              { qty: Number(qtysRef.current[line.id] || 0), counted: counted.current.has(line.id), remaining: line.remaining ?? 0 },
+              { pack: hit.pack, fill: true },
+            );
+            if (!scanned.ok) {
+              setError(`${hit.item.sku}: ${scanned.problem}`);
+              report?.(false);
+              return;
+            }
+            counted.current.add(line.id);
+            const next = { ...qtysRef.current, [line.id]: String(scanned.qty) };
+            qtysRef.current = next;
+            setQtys(next);
             report?.(true);
             return;
           }
@@ -89,7 +114,7 @@ export function FloorTransferPage() {
     [active, jobs, me.user.id],
   );
 
-  async function post() {
+  async function post(overrideCapacity = false) {
     if (!active) return;
     setError(null);
     try {
@@ -105,12 +130,14 @@ export function FloorTransferPage() {
         .filter((line) => line.qty > 0);
       const posted = await api<Transfer>(`/api/transfers/${active.id}/post`, {
         method: "POST",
-        body: JSON.stringify({ lines }),
+        body: JSON.stringify({ lines, ...(overrideCapacity ? { overrideCapacity } : {}) }),
       });
       applyTicket(posted);
       await load();
     } catch (err) {
-      setError(errorText(err, "Could not post the putaway."));
+      const text = errorText(err, "Could not post the putaway.");
+      setError(text);
+      offer(err, text, () => void post(true));
     }
   }
 
@@ -133,6 +160,7 @@ export function FloorTransferPage() {
       error={error}
     >
       <FloorScanBox label="Scan putaway ticket or SKU" placeholder="XFR-DEMO1 or SHADE" onScan={onScan} ready={loaded} />
+      <OverfillButton overfill={overfill} error={error} />
       {!active ? (
         <ClaimList
           loading={!loaded}
@@ -203,7 +231,10 @@ export function FloorTransferPage() {
                       min={0}
                       max={line.remaining}
                       value={qtys[line.id] ?? "0"}
-                      onChange={(e) => setQtys((current) => ({ ...current, [line.id]: e.target.value }))}
+                      onChange={(e) => {
+                        counted.current.add(line.id);
+                        setQtys((current) => ({ ...current, [line.id]: e.target.value }));
+                      }}
                     />
                   </Field>
                 ) : (

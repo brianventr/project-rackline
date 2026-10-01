@@ -30,6 +30,7 @@ import {
   type CarrierHub,
   type CarrierRate,
   type CarrierServiceOption,
+  type Customer,
   type Item,
   type Location,
   type Order,
@@ -54,6 +55,7 @@ import { FormSheet } from "../components/form-sheet";
 import { LinesField, TextField, TextareaField, useZodForm } from "../components/form-kit";
 import { Term } from "../components/term";
 import { blankLine, orderFormSchema, type OrderFormValues } from "@/domain/form-schemas";
+import { nameKey } from "@/domain/parties";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -374,16 +376,25 @@ function NewOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
+  const customers = useApiQuery<Customer[]>(open ? "/api/customers" : null);
   const form = useZodForm(orderFormSchema, { customerName: "", shipToAddress: "", lines: [blankLine()] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Keep what was typed between opens, but start each open without stale inline errors
   // (closing the sheet blurs the focused field, which would otherwise flag it).
-  const { reset, getValues } = form;
+  const { reset, getValues, setValue, watch } = form;
   useEffect(() => {
     if (open) reset(getValues(), { keepDefaultValues: true });
   }, [open, reset, getValues]);
+
+  // Picking a saved customer fills their ship-to, unless one is already typed.
+  const typedCustomer = watch("customerName");
+  useEffect(() => {
+    const same = (customers.data ?? []).filter((row) => nameKey(row.name) === nameKey(typedCustomer));
+    const address = same.length === 1 ? same[0]!.shipToAddress : null;
+    if (address && !getValues("shipToAddress")) setValue("shipToAddress", address);
+  }, [typedCustomer, customers.data, getValues, setValue]);
 
   async function create(values: OrderFormValues) {
     setError(null);
@@ -419,7 +430,14 @@ function NewOrderSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (o
       busy={busy}
       error={error}
     >
-      <TextField form={form} name="customerName" label="Customer" autoFocus />
+      <TextField
+        form={form}
+        name="customerName"
+        label="Customer"
+        autoFocus
+        suggestions={[...new Set((customers.data ?? []).map((row) => row.name))]}
+        description="Pick a saved customer to fill their ship-to, or type a new name to add one."
+      />
       <TextareaField
         form={form}
         name="shipToAddress"

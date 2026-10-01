@@ -9,6 +9,9 @@ export const ETSY_SCOPES = ["transactions_r", "transactions_w", "shops_r"];
 export type EtsyReceipt = {
   receipt_id?: number | string | null;
   name?: string | null;
+  buyer_user_id?: number | string | null;
+  /** Only sent to apps Etsy has approved for buyer email. */
+  buyer_email?: string | null;
   first_line?: string | null;
   second_line?: string | null;
   city?: string | null;
@@ -115,6 +118,8 @@ export function mapEtsyReceipt(receipt: EtsyReceipt): ChannelOrder | ChannelSkip
     externalId,
     externalName: `Etsy ${externalId}`,
     customerName: receipt.name?.trim() || "Etsy buyer",
+    customerEmail: receipt.buyer_email?.trim() || null,
+    customerRef: receipt.buyer_user_id != null ? String(receipt.buyer_user_id) : null,
     shipToAddress,
     dest: destColumns(place),
     lines,

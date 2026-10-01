@@ -14,6 +14,8 @@ import { checklistForClass, equipmentBarcode } from "../domain/equipment";
 import { destPatchFromAddress, originColumns, resolveOrigin } from "../domain/geo";
 import { demoInventoryItemGid, demoShopifyLocationGid } from "../domain/shopify-sellable";
 import { syncShopifySellable } from "./shopify-sellable";
+import { backfillParties } from "./parties";
+import { createPlate, savePlateOps } from "./license-plates";
 import { rateActivity } from "../domain/billing";
 
 export const DEMO_EMAIL = "demo@northwind.makers";
@@ -240,6 +242,12 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       shopifyInventoryItemGid: demoInventoryItemGid("GLUE"),
     }),
   ]);
+  const pack = { organizationId, createdAt: now, updatedAt: now };
+  await db.insert(schema.itemPacks).values([
+    { ...pack, id: newId(), itemId: item.resin, level: "case", qty: 6, barcode: "10614141000019", weightOz: 400, lengthIn: 16, widthIn: 11, heightIn: 10 },
+    { ...pack, id: newId(), itemId: item.bulb, level: "inner", qty: 4, barcode: "10614141000026", weightOz: 8, lengthIn: 5, widthIn: 5, heightIn: 3 },
+    { ...pack, id: newId(), itemId: item.bulb, level: "case", qty: 24, barcode: "20614141000023", weightOz: 52, lengthIn: 12, widthIn: 10, heightIn: 8 },
+  ]);
 
   const starting = [
     { itemId: item.bulb, locationId: locIds.a0101!, qty: 25, lotCode: "LOT-2026-A" },
@@ -372,6 +380,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       itemId: item.bulb,
       qtyOrdered: 20,
       qtyReceived: 0,
+      unitCostCents: 185,
     }),
     db.insert(schema.purchaseLines).values({
       id: newId(),
@@ -379,6 +388,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       itemId: item.shade,
       qtyOrdered: 8,
       qtyReceived: 0,
+      unitCostCents: 640,
     }),
     db.insert(schema.purchaseSends).values({
       id: newId(),
@@ -406,6 +416,7 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       itemId: item.cord,
       qtyOrdered: 15,
       qtyReceived: 0,
+      unitCostCents: 210,
     }),
     db.insert(schema.orders).values({
       id: orderId,
@@ -1323,8 +1334,60 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
   });
   await seedAssignedJobs(db, organizationId, userId, orderId, woId);
   await syncShopifySellable(db, organizationId);
+  await backfillParties(db, organizationId);
+  // No email: with mail configured, Send would try to deliver to it.
+  await db
+    .update(schema.vendors)
+    .set({
+      contactName: "Dana Ruiz",
+      phone: "503-555-0142",
+      address: "220 Front Ave\nPortland, OR 97209",
+      paymentTerms: "Net 30",
+      leadTimeDays: 7,
+      notes: "Bulbs, shades, and cords. Ships Tuesdays and Fridays.",
+    })
+    .where(and(eq(schema.vendors.organizationId, organizationId), eq(schema.vendors.name, "Harbor Components")));
+  await seedDemoPlate(db, { organizationId, warehouseId, userId, locationId: locIds.a0101!, itemId: item.cord, now });
+  // Limits go on last so no seeded receive or move runs into them.
+  await db.update(schema.locations).set({ maxQty: 40 }).where(eq(schema.locations.id, locIds.a0102!));
 
   return { organizationId };
+}
+
+/** A closed pallet in the bulk bay, made from stock the seed already left there. */
+async function seedDemoPlate(
+  db: AppDb,
+  input: { organizationId: string; warehouseId: string; userId: string; locationId: string; itemId: string; now: number },
+) {
+  const [balance] = await db
+    .select({ qty: schema.inventoryBalances.qty })
+    .from(schema.inventoryBalances)
+    .where(
+      and(
+        eq(schema.inventoryBalances.organizationId, input.organizationId),
+        eq(schema.inventoryBalances.locationId, input.locationId),
+        eq(schema.inventoryBalances.itemId, input.itemId),
+      ),
+    )
+    .limit(1);
+  const qty = Math.min(balance?.qty ?? 0, 12);
+  if (qty <= 0) return;
+  const plateId = await createPlate(db, {
+    organizationId: input.organizationId,
+    warehouseId: input.warehouseId,
+    locationId: input.locationId,
+    type: "pallet",
+    createdBy: input.userId,
+    now: input.now,
+  });
+  await savePlateOps(db, {
+    organizationId: input.organizationId,
+    now: input.now,
+    ops: [
+      { kind: "add", plateId, itemId: input.itemId, qty, lotCode: null },
+      { kind: "status", plateId, status: "closed" },
+    ],
+  });
 }
 
 async function applyLabor(

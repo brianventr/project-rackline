@@ -4,12 +4,15 @@ import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
-import { getOrgItem, getOrgLocation, getOrgLocationByScan, getOrgItemByScan } from "../lib/org";
+import { getOrgItem, getOrgLocation, getOrgLocationByScan } from "../lib/org";
+import { capacityOverride } from "../lib/capacity-override";
+import { loadBinFill } from "../db/capacity";
+import { loadPacksForItem, resolveItemScan } from "../db/item-packs";
 import { docNumber, newId } from "../lib/ids";
 import { countCatchWeight } from "../lib/catch-weight";
 import { chainPlans, planCycleCount, planMove } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
-import { parseScan } from "../domain/barcodes";
+import { itemScanValue, parseScan } from "../domain/barcodes";
 import { canPostCount, canPostTransfer } from "../domain/status";
 import {
   applyPartialMove,
@@ -34,6 +37,8 @@ import {
   loadAsBuiltForParentSerial,
 } from "../db/as-built";
 import { completeMatchingSuggestionJobs, guardFloorJob, guardMatchingSuggestionJobs, syncDocumentJob } from "../db/jobs";
+import { loadPlateByCode, loadPlates, plateViews } from "../db/license-plates";
+import { plateUnits, withPlateShare } from "../domain/license-plates";
 import { loadDocumentNumber, loadOpenAssignmentForEquipment } from "../db/equipment";
 import { loadPackagesForAsns, loadUnputawayReceivedCartons } from "../db/asn-packages";
 import { asnCartonPutawayGate } from "../domain/cartons";
@@ -266,12 +271,12 @@ floorRoute.post("/transfers/:id/start", async (c) => {
 });
 
 floorRoute.post("/transfers/:id/post", async (c) => {
-  const body = await c.req
-    .json<{ lines?: { lineId?: string; itemId?: string; qty?: number }[] }>()
-    .catch(() => ({}) as { lines?: { lineId?: string; itemId?: string; qty?: number }[] });
+  type Body = { lines?: { lineId?: string; itemId?: string; qty?: number }[]; overrideCapacity?: boolean };
+  const body = await c.req.json<Body>().catch(() => ({}) as Body);
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
+  const override = capacityOverride(c, body.overrideCapacity);
   const transfer = await transferWithLines(db, organizationId, c.req.param("id"));
   if (!canPostTransfer(transfer.status)) conflict("Transfer already posted");
   const waiting = await loadUnputawayReceivedCartons(db, organizationId, { locationId: transfer.fromLocationId });
@@ -356,6 +361,7 @@ floorRoute.post("/transfers/:id/post", async (c) => {
           .where(eq(schema.transferLines.id, line.id)),
       ),
     ],
+    capacityOverride: override,
   });
 
   const posted = await transferWithLines(db, organizationId, transfer.id);
@@ -744,6 +750,14 @@ floorRoute.get("/map", async (c) => {
     .from(schema.zones)
     .where(and(eq(schema.zones.organizationId, organizationId), eq(schema.zones.warehouseId, warehouse.id)))
     .orderBy(schema.zones.code);
+  const fill = await loadBinFill(db, organizationId, locationRows);
+  const plates = await loadPlates(db, organizationId, { locationIds: locationRows.map((row) => row.id) });
+  const platesAt = new Map<string, typeof plates>();
+  for (const plate of plates) {
+    const list = platesAt.get(plate.locationId!) ?? [];
+    list.push(plate);
+    platesAt.set(plate.locationId!, list);
+  }
 
   return c.json({
     warehouse: {
@@ -777,17 +791,30 @@ floorRoute.get("/map", async (c) => {
     })),
     locations: locationRows.map((location) => {
       const contents = byLocation.get(location.id) ?? [];
+      const here = platesAt.get(location.id) ?? [];
       return {
         ...location,
+        fillPercent: fill.get(location.id)?.fillPercent ?? null,
         unitsOnHand: contents.reduce((sum, row) => sum + row.qty, 0),
         skuCount: contents.length,
-        contents: contents.map((row) => ({
-          itemId: row.itemId,
-          sku: row.sku,
-          itemName: row.itemName,
-          itemType: row.itemType,
-          imageUrl: row.imageUrl,
-          qty: row.qty,
+        contents: withPlateShare(
+          contents.map((row) => ({
+            itemId: row.itemId,
+            sku: row.sku,
+            itemName: row.itemName,
+            itemType: row.itemType,
+            imageUrl: row.imageUrl,
+            qty: row.qty,
+          })),
+          here,
+          location.id,
+        ),
+        plates: here.map((plate) => ({
+          id: plate.id,
+          code: plate.code,
+          type: plate.type,
+          status: plate.status,
+          units: plateUnits(plate),
         })),
       };
     }),
@@ -840,8 +867,9 @@ floorRoute.get("/scan", async (c) => {
       };
     });
     const locationHolds = holds.filter((hold) => hold.locationId === location.id);
+    const plates = await plateViews(db, organizationId, await loadPlates(db, organizationId, { locationIds: [location.id] }));
     if (!shouldSuggestPutaway(location.type) || contents.length === 0) {
-      return { kind: "location" as const, location, contents: annotated, holds: locationHolds };
+      return { kind: "location" as const, location, contents: annotated, holds: locationHolds, plates };
     }
     const movable = available.filter((row) => row.qty > 0);
     const baysByItem = await loadPutawayBaysByItem(
@@ -860,6 +888,7 @@ floorRoute.get("/scan", async (c) => {
       kind: "location" as const,
       location,
       holds: locationHolds,
+      plates,
       contents: annotated.map((row) => {
         const suggested = suggestedByItem.get(row.itemId);
         return {
@@ -871,6 +900,7 @@ floorRoute.get("/scan", async (c) => {
                 locationName: suggested.locationName,
                 barcode: suggested.barcode,
                 qty: suggested.qty,
+                room: suggested.room ?? null,
               }
             : null,
         };
@@ -879,8 +909,9 @@ floorRoute.get("/scan", async (c) => {
   }
 
   async function itemHit(code: string) {
-    const item = await getOrgItemByScan(db, organizationId, code);
-    if (!item) return null;
+    const scanned = await resolveItemScan(db, organizationId, code);
+    if (!scanned) return null;
+    const { item, pack } = scanned;
     const onHand = await db
       .select({
         locationId: schema.locations.id,
@@ -918,7 +949,7 @@ floorRoute.get("/scan", async (c) => {
         availableQty: row.qty,
       };
     });
-    return { kind: "item" as const, item, onHand: annotated };
+    return { kind: "item" as const, item, pack, packs: await loadPacksForItem(db, organizationId, item.id), onHand: annotated };
   }
 
   async function findByNumber<T extends { number: string }>(
@@ -932,14 +963,29 @@ floorRoute.get("/scan", async (c) => {
     });
   }
 
+  if (parsed.kind === "plate") {
+    const plate = await loadPlateByCode(db, organizationId, parsed.value);
+    if (plate) {
+      const [view] = await plateViews(db, organizationId, [plate]);
+      return c.json({ kind: "plate" as const, plate: view! });
+    }
+    // A bare LP-123 may still be a bay code or SKU; only the LP: prefix is surely a plate.
+    if (!parsed.raw.startsWith("LP:")) {
+      const hit = (await locationHit(parsed.raw)) ?? (await itemHit(parsed.raw));
+      if (hit) return c.json(hit);
+    }
+    notFound("No plate matches that barcode");
+  }
+
   if (parsed.kind === "location" || parsed.kind === "unknown") {
     const hit = await locationHit(parsed.value);
     if (hit) return c.json(hit);
     if (parsed.kind === "location") notFound("No location matches that barcode");
   }
 
-  if (parsed.kind === "item" || parsed.kind === "unknown") {
-    const hit = await itemHit(parsed.value);
+  const itemCode = itemScanValue(parsed);
+  if (itemCode) {
+    const hit = await itemHit(itemCode);
     if (hit) return c.json(hit);
     if (parsed.kind === "item") notFound("No item matches that barcode");
   }
@@ -1357,11 +1403,13 @@ floorRoute.post("/moves", async (c) => {
     fromBarcode?: string;
     toBarcode?: string;
     lines?: { itemId?: string; qty?: number }[];
+    overrideCapacity?: boolean;
   }>();
 
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
+  const override = capacityOverride(c, body.overrideCapacity);
 
   const from =
     (body.fromLocationId ? await getOrgLocation(db, organizationId, requireString(body.fromLocationId, "fromLocationId")) : null) ??
@@ -1485,6 +1533,7 @@ floorRoute.post("/moves", async (c) => {
     now: Date.now(),
     loaded,
     plan,
+    capacityOverride: override,
   });
 
   await completeMatchingSuggestionJobs(db, {

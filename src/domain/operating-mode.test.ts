@@ -33,6 +33,8 @@ describe("operating mode", () => {
     expect(garageAllowsPath("/floor/kit")).toBe(true);
     expect(garageAllowsPath("/make/recipes")).toBe(true);
     expect(garageAllowsPath("/inbound/purchases/po1")).toBe(true);
+    expect(garageAllowsPath("/inbound/vendors/v1")).toBe(true);
+    expect(garageAllowsPath("/outbound/customers/c1")).toBe(true);
     expect(garageAllowsPath("/outbound/orders/o1/pack-slip")).toBe(true);
     expect(garageAllowsPath("/map?edit=1")).toBe(true);
     expect(garageAllowsPath("/analytics/runway")).toBe(true);
@@ -50,6 +52,8 @@ describe("operating mode", () => {
     expect(garageAllowsPath("/stock/counts")).toBe(false);
     expect(garageAllowsPath("/stock/holds/h1")).toBe(false);
     expect(garageAllowsPath("/stock/replenish")).toBe(false);
+    expect(garageAllowsPath("/stock/plates")).toBe(false);
+    expect(garageAllowsPath("/floor/plates?code=LP-000001")).toBe(false);
     expect(garageAllowsPath("/equipment")).toBe(false);
     expect(garageAllowsPath("/analytics/traffic")).toBe(false);
     expect(garageAllowsPath("/setup/clients")).toBe(false);
@@ -65,12 +69,14 @@ describe("operating mode", () => {
       "/floor",
       "/map",
       "/inbound/purchases",
+      "/inbound/vendors",
       "/inbound/receipts",
       "/make/recipes",
       "/make/schedule",
       "/make/work-orders",
       "/make/kits",
       "/outbound/orders",
+      "/outbound/customers",
       "/outbound/returns",
       "/stock",
       "/stock/items",

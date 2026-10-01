@@ -17,6 +17,7 @@ import { cancelOrderDocument } from "../db/unpick";
 import { orderJobInput, syncDocumentJob } from "../db/jobs";
 import { scheduleShopifySellableSync } from "../db/shopify-sellable";
 import { copyIfEmptyImageUrl } from "../domain/media";
+import { ensureCustomer } from "../db/parties";
 
 export class ShopifyIngestError extends Error {
   constructor(
@@ -115,6 +116,12 @@ export async function persistInboundOrder(
       shopifyFulfillmentLineItemId: line.shopifyFulfillmentLineItemId,
     });
   }
+  const customer = await ensureCustomer(db, connection.organizationId, {
+    name: inbound.customerName,
+    email: inbound.customerEmail,
+    address: inbound.shipToAddress,
+    channelRef: inbound.customerRef ? { channel: "shopify", ref: inbound.customerRef } : null,
+  });
 
   await db.batch([
     db.insert(schema.orders).values({
@@ -123,6 +130,7 @@ export async function persistInboundOrder(
       warehouseId: warehouse.id,
       number: inbound.shopifyOrderName,
       customerName: inbound.customerName,
+      customerId: customer.id,
       status: "open",
       createdAt: now,
       source: "shopify",

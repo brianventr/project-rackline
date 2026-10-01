@@ -28,6 +28,9 @@ import {
   loadClientBalanceMap,
 } from "./client-stock";
 import { loadOpenAssignmentForOperator } from "./equipment";
+import { capacityStatements, type CapacityLocation, type CapacityOverride } from "./capacity";
+import { plateStatements } from "./license-plates";
+import type { PlateOp } from "../domain/license-plates";
 export type AppDb = DrizzleD1Database<typeof import("./schema")>;
 
 export async function loadBalanceMap(
@@ -84,6 +87,9 @@ export async function persistStockPlan(
     plan: StockPlan;
     extra?: BatchItem<"sqlite">[];
     skipShopifySync?: boolean;
+    capacityOverride?: CapacityOverride;
+    /** What the plan does to license plates; plates at the bays it takes from are reconciled either way. */
+    plateOps?: PlateOp[];
   },
 ): Promise<void> {
   const statements: BatchItem<"sqlite">[] = [...((input.extra as BatchItem<"sqlite">[] | undefined) ?? [])];
@@ -100,14 +106,23 @@ export async function persistStockPlan(
     ),
   ];
   const locationWarehouseId = new Map<string, string>();
+  let bays: CapacityLocation[] = [];
   if (locationIds.length > 0) {
     const locRows = await db
-      .select({ id: locations.id, warehouseId: locations.warehouseId })
+      .select({
+        id: locations.id,
+        warehouseId: locations.warehouseId,
+        code: locations.code,
+        maxQty: locations.maxQty,
+        maxWeightOz: locations.maxWeightOz,
+        maxVolumeCuIn: locations.maxVolumeCuIn,
+      })
       .from(locations)
       .where(
         and(eq(locations.organizationId, input.organizationId), inArray(locations.id, locationIds)),
       );
     for (const row of locRows) locationWarehouseId.set(row.id, row.warehouseId);
+    bays = locRows;
   }
   const warehouseScope = warehousesForMovements(expanded, locationWarehouseId);
   const holds =
@@ -122,6 +137,25 @@ export async function persistStockPlan(
   const movements = expanded;
   assertOutboundNotHeld(movements, holds);
   await assertOutboundAtp(db, input.organizationId, movements, input.loaded, warehouseScope);
+  statements.push(
+    ...(await capacityStatements(db, {
+      organizationId: input.organizationId,
+      now: input.now,
+      plan: input.plan,
+      movements,
+      locations: bays,
+      override: input.capacityOverride,
+    })),
+  );
+  statements.push(
+    ...(await plateStatements(db, {
+      organizationId: input.organizationId,
+      now: input.now,
+      movements,
+      balances: input.plan.balances,
+      ops: input.plateOps,
+    })),
+  );
 
   const clientKeys = clientKeysFromMovements(movements);
   const clientLoaded = await loadClientBalanceMap(db, input.organizationId, clientKeys);
@@ -230,6 +264,8 @@ export async function postReceiveLines(
       disposition?: ReturnDisposition;
     }[];
     extra?: BatchItem<"sqlite">[];
+    capacityOverride?: CapacityOverride;
+    plateOps?: PlateOp[];
   },
 ): Promise<void> {
   const loaded = await loadBalanceMap(
@@ -279,5 +315,7 @@ export async function postReceiveLines(
     loaded,
     plan,
     extra: input.extra,
+    capacityOverride: input.capacityOverride,
+    plateOps: input.plateOps,
   });
 }

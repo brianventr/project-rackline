@@ -58,6 +58,35 @@ export function packUnitScan(
   return { ok: true, add: { lineId: room.lineId, qty: room.inPack + 1 } };
 }
 
+/**
+ * A pack barcode (a case of 6) scanned at a scan-verified pack station: that many unit scans at
+ * once, all or none. Returns the new qty on screen for each line it touched.
+ */
+export function packUnitsScan(
+  lines: PackStationLine[],
+  unit: { itemId: string; sku: string },
+  unitsScanned: number,
+  pack: { level: string; qty: number },
+): { ok: true; adds: { lineId: string; qty: number }[] } | { ok: false; problem: string } {
+  const working = lines.map((line) => ({ ...line }));
+  const adds = new Map<string, number>();
+  for (let i = 0; i < pack.qty; i += 1) {
+    const result = packUnitScan(working, unit, unitsScanned + i);
+    if (!result.ok) {
+      if (i === 0) return result;
+      return {
+        ok: false,
+        problem: `A ${pack.level} is ${pack.qty}, but only ${i} ${unit.sku} ${i === 1 ? "is" : "are"} left to pack. Scan eaches instead.`,
+      };
+    }
+    if (!result.add) continue;
+    const line = working.find((row) => row.lineId === result.add!.lineId)!;
+    line.inPack = result.add.qty;
+    adds.set(line.lineId, result.add.qty);
+  }
+  return { ok: true, adds: [...adds].map(([lineId, qty]) => ({ lineId, qty })) };
+}
+
 export function applyPartialPack(
   expected: PackLine[],
   incoming: { lineId: string; qty: number }[],

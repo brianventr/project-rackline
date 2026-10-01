@@ -11,6 +11,7 @@ import { fulfillShopifyOrder } from "../domain/shopify-fulfill";
 import { fulfillChannelOrder } from "../db/channel-sync";
 import { loadWorkflowPolicy } from "../db/workflow";
 import { assertScanned, requiresScan, type ScanCheckLine, type ScanEvidence } from "../domain/workflow-policy";
+import { loadItemPacks } from "../db/item-packs";
 import { postsTrackingBack } from "../domain/channels/adapter";
 import { canPackOrder, canPickOrder, canShipOrder, canShipCartonOrder, canStartPack, canStartPick, canCancelOrder, canUnpickOrder } from "../domain/status";
 import { destPatchFromAddress } from "../domain/geo";
@@ -80,8 +81,11 @@ import {
 } from "../db/allocations";
 import type { OpenAllocation } from "../domain/allocations";
 import { cancelOrderDocument, loadNetPickSlices, persistUnpick, remainingToUnpick } from "../db/unpick";
+import { drawFromPlate, normalizePlateCode, type PlateOp } from "../domain/license-plates";
+import { plateForPick } from "../db/license-plates";
 import { OverUnpickError } from "../domain/partial-unpick";
 import { resolveLineStockQty, UomConversionError } from "../domain/uom";
+import { ensureCustomer } from "../db/parties";
 import { orderJobInput, guardFloorJob, syncDocumentJob } from "../db/jobs";
 import { desiredVerb } from "../domain/jobs";
 import { backorderNumber, ledgerUnpick, planShortShip, shopifyBackorderFields } from "../domain/short-ship";
@@ -333,14 +337,17 @@ function resolveIncoming(
     }));
 }
 
-function scanCheckLines(
-  lines: { id: string; sku: string; barcode: string | null }[],
+async function scanCheckLines(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  lines: { id: string; itemId: string; sku: string; barcode: string | null }[],
   posted: { lineId: string; qty: number }[],
-): ScanCheckLine[] {
+): Promise<ScanCheckLine[]> {
   const byId = new Map(lines.map((line) => [line.id, line]));
+  const packs = await loadItemPacks(db, organizationId, lines.map((line) => line.itemId));
   return posted.map((row) => {
     const line = byId.get(row.lineId)!;
-    return { lineId: row.lineId, qty: row.qty, sku: line.sku, barcode: line.barcode };
+    return { lineId: row.lineId, qty: row.qty, sku: line.sku, barcode: line.barcode, packs: packs.get(line.itemId) };
   });
 }
 
@@ -471,13 +478,15 @@ ordersRoute.get("/orders/:id", async (c) => {
 ordersRoute.post("/orders", async (c) => {
   const body = await c.req.json<{
     warehouseId?: string;
+    customerId?: string;
     customerName?: string;
+    customerEmail?: string;
     shipToAddress?: string;
     clientId?: string;
     lines?: { itemId?: string; qty?: number }[];
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
-  const customerName = requireString(body.customerName, "customerName");
+  const typedName = body.customerId ? body.customerName?.trim() : requireString(body.customerName, "customerName");
   if (!Array.isArray(body.lines) || body.lines.length === 0) {
     badRequest("At least one order line is required");
   }
@@ -501,6 +510,12 @@ ordersRoute.post("/orders", async (c) => {
     await getOrgItem(db, organizationId, itemId);
     lines.push({ id: newId(), orderId: id, itemId, qty, qtyPicked: 0 });
   }
+  const customer = await ensureCustomer(db, organizationId, {
+    customerId: body.customerId,
+    name: typedName ?? "",
+    email: body.customerEmail,
+    address: body.shipToAddress,
+  });
 
   await db.batch([
     db.insert(schema.orders).values({
@@ -508,7 +523,8 @@ ordersRoute.post("/orders", async (c) => {
       organizationId,
       warehouseId,
       number: docNumber("ORD"),
-      customerName,
+      customerName: typedName || customer.name,
+      customerId: customer.id,
       status: "open",
       createdAt: Date.now(),
       clientId: body.clientId || null,
@@ -568,6 +584,8 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
     locationId?: string;
     lines?: IncomingPick[];
     scan?: ScanEvidence;
+    /** The license plate scanned instead of the bay. The whole pick comes off it. */
+    plateCode?: string;
   }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
@@ -591,10 +609,19 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
   });
   if (!hasUnpicked(order.lines.map(asPickLine))) conflict("Order has nothing remaining to pick");
   const pickBay = await getOrgLocation(db, organizationId, locationId);
+  const plateCode = normalizePlateCode(body.plateCode) ?? normalizePlateCode(body.scan?.locationScan);
+  const plate = plateCode ? await plateForPick(db, organizationId, plateCode, pickBay) : null;
   const scanPolicy = await loadWorkflowPolicy(db, organizationId);
   if (requiresScan(scanPolicy, "pick")) {
     const scanned = resolveIncoming(order.lines, body.lines).filter((line) => line.qty > 0);
-    assertScanned(scanPolicy, "pick", scanCheckLines(order.lines, scanned), withSerialScans(order.lines, scanned, body.scan), pickBay);
+    const evidence = plate ? { ...body.scan, locationScan: pickBay.barcode } : body.scan;
+    assertScanned(
+      scanPolicy,
+      "pick",
+      await scanCheckLines(db, organizationId, order.lines, scanned),
+      withSerialScans(order.lines, scanned, evidence),
+      pickBay,
+    );
   }
   const allocations = await ensureAllocated(db, {
     organizationId,
@@ -637,6 +664,36 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
       };
     });
 
+  const pieces = plate
+    ? drawFromPlate(
+        plate,
+        pickLines.map((line) => ({ itemId: line.itemId, sku: line.sku, qty: line.qty, lotCode: line.lotCode, serials: line.serials })),
+      )
+    : null;
+  const picks = pieces
+    ? pickLines.flatMap((line, index) => {
+        const mine = pieces.filter((piece) => piece.want === index);
+        const grams = splitCatchWeight(line.weightGrams, mine.map((piece) => piece.qty));
+        return mine.map((piece, at) => ({
+          ...line,
+          qty: piece.qty,
+          lotCode: piece.lotCode ?? line.lotCode,
+          serials: piece.serials ?? line.serials,
+          weightGrams: grams[at] ?? null,
+        }));
+      })
+    : pickLines;
+  const plateOps: PlateOp[] = plate
+    ? picks.map((line) => ({
+        kind: "take",
+        plateId: plate.id,
+        itemId: line.itemId,
+        qty: line.qty,
+        lotCode: line.lotCode,
+        serials: line.serials,
+      }))
+    : [];
+
   const loaded = await loadBalanceMap(
     db,
     organizationId,
@@ -644,7 +701,7 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
   );
   const plan = chainPlans(
     qtyMap(loaded),
-    pickLines.map(
+    picks.map(
       (line) => (balances) =>
         planPick({
           itemId: line.itemId,
@@ -691,6 +748,7 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
         .where(eq(schema.orders.id, order.id)),
       ...consumeExtras,
     ],
+    plateOps,
   });
 
   const picked = await orderWithLines(db, organizationId, order.id);
@@ -722,7 +780,12 @@ ordersRoute.post("/orders/:id/pack", async (c) => {
   if (!hasUnpacked(order.lines.map(asPackLine))) conflict("Order has nothing remaining to pack");
 
   const incoming = resolveIncomingPack(order.lines, body.lines).filter((line) => line.qty > 0);
-  assertScanned(await loadWorkflowPolicy(db, organizationId), "pack", scanCheckLines(order.lines, incoming), body.scan);
+  assertScanned(
+    await loadWorkflowPolicy(db, organizationId),
+    "pack",
+    await scanCheckLines(db, organizationId, order.lines, incoming),
+    body.scan,
+  );
   let applied;
   try {
     applied = applyPartialPack(order.lines.map(asPackLine), incoming);
@@ -868,7 +931,12 @@ ordersRoute.post("/orders/:id/packages", async (c) => {
     }
     if (hasUnpacked(order.lines.map(asPackLine))) {
       const incomingPack = resolveIncomingPack(order.lines, body.lines).filter((line) => line.qty > 0);
-      assertScanned(await loadWorkflowPolicy(db, organizationId), "pack", scanCheckLines(order.lines, incomingPack), body.scan);
+      assertScanned(
+        await loadWorkflowPolicy(db, organizationId),
+        "pack",
+        await scanCheckLines(db, organizationId, order.lines, incomingPack),
+        body.scan,
+      );
       let packed;
       try {
         packed = applyPartialPack(order.lines.map(asPackLine), incomingPack);
@@ -2236,6 +2304,7 @@ ordersRoute.post("/orders/:id/short-ship", async (c) => {
     warehouseId: order.warehouseId,
     number,
     customerName: order.customerName,
+    customerId: order.customerId,
     status: "open",
     createdAt: now,
     source: channel.source,

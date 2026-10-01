@@ -80,6 +80,17 @@ describe("scan evidence", () => {
     expect(countScans(null, { sku: "LAMP", barcode: null })).toBe(0);
   });
 
+  it("counts a pack barcode scan as the pack's units", () => {
+    const packs = [{ barcode: "10012345678902", qty: 6 }, { barcode: null, qty: 48 }];
+    expect(countScans(["10012345678902", "lamp"], { sku: "LAMP", barcode: null, packs })).toBe(7);
+    const caseLines = [{ lineId: "l1", qty: 6, sku: "LAMP", barcode: null, packs }];
+    expect(checkScanEvidence(caseLines, { itemScans: ["10012345678902"] }, { perUnit: true })).toBeNull();
+    expect(checkScanEvidence([{ ...caseLines[0]!, qty: 8 }], { itemScans: ["10012345678902"] }, { perUnit: true })).toBe(
+      "Scan every unit of LAMP: 6 of 8 scanned",
+    );
+    expect(checkScanEvidence(caseLines, { locationScan: "A-01-01", itemScans: ["10012345678902"] }, { bay })).toBeNull();
+  });
+
   it("throws SCAN_REQUIRED only when the policy asks for scans", () => {
     expect(() => assertScanned(GARAGE_POLICY, "pick", lines, null, bay)).not.toThrow();
     expect(() => assertScanned(GARAGE_POLICY, "pack", lines, null)).not.toThrow();

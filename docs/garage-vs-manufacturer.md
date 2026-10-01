@@ -282,6 +282,10 @@ Settings → Integrations changes with the mode:
 | Yard, ASN, counts, holds, replenish | Hidden | Yes |
 | Equipment, labor, Live, Traffic | Hidden | Yes |
 | 3PL clients, billing, EDI, webhooks | Hidden | Yes |
+| Vendor and customer records | Parts → Vendors, Ship → Customers | Inbound → Vendors, Outbound → Customers |
+| Pack sizes (inner, case, pallet) | Yes: a case scan counts its eaches | Yes, and one case scan proves every unit in it |
+| Bin capacity (max units, weight, volume) | Hidden, but a limit set in Manufacturer still holds | Set per bay; fill % on Locations and the map; putaway skips full bays |
+| License plates (tote, pallet, carton) | Hidden; a plate made in Manufacturer stays in step when Garage ships from its bay | `LP-` codes on Stock → Plates and Floor → Plates: build in a bay, move in one scan, receive onto, pick off |
 | Menu | Short bench menu | Full office menu plus Settings |
 
 ## 6. Switching modes
@@ -358,3 +362,85 @@ A Shopify token or carrier key saved by an older version of Rackline, before the
 **Does the Ship queue reserve stock?** A row being "ready" is a check, not a hold. Stock is reserved when the pick starts, and quick-ship starts the pick.
 
 **Can I use the Ship queue in Manufacturer?** No. `/ship` opens Outbound → Waves instead. If the mode switched while the queue was already open, the queue says so and hides its Ship buttons. Use Waves and the floor, or switch to Garage.
+
+## 8. Vendors and customers
+
+Both modes keep a record for each vendor and each customer. In Garage they are under **Parts → Vendors** and **Ship → Customers**; in Manufacturer, **Inbound → Vendors** and **Outbound → Customers**.
+
+**Vendors** have a contact, email, phone, address, payment terms, a default lead time in days, a currency, and notes. A vendor's page lists its purchases, its vendor returns, and the last price paid for each item bought from it.
+
+- **New purchase** suggests vendors as you type. A name that matches a vendor, ignoring case and extra spaces, links to it. A new name creates the vendor.
+- A purchase line typed without a unit cost takes the last price paid to that vendor for the item, then the item's standard cost. The purchase shows a total once every line has a price.
+- **Send** fills in the vendor's email, and the purchase shows the vendor's terms and lead time.
+- Purchases made from reorder suggestions or the runway link to their vendor the same way.
+
+**Customers** have a name, email, phone, a default ship-to, notes, and the customer ids the sales channels use. A customer's page lists their orders and returns.
+
+Every order links itself to a customer as it arrives, whether from Shopify, WooCommerce, Etsy, a channel CSV, a crowdfunding import, or the office. Rackline tries these in order:
+
+1. The channel's own customer id, when the channel sends one.
+2. The email.
+3. The same name at the same ship-to address. The same name at a different address is treated as a different person, and so is the same name with a different email.
+4. For a typed order or a return with no address to compare, the same name.
+
+If nothing matches, Rackline creates the customer. A match only fills blanks on the record, such as a missing email or ship-to. It never overwrites what is there. On a new office order, picking a known customer fills in their ship-to.
+
+**Existing documents.** Records were made from the names already on your documents: one vendor per distinct vendor name on purchases, ASNs, and vendor returns, and one customer per distinct customer name on orders and returns. Case and extra spaces are ignored. Each customer's ship-to comes from their newest order.
+
+**Renaming.** Each document keeps the name it was made with. Renaming a vendor or customer changes new documents, not old ones. Two vendors cannot share a name, and two customers cannot share an email.
+
+## 9. Pack sizes
+
+An item can have up to three pack sizes: an **inner**, a **case**, and a **pallet**. Each one records how many eaches it holds, and can have its own barcode, weight, and size. Set them on the item's **Pack sizes** tab, in either mode.
+
+- Stock is always kept in eaches. A pack size is a shortcut for counting, not a separate stock unit.
+- Each level has to hold whole packs of the level below it. A case of 24 can hold inners of 4 or 6, but not 5.
+- A pack barcode has to be its own label. It cannot match an item's barcode or SKU, another pack, or a bay.
+- The case becomes the item's alt unit, so a line typed as 2 cases on an ASN or order still means 2 × the case size.
+
+**Scanning a pack counts its eaches.** On Receive, scanning a SKU or a case label counts what arrived. The first scan replaces the quantity Rackline filled in, and each scan after that adds to it. A scan that would take the line past what is still expected is refused, so scan eaches or type the qty for a short case. Pick, Wave, Putaway, and Pack count a case label the same way, and Count adds a case's eaches to what you have counted.
+
+A scan of an each keeps working as before. On Pick, Putaway, and Wave it still fills the whole remaining qty until you start counting with a case label or by typing.
+
+**Manufacturer scan proof.** One scan of a case label proves every unit in it. A pack of 24 bulbs is proven by one scan of their case barcode, where an inner pack of 4 only proves 4 of the 24.
+
+**Case codes that are plain numbers.** An ITF-14 case code such as `10614141000019` starts with digits that also look like a GS1 lot (`10`) or serial (`21`). Rackline tries a plain number as an item or pack barcode first, then as a lot or serial.
+
+## 10. Bin capacity
+
+A bay can have a limit on how many units it holds, how much they weigh, and how much room they take. Owners set the limits on the bay's **Capacity** card under **Stock → Locations**, in units, pounds, and cubic feet. A blank limit means no limit, and a bay with no limits works exactly as before.
+
+- **What counts.** A bay's weight and volume are its stock times each item's weight and size. Rackline takes those from the item's ship weight and dimensions, or else from its smallest pack size. An item with neither counts only toward the unit limit, and the Capacity card names it.
+- **What is refused.** A receive or move that would take a bay past any limit is refused with 409 `LOCATION_FULL`, which names the bay, what it would hold, and the limit. That covers receives, putaway, transfers, replenishment, ASN and yard receives, returns, and plate moves.
+- **What is not checked.** Counts, adjustments, builds, unpicks, and dekits never hit a limit, so the ledger can always be put right. A bay already over its limit can still give stock up.
+- **Owner override.** When an owner hits a full bay, Floor Receive and Put away offer **Fill past its limit**, and the API takes `overrideCapacity: true`. Each override writes a `capacity.override` row to the audit log in the same batch as the stock. An operator who sends the flag gets 403.
+- **Putaway.** Suggestions skip full bays, prefer a bay with room for the whole qty, and never suggest more than a bay has room for.
+
+Manufacturer shows a **Fill** column on Locations, the Capacity card on each bay, and fill % on the floor-plan map. The meter turns amber at 85% and red once the bay is full. Garage hides capacity, but a limit set in Manufacturer still holds, and the bay's page still shows it.
+
+## 11. License plates
+
+Manufacturer can group stock in a bay on a **license plate**: a tote, pallet, or carton with its own code, such as `LP-000123`. The list is under **Stock → Plates**, and plates are built on **Floor → Plates**. Garage hides them.
+
+**A plate is a share of its bay.** The bay's balance stays the ledger. A plate's lines say which of those units are on it, and for each item and each lot they never add up to more than the bay holds. Building or breaking a plate changes neither on hand nor available, so ATP, pick plans, quick-ship, and waves work as before. Stock in a bay that is on no plate is **loose**.
+
+On Floor → Plates:
+
+- **Start.** Scan a bay, choose tote, pallet, or carton, and start the plate. Rackline gives it the next code.
+- **Build.** With the plate open, scan stock that is in the same bay: a SKU, a case label, or a serial. A SKU scan puts **Qty per scan** units on the plate, 1 unless you change it, and a case label puts on that many cases' eaches. A serial puts on its one unit. **Add all** puts every loose unit of an item on at once. Lots go first-expiring first, skipping expired lots, unless you type one. Building posts no ledger movement, because nothing moved.
+- **Move.** Scan another bay. Each line on the plate posts a normal ledger move, so holds, ATP, and bin capacity apply, and an owner can fill a full bay past its limit. Lots and serials go with the plate.
+- **Close, reopen, break.** A closed plate takes no more stock, but it can still move and be picked from. Breaking a plate leaves its stock loose in the bay, and the plate open and empty.
+
+**Receiving onto a plate.** On Floor Receive, scan an open plate after the receipt or PO, and the received units go on it. An empty plate moves to the receiving bay with them. A plate with stock on it can only be received into its own bay, so scanning one switches the bay to it.
+
+**Picking.** A pick takes loose stock first and leaves plates alone. To pick off a plate, scan the plate instead of its bay: the plate proves the bay, and the pick comes off it. A closed plate that a pick empties is marked shipped. Waves pick loose stock only.
+
+**When stock leaves a bay another way**, such as a move of loose stock, an adjustment, a count, or a Garage quick-ship, Rackline takes it from loose stock first. Any shortfall comes off open plates before closed ones, newest first. A serial on a plate comes off it when the serial leaves the bay. A plate never claims more than the bay holds.
+
+Plates add three refusals:
+
+- **`PLATE_OVER_LOOSE`.** The build asks for more than is loose in the bay. The message says whether the rest is on plates or in expired lots. Expired stock goes on a plate only when you type its lot.
+- **`PLATE_STATUS`.** The plate is closed or shipped, so it cannot do that. Reopen a closed plate to add stock.
+- **`PLATE_SHORT`.** The scanned plate does not hold what the pick needs. Pick the rest loose, or from another plate.
+
+Plates show on the bay's page under Locations, with an **On plates** column, on the map's bay panel, and on Floor Lookup, which opens a plate by its code.

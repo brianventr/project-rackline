@@ -1,3 +1,5 @@
+import { normalizePlateCode } from "./license-plates";
+
 export type ScanKind =
   | "location"
   | "item"
@@ -19,6 +21,7 @@ export type ScanKind =
   | "equipment"
   | "serial"
   | "lot"
+  | "plate"
   | "unknown";
 
 export type Gs1Fields = {
@@ -67,6 +70,7 @@ export const PREFIXES: Array<{ prefix: string; kind: Exclude<ScanKind, "unknown"
   { prefix: "SER:", kind: "serial" },
   { prefix: "SERIAL:", kind: "serial" },
   { prefix: "LOT:", kind: "lot" },
+  { prefix: "LP:", kind: "plate" },
 ];
 
 export const SCAN_PREFIX_CHEATSHEET = [
@@ -101,6 +105,7 @@ export const SCAN_PREFIX_CHEATSHEET = [
   "SER:",
   "LOT:",
   "EQ:",
+  "LP:",
 ] as const;
 
 export function normalizeBarcode(raw: string): string {
@@ -153,6 +158,8 @@ function isAiStart(value: string, index: number): boolean {
 
 export function parseScan(raw: string): ParsedScan {
   const value = normalizeBarcode(raw);
+  const plate = normalizePlateCode(value);
+  if (plate) return { kind: "plate", value: plate, raw: value };
   for (const entry of PREFIXES) {
     if (value.startsWith(entry.prefix)) {
       return { kind: entry.kind, value: value.slice(entry.prefix.length), raw: value };
@@ -173,7 +180,21 @@ export function parseScan(raw: string): ParsedScan {
   return { kind: "unknown", value, raw: value, gs1: gs1 ?? undefined };
 }
 
-export function documentPath(kind: Exclude<ScanKind, "unknown" | "location" | "item" | "serial" | "lot">, id: string): string {
+/**
+ * What to look up as an item or pack barcode, or null when the scan names something else. A bare
+ * number that happens to read as a GS1 lot (10…) or serial (21…) is far more often a UPC or an
+ * ITF-14 case code, so it is tried as an item before the lot or serial.
+ */
+export function itemScanValue(parsed: ParsedScan): string | null {
+  if (parsed.kind === "item" || parsed.kind === "unknown") return parsed.value;
+  if ((parsed.kind === "lot" || parsed.kind === "serial") && /^\d+$/.test(parsed.raw)) return parsed.raw;
+  return null;
+}
+
+export function documentPath(
+  kind: Exclude<ScanKind, "unknown" | "location" | "item" | "serial" | "lot" | "plate">,
+  id: string,
+): string {
   switch (kind) {
     case "order":
       return `/outbound/orders/${id}`;

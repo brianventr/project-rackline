@@ -8,6 +8,7 @@ import { docNumber, newId } from "../lib/ids";
 import { EdiParseError, parseEdiAsnBody } from "../domain/edi";
 import { clipInboxText, FAILED_INBOX_KEEP, refusedPayloadJson, summarizeEdiPayload } from "../domain/edi-inbox";
 import { getOrgItem, getOrgWarehouse, requireOwner } from "../lib/org";
+import { ensureVendor } from "../db/parties";
 
 export const ediRoute = new Hono<AppEnv>();
 
@@ -171,6 +172,7 @@ async function ingestAsn(db: AppDb, organizationId: string, raw: unknown) {
     await getOrgItem(db, organizationId, itemId);
     asnLines.push({ id: newId(), asnId, itemId, qtyExpected: line.qty, qtyReceived: 0 });
   }
+  const vendor = await ensureVendor(db, organizationId, { name: payload.vendorName });
   await db.batch([
     db.insert(schema.asns).values({
       id: asnId,
@@ -178,6 +180,7 @@ async function ingestAsn(db: AppDb, organizationId: string, raw: unknown) {
       warehouseId: payload.warehouseId,
       number: docNumber("ASN"),
       vendorName: payload.vendorName,
+      vendorId: vendor.id,
       status: "expected",
       clientId,
       notes: payload.reference,
