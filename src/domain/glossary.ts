@@ -172,6 +172,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/stock/locations",
   },
   {
+    id: "slotting",
+    term: "Slotting",
+    aliases: ["plan slotting", "pick-face assignment", "velocity slotting"],
+    short: "Opens a transfer that puts a fast SKU on a pick face. Stock does not move until that transfer is posted.",
+    long: "The rank is picks and shipments over the last 30 days, the same movement ABC uses. The move is from the bulk bay onto an empty pick face, or one whose SKU is slower. A SKU already on a pick face is skipped, and a slower SKU never displaces a faster one. Qty is what is available in bulk, capped by the pick face max when it is set. Planning again does not open a second transfer for the same SKU and destination. Manufacturer only.",
+    path: "/stock/locations",
+  },
+  {
     id: "bulk-bay",
     term: "Bulk bay",
     aliases: ["bulk", "bulk storage", "reserve storage", "overstock"],

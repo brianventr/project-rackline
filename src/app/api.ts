@@ -207,6 +207,24 @@ export type Item = {
   }[];
 };
 
+export type SlottingProposal = {
+  itemId: string;
+  sku: string;
+  itemName: string;
+  units: number;
+  fromLocationId: string;
+  fromCode: string;
+  toLocationId: string;
+  toCode: string;
+  qty: number;
+  transfer: { id: string; number: string } | null;
+};
+
+export type SlottingPlan = {
+  created: number;
+  proposals: SlottingProposal[];
+};
+
 export type Location = {
   id: string;
   code: string;
