@@ -1837,6 +1837,35 @@ export const floorJobs = sqliteTable(
   ],
 );
 
+/**
+ * Claim, snooze, and resolution for one exception-inbox problem. The problem itself is derived live
+ * from its source; `source` + `key` name it. Null `warehouse_id` is a problem every building shows.
+ */
+export const exceptionClaims = sqliteTable(
+  "exception_claims",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id").references(() => warehouses.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    key: text("key").notNull(),
+    claimedBy: text("claimed_by"),
+    claimedAt: integer("claimed_at"),
+    snoozedUntil: integer("snoozed_until"),
+    resolvedAt: integer("resolved_at"),
+    resolvedBy: text("resolved_by"),
+    resolutionNote: text("resolution_note"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("exception_claims_org_source_key").on(t.organizationId, t.source, t.key),
+    index("exception_claims_org_key").on(t.organizationId, t.key),
+  ],
+);
+
 export const auditEvents = sqliteTable(
   "audit_events",
   {
