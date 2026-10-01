@@ -130,7 +130,7 @@ export function shipEngineLabelBody(input: Route & { serviceId: string; returnLa
   return {
     ...(ret ? { is_return_label: true, rma_number: ret.rmaNumber } : {}),
     shipment: {
-      service_code: shipEngineServiceCode(input.serviceId),
+      service_code: shipEngineServiceCode(input.serviceId, input.shipFrom.country !== input.shipTo.country),
       validate_address: "no_validation",
       ship_from: shipEngineAddress(input.shipFrom),
       ship_to: shipEngineAddress(input.shipTo),

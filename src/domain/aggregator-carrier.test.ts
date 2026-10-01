@@ -158,4 +158,10 @@ describe("customs on international bodies", () => {
     );
     expect("customs" in shipEngineLabelBody({ serviceId: "ups_ground", shipFrom: building, shipTo: customer, parcel }).shipment).toBe(false);
   });
+
+  it("ShipEngine buys the international service across a border", () => {
+    const label = (shipTo: typeof abroad) => shipEngineLabelBody({ serviceId: "ups_ground", shipFrom: building, shipTo, parcel, customs });
+    expect(label(abroad).shipment.service_code).toBe("ups_standard_international");
+    expect(label(customer).shipment.service_code).toBe("ups_ground");
+  });
 });

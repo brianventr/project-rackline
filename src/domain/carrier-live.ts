@@ -144,9 +144,48 @@ const SERVICE_ALIASES: Record<string, string> = {
   expressworldwide: "dhl_express",
 };
 
+/**
+ * International rates, under EasyPost's and ShipEngine's names, read as the Rackline service that buys them
+ * abroad. EasyPost's UPS names do not say they are international.
+ */
+const INTERNATIONAL_RATE_NAMES: Record<string, string> = {
+  upsstandard: "ups_ground",
+  upsstandardinternational: "ups_ground",
+  expedited: "ups_2day",
+  upsworldwideexpedited: "ups_2day",
+  express: "ups_next_day",
+  upsworldwideexpress: "ups_next_day",
+  internationaleconomy: "fedex_ground",
+  fedexinternationaleconomy: "fedex_ground",
+  internationalpriority: "fedex_2day",
+  fedexinternationalpriority: "fedex_2day",
+  firstclasspackageinternationalservice: "usps_ground_advantage",
+  uspsfirstclassmailinternational: "usps_ground_advantage",
+  prioritymailinternational: "usps_priority",
+  uspsprioritymailinternational: "usps_priority",
+  expressmailinternational: "usps_express",
+  uspsprioritymailexpressinternational: "usps_express",
+};
+
+const OTHER_INTERNATIONAL = /international|worldwide|^upssaver$|^expressplus$/;
+
+/**
+ * Each Rackline service buys one service abroad, so the carrier's other international services read as none
+ * and a quote is always for the label it buys. Undefined for a domestic rate.
+ */
+function internationalService(carrierKey: string, serviceKey: string): string | null | undefined {
+  const family = (["ups", "fedex", "usps"] as const).find((name) => carrierKey.includes(name) || serviceKey.startsWith(name));
+  if (!family) return undefined;
+  const serviceId = INTERNATIONAL_RATE_NAMES[serviceKey];
+  if (serviceId?.startsWith(`${family}_`)) return serviceId;
+  return OTHER_INTERNATIONAL.test(serviceKey) ? null : undefined;
+}
+
 export function mapAggregatorService(carrier: string, service: string): string | null {
   const carrierKey = carrier.toLowerCase().replace(/[^a-z0-9]/g, "");
   const serviceKey = service.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const abroad = internationalService(carrierKey, serviceKey);
+  if (abroad !== undefined) return abroad;
   const aliased = SERVICE_ALIASES[service.toLowerCase()] || SERVICE_ALIASES[serviceKey];
   if (aliased) {
     if (carrierKey.includes("fedex") && aliased.startsWith("ups_")) return null;
@@ -179,7 +218,23 @@ export function mapAggregatorService(carrier: string, service: string): string |
   return aliased ?? null;
 }
 
-export function shipEngineServiceCode(serviceId: string): string {
+/** ShipEngine's codes for the services abroad, as carrier accounts connected with your own credentials name them. */
+const SHIPENGINE_INTERNATIONAL: Record<string, string> = {
+  ups_ground: "ups_standard_international",
+  ups_2day: "ups_worldwide_expedited",
+  ups_next_day: "ups_worldwide_express",
+  fedex_ground: "fedex_international_economy",
+  fedex_home: "fedex_international_economy",
+  fedex_2day: "fedex_international_priority",
+  usps_ground_advantage: "usps_first_class_mail_international",
+  usps_priority: "usps_priority_mail_international",
+  usps_express: "usps_priority_mail_express_international",
+  dhl_express: "dhl_express_worldwide",
+};
+
+export function shipEngineServiceCode(serviceId: string, international = false): string {
+  const abroad = international ? SHIPENGINE_INTERNATIONAL[serviceId] : undefined;
+  if (abroad) return abroad;
   switch (serviceId) {
     case "ups_2day":
       return "ups_2nd_day_air";
