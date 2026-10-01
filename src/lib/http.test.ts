@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { badRequest, conflict, HttpError, requireInt, requireString } from "./http";
+import { DrizzleQueryError } from "drizzle-orm";
+import { badRequest, badRequestFrom, conflict, HttpError, requireInt, requireString } from "./http";
 
 describe("http helpers", () => {
   it("requires a trimmed string", () => {
@@ -25,5 +26,18 @@ describe("http helpers", () => {
     } catch (err) {
       expect(err).toMatchObject({ status: 409, message: "Already on the team", code: "DUPLICATE" });
     }
+  });
+
+  it("turns a domain error into a 400 but lets database failures and crashes through", () => {
+    expect(() => badRequestFrom(new Error("Only 2 picked"), "Invalid unpick")).toThrow(
+      expect.objectContaining({ status: 400, message: "Only 2 picked" }),
+    );
+    expect(() => badRequestFrom("boom", "Invalid unpick")).toThrow(
+      expect.objectContaining({ status: 400, message: "Invalid unpick" }),
+    );
+    const failed = new DrizzleQueryError('update "order_lines" set "qty_picked" = ?', [2], new Error("D1_ERROR: x"));
+    expect(() => badRequestFrom(failed, "Invalid unpick")).toThrow(failed);
+    const crash = new TypeError("Cannot read properties of undefined");
+    expect(() => badRequestFrom(crash, "Invalid unpick")).toThrow(crash);
   });
 });

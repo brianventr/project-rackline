@@ -60,8 +60,13 @@ export function isDatabaseError(err: unknown): boolean {
   return causeChain(err).some((entry) => failedQuery(entry) !== null || DB_TEXT.test(messageOf(entry)));
 }
 
+/** A database failure or a runtime crash: log it under a reference, never show its text. */
+export function isUnexpectedError(err: unknown): boolean {
+  return err instanceof Error && (RUNTIME_ERRORS.has(err.name) || isDatabaseError(err));
+}
+
 /** The error's own message when it is fit to show or store for people; D1 text and runtime crashes never are. */
 export function publicErrorText(err: unknown, fallback: string): string {
-  if (!(err instanceof Error) || RUNTIME_ERRORS.has(err.name) || isDatabaseError(err)) return fallback;
+  if (!(err instanceof Error) || isUnexpectedError(err)) return fallback;
   return err.message.trim() || fallback;
 }

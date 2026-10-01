@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { and, desc, eq, inArray, like } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
-import { badRequest, conflict, notFound, optionalInt, requireInt, requireString } from "../lib/http";
+import { badRequest, badRequestFrom, conflict, notFound, optionalInt, requireInt, requireString } from "../lib/http";
 import { getOrgItem, getOrgLocation } from "../lib/org";
 import { docNumber, newId } from "../lib/ids";
 import { chainPlans, planPick, type MovementDraft, type StockPlan } from "../domain/inventory";
@@ -2143,7 +2143,7 @@ ordersRoute.post("/orders/:id/unpick", async (c) => {
     });
   } catch (err) {
     if (err instanceof OverUnpickError) throw err;
-    badRequest(err instanceof Error ? err.message : "Invalid unpick");
+    badRequestFrom(err, "Invalid unpick");
   }
   const unpicked = await orderWithLines(db, organizationId, order.id);
   await syncDocumentJob(db, orderJobInput(unpicked));
@@ -2310,7 +2310,7 @@ ordersRoute.post("/orders/:id/short-ship", async (c) => {
       });
     } catch (err) {
       if (err instanceof OverUnpickError) throw err;
-      badRequest(err instanceof Error ? err.message : "Could not return unshipped qty");
+      badRequestFrom(err, "Could not return unshipped qty");
     }
   } else {
     await db.batch(extra as [typeof closeOrder, ...(typeof closeOrder)[]]);
