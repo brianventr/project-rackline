@@ -458,6 +458,12 @@ const itemEditSchema = itemFormSchema
   })
   .extend({
     ...itemShipFields,
+    qcSamplePercent: z.string().refine((value) => {
+      const trimmed = value.trim();
+      if (!trimmed) return true;
+      const n = Number(trimmed);
+      return Number.isInteger(n) && n >= 0 && n <= 100;
+    }, "QC sample must be a whole number from 0 to 100, or blank."),
     imageUrl: z.string().refine((value) => {
       try {
         normalizeImageUrl(value);
@@ -486,6 +492,7 @@ const EMPTY_ITEM_FORM: ItemForm = {
   shipWidthIn: "",
   shipHeightIn: "",
   imageUrl: "",
+  qcSamplePercent: "",
 };
 
 const shipText = (value: number | null | undefined) => (value ? String(value) : "");
@@ -506,6 +513,7 @@ function formFromItem(item: Item): ItemForm {
     shipWidthIn: shipText(item.shipWidthIn),
     shipHeightIn: shipText(item.shipHeightIn),
     imageUrl: item.imageUrl ?? "",
+    qcSamplePercent: item.qcSamplePercent == null ? "" : String(item.qcSamplePercent),
   };
 }
 
@@ -559,6 +567,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
             shipWidthIn: next.shipWidthIn || null,
             shipHeightIn: next.shipHeightIn || null,
             imageUrl: next.imageUrl || null,
+            qcSamplePercent: next.qcSamplePercent.trim() === "" ? null : Number(next.qcSamplePercent),
           }),
         }),
       (row) => `Saved ${row.sku}.`,
@@ -849,7 +858,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
                   <TextField form={form} name="name" label="Name" />
                   <TextField form={form} name="barcode" label="Barcode" />
                 </div>
-                <div className="grid items-start gap-3 sm:grid-cols-3">
+                <div className="grid items-start gap-3 sm:grid-cols-4">
                   <NumberField form={form} name="reorderPoint" label="Reorder point" min={0} />
                   <NumberField
                     form={form}
@@ -860,7 +869,18 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
                     placeholder="Auto from ships"
                   />
                   <NumberField form={form} name="pickMin" label="Pick min" min={0} />
+                  <NumberField
+                    form={form}
+                    name="qcSamplePercent"
+                    label="QC sample %"
+                    min={0}
+                    max={100}
+                    placeholder="Off"
+                  />
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Blank turns incoming inspection off. 100 pulls every received unit aside until it is restocked, held, or scrapped.
+                </p>
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Shipping</p>
                   <p className="text-xs text-muted-foreground">

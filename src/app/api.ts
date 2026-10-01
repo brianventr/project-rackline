@@ -178,6 +178,8 @@ export type Item = {
   originCountry?: string | null;
   customsDescription?: string | null;
   customsValueCents?: number | null;
+  /** Null means incoming QC is off. */
+  qcSamplePercent?: number | null;
   onHand?: {
     locationId: string;
     locationCode: string;
@@ -545,6 +547,20 @@ export type ReceiptLine = {
   trackSerial?: boolean;
   catchWeight?: boolean;
   trackExpiry?: boolean;
+  qcSamplePercent?: number | null;
+};
+
+export type ReceiptQcSample = {
+  id: string;
+  receiptLineId: string;
+  itemId: string;
+  sku: string;
+  itemName: string;
+  locationId: string;
+  qty: number;
+  status: string;
+  photoUrl?: string | null;
+  holdId?: string | null;
 };
 
 export type Receipt = {
@@ -556,6 +572,9 @@ export type Receipt = {
   locationId: string | null;
   warehouseId?: string;
   lines?: ReceiptLine[];
+  qc?: ReceiptQcSample[];
+  /** Units still waiting on a QC decision. */
+  openQc?: number;
 };
 
 export type SuggestedLocation = {
@@ -821,6 +840,7 @@ export type WorkOrder = {
   asBuilt?: AsBuiltLink[];
   components?: { id?: string; itemId: string; qty: number; sku: string; itemName: string; imageUrl?: string | null }[];
   steps?: BomStep[];
+  confirmations?: { stepId: string; qty: number }[];
 };
 
 export type KitBuild = {
@@ -843,6 +863,7 @@ export type KitBuild = {
   catchWeight?: boolean;
   components?: { id?: string; itemId: string; qty: number; sku: string; itemName: string; imageUrl?: string | null }[];
   steps?: BomStep[];
+  confirmations?: { stepId: string; qty: number }[];
   asBuilt?: AsBuiltLink[];
 };
 

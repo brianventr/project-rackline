@@ -3,6 +3,7 @@ import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { applyHoldsToOnHand, HeldStockError, isHoldRestrictedType, matchingHoldForMove, type OpenHold } from "../domain/holds";
 import type { MovementDraft } from "../domain/inventory";
+import { withOpenQc } from "./qc-samples";
 
 export async function loadOpenHolds(
   db: AppDb,
@@ -80,10 +81,11 @@ export async function availableOnHand<T extends { locationId: string; itemId: st
   warehouseId?: string,
 ): Promise<T[]> {
   if (rows.length === 0) return rows;
+  const reserved = await withOpenQc(db, organizationId, rows);
   const holds = await loadOpenHolds(db, organizationId, warehouseId);
-  if (holds.length === 0) return rows;
+  if (holds.length === 0) return reserved;
   const lotQtys = await loadHeldLotQuantities(db, organizationId, holds);
-  return applyHoldsToOnHand(rows, holds, lotQtys);
+  return applyHoldsToOnHand(reserved, holds, lotQtys);
 }
 
 export function assertOutboundNotHeld(movements: MovementDraft[], holds: OpenHold[]): void {

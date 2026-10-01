@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { BomStep } from "../api";
 import { SkuThumb } from "./sku-thumb";
 
@@ -16,16 +15,13 @@ export function KitRecipeCard({
   imageUrl,
   components,
   steps,
-  checkable = false,
 }: {
   sku: string;
   itemName: string;
   imageUrl?: string | null;
   components?: RecipeComponent[];
   steps?: BomStep[];
-  checkable?: boolean;
 }) {
-  const [done, setDone] = useState<Record<string, boolean>>({});
   const hasSteps = Boolean(steps?.length);
   const hasComponents = Boolean(components?.length);
   if (!hasSteps && !hasComponents && !imageUrl) return null;
@@ -46,17 +42,7 @@ export function KitRecipeCard({
             const partSku = step.componentSku || sku;
             return (
               <li key={step.id} className="flex gap-3">
-                {checkable ? (
-                  <input
-                    type="checkbox"
-                    className="mt-2 size-4 shrink-0"
-                    checked={Boolean(done[step.id])}
-                    onChange={(e) => setDone((current) => ({ ...current, [step.id]: e.target.checked }))}
-                    aria-label={`Step ${step.seq}`}
-                  />
-                ) : (
-                  <span className="mt-1 w-5 shrink-0 font-mono text-sm text-muted-foreground">{step.seq}</span>
-                )}
+                <span className="mt-1 w-5 shrink-0 font-mono text-sm text-muted-foreground">{step.seq}</span>
                 <SkuThumb sku={partSku} name={step.componentName || step.title} imageUrl={photo} size="sm" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium">

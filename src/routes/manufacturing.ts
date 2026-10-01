@@ -13,6 +13,8 @@ import { applyPartialComplete, isFullyCompleted, remainingToComplete, OverComple
 import { guardFloorJob, syncDocumentJob } from "../db/jobs";
 import { loadBomRecipe, loadBomSteps } from "../db/bom-recipe";
 import { normalizeBomSteps } from "../domain/bom-steps";
+import { loadStepConfirmations, recordStepConfirmation } from "../db/step-confirm";
+import { StepConfirmError, nextUnconfirmedStep, stepsRequiredMessage } from "../domain/step-confirm";
 import { mediaStepKey } from "../domain/media";
 import { deleteManagedMedia, putMediaFile, readUploadedFile } from "../lib/media-store";
 
@@ -200,12 +202,14 @@ async function workOrderWithItem(db: AppEnv["Variables"]["db"], organizationId: 
   if (!row) notFound("Work order not found");
   const asBuilt = await loadAsBuiltForRef(db, organizationId, row.id);
   const recipe = await loadBomRecipe(db, organizationId, row.itemId);
+  const confirmations = await loadStepConfirmations(db, organizationId, "work_order", row.id);
   return {
     ...row,
     remaining: remainingToComplete(row.qty, row.qtyCompleted),
     asBuilt,
     components: recipe.lines,
     steps: recipe.steps,
+    confirmations,
   };
 }
 
@@ -343,6 +347,38 @@ manufacturingRoute.post("/work-orders/:id/start", async (c) => {
   return c.json(started);
 });
 
+manufacturingRoute.post("/work-orders/:id/steps/confirm", async (c) => {
+  const body = await c.req.json<{ stepId?: string; code?: string; qty?: number }>().catch(() => ({}) as {
+    stepId?: string;
+    code?: string;
+    qty?: number;
+  });
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const wo = await workOrderWithItem(db, organizationId, c.req.param("id"));
+  if (!canCompleteWorkOrder(wo.status)) conflict("Work order already completed");
+  let requestedQty: number | null = null;
+  if (body.qty !== undefined && body.qty !== null) requestedQty = requireInt(body.qty, "qty");
+  try {
+    await recordStepConfirmation(db, {
+      organizationId,
+      refType: "work_order",
+      refId: wo.id,
+      documentQty: wo.qty,
+      steps: wo.steps,
+      confirmedBy: c.get("user")?.id ?? null,
+      stepId: body.stepId,
+      code: body.code,
+      requestedQty,
+      now: Date.now(),
+    });
+  } catch (err) {
+    if (err instanceof StepConfirmError) badRequest(err.message);
+    throw err;
+  }
+  return c.json(await workOrderWithItem(db, organizationId, wo.id));
+});
+
 manufacturingRoute.post("/work-orders/:id/complete", async (c) => {
   const body = await c.req
     .json<{ qty?: number }>()
@@ -381,6 +417,14 @@ manufacturingRoute.post("/work-orders/:id/complete", async (c) => {
     if (err instanceof OverCompleteError) throw err;
     badRequest(err instanceof Error ? err.message : "Invalid complete qty");
   }
+
+  const gap = nextUnconfirmedStep({
+    steps: wo.steps,
+    confirmations: wo.confirmations,
+    qtyCompleted: wo.qtyCompleted,
+    postedQty: applied.postedQty,
+  });
+  if (gap) conflict(stepsRequiredMessage(gap.step), "STEPS_REQUIRED");
 
   const [bom] = await db
     .select()
