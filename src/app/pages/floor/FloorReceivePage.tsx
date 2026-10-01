@@ -12,6 +12,9 @@ import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
 import { canReceive, canReceivePurchase } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
 import { scanIntoLine } from "@/domain/pack-sizes";
+import { canPlate, plateStateMessage } from "@/domain/license-plates";
+import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
+import { Term } from "../../components/term";
 import { useSession } from "../../session";
 import { useWarehouse } from "../../warehouse";
 import { jobForRef, useOpenJobs } from "../../jobs";
@@ -20,6 +23,20 @@ const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
 /** BayCombobox takes no className, so size its input like the other floor inputs (44px, 16px text on phones). */
 const bayPicker = "[&_[role=combobox]]:h-11 [&_[role=combobox]]:text-base md:[&_[role=combobox]]:text-sm";
+
+function PlateChip({ code, onClear }: { code: string | null; onClear: () => void }) {
+  if (!code) return null;
+  return (
+    <p className="flex flex-wrap items-center gap-x-4 text-sm">
+      <span>
+        Onto <Term id="license-plate">plate</Term> <span className="font-mono font-medium">{code}</span>
+      </span>
+      <button type="button" className={textLink} onClick={onClear}>
+        Clear plate
+      </button>
+    </p>
+  );
+}
 
 export function FloorReceivePage() {
   const me = useSession();
@@ -41,6 +58,8 @@ export function FloorReceivePage() {
   const { overfill, offer } = useOverfill();
   const [loaded, setLoaded] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const plates = !isGarageMode(me.organization.operatingMode) || garageAllowsPath("/floor/plates");
+  const [plateCode, setPlateCode] = useState<string | null>(null);
   // Scans resolve out of order, so each one reads the latest qtys through the ref. Items in
   // `counted` have been scanned or typed since the qtys were prefilled; their scans add.
   const qtysRef = useRef(qtys);
@@ -118,6 +137,8 @@ export function FloorReceivePage() {
       .finally(() => setLoaded(true));
   }, []);
 
+  useEffect(() => setPlateCode(null), [activeReceipt?.id, activePurchase?.id]);
+
   const onScan = useCallback((raw: string, report?: ScanReport) => {
     setError(null);
     setDone(null);
@@ -151,6 +172,23 @@ export function FloorReceivePage() {
           return;
         }
         const doc = activeReceipt ?? activePurchase;
+        if (hit.kind === "plate" && plates) {
+          if (!doc) {
+            setError("Open a receipt or purchase order first, then scan the plate to receive onto.");
+            report?.(false);
+            return;
+          }
+          if (!canPlate(hit.plate, "receive")) {
+            setError(plateStateMessage(hit.plate.code, hit.plate.status, "receive"));
+            report?.(false);
+            return;
+          }
+          // A plate with stock on it cannot change bays in a receive, so the receive goes to its bay.
+          if (hit.plate.locationId && hit.plate.units > 0) setLocationId(hit.plate.locationId);
+          setPlateCode(hit.plate.code);
+          report?.(true);
+          return;
+        }
         if (hit.kind === "item" && doc) {
           const line = (doc.lines ?? []).find((row) => row.itemId === hit.item.id);
           if (!line) {
@@ -185,7 +223,7 @@ export function FloorReceivePage() {
         setError(errorText(err, "That barcode did not scan. Try again."));
         report?.(false);
       });
-  }, [jobs, me.user.id, activeReceipt, activePurchase]);
+  }, [jobs, me.user.id, activeReceipt, activePurchase, plates]);
 
   function failed(err: unknown, retry: () => void) {
     const text = errorText(err, "Could not post the receive.");
@@ -209,11 +247,12 @@ export function FloorReceivePage() {
         .filter((line) => line.qty > 0);
       const posted = await api<Receipt>(`/api/receipts/${activeReceipt.id}/receive`, {
         method: "POST",
-        body: JSON.stringify({ locationId, lines, ...(overrideCapacity ? { overrideCapacity } : {}) }),
+        body: JSON.stringify({ locationId, lines, ...(plateCode ? { plateCode } : {}), ...(overrideCapacity ? { overrideCapacity } : {}) }),
       });
       setActiveReceipt(posted);
       prefill(posted.lines ?? []);
-      setDone(`${posted.number} posted to the dock.`);
+      setDone(`${posted.number} posted to the dock${plateCode ? ` on ${plateCode}` : ""}.`);
+      setPlateCode(null);
       await load();
     } catch (err) {
       failed(err, () => void receiveReceipt(true));
@@ -236,11 +275,12 @@ export function FloorReceivePage() {
         .filter((line) => line.qty > 0);
       const posted = await api<Purchase>(`/api/purchases/${activePurchase.id}/receive`, {
         method: "POST",
-        body: JSON.stringify({ locationId, lines, ...(overrideCapacity ? { overrideCapacity } : {}) }),
+        body: JSON.stringify({ locationId, lines, ...(plateCode ? { plateCode } : {}), ...(overrideCapacity ? { overrideCapacity } : {}) }),
       });
       setActivePurchase(posted);
       prefill(posted.lines ?? []);
-      setDone(`${posted.number} posted to the dock.`);
+      setDone(`${posted.number} posted to the dock${plateCode ? ` on ${plateCode}` : ""}.`);
+      setPlateCode(null);
       await load();
     } catch (err) {
       failed(err, () => void receivePurchase(true));
@@ -254,7 +294,9 @@ export function FloorReceivePage() {
       error={error}
     >
       <FloorScanBox
-        label={activeReceipt || activePurchase ? "Scan SKU, case, or bay" : "Scan receipt, PO, or bay"}
+        label={
+          activeReceipt || activePurchase ? (plates ? "Scan SKU, case, bay, or plate" : "Scan SKU, case, or bay") : "Scan receipt, PO, or bay"
+        }
         placeholder={activeReceipt || activePurchase ? "LED-BULB, a case label, or RECV" : "PO-DEMO1, RCP-DEMO1, or RECV"}
         onScan={onScan}
         ready={loaded}
@@ -413,6 +455,7 @@ export function FloorReceivePage() {
               />
             </Field>
           </div>
+          <PlateChip code={plateCode} onClear={() => setPlateCode(null)} />
           {canReceivePurchase(activePurchase.status) &&
           hasRemaining(
             (activePurchase.lines ?? []).map((line) => ({
@@ -517,6 +560,7 @@ export function FloorReceivePage() {
               />
             </Field>
           </div>
+          <PlateChip code={plateCode} onClear={() => setPlateCode(null)} />
           {canReceive(activeReceipt!.status) &&
           hasRemaining(
             (activeReceipt!.lines ?? []).map((line) => ({

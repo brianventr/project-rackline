@@ -3,15 +3,20 @@ import { Link } from "react-router-dom";
 import { Search } from "lucide-react";
 import { api, errorText, type ScanHit } from "../../api";
 import { documentPath } from "@/domain/barcodes";
-import { Button, Card, EmptyState, StatusBadge } from "../../components/ui";
+import { Button, Card, EmptyState, StatusBadge, summarizeLines } from "../../components/ui";
 import { Term } from "../../components/term";
 import { FloorFrame, FloorScanBox, type ScanReport } from "./floor-ui";
 import { AsBuiltList } from "../../components/as-built";
 import { SkuThumb } from "../../components/sku-thumb";
 import { PackSizesTable } from "../../components/pack-sizes";
 import { packText } from "@/domain/pack-sizes";
+import { PLATE_TYPE_LABELS } from "@/domain/license-plates";
+import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
+import { useSession } from "../../session";
 
 export function FloorLookupPage() {
+  const me = useSession();
+  const plates = !isGarageMode(me.organization.operatingMode) || garageAllowsPath("/floor/plates");
   const [hit, setHit] = useState<ScanHit | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,10 +35,14 @@ export function FloorLookupPage() {
   }, []);
 
   return (
-    <FloorFrame title="Lookup" description="Scan a SKU, bay, document, serial, lot, or EQ: truck." error={error}>
+    <FloorFrame
+      title="Lookup"
+      description={plates ? "Scan a SKU, bay, plate, document, serial, lot, or EQ: truck." : "Scan a SKU, bay, document, serial, lot, or EQ: truck."}
+      error={error}
+    >
       <FloorScanBox label="Scan" placeholder="Bay, SKU, LAMP-1001, LOT-2026-A" onScan={onScan} />
       {hit ? (
-        <LookupResult hit={hit} />
+        <LookupResult hit={hit} plates={plates} />
       ) : (
         <EmptyState
           icon={Search}
@@ -81,11 +90,11 @@ function LookupActions({ primary, children }: { primary?: ReactNode; children?: 
 }
 
 /** Column heads over a bay's or SKU's stock list; the right-hand number is what can still be picked. */
-function StockHead({ left }: { left: string }) {
+function StockHead({ left, right = "Available" }: { left: string; right?: string }) {
   return (
     <div className="mt-4 flex justify-between gap-2 border-b pb-1 text-xs text-muted-foreground">
       <span>{left}</span>
-      <span>Available</span>
+      <span>{right}</span>
     </div>
   );
 }
@@ -99,8 +108,58 @@ function StockNote() {
   );
 }
 
-function LookupResult({ hit }: { hit: ScanHit }) {
+function LookupResult({ hit, plates }: { hit: ScanHit; plates: boolean }) {
+  if (hit.kind === "plate") {
+    const plate = hit.plate;
+    return (
+      <Card>
+        <p className="font-mono text-xs uppercase text-muted-foreground">
+          <Term id="license-plate">{PLATE_TYPE_LABELS[plate.type]}</Term>
+        </p>
+        <h2 className="font-mono text-2xl font-semibold">{plate.code}</h2>
+        <p className="mt-2 text-sm">
+          <StatusBadge status={plate.status} /> <span className="font-mono">{plate.locationCode || "—"}</span>
+        </p>
+        {plate.lines.length ? <StockHead left="SKU" right="On plate" /> : null}
+        <ul className={plate.lines.length ? "mt-2 space-y-1 text-sm" : "mt-4 space-y-1 text-sm"}>
+          {plate.lines.length ? (
+            plate.lines.map((line) => (
+              <li key={line.id} className="flex items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-2">
+                  <SkuThumb sku={line.sku} name={line.itemName} imageUrl={line.imageUrl} size="sm" />
+                  <span>
+                    <span className="font-mono">{line.sku}</span> {line.itemName}
+                    {line.lotCode ? <span className="ml-2 font-mono text-xs text-muted-foreground">{line.lotCode}</span> : null}
+                    {line.serial ? <span className="ml-2 font-mono text-xs text-muted-foreground">{line.serial}</span> : null}
+                  </span>
+                </span>
+                <span className="font-mono">{line.qty}</span>
+              </li>
+            ))
+          ) : (
+            <li className="text-muted-foreground">Empty plate.</li>
+          )}
+        </ul>
+        {plates ? (
+          <LookupActions
+            primary={
+              plate.status === "shipped" ? undefined : (
+                <Button className={primaryAction} asChild>
+                  <Link to={`/floor/plates?code=${encodeURIComponent(plate.code)}`}>Open plate</Link>
+                </Button>
+              )
+            }
+          >
+            <Button variant="secondary" className={secondaryAction} asChild>
+              <Link to={`/stock/plates/${plate.code}`}>Open record</Link>
+            </Button>
+          </LookupActions>
+        ) : null}
+      </Card>
+    );
+  }
   if (hit.kind === "location") {
+    const here = plates ? (hit.plates ?? []) : [];
     return (
       <Card>
         <p className="font-mono text-xs uppercase text-muted-foreground">Bay</p>
@@ -121,6 +180,9 @@ function LookupResult({ hit }: { hit: ScanHit }) {
                     {(row.allocated ?? 0) > 0 ? (
                       <span className="ml-2 text-xs uppercase text-muted-foreground">Allocated {row.allocated}</span>
                     ) : null}
+                    {here.length && (row.onPlates ?? 0) > 0 ? (
+                      <span className="ml-2 text-xs uppercase text-muted-foreground">On plates {row.onPlates}</span>
+                    ) : null}
                   </span>
                 </span>
                 <span className="font-mono">{row.availableQty ?? row.qty}</span>
@@ -131,6 +193,26 @@ function LookupResult({ hit }: { hit: ScanHit }) {
           )}
         </ul>
         {hit.contents.length ? <StockNote /> : null}
+        {here.length ? (
+          <>
+            <StockHead left={`Plates in ${hit.location.code}`} right="Units" />
+            <ul className="mt-2 space-y-1 text-sm">
+              {here.map((plate) => (
+                <li key={plate.id} className="flex items-center justify-between gap-2">
+                  <span className="min-w-0">
+                    <Link className="font-mono underline underline-offset-2" to={`/floor/plates?code=${encodeURIComponent(plate.code)}`}>
+                      {plate.code}
+                    </Link>{" "}
+                    <span className="text-muted-foreground">
+                      {PLATE_TYPE_LABELS[plate.type]} · {summarizeLines(plate.lines)}
+                    </span>
+                  </span>
+                  <span className="font-mono">{plate.units}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
         {hit.holds?.length ? (
           <p className="mt-3 text-sm text-destructive">
             On hold: {hit.holds.map((hold) => `${hold.number} (${hold.reason})`).join(", ")}

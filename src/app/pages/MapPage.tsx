@@ -10,6 +10,7 @@ import { useWarehouse } from "../warehouse";
 import { FillMeter } from "../components/bin-capacity";
 import { groupFloorObjects, objectForLocation } from "@/domain/rack-builder";
 import { isGarageMode } from "@/domain/operating-mode";
+import { PLATE_TYPE_LABELS } from "@/domain/license-plates";
 
 const FloorBuilder = lazy(() =>
   import("../components/warehouse-scene/FloorBuilder").then((mod) => ({ default: mod.FloorBuilder })),
@@ -68,6 +69,7 @@ export function MapPage({ me }: { me: Me }) {
 
   const selected = data?.locations.find((row) => row.id === selectedId) ?? null;
   const showFill = !isGarageMode(me.organization.operatingMode);
+  const showPlates = !isGarageMode(me.organization.operatingMode);
   const levels = useMemo(() => {
     const set = new Set(data?.locations.map((row) => row.level) ?? []);
     return [...set].sort((a, b) => a - b);
@@ -194,7 +196,7 @@ export function MapPage({ me }: { me: Me }) {
           />
           </Suspense>
           {data.locations.length ? (
-            <BayDetail location={selected} showFill={showFill} />
+            <BayDetail location={selected} showFill={showFill} showPlates={showPlates} />
           ) : (
             <NoBays owner={me.role === "owner"} onBuild={() => setView("build")} />
           )}
@@ -214,7 +216,7 @@ export function MapPage({ me }: { me: Me }) {
             onReposition={reposition}
           />
           {data.locations.length ? (
-            <BayDetail location={selected} showFill={showFill} />
+            <BayDetail location={selected} showFill={showFill} showPlates={showPlates} />
           ) : (
             <NoBays owner={me.role === "owner"} onBuild={() => setView("build")} />
           )}
@@ -249,7 +251,15 @@ function NoBays({ owner, onBuild }: { owner: boolean; onBuild: () => void }) {
   );
 }
 
-function BayDetail({ location, showFill }: { location: MapLocation | null; showFill: boolean }) {
+function BayDetail({
+  location,
+  showFill,
+  showPlates,
+}: {
+  location: MapLocation | null;
+  showFill: boolean;
+  showPlates: boolean;
+}) {
   if (!location) {
     return (
       <Card>
@@ -306,6 +316,9 @@ function BayDetail({ location, showFill }: { location: MapLocation | null; showF
             <li key={row.itemId} className="flex justify-between gap-3">
               <span>
                 <span className="font-mono">{row.sku}</span> {row.itemName}
+                {showPlates && (row.onPlates ?? 0) > 0 ? (
+                  <span className="ml-2 text-xs text-muted-foreground">{row.onPlates} on plates</span>
+                ) : null}
               </span>
               <span className="font-mono tabular">{row.qty}</span>
             </li>
@@ -314,6 +327,27 @@ function BayDetail({ location, showFill }: { location: MapLocation | null; showF
       ) : (
         <p className="mt-2 text-sm text-muted-foreground">Empty bay.</p>
       )}
+      {showPlates && location.plates?.length ? (
+        <>
+          <h3 className="mt-4 text-sm font-semibold">Plates</h3>
+          <ul className="mt-2 space-y-1 text-sm">
+            {location.plates.map((plate) => (
+              <li key={plate.id} className="flex justify-between gap-3">
+                <span>
+                  <Link className="font-mono underline" to={`/stock/plates/${plate.code}`}>
+                    {plate.code}
+                  </Link>{" "}
+                  <span className="text-muted-foreground">
+                    {PLATE_TYPE_LABELS[plate.type]}
+                    {plate.status === "closed" ? " · closed" : ""}
+                  </span>
+                </span>
+                <span className="font-mono tabular">{plate.units}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
       <Link
         className="mt-4 inline-flex rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-paper"
         to={`/floor/putaway?from=${encodeURIComponent(location.barcode)}`}
