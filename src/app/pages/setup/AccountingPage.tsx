@@ -15,7 +15,7 @@ export function AccountingPage() {
       <PageHeader
         eyebrow="Setup"
         title="Accounting"
-        description="QBO/Xero-ready CSV exports for inventory valuation and COGS movements. Set unit cost on each SKU under Items."
+        description="QBO/Xero-ready CSV exports for inventory valuation, invoices, and COGS movements. Set unit cost on each SKU under Items."
       />
       <Card className="space-y-4 p-4">
         <p className="text-sm text-muted-foreground">{info.data?.note}</p>

@@ -673,3 +673,7 @@ Manufacturer billing starts from the organization rate card on Settings → Bill
 **Enable portal link** on the client mints a 128-bit token and shows the link once: `/portal/c/…`. **Rotate portal link** replaces it, and the old link stops working. The page needs no sign-in. It shows that client's on-hand totals (SKU, name, qty), open orders (number, status, destination city), recent shipments (order number, carrier, tracking number, status), and that client's own invoices. It does not show other clients, street addresses, or internal ids.
 
 The organization invoice list at `/api/billing/portal/…` is unchanged. That link lists the warehouse's invoices. The client link lists one client.
+
+## 25. Invoice export
+
+Settings → Accounting downloads a QBO/Xero CSV of invoices next to the inventory valuation CSV. Owners only. Each stored invoice line is its own row (invoice number, client code, status, period, line, qty, unit amount, amount). An invoice that has no lines stored is one row for the invoice total. Valuation stays at `/api/accounting/valuation.csv`. Invoices are `/api/accounting/invoices.csv`.
