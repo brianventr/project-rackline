@@ -345,13 +345,36 @@ export function decideClaim(
   }
 }
 
+/** True when the patch would store the claim exactly as it already is. Re-claiming your own open claim is one. */
+export function claimUnchanged(stored: ExceptionClaim | null, patch: ClaimPatch): boolean {
+  if (!stored) return false;
+  return (
+    stored.claimedBy === patch.claimedBy &&
+    (stored.claimedAt ?? null) === (patch.claimedAt ?? null) &&
+    (stored.snoozedUntil ?? null) === (patch.snoozedUntil ?? null) &&
+    (stored.resolvedAt ?? null) === (patch.resolvedAt ?? null) &&
+    (stored.resolvedBy ?? null) === (patch.resolvedBy ?? null) &&
+    (stored.resolutionNote ?? null) === (patch.resolutionNote ?? null)
+  );
+}
+
+/**
+ * A missing key proves the problem cleared only when `items` is the whole list. `loadLimit` is the
+ * cap the source queried; hitting it means a row may have been left out.
+ */
+export function absenceProvesCleared(items: readonly { key: string }[], key: string, loadLimit: number | null): boolean {
+  if (items.some((item) => item.key === key)) return false;
+  if (loadLimit == null) return true;
+  return items.length < loadLimit;
+}
+
 function resolvedAlready(): ClaimDecision {
   return { ok: false, code: "EXCEPTION_RESOLVED", error: "This is already resolved. Reopen it first." };
 }
 
-/** Snooze lengths the inbox offers, in hours. */
+/** Snooze lengths the inbox offers, in hours. The longest is one week, on the page and in the API. */
 export const SNOOZE_HOURS = [1, 4, 24, 72, 168] as const;
-export const MAX_SNOOZE_HOURS = 336;
+export const MAX_SNOOZE_HOURS = 168;
 
 export function snoozeLabel(hours: number): string {
   if (hours < 24) return hours === 1 ? "1 hour" : `${hours} hours`;
@@ -360,7 +383,7 @@ export function snoozeLabel(hours: number): string {
   return days === 1 ? "1 day" : `${days} days`;
 }
 
-/** When a snooze of `hours` ends, or null when the length is not a whole number of hours up to two weeks. */
+/** When a snooze of `hours` ends, or null when the length is not a whole number of hours up to one week. */
 export function snoozeUntil(hours: unknown, now: number): number | null {
   const n = typeof hours === "number" ? hours : typeof hours === "string" && hours.trim() ? Number(hours) : Number.NaN;
   if (!Number.isInteger(n) || n < 1 || n > MAX_SNOOZE_HOURS) return null;

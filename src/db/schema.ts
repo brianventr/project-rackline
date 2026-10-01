@@ -527,18 +527,22 @@ export const shopifyWebhookReceipts = sqliteTable("shopify_webhook_receipts", {
   createdAt: integer("created_at").notNull(),
 });
 
-export const shopifyOutboundEvents = sqliteTable("shopify_outbound_events", {
-  id: text("id").primaryKey(),
-  organizationId: text("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull(),
-  status: text("status").notNull(),
-  requestJson: text("request_json").notNull(),
-  responseJson: text("response_json"),
-  createdAt: integer("created_at").notNull(),
-});
+export const shopifyOutboundEvents = sqliteTable(
+  "shopify_outbound_events",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    status: text("status").notNull(),
+    requestJson: text("request_json").notNull(),
+    responseJson: text("response_json"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("shopify_outbound_events_org_kind").on(t.organizationId, t.kind, t.createdAt)],
+);
 
 export const carrierConnections = sqliteTable(
   "carrier_connections",
@@ -572,19 +576,23 @@ export const carrierConnections = sqliteTable(
   ],
 );
 
-export const carrierOutboundEvents = sqliteTable("carrier_outbound_events", {
-  id: text("id").primaryKey(),
-  organizationId: text("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  connectionId: text("connection_id").references(() => carrierConnections.id, { onDelete: "set null" }),
-  orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull(),
-  status: text("status").notNull(),
-  requestJson: text("request_json").notNull(),
-  responseJson: text("response_json"),
-  createdAt: integer("created_at").notNull(),
-});
+export const carrierOutboundEvents = sqliteTable(
+  "carrier_outbound_events",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id").references(() => carrierConnections.id, { onDelete: "set null" }),
+    orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    status: text("status").notNull(),
+    requestJson: text("request_json").notNull(),
+    responseJson: text("response_json"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("carrier_outbound_events_org_status").on(t.organizationId, t.status, t.kind, t.createdAt)],
+);
 
 export const trackerWebhookReceipts = sqliteTable(
   "tracker_webhook_receipts",

@@ -6,6 +6,7 @@ import { failedStatusError, type ExceptionSource } from "./source";
 
 export const postBackSource: ExceptionSource = {
   ...POST_BACK_SOURCE,
+  loadLimit: SOURCE_LIMIT + 1,
   async load({ db, organizationId, warehouseId }) {
     const o = schema.orders;
     const rows = await db

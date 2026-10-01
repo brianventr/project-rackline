@@ -2,12 +2,13 @@ import { Hono, type Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { and, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
-import { findException, forgetClaim, loadClaims, loadInbox, saveClaim } from "../db/exceptions/inbox";
+import { findException, forgetClaim, loadClaims, loadInbox, problemCleared, saveClaim } from "../db/exceptions/inbox";
 import { exceptionSource } from "../db/exceptions/registry";
 import type { ExceptionSourceContext } from "../db/exceptions/source";
 import { serializeAuditPayload } from "../domain/audit";
 import {
   currentClaim,
+  claimUnchanged,
   decideClaim,
   EXCEPTION_AUDIT_ACTIONS,
   exceptionAuditSummary,
@@ -157,15 +158,23 @@ exceptionsRoute.post("/exceptions/:source/:key/:verb", async (c) => {
       summary: exceptionAuditSummary(verb, item, { actionLabel: action.label }),
       extra: { actionId: action.id },
     });
-    const after = await findException({ ...ctx, now: Date.now() }, source, item.key);
+    const afterCtx = { ...ctx, now: Date.now() };
+    const after = await findException(afterCtx, source, item.key);
     if (!after) {
-      await forgetClaim(ctx.db, ctx.organizationId, item);
-      return c.json({ cleared: true, item: null });
+      if (await problemCleared(afterCtx, source, item.key)) {
+        await forgetClaim(ctx.db, ctx.organizationId, item);
+        return c.json({ cleared: true, item: null });
+      }
+      const [latest = null] = await loadClaims(ctx.db, ctx.organizationId, [item]);
+      return c.json({ cleared: false, item: exceptionView(item, latest, afterCtx.now) });
     }
     const [latest = null] = await loadClaims(ctx.db, ctx.organizationId, [after]);
     return c.json({ cleared: false, item: exceptionView(after, latest, Date.now()) });
   }
 
+  if (claimUnchanged(claim, decision.patch)) {
+    return c.json({ cleared: false, item: exceptionView(item, claim, ctx.now) });
+  }
   const saved = await saveClaim(ctx.db, { organizationId: ctx.organizationId, item, stored, patch: decision.patch, now: ctx.now });
   if (!saved) conflict("Someone else just changed this. Refresh to see what they did.", "EXCEPTION_CHANGED");
   const takeOver = request.verb === "claim" && Boolean(claim?.claimedBy && claim.claimedBy !== user.id);

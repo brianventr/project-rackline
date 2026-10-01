@@ -7,6 +7,7 @@ import type { ExceptionSource } from "./source";
 
 export const countSource: ExceptionSource = {
   ...COUNT_SOURCE,
+  loadLimit: SOURCE_LIMIT + 1,
   async load({ db, organizationId, warehouseId, now }) {
     const c = schema.cycleCounts;
     const l = schema.cycleCountLines;

@@ -15,6 +15,7 @@ const ID_CHUNK = 90;
 
 export const trackerSource: ExceptionSource = {
   ...TRACKER_SOURCE,
+  loadLimit: SOURCE_LIMIT + 1,
   async load({ db, organizationId, warehouseId, now }) {
     const o = schema.orders;
     const p = schema.orderPackages;

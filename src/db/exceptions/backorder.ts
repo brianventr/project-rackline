@@ -7,6 +7,7 @@ import type { ExceptionSource } from "./source";
 
 export const backorderSource: ExceptionSource = {
   ...BACKORDER_SOURCE,
+  loadLimit: SOURCE_LIMIT + 1,
   async load({ db, organizationId, warehouseId }) {
     const o = schema.orders;
     const parent = alias(schema.orders, "parent");

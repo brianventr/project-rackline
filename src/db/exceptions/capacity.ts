@@ -9,6 +9,7 @@ const ID_CHUNK = 90;
 
 export const capacitySource: ExceptionSource = {
   ...CAPACITY_SOURCE,
+  loadLimit: null,
   async load({ db, organizationId, warehouseId }) {
     const loc = schema.locations;
     const balances = schema.inventoryBalances;

@@ -41,3 +41,7 @@ CREATE TABLE `floor_scans` (
 );
 CREATE UNIQUE INDEX `floor_scans_session_client` ON `floor_scans` (`session_id`, `client_scan_id`);
 CREATE INDEX `floor_scans_session_serial` ON `floor_scans` (`session_id`, `serial`);
+
+-- Exception inbox filters. Not a tracking-number index: tracker receipts already have one.
+CREATE INDEX `carrier_outbound_events_org_status` ON `carrier_outbound_events` (`organization_id`, `status`, `kind`, `created_at`);
+CREATE INDEX `shopify_outbound_events_org_kind` ON `shopify_outbound_events` (`organization_id`, `kind`, `created_at`);

@@ -5,6 +5,7 @@ import * as schema from "../schema";
 import type { ExceptionSource } from "./source";
 
 export const holdSource: ExceptionSource = {
+  loadLimit: SOURCE_LIMIT + 1,
   ...HOLD_SOURCE,
   async load({ db, organizationId, warehouseId, mode }) {
     const h = schema.inventoryHolds;

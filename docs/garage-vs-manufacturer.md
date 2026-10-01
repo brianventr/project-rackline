@@ -507,7 +507,7 @@ Garage leaves out counts, EDI, and bay capacity, as it does everywhere else. Ope
 **Where it shows.**
 
 - **Garage.** Exceptions is in the Bench menu. Today's **Needs attention** tile counts open problems and opens the inbox. On the Ship queue, the **Needs attention** tab links to the inbox, which also holds what that tab cannot show.
-- **Manufacturer.** Today's **Needs attention** tile counts open problems, and the **Exceptions** card beside the work queue lists the top five. The floor launcher has an **Exceptions** tile for held bays, count variances, and over-full bays. Tapping one claims it and opens the floor screen that fixes it.
+- **Manufacturer.** Today's **Needs attention** tile counts open problems, and the **Exception inbox** card beside the work queue lists the top five. The work-queue lane **Equipment & certifications** is a different list — open checkouts, equipment out of service, and certifications due — and its count is not the inbox. The floor launcher has an **Exceptions** tile for held bays, count variances, and over-full bays. Tapping one claims it and opens the floor screen that fixes it.
 
 **API.** `GET /api/exceptions?warehouseId=…` returns the list, its counts, and which sources it read. `POST /api/exceptions/:source/:key/:verb` with the `warehouseId` claims, unclaims, snoozes (`hours`), resolves (`note`), reopens, or runs a fix (`verb` is `action`, with `actionId`). An owner takes over with `takeOver: true`. A problem that has already cleared answers 409 `EXCEPTION_CLEARED`, and one that someone changed a moment earlier answers 409 `EXCEPTION_CHANGED`.
 

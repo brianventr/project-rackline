@@ -5,6 +5,7 @@ import type { ExceptionSource } from "./source";
 
 export const channelSyncSource: ExceptionSource = {
   ...CHANNEL_SYNC_SOURCE,
+  loadLimit: null,
   async load({ db, organizationId, warehouseId }) {
     const ch = schema.channelConnections;
     const rows = await db

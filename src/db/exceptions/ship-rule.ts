@@ -10,6 +10,7 @@ const CLOSED = ["shipped", "cancelled"];
 
 export const shipRuleSource: ExceptionSource = {
   ...SHIP_RULE_SOURCE,
+  loadLimit: null,
   async load({ db, organizationId, warehouseId }) {
     const rules = await loadShipRules(db, organizationId);
     if (!rulesForBuilding(rules, warehouseId).some((rule) => rule.enabled && (rule.hold || rule.carrierService))) return [];

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  absenceProvesCleared,
   buildInbox,
+  claimUnchanged,
   compareExceptions,
   countExceptions,
   currentClaim,
@@ -266,6 +268,15 @@ describe("decideClaim", () => {
     expect(reopen.ok && reopen.patch).toMatchObject({ resolvedAt: null, resolvedBy: null, resolutionNote: null, snoozedUntil: null });
   });
 
+  it("treats claiming your own open claim as no change, and claiming it again while snoozed as a change", () => {
+    const mine = claim({ claimedBy: "me", claimedAt: 5 });
+    const again = decideClaim(mine, { verb: "claim" }, me);
+    expect(again.ok && claimUnchanged(mine, again.patch)).toBe(true);
+    const snoozed = claim({ claimedBy: "me", claimedAt: 5, snoozedUntil: NOW + HOUR });
+    const wake = decideClaim(snoozed, { verb: "claim" }, me);
+    expect(wake.ok && claimUnchanged(snoozed, wake.patch)).toBe(false);
+  });
+
   it("lets anyone unclaim, snooze, or act on an unclaimed problem", () => {
     expect(decideClaim(null, { verb: "unclaim" }, me).ok).toBe(true);
     expect(decideClaim(null, { verb: "snooze", until: NOW + HOUR }, me).ok).toBe(true);
@@ -273,6 +284,15 @@ describe("decideClaim", () => {
       ok: true,
       patch: { claimedBy: null, claimedAt: null, snoozedUntil: null, resolvedAt: null, resolvedBy: null, resolutionNote: null },
     });
+  });
+});
+
+describe("proving a problem cleared", () => {
+  it("trusts a complete list and not one that filled its cap", () => {
+    expect(absenceProvesCleared([{ key: "a" }], "b", null)).toBe(true);
+    expect(absenceProvesCleared([{ key: "b" }], "b", null)).toBe(false);
+    expect(absenceProvesCleared([{ key: "a" }, { key: "c" }], "b", 3)).toBe(true);
+    expect(absenceProvesCleared([{ key: "a" }, { key: "c" }], "b", 2)).toBe(false);
   });
 });
 
@@ -284,8 +304,8 @@ describe("snooze and resolution input", () => {
   it("accepts 1 hour to 2 weeks", () => {
     expect(snoozeUntil(4, NOW)).toBe(NOW + 4 * HOUR);
     expect(snoozeUntil("24", NOW)).toBe(NOW + 24 * HOUR);
-    expect(snoozeUntil(336, NOW)).toBe(NOW + 336 * HOUR);
-    for (const bad of [0, -1, 1.5, 337, "", "soon", null, undefined]) expect(snoozeUntil(bad, NOW)).toBeNull();
+    expect(snoozeUntil(168, NOW)).toBe(NOW + 168 * HOUR);
+    for (const bad of [0, -1, 1.5, 169, 336, "", "soon", null, undefined]) expect(snoozeUntil(bad, NOW)).toBeNull();
   });
 
   it("trims notes, refuses blank ones, and cuts long ones", () => {
