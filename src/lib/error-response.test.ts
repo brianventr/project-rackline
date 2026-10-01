@@ -7,6 +7,8 @@ import { HeldStockError } from "../domain/holds";
 import { InsufficientAtpError } from "../domain/allocations";
 import { InsufficientStockError } from "../domain/inventory";
 import { JobVerbDeniedError } from "../domain/jobs";
+import { CapacityInputError, LocationFullError } from "../domain/capacity";
+import { PlateInputError, PlateOverLooseError, PlateShortError, PlateStateError } from "../domain/license-plates";
 
 type Env = { Variables: { role?: "owner" | "operator"; organizationId?: string } };
 
@@ -53,6 +55,61 @@ describe("409 contract", () => {
       code: "INSUFFICIENT_STOCK",
       onHand: 0,
       needed: 3,
+    });
+  });
+
+  it("maps a full bay with its limit, and bad capacity input as a 400", () => {
+    expect(mapDomainError(new LocationFullError("A-01-02", { measure: "qty", limit: 60, before: 50, after: 72 }))).toEqual({
+      status: 409,
+      body: {
+        error: "A-01-02 would hold 72 units, over its limit of 60 units. Put the rest in another bay, or an owner can override.",
+        code: "LOCATION_FULL",
+        locationCode: "A-01-02",
+        measure: "qty",
+        limit: 60,
+        before: 50,
+        wouldBe: 72,
+      },
+    });
+    expect(mapDomainError(new CapacityInputError("Max units must be a whole number, 0 or more"))).toEqual({
+      status: 400,
+      body: { error: "Max units must be a whole number, 0 or more" },
+    });
+  });
+
+  it("maps license plate refusals with what the plate and bay hold", () => {
+    expect(mapDomainError(new PlateStateError("LP-000123", "closed", "build"))).toEqual({
+      status: 409,
+      body: {
+        error: "LP-000123 is closed. Reopen it to add stock.",
+        code: "PLATE_STATUS",
+        plateCode: "LP-000123",
+        plateStatus: "closed",
+        action: "build",
+      },
+    });
+    expect(mapDomainError(new PlateOverLooseError("LP-000123", "SHADE", "A-01-01", 20, 4, 6))).toEqual({
+      status: 409,
+      body: {
+        error: "Only 4 SHADE at A-01-01 are loose, and this needs 6. The rest is already on plates, so add 4 or fewer.",
+        code: "PLATE_OVER_LOOSE",
+        plateCode: "LP-000123",
+        sku: "SHADE",
+        locationCode: "A-01-01",
+        onHand: 20,
+        loose: 4,
+        qty: 6,
+        lotCode: null,
+        expired: 0,
+      },
+    });
+    expect(mapDomainError(new PlateShortError("LP-000123", "SHADE", 3, 5))).toMatchObject({
+      status: 409,
+      body: { code: "PLATE_SHORT", plateCode: "LP-000123", sku: "SHADE", onPlate: 3, needed: 5, serial: null },
+    });
+    expect(mapDomainError(new PlateInputError("Plate type must be tote, pallet, or carton."))).toEqual({
+      status: 400,
+      body: { error: "Plate type must be tote, pallet, or carton." },
     });
   });
 

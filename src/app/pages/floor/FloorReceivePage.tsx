@@ -1,15 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Truck } from "lucide-react";
 import { api, errorText, type Location, type Purchase, type Receipt, type ScanHit } from "../../api";
 import { Button, Card, DoneBanner, Field, Input, StatusBadge } from "../../components/ui";
 import { BayCombobox } from "../../components/BayCombobox";
+import { OverfillButton, useOverfill } from "../../components/bin-capacity";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { SkuThumb } from "../../components/sku-thumb";
 import { ExpiryInput, parseExpiryInput } from "../../components/expiry-field";
 import { canReceive, canReceivePurchase } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
+import { scanIntoLine } from "@/domain/pack-sizes";
+import { canPlate, plateStateMessage } from "@/domain/license-plates";
+import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
+import { Term } from "../../components/term";
 import { useSession } from "../../session";
 import { useWarehouse } from "../../warehouse";
 import { jobForRef, useOpenJobs } from "../../jobs";
@@ -18,6 +23,20 @@ const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
 /** BayCombobox takes no className, so size its input like the other floor inputs (44px, 16px text on phones). */
 const bayPicker = "[&_[role=combobox]]:h-11 [&_[role=combobox]]:text-base md:[&_[role=combobox]]:text-sm";
+
+function PlateChip({ code, onClear }: { code: string | null; onClear: () => void }) {
+  if (!code) return null;
+  return (
+    <p className="flex flex-wrap items-center gap-x-4 text-sm">
+      <span>
+        Onto <Term id="license-plate">plate</Term> <span className="font-mono font-medium">{code}</span>
+      </span>
+      <button type="button" className={textLink} onClick={onClear}>
+        Clear plate
+      </button>
+    </p>
+  );
+}
 
 export function FloorReceivePage() {
   const me = useSession();
@@ -36,8 +55,26 @@ export function FloorReceivePage() {
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const { overfill, offer } = useOverfill();
   const [loaded, setLoaded] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const plates = !isGarageMode(me.organization.operatingMode) || garageAllowsPath("/floor/plates");
+  const [plateCode, setPlateCode] = useState<string | null>(null);
+  // Scans resolve out of order, so each one reads the latest qtys through the ref. Items in
+  // `counted` have been scanned or typed since the qtys were prefilled; their scans add.
+  const qtysRef = useRef(qtys);
+  qtysRef.current = qtys;
+  const counted = useRef(new Set<string>());
+
+  function prefill(lines: { itemId: string; remaining: number }[]) {
+    counted.current = new Set();
+    setQtys(Object.fromEntries(lines.map((line) => [line.itemId, String(line.remaining)])));
+  }
+
+  function typeQty(itemId: string, value: string) {
+    counted.current.add(itemId);
+    setQtys((current) => ({ ...current, [itemId]: value }));
+  }
 
   async function load() {
     const [nextReceipts, nextPurchases, nextLocations] = await Promise.all([
@@ -82,14 +119,14 @@ export function FloorReceivePage() {
       openFloorRow(match, me.user.id, jobForRef(nextJobs, "purchase", match.id, "receive"), (purchase) => {
         setActivePurchase(purchase);
         setActiveReceipt(null);
-        setQtys(Object.fromEntries((purchase.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+        prefill(purchase.lines ?? []);
       }, setError);
     } else if (receiptId) {
       const match = await api<Receipt>(`/api/receipts/${receiptId}`);
       openFloorRow(match, me.user.id, jobForRef(nextJobs, "receipt", match.id, "receive"), (receipt) => {
         setActiveReceipt(receipt);
         setActivePurchase(null);
-        setQtys(Object.fromEntries((receipt.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+        prefill(receipt.lines ?? []);
       }, setError);
     }
   }
@@ -99,6 +136,8 @@ export function FloorReceivePage() {
       .catch((err) => setError(errorText(err, "Could not load open receipts and purchase orders.")))
       .finally(() => setLoaded(true));
   }, []);
+
+  useEffect(() => setPlateCode(null), [activeReceipt?.id, activePurchase?.id]);
 
   const onScan = useCallback((raw: string, report?: ScanReport) => {
     setError(null);
@@ -111,7 +150,7 @@ export function FloorReceivePage() {
             openFloorRow(receipt, me.user.id, jobForRef(jobs, "receipt", receipt.id, "receive"), (next) => {
               setActiveReceipt(next);
               setActivePurchase(null);
-              setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+              prefill(next.lines ?? []);
             }, setError),
           );
           return;
@@ -122,7 +161,7 @@ export function FloorReceivePage() {
             openFloorRow(purchase, me.user.id, jobForRef(jobs, "purchase", purchase.id, "receive"), (next) => {
               setActivePurchase(next);
               setActiveReceipt(null);
-              setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+              prefill(next.lines ?? []);
             }, setError),
           );
           return;
@@ -132,16 +171,67 @@ export function FloorReceivePage() {
           report?.(true);
           return;
         }
-        setError("Scan a receipt, purchase order, or a dock / bay barcode.");
+        const doc = activeReceipt ?? activePurchase;
+        if (hit.kind === "plate" && plates) {
+          if (!doc) {
+            setError("Open a receipt or purchase order first, then scan the plate to receive onto.");
+            report?.(false);
+            return;
+          }
+          if (!canPlate(hit.plate, "receive")) {
+            setError(plateStateMessage(hit.plate.code, hit.plate.status, "receive"));
+            report?.(false);
+            return;
+          }
+          // A plate with stock on it cannot change bays in a receive, so the receive goes to its bay.
+          if (hit.plate.locationId && hit.plate.units > 0) setLocationId(hit.plate.locationId);
+          setPlateCode(hit.plate.code);
+          report?.(true);
+          return;
+        }
+        if (hit.kind === "item" && doc) {
+          const line = (doc.lines ?? []).find((row) => row.itemId === hit.item.id);
+          if (!line) {
+            setError(`${hit.item.sku} is not on ${doc.number}.`);
+            report?.(false);
+            return;
+          }
+          const result = scanIntoLine(
+            { qty: Number(qtysRef.current[line.itemId] || 0), counted: counted.current.has(line.itemId), remaining: line.remaining },
+            { pack: hit.pack },
+          );
+          if (!result.ok) {
+            setError(`${hit.item.sku}: ${result.problem}`);
+            report?.(false);
+            return;
+          }
+          counted.current.add(line.itemId);
+          const next = { ...qtysRef.current, [line.itemId]: String(result.qty) };
+          qtysRef.current = next;
+          setQtys(next);
+          report?.(true);
+          return;
+        }
+        setError(
+          doc
+            ? `Scan a SKU or case on ${doc.number}, or the bay to receive into.`
+            : "Scan a receipt, purchase order, or a dock / bay barcode.",
+        );
         report?.(false);
       })
       .catch((err) => {
         setError(errorText(err, "That barcode did not scan. Try again."));
         report?.(false);
       });
-  }, [jobs, me.user.id]);
+  }, [jobs, me.user.id, activeReceipt, activePurchase, plates]);
 
-  async function receiveReceipt() {
+  function failed(err: unknown, retry: () => void) {
+    const text = errorText(err, "Could not post the receive.");
+    setError(text);
+    offer(err, text, retry);
+  }
+
+  async function receiveReceipt(overrideCapacity = false) {
     if (!activeReceipt) return;
     setError(null);
     try {
@@ -157,18 +247,19 @@ export function FloorReceivePage() {
         .filter((line) => line.qty > 0);
       const posted = await api<Receipt>(`/api/receipts/${activeReceipt.id}/receive`, {
         method: "POST",
-        body: JSON.stringify({ locationId, lines }),
+        body: JSON.stringify({ locationId, lines, ...(plateCode ? { plateCode } : {}), ...(overrideCapacity ? { overrideCapacity } : {}) }),
       });
       setActiveReceipt(posted);
-      setQtys(Object.fromEntries((posted.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
-      setDone(`${posted.number} posted to the dock.`);
+      prefill(posted.lines ?? []);
+      setDone(`${posted.number} posted to the dock${plateCode ? ` on ${plateCode}` : ""}.`);
+      setPlateCode(null);
       await load();
     } catch (err) {
-      setError(errorText(err, "Could not post the receive."));
+      failed(err, () => void receiveReceipt(true));
     }
   }
 
-  async function receivePurchase() {
+  async function receivePurchase(overrideCapacity = false) {
     if (!activePurchase) return;
     setError(null);
     try {
@@ -184,20 +275,33 @@ export function FloorReceivePage() {
         .filter((line) => line.qty > 0);
       const posted = await api<Purchase>(`/api/purchases/${activePurchase.id}/receive`, {
         method: "POST",
-        body: JSON.stringify({ locationId, lines }),
+        body: JSON.stringify({ locationId, lines, ...(plateCode ? { plateCode } : {}), ...(overrideCapacity ? { overrideCapacity } : {}) }),
       });
       setActivePurchase(posted);
-      setQtys(Object.fromEntries((posted.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
-      setDone(`${posted.number} posted to the dock.`);
+      prefill(posted.lines ?? []);
+      setDone(`${posted.number} posted to the dock${plateCode ? ` on ${plateCode}` : ""}.`);
+      setPlateCode(null);
       await load();
     } catch (err) {
-      setError(errorText(err, "Could not post the receive."));
+      failed(err, () => void receivePurchase(true));
     }
   }
 
   return (
-    <FloorFrame title="Receive" description="Scan a receipt or purchase order, scan the dock, post it into the bay." error={error}>
-      <FloorScanBox label="Scan receipt, PO, or bay" placeholder="PO-DEMO1, RCP-DEMO1, or RECV" onScan={onScan} ready={loaded} />
+    <FloorFrame
+      title="Receive"
+      description="Scan a receipt or purchase order, scan the dock, post it into the bay. Scan SKUs or case labels to count what arrived."
+      error={error}
+    >
+      <FloorScanBox
+        label={
+          activeReceipt || activePurchase ? (plates ? "Scan SKU, case, bay, or plate" : "Scan SKU, case, or bay") : "Scan receipt, PO, or bay"
+        }
+        placeholder={activeReceipt || activePurchase ? "LED-BULB, a case label, or RECV" : "PO-DEMO1, RCP-DEMO1, or RECV"}
+        onScan={onScan}
+        ready={loaded}
+      />
+      <OverfillButton overfill={overfill} error={error} />
       <DoneBanner>
         {done ? (
           <>
@@ -232,7 +336,7 @@ export function FloorReceivePage() {
                 api<Receipt>(`/api/receipts/${receipt.id}`)
                   .then((next) => {
                     setActiveReceipt(next);
-                    setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+                    prefill(next.lines ?? []);
                   })
                   .catch((err) => setError(errorText(err, "Could not open that receipt.")));
               }, setError)
@@ -262,7 +366,7 @@ export function FloorReceivePage() {
                 api<Purchase>(`/api/purchases/${purchase.id}`)
                   .then((next) => {
                     setActivePurchase(next);
-                    setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
+                    prefill(next.lines ?? []);
                   })
                   .catch((err) => setError(errorText(err, "Could not open that purchase order.")));
               }, setError)
@@ -301,7 +405,7 @@ export function FloorReceivePage() {
                     min={0}
                     max={line.remaining}
                     value={qtys[line.itemId] ?? "0"}
-                    onChange={(e) => setQtys((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                    onChange={(e) => typeQty(line.itemId, e.target.value)}
                   />
                 ) : (
                   <span className="text-muted-foreground">Done</span>
@@ -351,6 +455,7 @@ export function FloorReceivePage() {
               />
             </Field>
           </div>
+          <PlateChip code={plateCode} onClear={() => setPlateCode(null)} />
           {canReceivePurchase(activePurchase.status) &&
           hasRemaining(
             (activePurchase.lines ?? []).map((line) => ({
@@ -405,7 +510,7 @@ export function FloorReceivePage() {
                     min={0}
                     max={line.remaining}
                     value={qtys[line.itemId] ?? "0"}
-                    onChange={(e) => setQtys((current) => ({ ...current, [line.itemId]: e.target.value }))}
+                    onChange={(e) => typeQty(line.itemId, e.target.value)}
                   />
                 ) : (
                   <span className="text-muted-foreground">Done</span>
@@ -455,6 +560,7 @@ export function FloorReceivePage() {
               />
             </Field>
           </div>
+          <PlateChip code={plateCode} onClear={() => setPlateCode(null)} />
           {canReceive(activeReceipt!.status) &&
           hasRemaining(
             (activeReceipt!.lines ?? []).map((line) => ({

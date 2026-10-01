@@ -31,6 +31,12 @@ import { resolveLabelPurchase } from "../domain/carriers";
 import { isRateStrategy, type RateStrategy } from "../domain/ship-rules";
 import { MAX_DELIVERY_DAYS } from "../domain/rate-choice";
 import { loadCarrierConnections } from "./carriers";
+import { normalizePackSizes, PackSizeError } from "../domain/pack-sizes";
+import { assertNotPackBarcode, assertPackBarcodesFree, loadPacksForItem, replaceItemPacks } from "../db/item-packs";
+import { capacityPatch } from "../domain/capacity";
+import { loadBinFill } from "../db/capacity";
+import { withPlateShare } from "../domain/license-plates";
+import { loadPlates, plateViews } from "../db/license-plates";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -221,12 +227,16 @@ catalogRoute.get("/locations", async (c) => {
       zoneId: schema.locations.zoneId,
       warehouseId: schema.locations.warehouseId,
       warehouseName: schema.warehouses.name,
+      maxQty: schema.locations.maxQty,
+      maxWeightOz: schema.locations.maxWeightOz,
+      maxVolumeCuIn: schema.locations.maxVolumeCuIn,
     })
     .from(schema.locations)
     .innerJoin(schema.warehouses, eq(schema.warehouses.id, schema.locations.warehouseId))
     .where(eq(schema.locations.organizationId, organizationId))
     .orderBy(schema.locations.code);
-  return c.json(rows);
+  const fill = await loadBinFill(db, organizationId, rows);
+  return c.json(rows.map((row) => ({ ...row, fillPercent: fill.get(row.id)?.fillPercent ?? null })));
 });
 
 catalogRoute.post("/locations", async (c) => {
@@ -248,6 +258,9 @@ catalogRoute.post("/locations", async (c) => {
     sizeY?: number;
     sizeZ?: number;
     slotRole?: string;
+    maxQty?: number | null;
+    maxWeightOz?: number | null;
+    maxVolumeCuIn?: number | null;
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
   const code = requireString(body.code, "code").toUpperCase();
@@ -257,9 +270,11 @@ catalogRoute.post("/locations", async (c) => {
   const slotRole = optionalString(body.slotRole) ?? "none";
   if (!isSlotRole(slotRole)) badRequest("Invalid slot role");
   const barcode = (optionalString(body.barcode) ?? code).toUpperCase();
+  const capacity = capacityPatch(body);
 
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  await assertNotPackBarcode(db, organizationId, [code, barcode]);
   const [warehouse] = await db
     .select()
     .from(schema.warehouses)
@@ -313,6 +328,7 @@ catalogRoute.post("/locations", async (c) => {
         sizeY: placement.sizeY,
         sizeZ: placement.sizeZ,
         slotRole,
+        ...capacity,
       })
       .returning();
     return c.json(row, 201);
@@ -338,16 +354,23 @@ catalogRoute.patch("/locations/:id", async (c) => {
     sizeY?: number;
     sizeZ?: number;
     slotRole?: string;
+    maxQty?: number | null;
+    maxWeightOz?: number | null;
+    maxVolumeCuIn?: number | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   await getOrgLocation(db, organizationId, c.req.param("id"));
 
-  const patch: Record<string, string | number | null> = {};
+  const patch: Record<string, string | number | null> = { ...capacityPatch(body) };
   const name = optionalString(body.name);
   if (name) patch.name = name;
   const barcode = optionalString(body.barcode);
-  if (barcode) patch.barcode = barcode.toUpperCase();
+  if (barcode) {
+    const value = barcode.toUpperCase();
+    await assertNotPackBarcode(c.get("db"), c.get("organizationId")!, [value]);
+    patch.barcode = value;
+  }
   const area = optionalString(body.area);
   if (area) patch.area = area;
   if (body.aisle !== undefined) patch.aisle = body.aisle ? String(body.aisle).trim().toUpperCase() : null;
@@ -462,6 +485,7 @@ catalogRoute.get("/items/:id", async (c) => {
   const allocations = await loadOpenAllocations(db, organizationId);
   return c.json({
     ...item,
+    packs: await loadPacksForItem(db, organizationId, item.id),
     onHand: annotateAtp(located, allocations, available),
     lots: lots.map((row) => ({
       ...row,
@@ -498,7 +522,17 @@ catalogRoute.get("/locations/:id", async (c) => {
         eq(schema.inventoryBalances.locationId, location.id),
       ),
     );
-  return c.json({ ...location, contents });
+  const fill = (await loadBinFill(db, organizationId, [location])).get(location.id);
+  const skuById = new Map(contents.map((row) => [row.itemId, row.sku]));
+  const plates = await loadPlates(db, organizationId, { locationIds: [location.id] });
+  return c.json({
+    ...location,
+    contents: withPlateShare(contents, plates, location.id),
+    fillPercent: fill?.fillPercent ?? null,
+    usage: fill?.usage ?? null,
+    unmeasuredSkus: (fill?.unmeasured ?? []).map((itemId) => skuById.get(itemId) ?? itemId),
+    plates: await plateViews(db, organizationId, plates),
+  });
 });
 
 catalogRoute.post("/items", async (c) => {
@@ -528,6 +562,7 @@ catalogRoute.post("/items", async (c) => {
   const baselineShipRate = parseBaselineShipRate(body.baselineShipRate);
   let imageUrl: string | null = null;
   if ("imageUrl" in body) imageUrl = normalizeImageUrl(body.imageUrl);
+  await assertNotPackBarcode(c.get("db"), c.get("organizationId")!, [sku, barcode]);
   try {
     const [row] = await c
       .get("db")
@@ -643,6 +678,7 @@ catalogRoute.patch("/items/:id", async (c) => {
   }
   if ("imageUrl" in body) patch.imageUrl = normalizeImageUrl(body.imageUrl);
   if (Object.keys(patch).length === 0) badRequest("Nothing to update");
+  if (patch.barcode && patch.barcode !== existing.barcode) await assertNotPackBarcode(db, organizationId, [patch.barcode]);
   if (patch.imageUrl !== undefined && existing.imageUrl && existing.imageUrl !== patch.imageUrl) {
     await deleteManagedMedia(c.env.MEDIA, existing.imageUrl);
   }
@@ -657,6 +693,23 @@ catalogRoute.patch("/items/:id", async (c) => {
   } catch {
     return c.json({ error: "Barcode already exists" }, 409);
   }
+});
+
+catalogRoute.put("/items/:id/packs", async (c) => {
+  const body = await c.req.json<{ packs?: unknown }>();
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const item = await getOrgItem(db, organizationId, c.req.param("id"));
+  let packs;
+  try {
+    packs = normalizePackSizes(body.packs ?? []);
+  } catch (err) {
+    if (err instanceof PackSizeError) badRequest(err.message);
+    throw err;
+  }
+  await assertPackBarcodesFree(db, organizationId, item.id, packs);
+  const alt = await replaceItemPacks(db, organizationId, item, packs);
+  return c.json({ ...item, ...alt, packs: await loadPacksForItem(db, organizationId, item.id) });
 });
 
 catalogRoute.post("/items/:id/image", async (c) => {
@@ -1273,7 +1326,7 @@ catalogRoute.get("/dashboard", async (c) => {
     for (const pkg of unputawayCartons) {
       const baysByItem = baysByWarehouse.get(pkg.warehouseId) ?? new Map();
       const lines = pkg.lines.map((line) => {
-        const suggested = suggestPutawayBay(baysByItem.get(line.itemId) ?? [], pkg.locationId);
+        const suggested = suggestPutawayBay(baysByItem.get(line.itemId) ?? [], pkg.locationId, line.qty);
         return {
           itemId: line.itemId,
           sku: line.sku,

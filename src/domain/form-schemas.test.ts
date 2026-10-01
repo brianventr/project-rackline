@@ -11,6 +11,7 @@ import {
   blankLine,
   buildFormSchema,
   clientFormSchema,
+  customerFormSchema,
   emailSchema,
   holdFormSchema,
   inviteFormSchema,
@@ -27,6 +28,7 @@ import {
   returnFormSchema,
   skuSchema,
   uniqueLinesSchema,
+  vendorFormSchema,
   wholeNumber,
   workOrderFormSchema,
   yardVisitFormSchema,
@@ -300,6 +302,36 @@ describe("purchaseFormSchema", () => {
       vendorName: "Enter a vendor.",
       "lines.0.qty": "Qty must be 1 or more.",
     });
+  });
+});
+
+describe("vendorFormSchema and customerFormSchema", () => {
+  const vendor = {
+    name: "Harbor Components",
+    contactName: "",
+    email: "",
+    phone: "",
+    address: "",
+    paymentTerms: "Net 30",
+    leadTimeDays: "7",
+    currency: "USD",
+    notes: "",
+  };
+
+  it("takes a named vendor with optional contact fields", () => {
+    expect(ok(vendorFormSchema, vendor).leadTimeDays).toBe("7");
+    expect(errorsOf(vendorFormSchema, { ...vendor, name: " ", email: "orders@", leadTimeDays: "2.5", currency: "dollars" })).toEqual({
+      name: "Enter the vendor's name.",
+      email: "Enter a full email, like sam@example.com.",
+      leadTimeDays: "Lead time is whole days, 0 to 365.",
+      currency: "Use a three-letter code, like USD.",
+    });
+  });
+
+  it("takes a customer with a blank or full email", () => {
+    const customer = { name: "Rosa Diaz", email: "", phone: "", shipToAddress: "", notes: "" };
+    expect(ok(customerFormSchema, customer).name).toBe("Rosa Diaz");
+    expect(errorsOf(customerFormSchema, { ...customer, email: "rosa" })).toEqual({ email: "Enter a full email, like sam@example.com." });
   });
 });
 

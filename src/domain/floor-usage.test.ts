@@ -26,6 +26,7 @@ describe("floor groups", () => {
     expect(floorGroupFor("/floor/rtv")).toBe("outbound");
     expect(floorGroupFor("/floor/count")).toBe("stock");
     expect(floorGroupFor("/floor/adjust")).toBe("stock");
+    expect(floorGroupFor("/floor/plates?code=LP-000001")).toBe("stock");
     expect(floorGroupFor("/floor/kit")).toBe("make");
     expect(floorGroupFor("/floor/lookup")).toBe("tools");
     expect(floorGroupFor("/floor/something-new")).toBe("tools");

@@ -5,6 +5,7 @@ import {
   hasUnpacked,
   isFullyPacked,
   packUnitScan,
+  packUnitsScan,
   remainingToPack,
   type PackStationLine,
 } from "./partial-pack";
@@ -71,5 +72,23 @@ describe("pack station unit scans", () => {
     expect(packUnitScan(station([2]), lamp, 0)).toEqual({ ok: true, add: null });
     expect(packUnitScan(station([2]), lamp, 1)).toEqual({ ok: true, add: null });
     expect(packUnitScan(station([2]), lamp, 2)).toEqual({ ok: true, add: { lineId: "l3", qty: 1 } });
+  });
+
+  it("scans a pack as that many units across lines, or not at all", () => {
+    expect(packUnitsScan(station([0]), lamp, 0, { level: "inner", qty: 3 })).toEqual({
+      ok: true,
+      adds: [
+        { lineId: "l1", qty: 2 },
+        { lineId: "l3", qty: 1 },
+      ],
+    });
+    expect(packUnitsScan(station([1]), lamp, 1, { level: "case", qty: 6 })).toEqual({
+      ok: false,
+      problem: "A case is 6, but only 2 LAMP are left to pack. Scan eaches instead.",
+    });
+    expect(packUnitsScan(station([2, 0, 1]), lamp, 3, { level: "case", qty: 6 })).toEqual({
+      ok: false,
+      problem: "All 3 LAMP left to pack are already scanned.",
+    });
   });
 });

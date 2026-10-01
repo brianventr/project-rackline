@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { documentPath, normalizeBarcode, parseGs1, parseScan } from "./barcodes";
+import { documentPath, itemScanValue, normalizeBarcode, parseGs1, parseScan } from "./barcodes";
 
 describe("barcodes", () => {
   it("normalizes whitespace and case", () => {
@@ -30,6 +30,15 @@ describe("barcodes", () => {
     expect(parseScan("A-02-01")).toEqual({ kind: "unknown", value: "A-02-01", raw: "A-02-01" });
   });
 
+  it("reads a license plate by its LP- code, bare or prefixed", () => {
+    expect(parseScan("LP-000123")).toEqual({ kind: "plate", value: "LP-000123", raw: "LP-000123" });
+    expect(parseScan(" lp-42")).toEqual({ kind: "plate", value: "LP-000042", raw: "LP-42" });
+    expect(parseScan("LP:42")).toEqual({ kind: "plate", value: "LP-000042", raw: "LP:42" });
+    expect(parseScan("LP:LP-000042")).toEqual({ kind: "plate", value: "LP-000042", raw: "LP:LP-000042" });
+    expect(parseScan("LP-SHADE").kind).toBe("unknown");
+    expect(itemScanValue(parseScan("LP-000123"))).toBeNull();
+  });
+
   it("parses GS1 AI payloads", () => {
     expect(parseGs1("(01)01234567890128(10)LOT42(21)SER99")).toEqual({
       gtin: "01234567890128",
@@ -41,6 +50,19 @@ describe("barcodes", () => {
       value: "01234567890128",
       gs1: { gtin: "01234567890128", lot: "LOT42" },
     });
+  });
+
+  it("tries bare numbers as item or case barcodes before lots and serials", () => {
+    expect(parseScan("10012345678902").kind).toBe("lot");
+    expect(itemScanValue(parseScan("10012345678902"))).toBe("10012345678902");
+    expect(itemScanValue(parseScan("210987654321"))).toBe("210987654321");
+    expect(itemScanValue(parseScan("LED-BULB"))).toBe("LED-BULB");
+    expect(itemScanValue(parseScan("SKU:LAMP"))).toBe("LAMP");
+    expect(itemScanValue(parseScan("(01)10012345678902"))).toBe("10012345678902");
+    expect(itemScanValue(parseScan("LOT:2026-A"))).toBeNull();
+    expect(itemScanValue(parseScan("SN:1001"))).toBeNull();
+    expect(itemScanValue(parseScan("10LOT42"))).toBeNull();
+    expect(itemScanValue(parseScan("LOC:A-01-01"))).toBeNull();
   });
 
   it("maps documents onto office record routes", () => {

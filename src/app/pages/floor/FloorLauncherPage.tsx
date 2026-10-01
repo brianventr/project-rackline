@@ -14,6 +14,7 @@ import {
   Layers,
   Loader2,
   Package,
+  Package2,
   Printer,
   Repeat,
   ScanLine,
@@ -71,6 +72,7 @@ const verbs: VerbTile[] = [
   { to: "/floor/rtv", title: "Vendor return", body: "Ship remaining qty back to the vendor from a bay.", verb: "rtv", icon: ArrowUpFromLine },
   { to: "/floor/count", title: "Count", body: "Blind-count a bay. System qty stays hidden until you post.", verb: "count", icon: Calculator },
   { to: "/floor/hold", title: "Hold", body: "Lock a bay, SKU, or lot so pick and replenish skip it.", verb: "hold", icon: ShieldAlert },
+  { to: "/floor/plates", title: "Plates", body: "Build a tote, pallet, or carton in a bay, then move it in one scan.", icon: Package2 },
   { to: "/floor/assemble", title: "Assemble", body: "Complete a work order on the bench.", verb: "assemble", icon: Hammer },
   { to: "/floor/kit", title: "Kit", body: "Build a finished SKU from its recipe in one step.", verb: "kit", icon: Factory },
 ];

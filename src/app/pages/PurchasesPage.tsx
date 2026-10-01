@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowDownToLine, Mail, PackageOpen, Plus, ScanLine, Send, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
-import { api, errorText, type Item, type Location, type Purchase } from "../api";
+import { api, errorText, type Item, type Location, type Purchase, type Vendor } from "../api";
 import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, StatusBadge, Table, ToneBadge, summarizeLines } from "../components/ui";
 import { BayCombobox } from "../components/BayCombobox";
 import {
@@ -26,6 +26,7 @@ import { STEP_RULES } from "@/domain/step-stamps";
 import { blankLine, purchaseFormSchema } from "@/domain/form-schemas";
 import { PURCHASE_STEPS, canReceivePurchase, canStartPurchase, isOpenPurchase } from "@/domain/status";
 import { hasRemaining } from "@/domain/partial-receive";
+import { formatMoney, nameKey } from "@/domain/parties";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { LinesBar, RailCard, unitCount } from "./ReceiptsPage";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
@@ -194,6 +195,7 @@ function NewPurchaseSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
   const navigate = useNavigate();
   const { warehouseId } = useWarehouse();
   const items = useApiQuery<Item[]>(open ? "/api/items" : null);
+  const vendors = useApiQuery<Vendor[]>(open ? "/api/vendors" : null);
   const form = useZodForm(purchaseFormSchema, { vendorName: "", notes: "", lines: [blankLine()] });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -209,9 +211,11 @@ function NewPurchaseSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
     setBusy(true);
     try {
       // Same body as before: text as typed, blank rows already dropped, qty already a number.
+      const vendor = (vendors.data ?? []).find((row) => nameKey(row.name) === nameKey(values.vendorName));
       const created = await apiMutate<Purchase>("/api/purchases", {
         body: JSON.stringify({
           warehouseId,
+          vendorId: vendor?.id,
           vendorName: values.vendorName,
           notes: values.notes,
           lines: values.lines.map((line) => ({ itemId: line.itemId, qty: line.qty })),
@@ -238,7 +242,15 @@ function NewPurchaseSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
       busy={busy}
       error={error}
     >
-      <TextField form={form} name="vendorName" label="Vendor" placeholder="Harbor Components" autoFocus />
+      <TextField
+        form={form}
+        name="vendorName"
+        label="Vendor"
+        placeholder="Harbor Components"
+        autoFocus
+        suggestions={(vendors.data ?? []).map((row) => row.name)}
+        description="Pick a saved vendor or type a new name to add one. Line costs start from their last price."
+      />
       <TextField form={form} name="notes" label="Notes" placeholder="Restock, lead time, packing slip" />
       <LinesField form={form} name="lines" items={items.data ?? []} />
     </FormSheet>
@@ -267,6 +279,7 @@ function PurchaseDetail({ id }: { id: string }) {
     ]);
     setPurchase(next);
     setLocations(nextLocations);
+    setVendorEmail((current) => current || next.vendor?.email || "");
     const dock = nextLocations.find((row) => row.type === "receiving") ?? nextLocations[0];
     if (dock) setLocationId(next.locationId || dock.id);
     setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
@@ -345,6 +358,10 @@ function PurchaseDetail({ id }: { id: string }) {
   const tracksAnything = lines.some((line) => line.trackLot || line.trackSerial || line.catchWeight || line.trackExpiry);
   const units = purchaseUnits(purchase);
   const dock = locations.find((row) => row.id === (purchase.locationId || locationId));
+  const priced = lines.some((line) => line.unitCostCents != null);
+  const orderTotal = lines.every((line) => line.unitCostCents != null)
+    ? lines.reduce((sum, line) => sum + line.qtyOrdered * (line.unitCostCents ?? 0), 0)
+    : null;
 
   const sendAction: DocumentAction = { label: "Send & mark ordered", icon: Send, onSelect: start };
   const receiveAction: DocumentAction = { label: "Receive", icon: ArrowDownToLine, onSelect: receive, disabled: !thisReceive };
@@ -396,7 +413,20 @@ function PurchaseDetail({ id }: { id: string }) {
             ) : null}
             <RailCard>
               <ProgressRow label="Received" done={units.received} total={units.ordered} />
-              <DocumentFact label="Vendor">{purchase.vendorName}</DocumentFact>
+              <DocumentFact label="Vendor">
+                {purchase.vendorId ? (
+                  <Link className="underline" to={`/inbound/vendors/${purchase.vendorId}`}>
+                    {purchase.vendorName}
+                  </Link>
+                ) : (
+                  purchase.vendorName
+                )}
+              </DocumentFact>
+              {purchase.vendor?.leadTimeDays != null ? (
+                <DocumentFact label="Lead time">{purchase.vendor.leadTimeDays} days</DocumentFact>
+              ) : null}
+              {purchase.vendor?.paymentTerms ? <DocumentFact label="Terms">{purchase.vendor.paymentTerms}</DocumentFact> : null}
+              {orderTotal != null ? <DocumentFact label="Total">{formatMoney(orderTotal, purchase.vendor?.currency)}</DocumentFact> : null}
               {!capturing && dock && !draft ? (
                 <DocumentFact label="Dock">
                   <span className="font-mono">{dock.code}</span>
@@ -453,6 +483,7 @@ function PurchaseDetail({ id }: { id: string }) {
               columns={[
                 "Item",
                 "Ordered",
+                ...(priced ? ["Unit cost"] : []),
                 "Received",
                 ...(capturing ? ["This receive"] : []),
                 ...(capturing && tracksAnything ? ["Lot / serial"] : []),
@@ -464,6 +495,9 @@ function PurchaseDetail({ id }: { id: string }) {
                     <SkuCell sku={line.sku} name={line.itemName} imageUrl={line.imageUrl} to={`/stock/items/${line.itemId}`} />
                   </td>
                   <td className="font-mono tabular-nums">{line.qtyOrdered}</td>
+                  {priced ? (
+                    <td className="font-mono tabular-nums">{formatMoney(line.unitCostCents, purchase.vendor?.currency)}</td>
+                  ) : null}
                   <td>
                     <ProgressCell done={line.qtyReceived} total={line.qtyOrdered} />
                   </td>

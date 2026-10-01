@@ -21,12 +21,15 @@ import { ShopifyPage } from "./pages/ShopifyPage";
 import { TransfersPage } from "./pages/TransfersPage";
 import { CycleCountsPage } from "./pages/CycleCountsPage";
 import { HoldsPage } from "./pages/HoldsPage";
+import { PlatesPage } from "./pages/PlatesPage";
 import { LedgerPage } from "./pages/LedgerPage";
 import { MapPage } from "./pages/MapPage";
 import { FloorPutawayPage } from "./pages/floor/FloorPutawayPage";
 import { PurchasesPage } from "./pages/PurchasesPage";
 import { ReturnsPage } from "./pages/ReturnsPage";
 import { VendorReturnsPage } from "./pages/VendorReturnsPage";
+import { VendorsPage } from "./pages/VendorsPage";
+import { CustomersPage } from "./pages/CustomersPage";
 import { FloorLauncherPage } from "./pages/floor/FloorLauncherPage";
 import { FloorPrintPage } from "./pages/floor/FloorPrintPage";
 import { FloorLookupPage } from "./pages/floor/FloorLookupPage";
@@ -36,6 +39,7 @@ import { FloorPackPage } from "./pages/floor/FloorPackPage";
 import { FloorShipPage } from "./pages/floor/FloorShipPage";
 import { FloorCountPage } from "./pages/floor/FloorCountPage";
 import { FloorHoldPage } from "./pages/floor/FloorHoldPage";
+import { FloorPlatesPage } from "./pages/floor/FloorPlatesPage";
 import { FloorAssemblePage } from "./pages/floor/FloorAssemblePage";
 import { FloorReturnPage } from "./pages/floor/FloorReturnPage";
 import { FloorRtvPage } from "./pages/floor/FloorRtvPage";
@@ -183,6 +187,7 @@ export function App() {
         <Route path="/floor/ship" element={<FloorShipPage />} />
         <Route path="/floor/count" element={<FloorCountPage />} />
         <Route path="/floor/hold" element={<FloorHoldPage />} />
+        <Route path="/floor/plates" element={<FloorPlatesPage />} />
         <Route path="/floor/assemble" element={<FloorAssemblePage />} />
         <Route path="/floor/kit" element={<FloorKitPage />} />
         <Route path="/floor/replenish" element={<FloorReplenishPage />} />
@@ -210,6 +215,8 @@ export function App() {
         <Route path="/inbound/putaway/:id" element={<TransfersPage />} />
         <Route path="/inbound/purchases" element={<PurchasesPage />} />
         <Route path="/inbound/purchases/:id" element={<PurchasesPage />} />
+        <Route path="/inbound/vendors" element={<VendorsPage />} />
+        <Route path="/inbound/vendors/:id" element={<VendorsPage />} />
         <Route path="/inbound/vendor-returns" element={<VendorReturnsPage />} />
         <Route path="/inbound/vendor-returns/:id" element={<VendorReturnsPage />} />
         <Route path="/stock" element={<InventoryPage />} />
@@ -221,6 +228,8 @@ export function App() {
         <Route path="/stock/counts/:id" element={<CycleCountsPage />} />
         <Route path="/stock/holds" element={<HoldsPage />} />
         <Route path="/stock/holds/:id" element={<HoldsPage />} />
+        <Route path="/stock/plates" element={<PlatesPage />} />
+        <Route path="/stock/plates/:ref" element={<PlatesPage />} />
         <Route path="/stock/replenish" element={<ReplenishmentsPage />} />
         <Route path="/stock/replenish/:id" element={<ReplenishmentsPage />} />
         <Route path="/stock/ledger" element={<LedgerPage />} />
@@ -241,6 +250,8 @@ export function App() {
         <Route path="/outbound/waves" element={<WavesPage />} />
         <Route path="/outbound/waves/:id" element={<WavesPage />} />
         <Route path="/outbound/waves/:id/pick-list" element={<WavePickListPage />} />
+        <Route path="/outbound/customers" element={<CustomersPage />} />
+        <Route path="/outbound/customers/:id" element={<CustomersPage />} />
         <Route path="/outbound/returns" element={<ReturnsPage />} />
         <Route path="/outbound/returns/:id" element={<ReturnsPage />} />
         <Route

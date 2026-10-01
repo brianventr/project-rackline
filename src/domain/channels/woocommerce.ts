@@ -12,12 +12,15 @@ export type WooAddress = {
   state?: string | null;
   postcode?: string | null;
   country?: string | null;
+  email?: string | null;
 };
 
 export type WooOrder = {
   id?: number | string | null;
   number?: string | null;
   status?: string | null;
+  /** 0 for guest checkout. */
+  customer_id?: number | string | null;
   billing?: WooAddress | null;
   shipping?: WooAddress | null;
   line_items?: {
@@ -87,6 +90,8 @@ export function mapWooOrder(order: WooOrder): ChannelOrder | ChannelSkip {
     externalId,
     externalName: `#${order.number?.trim() || externalId}`,
     customerName: personName(order.shipping) || personName(order.billing) || order.shipping?.company || "WooCommerce customer",
+    customerEmail: order.billing?.email?.trim() || null,
+    customerRef: order.customer_id != null && Number(order.customer_id) > 0 ? String(order.customer_id) : null,
     shipToAddress,
     dest: destColumns(place),
     lines,

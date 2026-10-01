@@ -8,6 +8,7 @@ import { badRequest, conflict } from "../lib/http";
 import { destPatchFromAddress } from "../domain/geo";
 import { parseCrowdfundingCsv, resolveCrowdfundingRows } from "../domain/crowdfunding-import";
 import { syncDocumentJob, orderJobInput } from "../db/jobs";
+import { ensureCustomer } from "../db/parties";
 
 export const importsRoute = new Hono<AppEnv>();
 
@@ -112,6 +113,11 @@ importsRoute.post("/imports/crowdfunding", async (c) => {
       qty: line.qty,
       qtyPicked: 0,
     }));
+    const customer = await ensureCustomer(db, organizationId, {
+      name: order.customerName,
+      email: order.email,
+      address: order.shipToAddress,
+    });
     await db.batch([
       db.insert(schema.orders).values({
         id,
@@ -119,6 +125,7 @@ importsRoute.post("/imports/crowdfunding", async (c) => {
         warehouseId,
         number,
         customerName: order.customerName,
+        customerId: customer.id,
         status: "open",
         createdAt: now,
         source,

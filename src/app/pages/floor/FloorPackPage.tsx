@@ -7,7 +7,8 @@ import { Term } from "../../components/term";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { canPackOrder, canStartPack, canCancelOrder, normalizeOrderStatus } from "@/domain/status";
-import { hasUnpacked, packUnitScan, type PackStationLine } from "@/domain/partial-pack";
+import { hasUnpacked, packUnitScan, packUnitsScan, type PackStationLine } from "@/domain/partial-pack";
+import { scanIntoLine } from "@/domain/pack-sizes";
 import { cartonShipGate, canUncartonOrderPackage, hasUncartoned } from "@/domain/cartons";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
@@ -57,11 +58,14 @@ export function FloorPackPage() {
   };
 
   const activeId = useRef<string | null>(null);
+  /** Garage: lines a pack barcode or typing has counted since the prefill, so later scans add. */
+  const counted = useRef(new Set<string>());
 
   function applyOrder(order: Order) {
     if (activeId.current !== order.id) setScanLog(EMPTY_SCAN_LOG);
     activeId.current = order.id;
     setActive(order);
+    counted.current = new Set();
     setQtys(needScan ? Object.fromEntries((order.lines ?? []).map((line) => [line.id, "0"])) : packQtyDefaults(order));
   }
 
@@ -149,6 +153,43 @@ export function FloorPackPage() {
             return;
           }
           const lines = packStationLines(active, needScan ? qtysRef.current : {});
+          const pack = hit.kind === "item" ? hit.pack : null;
+          if (pack && needScan) {
+            const scanned = packUnitsScan(lines, unit, countScans(log.skus, { sku: unit.sku, barcode: null }), pack);
+            if (!scanned.ok) {
+              setError(scanned.problem);
+              report?.(false);
+              return;
+            }
+            let nextLog = log;
+            for (let i = 0; i < pack.qty; i += 1) nextLog = recordUnitScan(nextLog, unit);
+            setScanLog(nextLog);
+            setQtys({ ...qtysRef.current, ...Object.fromEntries(scanned.adds.map((add) => [add.lineId, String(add.qty)])) });
+            report?.(true);
+            return;
+          }
+          if (pack) {
+            const line = lines.find((row) => (row.itemId === unit.itemId || row.sku === unit.sku) && row.remaining > 0);
+            if (!line) {
+              const probe = packUnitScan(lines, unit, 0);
+              setError(probe.ok ? `${unit.sku} is already packed.` : probe.problem);
+              report?.(false);
+              return;
+            }
+            const scanned = scanIntoLine(
+              { qty: Number(qtysRef.current[line.lineId] || 0), counted: counted.current.has(line.lineId), remaining: line.remaining },
+              { pack, fill: true },
+            );
+            if (!scanned.ok) {
+              setError(`${unit.sku}: ${scanned.problem}`);
+              report?.(false);
+              return;
+            }
+            counted.current.add(line.lineId);
+            setQtys({ ...qtysRef.current, [line.lineId]: String(scanned.qty) });
+            report?.(true);
+            return;
+          }
           const result = packUnitScan(lines, unit, needScan ? countScans(log.skus, { sku: unit.sku, barcode: null }) : 0);
           if (!result.ok) {
             setError(result.problem);
@@ -358,7 +399,10 @@ export function FloorPackPage() {
                       max={line.packRemaining}
                       className="h-11 text-base"
                       value={qtys[line.id] ?? "0"}
-                      onChange={(e) => setQtys({ ...qtysRef.current, [line.id]: e.target.value })}
+                      onChange={(e) => {
+                        counted.current.add(line.id);
+                        setQtys({ ...qtysRef.current, [line.id]: e.target.value });
+                      }}
                     />
                   </Field>
                 ) : (
