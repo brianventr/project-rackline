@@ -421,7 +421,7 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
       "bad address",
     ],
     short: "Before a label, Rackline checks the ship-to for missing parts and typos, like a ZIP code in the wrong state, and asks EasyPost or ShipEngine when connected.",
-    long: "A problem holds the order under Needs attention (ADDRESS_INVALID). Use suggested address takes the carrier's correction, Edit address fixes it by hand, and Ship anyway to this address ships it as it is. In Manufacturer the order page offers the same, with Accept this address.",
+    long: "A problem holds the order under Needs attention (ADDRESS_INVALID). Use suggested address takes the carrier's correction, Edit address fixes it by hand, and Ship anyway to this address ships it as it is. The order page offers the same in both modes, with Accept this address, which is how Manufacturer gets past it.",
     path: "/ship",
   },
   {
@@ -429,7 +429,7 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     term: "Tracking page",
     aliases: ["tracking link", "copy tracking link", "customer tracking", "brand colour", "brand color", "shop logo"],
     short: "A public page for the customer with each package's carrier, tracking, and latest events, in the shop's colour and logo. It needs no sign-in.",
-    long: "Copy tracking link on the order or the Ship queue's Shipped tab copies it (/t/…). Each order has its own unguessable link, and the page never shows prices, the street, or the postcode. Set the colour and logo in Settings → Warehouse.",
+    long: "Copy tracking link on the order's menu, or Tracking link on the Ship queue's Shipped tab, copies it (/t/…). Each order has its own unguessable link, and the page never shows prices, the street, or the postcode. Set the colour and logo in Settings → Warehouse.",
     path: "/outbound/orders",
   },
   {
