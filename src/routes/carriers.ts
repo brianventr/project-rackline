@@ -24,6 +24,8 @@ import { pingDirect } from "../lib/direct-carrier";
 import { isLiveAggregator, isLiveDirect } from "../domain/carrier-live";
 import { isDirectProvider } from "../domain/direct-carrier";
 import { normalizeTrackerStatus, parseTrackerWebhook, verifyTrackerHmac } from "../domain/tracker";
+import { customerMailEventForTracker } from "../domain/customer-mail";
+import { scheduleCustomerEmails } from "../db/customer-mail";
 import { loadPackagesForOrders, orderPatchFromPackages } from "../db/packages";
 import { buildingDefaultService } from "../domain/ship-defaults";
 import { CARRIER_SECRET_FIELDS, openCarrierRow, type CarrierSecretField } from "../db/credentials";
@@ -595,6 +597,11 @@ carriersPublicRoute.post("/carriers/trackers/webhooks", async (c) => {
       response: { trackerStatus: status, matches: results, returnLabels: returnMatches },
       now,
     });
+  }
+
+  const mailEvent = customerMailEventForTracker(parsed.status);
+  if (mailEvent) {
+    scheduleCustomerEmails(c, { event: mailEvent, orderIds: [...new Set(results.map((row) => row.orderId))] });
   }
 
   return c.json({ ok: true, trackerStatus: status, matches: results, returnLabels: returnMatches });

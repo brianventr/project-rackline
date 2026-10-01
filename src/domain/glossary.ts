@@ -433,6 +433,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/outbound/orders",
   },
   {
+    id: "customer-email",
+    term: "Customer email",
+    aliases: ["shipment email", "delivery email", "shipping notification", "return label email", "notify customer"],
+    short: "A message to the customer when an order ships, is out for delivery, arrives, hits a problem, or a return label is ready.",
+    long: "Each one can send only when the store does not already notify, always, or never. Live Shopify, WooCommerce, and Etsy post-backs count as the store notifying. Set them in Settings, Warehouse, next to the tracking page. A failed send shows in Exceptions, where Resend tries again.",
+    path: "/setup/warehouse",
+  },
+  {
     id: "short-ship",
     term: "Short ship",
     aliases: ["ship short", "partial ship"],

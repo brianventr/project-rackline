@@ -3,6 +3,8 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, optionalInt, optionalString } from "../lib/http";
+import { requireOwner } from "../lib/org";
+import { scheduleCustomerEmails } from "../db/customer-mail";
 import { newId } from "../lib/ids";
 import { buyLivePostage, voidLivePostage } from "../lib/live-postage";
 import { asCarrierLiveError } from "../lib/carrier-client";
@@ -173,6 +175,7 @@ type ReturnLabelBody = {
 };
 
 returnLabelsRoute.post("/returns/:id/return-labels", async (c) => {
+  requireOwner(c.get("role"));
   const body = await c.req.json<ReturnLabelBody>().catch(() => ({}) as ReturnLabelBody);
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -315,6 +318,7 @@ returnLabelsRoute.post("/returns/:id/return-labels", async (c) => {
     now,
   });
   const [row] = await db.select().from(schema.returnLabels).where(eq(schema.returnLabels.id, id)).limit(1);
+  scheduleCustomerEmails(c, { event: "return_label", rmaId: ctx.rma.id });
   return c.json(serializeReturnLabel(row!, c.get("origin")), 201);
 });
 
@@ -339,7 +343,13 @@ returnLabelsRoute.post("/return-labels/:id/void", async (c) => {
   const live = Boolean(
     connection && isLivePostage(connection.provider, connection.mode) && (label.carrierShipmentId || label.carrierLabelId),
   );
-  const request = { returnLabelId: label.id, trackingNumber: label.trackingNumber, carrierService: label.carrierService };
+  const request = {
+    returnLabel: true,
+    rmaId: label.rmaId,
+    returnLabelId: label.id,
+    trackingNumber: label.trackingNumber,
+    carrierService: label.carrierService,
+  };
   if (live && connection) {
     try {
       await voidLivePostage({
