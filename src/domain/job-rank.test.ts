@@ -64,4 +64,54 @@ describe("rankJobs", () => {
     const ranked = rankJobs([job({ id: "lot", verb: "pick", expiringDays: 2 })], { now });
     expect(ranked[0]?.reason).toBe("Expires in 2 days");
   });
+
+  it("after putaway, a same-aisle pick beats an older Shopify pick and a shorter walk", () => {
+    const ranked = rankJobs(
+      [
+        job({
+          id: "shop",
+          verb: "pick",
+          aisle: "A",
+          shopify: true,
+          createdAt: now - 72 * 3_600_000,
+          fromX: 11,
+          fromY: 10,
+        }),
+        job({ id: "here", verb: "pick", aisle: "B", createdAt: now, fromX: 80, fromY: 80 }),
+      ],
+      { now, fromX: 10, fromY: 10, lastVerb: "putaway", lastAisle: "B" },
+    );
+    expect(ranked[0]?.id).toBe("here");
+    expect(ranked[0]?.reason).toBe("Pick on aisle B, the aisle you just worked");
+  });
+
+  it("after receive, a same-aisle pick still wins, and a same-aisle bonus of 80 would not", () => {
+    const olderShopify = job({
+      id: "shop",
+      verb: "pick",
+      aisle: "A",
+      shopify: true,
+      createdAt: now - 72 * 3_600_000,
+      fromX: 10,
+      fromY: 10,
+    });
+    const here = job({ id: "here", verb: "pick", aisle: "B", createdAt: now, fromX: 40, fromY: 40 });
+    const ranked = rankJobs([olderShopify, here], { now, fromX: 10, fromY: 10, lastVerb: "receive", lastAisle: "B" });
+    expect(ranked[0]?.id).toBe("here");
+    const withoutInterleave = rankJobs([olderShopify, here], { now, fromX: 10, fromY: 10, lastVerb: "pick", lastAisle: "B" });
+    expect(withoutInterleave[0]?.id).toBe("shop");
+  });
+
+  it("does not let a same-aisle pick beat pinned, starved, or expiring work", () => {
+    const ranked = rankJobs(
+      [
+        job({ id: "here", verb: "pick", aisle: "B" }),
+        job({ id: "pin", verb: "count", aisle: "A", pinned: true }),
+        job({ id: "starve", verb: "replenish", aisle: "A", starved: true }),
+        job({ id: "exp", verb: "pick", aisle: "A", expiringDays: 14 }),
+      ],
+      { now, lastVerb: "putaway", lastAisle: "B" },
+    );
+    expect(ranked.map((row) => row.id)).toEqual(["pin", "starve", "exp", "here"]);
+  });
 });

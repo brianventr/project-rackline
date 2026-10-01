@@ -49,7 +49,7 @@ Most of this is the same in both modes. New organizations start in Garage.
 
 Every channel lands orders in the same shape, so everything after this point works the same for every channel. Each order is keyed on its channel and the channel's order id. A second webhook, a pull that overlaps, or a re-pasted CSV returns the existing order instead of making a duplicate.
 
-An order that arrives is a promise, not a reservation. Stock is reserved when picking starts.
+An order that arrives soft-reserves ATP for what is on the shelf. The leave-by on Promise stays a quote. Pick start pins the reserve to a bay.
 
 ### Receiving
 
@@ -633,3 +633,23 @@ On Floor → Receive, the sampled units show with three actions. An owner or any
 - **Scrap** posts one adjustment out, so the units leave on hand once.
 
 One photo link can be saved with the decision. The receipt can be finished while QC is still open. Those units stay unavailable until the decision. A hold locks the SKU at that bay the way any hold does, including units of the same SKU that were not in the sample.
+
+## 20. Soft reserve
+
+Creating an order — a store webhook, a CSV paste, a crowdfunding import, or **New order** — reserves ATP for each line. The reserve counts against available qty for quick-ship, the ship queue, and the next order. It does not pin a bay. A 3PL client order only reserves that client's stock.
+
+If the shelf is short, the order still lands. The covered qty is reserved and the rest stays unreserved. That short qty shows in Exceptions as a backorder. Cancel releases the reserve. Starting the pick turns it into the bay allocation pick already used.
+
+The order page shows **Reserved**. Promise still shows the leave-by date, and a **Stock** column says how much is reserved. Asking Promise about a new qty does not reserve anything.
+
+## 21. Same-aisle interleave
+
+After a putaway or a receive, the next ranked job is a pick in that aisle when one is there. That pick beats age, a Shopify order, and a shorter walk. It does not beat a pinned job, a starved pick face, or a lot expiring within 14 days. The reason says the pick is on the aisle the person just worked.
+
+## 22. ABC cycle counts
+
+Manufacturer classifies each SKU from picks and shipments over the last 30 days. The fastest SKUs, the ones that make up the first 80% of that movement, are A and are counted every 7 days. The next through 95% are B, every 30 days. The rest, including SKUs that did not move, are C, every 90 days.
+
+**Plan cycle counts** on Stock → Cycle counts (owners) opens a normal bay count for each due SKU, at its pick face when it has one. Garage does not show the planner. The 15-minute schedule runs the same planner for Manufacturer buildings.
+
+Running it again does not open a second count for a SKU that already has an open count, and it does not recreate a count that was posted inside that SKU's cadence. Posting still uses the existing count screen.

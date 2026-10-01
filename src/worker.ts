@@ -60,6 +60,7 @@ import { importsRoute } from "./routes/imports";
 import { accountingRoute } from "./routes/accounting";
 import { channelsPublicRoute, channelsRoute } from "./routes/channels";
 import { runChannelCron } from "./db/channel-sync";
+import { planAllCycleCounts } from "./db/cycle-plan";
 import { recallRoute } from "./routes/recall";
 import { scheduleRoute } from "./routes/schedule";
 import { shipRoute } from "./routes/ship";
@@ -267,6 +268,16 @@ app.route("/api", exceptionsRoute);
 export default {
   fetch: app.fetch,
   async scheduled(_event, env, ctx) {
-    ctx.waitUntil(runChannelCron(createDb(env.DB), env).then(() => undefined));
+    ctx.waitUntil(
+      (async () => {
+        const db = createDb(env.DB);
+        try {
+          await runChannelCron(db, env);
+        } catch (err) {
+          console.error("channel cron failed", err);
+        }
+        await planAllCycleCounts(db);
+      })(),
+    );
   },
 } satisfies ExportedHandler<AppEnv["Bindings"]>;

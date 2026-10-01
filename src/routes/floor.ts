@@ -3,8 +3,10 @@ import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
-import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
-import { getOrgItem, getOrgLocation, getOrgLocationByScan } from "../lib/org";
+import { badRequest, conflict, forbidden, notFound, requireInt, requireString } from "../lib/http";
+import { getOrgItem, getOrgLocation, getOrgLocationByScan, getOrgWarehouse, requireOwner } from "../lib/org";
+import { isGarageMode } from "../domain/operating-mode";
+import { planCycleCounts } from "../db/cycle-plan";
 import { capacityOverride } from "../lib/capacity-override";
 import { loadBinFill } from "../db/capacity";
 import { loadPacksForItem, resolveItemScan } from "../db/item-packs";
@@ -508,6 +510,22 @@ floorRoute.get("/cycle-counts", async (c) => {
     .where(eq(schema.cycleCounts.organizationId, c.get("organizationId")!))
     .orderBy(desc(schema.cycleCounts.createdAt));
   return c.json(rows);
+});
+
+floorRoute.post("/cycle-counts/plan", async (c) => {
+  requireOwner(c.get("role"));
+  const body = await c.req.json<{ warehouseId?: string }>().catch(() => ({}) as { warehouseId?: string });
+  const warehouseId = requireString(body.warehouseId, "warehouseId");
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const [org] = await db
+    .select({ operatingMode: schema.organizations.operatingMode })
+    .from(schema.organizations)
+    .where(eq(schema.organizations.id, organizationId))
+    .limit(1);
+  if (isGarageMode(org?.operatingMode)) forbidden("Cycle count planning is a Manufacturer tool");
+  await getOrgWarehouse(db, organizationId, warehouseId);
+  return c.json(await planCycleCounts(db, { organizationId, warehouseId }));
 });
 
 floorRoute.get("/cycle-counts/:id", async (c) => {

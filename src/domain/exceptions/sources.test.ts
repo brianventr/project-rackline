@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CarrierConnectionLike } from "../carriers";
 import type { ShipRule } from "../ship-rules";
-import { backorderProblems } from "./backorder";
+import { backorderProblems, unreservedProblems } from "./backorder";
 import { capacityProblems } from "./capacity";
 import { carrierProblems, type CarrierEventRow } from "./carrier";
 import { channelSyncProblems } from "./channel-sync";
@@ -131,6 +131,25 @@ describe("backorderProblems", () => {
       createdAt: 50,
     });
     expect(row!.detail).toContain("Order SO-1 shipped short, so SO-1-BO1 holds what is left (MUG and VASE).");
+  });
+});
+
+describe("unreservedProblems", () => {
+  it("lists the qty an order could not reserve", () => {
+    const [row] = unreservedProblems([
+      {
+        id: "o1",
+        number: "ORD-1",
+        customerName: "Ada",
+        warehouseId: "wh1",
+        createdAt: 50,
+        shortQty: 2,
+        skus: ["LAMP"],
+      },
+    ]);
+    expect(row).toMatchObject({ source: "backorder", kind: "unreserved", orderId: "o1", severity: "warning" });
+    expect(row!.title).toContain("2 units");
+    expect(row!.detail).toContain("not reserved");
   });
 });
 

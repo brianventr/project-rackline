@@ -8,6 +8,7 @@ import { badRequest, conflict } from "../lib/http";
 import { destPatchFromAddress } from "../domain/geo";
 import { parseCrowdfundingCsv, resolveCrowdfundingRows } from "../domain/crowdfunding-import";
 import { syncDocumentJob, orderJobInput } from "../db/jobs";
+import { reserveOrderStock } from "../db/allocations";
 import { ensureCustomer } from "../db/parties";
 
 export const importsRoute = new Hono<AppEnv>();
@@ -110,6 +111,7 @@ importsRoute.post("/imports/crowdfunding", async (c) => {
       id: newId(),
       orderId: id,
       itemId: line.itemId,
+      sku: line.sku,
       qty: line.qty,
       qtyPicked: 0,
     }));
@@ -132,7 +134,15 @@ importsRoute.post("/imports/crowdfunding", async (c) => {
         waveId,
         ...destPatchFromAddress(order.shipToAddress),
       }),
-      ...lineRows.map((line) => db.insert(schema.orderLines).values(line)),
+      ...lineRows.map((line) =>
+        db.insert(schema.orderLines).values({
+          id: line.id,
+          orderId: line.orderId,
+          itemId: line.itemId,
+          qty: line.qty,
+          qtyPicked: line.qtyPicked,
+        }),
+      ),
     ]);
     await syncDocumentJob(
       db,
@@ -147,6 +157,13 @@ importsRoute.post("/imports/crowdfunding", async (c) => {
         createdAt: now,
       }),
     );
+    await reserveOrderStock(db, {
+      organizationId,
+      warehouseId,
+      orderId: id,
+      clientId: null,
+      lines: lineRows.map((line) => ({ id: line.id, itemId: line.itemId, sku: line.sku, qty: line.qty })),
+    });
     created.push({ id, number });
   }
 

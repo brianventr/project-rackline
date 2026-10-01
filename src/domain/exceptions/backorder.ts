@@ -18,6 +18,38 @@ export type BackorderRow = {
   skus: string[];
 };
 
+export type UnreservedRow = {
+  id: string;
+  number: string;
+  customerName: string;
+  warehouseId: string;
+  createdAt: number;
+  shortQty: number;
+  skus: string[];
+};
+
+/** An order that ingested with less ATP than it needed. The short qty was not reserved. */
+export function unreservedProblems(rows: readonly UnreservedRow[]): ExceptionItem[] {
+  return rows
+    .filter((row) => row.shortQty > 0)
+    .map((row) => {
+      const what = row.skus.length ? ` (${listText(row.skus)})` : "";
+      return exceptionItem({
+        source: BACKORDER_SOURCE.id,
+        key: `unreserved:${row.id}`,
+        kind: "unreserved",
+        kindLabel: "Backorder",
+        severity: "warning",
+        title: `${row.customerName} is short ${plural(row.shortQty, "unit")} on ${row.number}`,
+        detail: `${row.number} came in without enough stock${what}. That short qty is not reserved. Ship it once the stock is in, or cancel it and tell the customer.`,
+        warehouseId: row.warehouseId,
+        orderId: row.id,
+        createdAt: row.createdAt,
+        link: `/outbound/orders/${row.id}`,
+      });
+    });
+}
+
 export function backorderProblems(rows: readonly BackorderRow[]): ExceptionItem[] {
   return rows.map((row) => {
     const owed = row.units > 0 ? plural(row.units, "unit") : "the rest";

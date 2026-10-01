@@ -115,6 +115,10 @@ export type PromiseOrder = {
   slowSku: string | null;
   /** Some lines could leave on an earlier pickup than the order. */
   split: boolean;
+  /** Soft reserve plus bay allocation for this order. */
+  reservedUnits?: number;
+  /** Qty that did not fit in ATP when the order was reserved. */
+  shortUnits?: number;
   lines: PromiseLine[];
 };
 
@@ -157,7 +161,8 @@ export type PromiseAsk = PromiseQuote & {
   notice: string;
 };
 
-const NOTICE = "A promise does not reserve inventory. ATP is reserved when pick starts.";
+const NOTICE =
+  "An order reserves ATP when it is created. This leave-by is still a quote, and it stays on the board. Asking about a new qty does not reserve anything.";
 
 const HANDED_OFF = new Set(["in_transit", "delivered", "exception", "failure", "return_to_sender", "cancelled", "error"]);
 
