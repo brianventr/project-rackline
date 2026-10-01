@@ -191,6 +191,21 @@ export function itemScanValue(parsed: ParsedScan): string | null {
   return null;
 }
 
+/**
+ * The document a scanned number names: exactly, with or without `#`, or by the part after a dash (`DEMO1` for
+ * `ORD-DEMO1`). Case and spaces do not count on either side, because `parseScan` drops the spaces a channel order
+ * number carries (`Etsy 3100078467`).
+ */
+export function findByScannedNumber<T extends { number: string }>(rows: T[], value: string): T | undefined {
+  const scanned = normalizeBarcode(value);
+  const needle = scanned.replace(/^#/, "");
+  if (!needle) return undefined;
+  return rows.find((row) => {
+    const number = normalizeBarcode(row.number);
+    return number === scanned || number === needle || number === `#${needle}` || number.endsWith(`-${needle}`);
+  });
+}
+
 export function documentPath(
   kind: Exclude<ScanKind, "unknown" | "location" | "item" | "serial" | "lot" | "plate">,
   id: string,
