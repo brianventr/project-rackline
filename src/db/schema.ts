@@ -188,6 +188,10 @@ export const items = sqliteTable(
     originCountry: text("origin_country"),
     customsDescription: text("customs_description"),
     customsValueCents: integer("customs_value_cents"),
+    /** A, B, or C from recent pick and ship movement. Null until the planner runs. */
+    abcClass: text("abc_class"),
+    abcUnits: integer("abc_units").notNull().default(0),
+    abcClassifiedAt: integer("abc_classified_at"),
   },
   (t) => [
     uniqueIndex("items_org_sku").on(t.organizationId, t.sku),

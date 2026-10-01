@@ -615,3 +615,15 @@ Creating an order — a store webhook, a CSV paste, a crowdfunding import, or **
 If the shelf is short, the order still lands. The covered qty is reserved and the rest stays unreserved. That short qty shows in Exceptions as a backorder. Cancel releases the reserve. Starting the pick turns it into the bay allocation pick already used.
 
 The order page shows **Reserved**. Promise still shows the leave-by date, and a **Stock** column says how much is reserved. Asking Promise about a new qty does not reserve anything.
+
+## 19. Same-aisle interleave
+
+After a putaway or a receive, the next ranked job is a pick in that aisle when one is there. That pick beats age, a Shopify order, and a shorter walk. It does not beat a pinned job, a starved pick face, or a lot expiring within 14 days. The reason says the pick is on the aisle the person just worked.
+
+## 20. ABC cycle counts
+
+Manufacturer classifies each SKU from picks and shipments over the last 30 days. The fastest SKUs, the ones that make up the first 80% of that movement, are A and are counted every 7 days. The next through 95% are B, every 30 days. The rest, including SKUs that did not move, are C, every 90 days.
+
+**Plan cycle counts** on Stock → Cycle counts (owners) opens a normal bay count for each due SKU, at its pick face when it has one. Garage does not show the planner. The 15-minute schedule runs the same planner for Manufacturer buildings.
+
+Running it again does not open a second count for a SKU that already has an open count, and it does not recreate a count that was posted inside that SKU's cadence. Posting still uses the existing count screen.

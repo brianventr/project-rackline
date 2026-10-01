@@ -25,6 +25,8 @@ import { COUNT_STEPS, canPostCount, isOpenCount } from "@/domain/status";
 import { requiredChoice } from "@/domain/form-schemas";
 import { allLinesEntered, countVariance, formatCountVariance, isBlindCount, isCountEntered } from "@/domain/blind-count";
 import { useWarehouse, inWarehouse } from "../warehouse";
+import { useSession } from "../session";
+import { isGarageMode } from "@/domain/operating-mode";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 
 /** The list endpoint also sends when the count was made; the shared type does not list it yet. */
@@ -87,9 +89,26 @@ const COUNT_COLUMNS: DataColumn<CountRow>[] = [
 
 function CountList() {
   const { warehouseId } = useWarehouse();
+  const me = useSession();
+  const garage = isGarageMode(me.organization.operatingMode);
   const counts = useApiQuery<CountRow[]>("/api/cycle-counts");
   const [creating, setCreating] = useState(false);
+  const { error: planError, busy: planning, run } = useWrite();
   const rows = useMemo(() => inWarehouse(counts.data ?? [], warehouseId), [counts.data, warehouseId]);
+
+  async function planCounts() {
+    if (!warehouseId) return;
+    await run(
+      "Plan cycle counts",
+      () =>
+        api<{ created: number }>("/api/cycle-counts/plan", {
+          method: "POST",
+          body: JSON.stringify({ warehouseId }),
+        }),
+      (result) =>
+        result.created === 0 ? "No new counts. Open counts and recent counts were left as they are." : `Opened ${result.created} ${result.created === 1 ? "count" : "counts"}.`,
+    );
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
@@ -107,7 +126,6 @@ function CountList() {
         id="cycle-counts"
         data={rows}
         loading={counts.isLoading}
-        error={counts.error?.message}
         columns={COUNT_COLUMNS}
         getRowId={(count) => count.id}
         rowHref={(count) => `/stock/counts/${count.id}`}
@@ -119,11 +137,19 @@ function CountList() {
           text: (count) => [count.number, count.locationCode, count.notes].filter(Boolean).join(" "),
         }}
         exportName="cycle-counts"
+        error={counts.error?.message ?? planError ?? undefined}
         toolbar={
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus className="size-4" />
-            Start count
-          </Button>
+          <>
+            {!garage && me.role === "owner" ? (
+              <Button size="sm" variant="outline" disabled={planning || !warehouseId} onClick={() => void planCounts()}>
+                Plan cycle counts
+              </Button>
+            ) : null}
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus className="size-4" />
+              Start count
+            </Button>
+          </>
         }
         empty={
           <EmptyState

@@ -279,7 +279,15 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     term: "Cycle count",
     aliases: ["count", "counts", "stock take", "stocktake"],
     short: "Count one bay without stopping work. Posting adjusts on hand to what was counted.",
-    long: "A SKU that was not on the bay's snapshot can be scanned or added. Posting adjusts against current on hand, so moves during the count are not double-counted.",
+    long: "A SKU that was not on the bay's snapshot can be scanned or added. Posting adjusts against current on hand, so moves during the count are not double-counted. Manufacturer can plan counts from movement: A every 7 days, B every 30, C every 90.",
+    path: "/stock/counts",
+  },
+  {
+    id: "abc",
+    term: "ABC count",
+    aliases: ["abc", "abc class", "velocity class", "cycle class"],
+    short: "A, B, and C from how fast a SKU moves. A is counted every 7 days, B every 30, C every 90.",
+    long: "Class comes from picks and shipments over the last 30 days. The SKUs that make up the first 80% of that movement are A, the next through 95% are B, and the rest are C. Plan cycle counts opens a normal bay count. It skips a SKU that already has an open count or was counted inside its cadence. Manufacturer only.",
     path: "/stock/counts",
   },
   {
