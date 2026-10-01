@@ -14,6 +14,7 @@ import { MODE_SWITCH_RULES } from "./operating-mode";
 /** Office and floor routes in src/app/App.tsx that a glossary entry may link to. */
 const ROUTES = new Set([
   "/today",
+  "/exceptions",
   "/ship",
   "/live",
   "/floor",
@@ -180,6 +181,10 @@ describe("searchGlossary", () => {
       ["brand colour", "tracking-page"],
       ["return label", "return-label"],
       ["copy customer link", "return-label"],
+      ["exception inbox", "exception-inbox"],
+      ["exceptions", "exception-inbox"],
+      ["needs attention", "exception-inbox"],
+      ["snooze", "exception-inbox"],
     ];
     for (const [query, id] of expected) expect(top(query), query).toBe(id);
   });
@@ -276,7 +281,7 @@ describe("glossaryPaletteSlot", () => {
     // Page names that are also glossary words: Enter must still navigate.
     const titles = [
       "Waves", "Kits", "Recipes", "Counts", "Zones", "Yard", "Ledger", "Promise", "Runway",
-      "Putaway", "Replenish", "EDI", "On hand", "Buy parts", "Receive", "Builds", "atp", "bom",
+      "Putaway", "Replenish", "EDI", "On hand", "Buy parts", "Receive", "Builds", "atp", "bom", "Exceptions",
     ];
     for (const title of titles) {
       expect(searchGlossary(title).length, title).toBeGreaterThan(0);

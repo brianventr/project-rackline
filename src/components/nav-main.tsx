@@ -13,8 +13,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
-import type { Dashboard } from "@/app/api"
-import { isNavActive, type NavItem } from "@/app/navigation"
+import { isNavActive, type NavCounts, type NavItem } from "@/app/navigation"
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "rackline-nav-groups"
@@ -39,7 +38,7 @@ export function NavMain({
 }: {
   label: string
   items: NavItem[]
-  dashboard?: Dashboard | null
+  dashboard?: NavCounts | null
   pinnedOpen?: boolean
 }) {
   const location = useLocation()

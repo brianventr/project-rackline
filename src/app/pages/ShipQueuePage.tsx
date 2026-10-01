@@ -31,6 +31,8 @@ import { DataTable, type BulkAction, type DataColumn, type TabDef } from "../com
 import { DocLink, LineChips, Muted, RelativeTime } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
 import { useConfirm } from "../components/confirm";
+import { Term } from "../components/term";
+import { useExceptionInbox } from "../exceptions";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
@@ -40,6 +42,7 @@ import { ShippingLabelCard, shippingLabelJob } from "./ShippingLabelPage";
 import { copyTrackingLink } from "../tracking-link";
 import { markShippedReminder } from "@/domain/channels/adapter";
 import { orderChannelName } from "@/domain/order-channel";
+import { plural } from "@/domain/exceptions/inbox";
 import { shortDay } from "@/domain/rate-choice";
 import { formatOz } from "@/domain/ship-defaults";
 import { cn } from "@/lib/utils";
@@ -496,6 +499,8 @@ export function ShipQueuePage() {
           <SetupChecklist steps={data.setup} owner={owner} onBox={() => setParams((prev) => withParam(prev, "setup", "box"))} />
         ) : null}
 
+        {params.get("tab") === "attention" ? <ExceptionsCard /> : null}
+
         <DataTable
           id="ship-queue"
           data={data?.orders}
@@ -589,6 +594,25 @@ export function ShipQueuePage() {
 
 /** What a one-order ship lets through: a rule's hold, or the ship-to address as it is. */
 type Release = { releaseHold?: boolean; acceptAddress?: boolean };
+
+function ExceptionsCard() {
+  const inbox = useExceptionInbox();
+  const open = inbox.data?.counts.open ?? 0;
+  return (
+    <Card className="flex flex-col gap-3 p-(--density-gap) md:flex-row md:items-center md:justify-between">
+      <div>
+        <p className="font-medium">{open ? `${plural(open, "problem")} open in Exceptions` : "Nothing open in Exceptions"}</p>
+        <p className="text-sm text-muted-foreground">
+          This tab holds orders that cannot ship yet. Labels that failed, parcels stuck in transit, tracking a store never got, and held
+          parts are in the <Term id="exception-inbox">exception inbox</Term>.
+        </p>
+      </div>
+      <Button size="sm" variant="outline" asChild>
+        <Link to="/exceptions">Open Exceptions</Link>
+      </Button>
+    </Card>
+  );
+}
 
 function withParam(previous: URLSearchParams, key: string, value: string | null): URLSearchParams {
   const next = new URLSearchParams(previous);

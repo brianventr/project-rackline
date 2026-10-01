@@ -33,7 +33,9 @@ import { Term } from "../components/term";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
 import { useDashboard } from "../dashboard";
+import { SEVERITY_TONE, useExceptionInbox } from "../exceptions";
 import { refreshApi, useApiQuery } from "../query";
+import { SEVERITY_LABELS } from "@/domain/exceptions/inbox";
 import { statusLabel } from "@/domain/status";
 import { formatCountVariance } from "@/domain/blind-count";
 import { formatExpiresOn } from "@/domain/expiry";
@@ -102,7 +104,7 @@ const LANE_ACTION: Record<LaneId, LaneAction> = {
   outbound: { label: "New order", to: "/outbound/orders?new=1" },
   make: { label: "Open work orders", to: "/make/work-orders" },
   stock: { label: "Count a bay", to: "/floor/count" },
-  exceptions: null,
+  exceptions: { label: "Open the inbox", to: "/exceptions" },
 };
 
 const GARAGE_LANE_ACTION: Record<LaneId, LaneAction> = {
@@ -110,7 +112,7 @@ const GARAGE_LANE_ACTION: Record<LaneId, LaneAction> = {
   outbound: { label: "New order", to: "/outbound/orders?new=1" },
   make: { label: "Open builds", to: "/make/work-orders" },
   stock: { label: "Open on hand", to: "/stock" },
-  exceptions: null,
+  exceptions: { label: "Open the inbox", to: "/exceptions" },
 };
 
 type WorkRow = {
@@ -146,6 +148,9 @@ export function TodayPage() {
     { refetchInterval: 60_000 },
   );
   const promise = promiseQuery.data ?? null;
+  const inbox = useExceptionInbox();
+  const inboxCounts = inbox.data?.counts ?? null;
+  const openExceptions = useMemo(() => (inbox.data?.items ?? []).filter((item) => item.state === "open"), [inbox.data]);
   const data = dashboard.data ?? null;
   const jobs = jobsQuery.data ?? EMPTY_JOBS;
   const team = teamQuery.data ?? EMPTY_TEAM;
@@ -257,7 +262,6 @@ export function TodayPage() {
     const verb = floorVerbFor(to);
     return allow(to) && (!verb || me.role === "owner" || floorVerbs.includes(verb));
   };
-  const exceptions = laneCounts.exceptions + (data?.countVariances ?? 0) + (data?.openHolds ?? 0);
 
   const headline: HeadlineProps[] = [
     {
@@ -300,21 +304,19 @@ export function TodayPage() {
       : []),
     {
       label: "Needs attention",
-      value: data ? exceptions : null,
-      to: "/today",
-      onClick: () => setLane("exceptions"),
+      value: inboxCounts?.open ?? null,
+      to: "/exceptions",
       icon: ShieldAlert,
-      tone: exceptions > 0 ? ("warning" as const) : ("default" as const),
-      note:
-        data && exceptions
-          ? [
-              laneCounts.exceptions ? `${laneCounts.exceptions} exceptions` : null,
-              data.countVariances ? `${data.countVariances} variances` : null,
-              data.openHolds ? `${data.openHolds} on hold` : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")
-          : "Nothing flagged",
+      tone: inboxCounts?.open ? ("warning" as const) : ("default" as const),
+      note: inboxCounts?.open
+        ? [
+            inboxCounts.blocking ? `${inboxCounts.blocking} blocking` : null,
+            inboxCounts.unclaimed ? `${inboxCounts.unclaimed} unclaimed` : null,
+            inboxCounts.mine ? `${inboxCounts.mine} yours` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ") || "All claimed"
+        : "Nothing flagged",
     },
   ].filter((item) => allow(item.to));
 
@@ -483,6 +485,42 @@ export function TodayPage() {
               onClose={() => setSelectedId(null)}
             />
           ) : null}
+          {garage ? null : (
+            <RailCard
+              title="Exceptions"
+              icon={AlertTriangle}
+              action={
+                <Link className="text-sm font-medium text-muted-foreground hover:text-foreground" to="/exceptions">
+                  Inbox →
+                </Link>
+              }
+              empty={
+                <RailEmpty
+                  icon={AlertTriangle}
+                  title="Nothing needs attention."
+                  body={
+                    <>
+                      Failed labels, stuck parcels, held stock, and count variances land in the{" "}
+                      <Term id="exception-inbox">exception inbox</Term>.
+                    </>
+                  }
+                />
+              }
+              loading={inbox.isLoading}
+            >
+              {openExceptions.slice(0, 5).map((item) => (
+                <Link
+                  key={item.id}
+                  to={item.link}
+                  title={item.detail}
+                  className="flex items-center justify-between gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted/60"
+                >
+                  <span className="min-w-0 truncate">{item.title}</span>
+                  <ToneBadge tone={SEVERITY_TONE[item.severity]}>{SEVERITY_LABELS[item.severity]}</ToneBadge>
+                </Link>
+              ))}
+            </RailCard>
+          )}
           <RailCard
             title="Below reorder"
             icon={Boxes}
