@@ -44,6 +44,7 @@ const ROUTES = new Set([
   "/outbound/returns",
   "/setup/shopify",
   "/setup/warehouse",
+  "/setup/shipping-rules",
   "/setup/clients",
   "/setup/zones",
   "/setup/edi",
@@ -149,6 +150,17 @@ describe("searchGlossary", () => {
       ["carton", "carton"],
       ["BOX-n", "carton"],
       ["unpick", "unpick"],
+      ["shipping rule", "ship-rule"],
+      ["shipping rules", "ship-rule"],
+      ["hold for review", "ship-rule"],
+      ["rate choice", "rate-choice"],
+      ["cheapest", "rate-choice"],
+      ["auto box", "auto-box"],
+      ["box preset", "auto-box"],
+      ["scan to ship", "scan-to-ship"],
+      ["auto-ship", "scan-to-ship"],
+      ["scale", "scale"],
+      ["use scale weight", "scale"],
     ];
     for (const [query, id] of expected) expect(top(query), query).toBe(id);
   });
@@ -282,6 +294,8 @@ describe("glossaryPathFor", () => {
     expect(glossaryPathFor(glossaryEntry("garage-mode")!, operator)).toBeNull();
     expect(glossaryPathFor(glossaryEntry("adjustment")!, operator)).toBeNull();
     expect(glossaryPathFor(glossaryEntry("adjustment")!, owner)).toBe("/floor/adjust");
+    expect(glossaryPathFor(glossaryEntry("ship-rule")!, operator)).toBeNull();
+    expect(glossaryPathFor(glossaryEntry("ship-rule")!, owner)).toBe("/setup/shipping-rules");
   });
 
   it("drops pages Garage Mode packs away", () => {
@@ -294,6 +308,8 @@ describe("glossaryPathFor", () => {
     expect(glossaryPathFor(glossaryEntry("quick-ship")!, garageOwner)).toBe("/ship");
     expect(glossaryPathFor(glossaryEntry("quick-ship")!, owner)).toBeNull();
     expect(glossaryPathFor(glossaryEntry("quick-ship")!, operator)).toBeNull();
+    expect(glossaryPathFor(glossaryEntry("scan-to-ship")!, garageOwner)).toBe("/ship");
+    expect(glossaryPathFor(glossaryEntry("scan-to-ship")!, owner)).toBeNull();
   });
 
   it("returns null when there is no page", () => {
