@@ -1,4 +1,5 @@
-import { api, type ScanHit } from "../../api";
+import type { ScanHit } from "../../api";
+import { isOfflineQueued, OfflineQueued, postOrQueue } from "../../offline-queue";
 import type { ScanEvidence } from "@/domain/workflow-policy";
 
 /** What the operator actually scanned since the last post; sent as proof in Manufacturer mode. */
@@ -161,18 +162,31 @@ export function createScanRecorder(task: ScanTask, refId: () => string | null) {
   let boundRef: string | null = null;
   let chain: Promise<void> = Promise.resolve();
   let failed: Error | null = null;
+  let queued = false;
 
   async function ensure(): Promise<string> {
     const ref = refId();
     if (!ref) throw new Error("Open the floor task before scanning");
     if (sessionId && boundRef === ref) return sessionId;
-    const opened = await api<{ id: string }>("/api/floor/scan-sessions", {
-      method: "POST",
-      body: JSON.stringify({ task, refId: ref }),
-    });
-    sessionId = opened.id;
-    boundRef = ref;
-    return opened.id;
+    const localSessionId = `local-${crypto.randomUUID()}`;
+    try {
+      const opened = await postOrQueue<{ id: string }>({
+        kind: "scan-session",
+        path: "/api/floor/scan-sessions",
+        body: { task, refId: ref },
+        groupId: ref,
+        localSessionId,
+      });
+      sessionId = opened.id;
+      boundRef = ref;
+      return opened.id;
+    } catch (err) {
+      if (!isOfflineQueued(err)) throw err;
+      sessionId = localSessionId;
+      boundRef = ref;
+      queued = true;
+      return localSessionId;
+    }
   }
 
   return {
@@ -182,8 +196,19 @@ export function createScanRecorder(task: ScanTask, refId: () => string | null) {
         if (failed) return;
         try {
           const id = await ensure();
-          await api("/api/floor/scans", { method: "POST", body: JSON.stringify({ sessionId: id, ...scan }) });
+          const ref = refId();
+          await postOrQueue({
+            kind: "scan",
+            path: "/api/floor/scans",
+            body: { sessionId: id, ...scan },
+            groupId: ref,
+            localSessionId: id.startsWith("local-") ? id : null,
+          });
         } catch (err) {
+          if (isOfflineQueued(err)) {
+            queued = true;
+            return;
+          }
           failed = err instanceof Error ? err : new Error("Scan was not recorded");
         }
       });
@@ -194,6 +219,9 @@ export function createScanRecorder(task: ScanTask, refId: () => string | null) {
     async flush(): Promise<string | null> {
       await chain;
       if (failed) throw failed;
+      if (queued) {
+        throw new OfflineQueued(sessionId?.startsWith("local-") ? "scan-session" : "scan", sessionId);
+      }
       return sessionId;
     },
   };

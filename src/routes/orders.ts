@@ -12,6 +12,7 @@ import { fulfillChannelOrder } from "../db/channel-sync";
 import { loadWorkflowPolicy } from "../db/workflow";
 import { assertRecordedScans, assertScanned, requiresScan, type ScanCheckLine, type ScanEvidence } from "../domain/workflow-policy";
 import { consumeItemScans, loadRecordedScans } from "../db/scan-sessions";
+import { runIdempotent } from "../db/idempotency";
 import { loadItemPacks } from "../db/item-packs";
 import { postsTrackingBack } from "../domain/channels/adapter";
 import { canPackOrder, canPickOrder, canShipOrder, canShipCartonOrder, canStartPack, canStartPick, canCancelOrder, canUnpickOrder } from "../domain/status";
@@ -599,8 +600,10 @@ ordersRoute.post("/orders/:id/start", async (c) => {
   return c.json(started);
 });
 
-ordersRoute.post("/orders/:id/pick", async (c) => {
-  const body = await c.req.json<{
+async function postOrderPick(
+  c: Context<AppEnv>,
+  id: string,
+  body: {
     locationId?: string;
     lines?: IncomingPick[];
     scan?: ScanEvidence;
@@ -608,12 +611,13 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
     sessionId?: string;
     /** The license plate scanned instead of the bay. The whole pick comes off it. */
     plateCode?: string;
-  }>();
+  },
+): Promise<Response> {
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
-  const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
+  const order = await orderWithLines(db, organizationId, id, { suggest: false });
   if (!canPickOrder(order.status)) conflict("Order is not open for picking");
   await guardFloorJob(db, {
     organizationId,
@@ -780,6 +784,20 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
   await syncDocumentJob(db, orderJobInput(picked));
   await consumeItemScans(db, scanSessionId);
   return c.json(picked);
+}
+
+ordersRoute.post("/orders/:id/pick", async (c) => {
+  const body = await c.req.json<{
+    locationId?: string;
+    lines?: IncomingPick[];
+    scan?: ScanEvidence;
+    /** Server-recorded scan session. Manufacturer mode requires it; Garage ignores it. */
+    sessionId?: string;
+    /** The license plate scanned instead of the bay. The whole pick comes off it. */
+    plateCode?: string;
+    idempotencyKey?: unknown;
+  }>();
+  return runIdempotent(c, body.idempotencyKey, () => postOrderPick(c, c.req.param("id"), body));
 });
 
 ordersRoute.post("/orders/:id/pack", async (c) => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Truck } from "lucide-react";
 import { api, errorText, type Location, type Purchase, type Receipt, type ScanHit } from "../../api";
+import { isOfflineQueued, postOrQueue } from "../../offline-queue";
 import { Button, Card, DoneBanner, Field, Input, StatusBadge } from "../../components/ui";
 import { BayCombobox } from "../../components/BayCombobox";
 import { OverfillButton, useOverfill } from "../../components/bin-capacity";
@@ -247,9 +248,11 @@ export function FloorReceivePage() {
           expiresOn: parseExpiryInput(expiries[line.itemId]),
         }))
         .filter((line) => line.qty > 0);
-      const posted = await api<Receipt>(`/api/receipts/${activeReceipt.id}/receive`, {
-        method: "POST",
-        body: JSON.stringify({ locationId, lines, ...(plateCode ? { plateCode } : {}), ...(overrideCapacity ? { overrideCapacity } : {}) }),
+      const posted = await postOrQueue<Receipt>({
+        kind: "receive",
+        path: `/api/receipts/${activeReceipt.id}/receive`,
+        groupId: activeReceipt.id,
+        body: { locationId, lines, ...(plateCode ? { plateCode } : {}), ...(overrideCapacity ? { overrideCapacity } : {}) },
       });
       setActiveReceipt(posted);
       prefill(posted.lines ?? []);
@@ -262,6 +265,10 @@ export function FloorReceivePage() {
       setPlateCode(null);
       await load();
     } catch (err) {
+      if (isOfflineQueued(err)) {
+        setError(err.message);
+        return;
+      }
       failed(err, () => void receiveReceipt(true));
     }
   }
@@ -280,9 +287,11 @@ export function FloorReceivePage() {
           expiresOn: parseExpiryInput(expiries[line.itemId]),
         }))
         .filter((line) => line.qty > 0);
-      const posted = await api<Purchase>(`/api/purchases/${activePurchase.id}/receive`, {
-        method: "POST",
-        body: JSON.stringify({ locationId, lines, ...(plateCode ? { plateCode } : {}), ...(overrideCapacity ? { overrideCapacity } : {}) }),
+      const posted = await postOrQueue<Purchase>({
+        kind: "receive",
+        path: `/api/purchases/${activePurchase.id}/receive`,
+        groupId: activePurchase.id,
+        body: { locationId, lines, ...(plateCode ? { plateCode } : {}), ...(overrideCapacity ? { overrideCapacity } : {}) },
       });
       setActivePurchase(posted);
       prefill(posted.lines ?? []);
@@ -290,6 +299,10 @@ export function FloorReceivePage() {
       setPlateCode(null);
       await load();
     } catch (err) {
+      if (isOfflineQueued(err)) {
+        setError(err.message);
+        return;
+      }
       failed(err, () => void receivePurchase(true));
     }
   }

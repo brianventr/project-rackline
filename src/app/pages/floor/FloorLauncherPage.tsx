@@ -52,6 +52,7 @@ import {
 } from "@/domain/floor-usage";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { OfflineQueueNotice } from "../../offline-queue-banner";
 
 type Icon = ComponentType<{ className?: string }>;
 
@@ -227,6 +228,7 @@ export function FloorLauncherPage() {
         </Link>
       ) : null}
       <MyDayCard />
+      <OfflineQueueNotice />
       <ErrorBanner error={error} />
       {recentScan ? (
         <div role="status" className="flex items-center gap-2 rounded-lg border bg-card py-1 pl-3 pr-1 text-sm">

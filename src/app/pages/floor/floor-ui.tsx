@@ -8,6 +8,7 @@ import { claimedByMessage, jobClaimedByOther, splitByClaim } from "../../jobs";
 import { jobReasonText } from "@/domain/floor-usage";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { OfflineQueueNotice } from "../../offline-queue-banner";
 
 export type ScanReport = (accepted: boolean) => void;
 
@@ -163,7 +164,8 @@ export function FloorFrame({
           ) : null}
         </div>
       </div>
-      <div className="print:hidden">
+      <div className="print:hidden space-y-3">
+        <OfflineQueueNotice />
         <ErrorBanner error={error} />
       </div>
       {children}

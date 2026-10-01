@@ -7,10 +7,14 @@ import { SidebarConfigProvider } from "@/contexts/sidebar-context";
 import { App } from "./App";
 import { ConfirmProvider } from "./components/confirm";
 import { applyStoredDensity } from "./density";
+import { watchOfflineQueue } from "./offline-queue";
 import { queryClient } from "./query";
+import { registerAppShell } from "./register-shell";
 import "@/index.css";
 
 applyStoredDensity();
+registerAppShell();
+watchOfflineQueue();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -189,6 +189,8 @@ describe("searchGlossary", () => {
       ["exceptions", "exception-inbox"],
       ["needs attention", "exception-inbox"],
       ["snooze", "exception-inbox"],
+      ["offline queue", "offline-queue"],
+      ["pending post", "offline-queue"],
     ];
     for (const [query, id] of expected) expect(top(query), query).toBe(id);
   });

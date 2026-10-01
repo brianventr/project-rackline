@@ -621,6 +621,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/stock/items",
   },
   {
+    id: "offline-queue",
+    term: "Offline queue",
+    aliases: ["offline post", "pending post", "pwa"],
+    short: "A receive or pick saved on this device when the network drops, then sent in order once the connection returns.",
+    long: "The post keeps an idempotency key, so sending it again returns the first outcome and does not receive or pick twice. Scans for a pick are sent before that pick. A server refusal stays on the floor until you dismiss it, and it is not retried.",
+    path: "/floor",
+  },
+  {
     id: "garage-mode",
     term: "Garage Mode",
     aliases: ["garage", "bench", "founder bench", "full warehouse"],

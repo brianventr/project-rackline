@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
@@ -13,6 +13,7 @@ import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
 import { guardFloorJob, syncDocumentJob } from "../db/jobs";
+import { runIdempotent } from "../db/idempotency";
 import { plateForReceive } from "../db/license-plates";
 import { receiveOntoPlate } from "../domain/license-plates";
 import { loadReceiptQc, openQcCountByReceipt } from "../db/qc-samples";
@@ -215,19 +216,22 @@ receiptsRoute.post("/receipts/:id/start", async (c) => {
   return c.json(started);
 });
 
-receiptsRoute.post("/receipts/:id/receive", async (c) => {
-  const body = await c.req.json<{
+async function postReceiptReceive(
+  c: Context<AppEnv>,
+  id: string,
+  body: {
     locationId?: string;
     lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number; expiresOn?: unknown }[];
     overrideCapacity?: boolean;
     plateCode?: string;
-  }>();
+  },
+): Promise<Response> {
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
   const override = capacityOverride(c, body.overrideCapacity);
-  let receipt = await receiptWithLines(db, organizationId, c.req.param("id"));
+  let receipt = await receiptWithLines(db, organizationId, id);
   if (!canReceive(receipt.status)) conflict("Receipt is already received");
   await guardFloorJob(db, {
     organizationId,
@@ -366,6 +370,17 @@ receiptsRoute.post("/receipts/:id/receive", async (c) => {
     createdAt: received.createdAt,
   });
   return c.json(received);
+}
+
+receiptsRoute.post("/receipts/:id/receive", async (c) => {
+  const body = await c.req.json<{
+    locationId?: string;
+    lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number; expiresOn?: unknown }[];
+    overrideCapacity?: boolean;
+    plateCode?: string;
+    idempotencyKey?: unknown;
+  }>();
+  return runIdempotent(c, body.idempotencyKey, () => postReceiptReceive(c, c.req.param("id"), body));
 });
 
 receiptsRoute.post("/receipts/:id/qc/:sampleId", async (c) => {
