@@ -319,6 +319,7 @@ A 409 means Rackline refused the post to protect the ledger. Nothing was half wr
 - **`WAREHOUSE_FLOW`.** You tried one-click ship in Manufacturer. Pick and pack on the floor, or switch to Garage.
 - **`SCAN_REQUIRED`.** A Manufacturer pick or pack was missing a scan. For a pick, scan the bay shown, then each SKU once, then type the qty. For a pack, scan every unit going in the box.
 - **`INSUFFICIENT_ATP`.** Not enough free stock. It may be on hand but held, or reserved for another order already being picked.
+- **`CLIENT_STOCK`.** The units at that bay belong to another owner. A 3PL client's order only takes that client's stock, and your own orders never take client stock. Pick suggestions, reservations, quick ship, and the Ship queue follow the same rule, so an order whose only stock belongs to someone else shows as short (`INSUFFICIENT_ATP`, naming whose stock ran out) before anyone walks to the bay.
 - **`NEED_CARTON_FLOW`.** The order is packed in boxes. Open it and label and ship each box.
 - **`NEED_SCAN`.** A catch-weight SKU needs weighing on Floor → Pick before the Ship queue can finish it.
 - **`NEED_WEIGHT`.** Live postage needs a weight. Add a ship weight on the SKU, or type one on the order.

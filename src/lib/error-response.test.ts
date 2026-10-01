@@ -4,6 +4,7 @@ import { DrizzleQueryError } from "drizzle-orm";
 import { errorRef, mapConstraintError, mapDomainError, respondToError } from "./error-response";
 import { badRequest, conflict, forbidden, HttpError } from "./http";
 import { WorkflowPolicyError } from "../domain/workflow-policy";
+import { ClientStockError } from "../domain/client-stock";
 import { requireOwner } from "./org";
 import { HeldStockError } from "../domain/holds";
 import { InsufficientAtpError } from "../domain/allocations";
@@ -57,6 +58,16 @@ describe("409 contract", () => {
       code: "INSUFFICIENT_STOCK",
       onHand: 0,
       needed: 3,
+    });
+  });
+
+  it("says whose stock fell short only when ownership is the reason", () => {
+    expect(mapDomainError(new InsufficientAtpError("LAMP", 0, 2))?.body).not.toHaveProperty("clientId");
+    expect(mapDomainError(new InsufficientAtpError("LAMP", 0, 2, undefined, "c1"))?.body).toMatchObject({ clientId: "c1" });
+    expect(mapDomainError(new InsufficientAtpError("LAMP", 0, 2, undefined, null))?.body).toMatchObject({ clientId: null });
+    expect(mapDomainError(new ClientStockError(null, "i1", 1, 3))).toMatchObject({
+      status: 409,
+      body: { code: "CLIENT_STOCK", clientId: null, onHand: 1, needed: 3 },
     });
   });
 

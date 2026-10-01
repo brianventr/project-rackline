@@ -1,15 +1,16 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { clientBalances } from "./schema";
 import type { AppDb } from "./stock";
 import {
   applyClientOutbound,
   applyClientReceive,
+  assertOwnStockPicks,
   clientBalanceKey,
   isClientInboundMovement,
   isClientOutboundMovement,
 } from "../domain/client-stock";
-import type { MovementDraft } from "../domain/inventory";
+import { balanceKey, type MovementDraft } from "../domain/inventory";
 import { newId } from "../lib/ids";
 
 export type ClientBalanceLoaded = Map<string, { id: string; qty: number }>;
@@ -122,6 +123,51 @@ export function clientBalanceStatements(
     }
   }
   return statements;
+}
+
+/** Units all 3PL clients together own at each bay and item, keyed like inventory balances. */
+export async function loadClientUnits(
+  db: AppDb,
+  organizationId: string,
+  pairs: { locationId: string; itemId: string }[],
+): Promise<Map<string, number>> {
+  const units = new Map<string, number>();
+  const wanted = new Set(pairs.map((pair) => balanceKey(pair.locationId, pair.itemId)));
+  if (wanted.size === 0) return units;
+  const rows = await db
+    .select({ locationId: clientBalances.locationId, itemId: clientBalances.itemId, qty: clientBalances.qty })
+    .from(clientBalances)
+    .where(
+      and(
+        eq(clientBalances.organizationId, organizationId),
+        inArray(clientBalances.locationId, [...new Set(pairs.map((pair) => pair.locationId))]),
+        inArray(clientBalances.itemId, [...new Set(pairs.map((pair) => pair.itemId))]),
+      ),
+    );
+  for (const row of rows) {
+    const key = balanceKey(row.locationId, row.itemId);
+    if (wanted.has(key)) units.set(key, (units.get(key) ?? 0) + Math.max(0, row.qty));
+  }
+  return units;
+}
+
+/** Refuses an own-stock pick that would take units a 3PL client owns. */
+export async function assertOwnStockForPicks(
+  db: AppDb,
+  organizationId: string,
+  movements: MovementDraft[],
+  loaded: Map<string, { id: string; qty: number }>,
+): Promise<void> {
+  const ownPicks = movements.filter((movement) => movement.type === "pick" && !movement.clientId && movement.fromLocationId);
+  if (ownPicks.length === 0) return;
+  const clientUnits = await loadClientUnits(
+    db,
+    organizationId,
+    ownPicks.map((movement) => ({ locationId: movement.fromLocationId!, itemId: movement.itemId })),
+  );
+  if (clientUnits.size === 0) return;
+  const onHand = new Map([...loaded].map(([key, row]) => [key, row.qty]));
+  assertOwnStockPicks(ownPicks, onHand, clientUnits);
 }
 
 export function clientKeysFromMovements(movements: MovementDraft[]): {

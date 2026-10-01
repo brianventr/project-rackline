@@ -24,6 +24,7 @@ import { warehousesForMovements } from "../domain/multi-warehouse";
 import {
   applyClientMovementsToMap,
   clientBalanceStatements,
+  assertOwnStockForPicks,
   clientKeysFromMovements,
   loadClientBalanceMap,
 } from "./client-stock";
@@ -157,6 +158,7 @@ export async function persistStockPlan(
     })),
   );
 
+  await assertOwnStockForPicks(db, input.organizationId, movements, input.loaded);
   const clientKeys = clientKeysFromMovements(movements);
   const clientLoaded = await loadClientBalanceMap(db, input.organizationId, clientKeys);
   const clientApplied = applyClientMovementsToMap(clientLoaded, movements);

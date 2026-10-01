@@ -324,6 +324,7 @@ wavesRoute.post("/waves/:id/batch-pick", async (c) => {
       organizationId,
       warehouseId: wave.warehouseId,
       orderId,
+      clientId: order.clientId ?? null,
       lines: orderLines.map((line) => ({
         id: line.id,
         itemId: line.itemId,

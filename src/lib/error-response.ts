@@ -194,6 +194,7 @@ export function mapDomainError(err: unknown): MappedError | null {
         atp: err.atp,
         needed: err.needed,
         locationCode: err.locationCode,
+        ...(err.clientId !== undefined ? { clientId: err.clientId } : {}),
       },
     };
   }

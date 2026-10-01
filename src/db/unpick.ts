@@ -133,6 +133,11 @@ export async function persistUnpick(input: {
 
   const pairs = taken.map((slice) => ({ locationId: slice.locationId, itemId: slice.itemId }));
   const loaded = await loadBalanceMap(input.db, input.organizationId, pairs);
+  const [owner] = await input.db
+    .select({ clientId: schema.orders.clientId })
+    .from(schema.orders)
+    .where(and(eq(schema.orders.id, input.orderId), eq(schema.orders.organizationId, input.organizationId)))
+    .limit(1);
   const plan = chainPlans(
     qtyMap(loaded),
     taken.map(
@@ -147,6 +152,7 @@ export async function persistUnpick(input: {
           lotCode: slice.lotCode,
           serials: slice.serials.length ? slice.serials : null,
           weightGrams: slice.weightGrams,
+          clientId: owner?.clientId ?? null,
         }),
     ),
   );

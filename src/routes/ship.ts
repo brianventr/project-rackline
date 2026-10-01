@@ -8,7 +8,8 @@ import { requireOwner } from "../lib/org";
 import { newId } from "../lib/ids";
 import { internalApi, type InternalResult } from "../lib/internal-api";
 import { publicErrorText } from "../lib/db-errors";
-import { loadAtpBaysByItem, loadOpenAllocations } from "../db/allocations";
+import { loadAtpBaysByItem, loadBayStock } from "../db/allocations";
+import { ownerBaysByItem } from "../domain/client-stock";
 import { loadCarrierConnections, recordCarrierEvent } from "./carriers";
 import { ordersRoute } from "./orders";
 import {
@@ -52,7 +53,6 @@ import {
   runQuickShip,
   shipSetupSteps,
   summarizeQuickShip,
-  withOwnReservations,
   type QuickShipOutcome,
   type QuickShipSnapshot,
   type QuickShipStep,
@@ -387,9 +387,8 @@ async function loadQuickShipPlan(db: Db, organizationId: string, order: OrderRow
   const bays = await loadAtpBaysByItem(
     db,
     organizationId,
-    [...new Set(lines.map((line) => line.itemId))],
-    order.id,
-    order.warehouseId,
+    lines.map((line) => line.itemId),
+    { owner: order.clientId, excludeOrderId: order.id, warehouseId: order.warehouseId },
   );
   return planQuickShip({ status: order.status, packageCount: packages.length, lines }, bays);
 }
@@ -445,8 +444,7 @@ shipRoute.get("/ship/queue", async (c) => {
   for (const row of packageRows) packageCount.set(row.orderId, (packageCount.get(row.orderId) ?? 0) + 1);
 
   const itemIds = [...new Set(lines.map((line) => line.itemId))];
-  const bays = await loadAtpBaysByItem(db, organizationId, itemIds, undefined, warehouseId);
-  const reservations = await loadOpenAllocations(db, organizationId, { warehouseId });
+  const stock = await loadBayStock(db, organizationId, itemIds, warehouseId);
   const defaultPreset = pickPreset(presets);
 
   const linesFor = (orderId: string) => lines.filter((line) => line.orderId === orderId);
@@ -456,10 +454,7 @@ shipRoute.get("/ship/queue", async (c) => {
       order.id,
       planQuickShip(
         { status: order.status, packageCount: packageCount.get(order.id) ?? 0, lines: linesFor(order.id) },
-        withOwnReservations(
-          bays,
-          reservations.filter((row) => row.orderId === order.id),
-        ),
+        ownerBaysByItem(stock, { owner: order.clientId, excludeOrderId: order.id }),
       ),
     ]),
   );

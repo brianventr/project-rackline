@@ -39,7 +39,6 @@ import {
   suggestPickBay,
   OverPickError,
   type PickLine,
-  type StockedBay,
 } from "../domain/partial-pick";
 import {
   applyPartialPack,
@@ -116,15 +115,6 @@ function asPackLine(line: { id: string; sku: string; qtyPicked: number; qtyPacke
   };
 }
 
-async function suggestedByItem(
-  db: AppEnv["Variables"]["db"],
-  organizationId: string,
-  itemIds: string[],
-  excludeOrderId?: string,
-): Promise<Map<string, StockedBay[]>> {
-  return loadAtpBaysByItem(db, organizationId, itemIds, excludeOrderId);
-}
-
 function withRemaining<T extends { id: string; sku: string; qty: number; qtyPicked: number; qtyPacked: number }>(line: T) {
   return {
     ...line,
@@ -167,14 +157,14 @@ async function withSuggestions<
   db: AppEnv["Variables"]["db"],
   organizationId: string,
   lines: T[],
-  excludeOrderId?: string,
+  order: { id: string; clientId: string | null; warehouseId: string },
   preferredZoneId?: string | null,
 ) {
-  const bays = await suggestedByItem(
+  const bays = await loadAtpBaysByItem(
     db,
     organizationId,
-    [...new Set(lines.map((line) => line.itemId))],
-    excludeOrderId,
+    lines.map((line) => line.itemId),
+    { owner: order.clientId, excludeOrderId: order.id, warehouseId: order.warehouseId },
   );
   return lines.map((line) => {
     const remaining = remainingToPick(asPickLine(line));
@@ -252,7 +242,7 @@ async function orderWithLines(
     preferredZoneId = wave?.zoneId ?? null;
   }
   const decorated = options.suggest
-    ? await withSuggestions(db, organizationId, lines, order.id, preferredZoneId)
+    ? await withSuggestions(db, organizationId, lines, order, preferredZoneId)
     : lines.map(withRemaining);
   const packagesByOrder = await loadPackagesForOrders(db, [order.id]);
   const packages = packagesByOrder.get(order.id) ?? [];
@@ -562,6 +552,7 @@ ordersRoute.post("/orders/:id/start", async (c) => {
     organizationId,
     warehouseId: order.warehouseId,
     orderId: order.id,
+    clientId: order.clientId,
     lines: order.lines.map((line) => ({
       id: line.id,
       itemId: line.itemId,
@@ -623,6 +614,7 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
     organizationId,
     warehouseId: order.warehouseId,
     orderId: order.id,
+    clientId: order.clientId,
     lines: order.lines.map((line) => ({
       id: line.id,
       itemId: line.itemId,

@@ -277,6 +277,25 @@ describe("explainError — every code", () => {
     expect(explain("CLIENT_STOCK", { onHand: 0 }).message).toBe("This 3PL client has none of this SKU at this bay.");
   });
 
+  it("CLIENT_STOCK for an own-stock pick says the rest belongs to clients", () => {
+    expect(explain("CLIENT_STOCK", { clientId: null, onHand: 2, needed: 5 })).toMatchObject({
+      message: "Only 2 of this SKU at this bay are your own stock, and this needs 5.",
+      hint: "The rest belongs to 3PL clients. Lower the qty to 2, or pick from another bay.",
+    });
+    expect(explain("CLIENT_STOCK", { clientId: null, onHand: 0 }).message).toBe("All of this SKU at this bay belongs to 3PL clients.");
+  });
+
+  it("INSUFFICIENT_ATP says when other owners' stock is why", () => {
+    expect(explain("INSUFFICIENT_ATP", { clientId: "c1", atp: 0, locationCode: undefined })).toMatchObject({
+      message: "No LAMP is available for this 3PL client.",
+      hint: "Other owners' stock does not count. Receive more for this client.",
+    });
+    expect(explain("INSUFFICIENT_ATP", { clientId: null, locationCode: undefined })).toMatchObject({
+      message: "Only 1 LAMP is available as your own stock, and this needs 4.",
+      hint: "Stock that belongs to 3PL clients does not count. Receive more of your own.",
+    });
+  });
+
   it("job codes", () => {
     expect(explain("JOB_CLAIMED")).toMatchObject({
       message: "Sam is already on this job.",

@@ -470,7 +470,7 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     term: "3PL client",
     aliases: ["3pl", "client", "third party logistics", "client code"],
     short: "A brand you store and ship for. Its code tags orders, ASNs, and waves, and billing drafts one invoice per client.",
-    long: "Stock stays on the same bays; outbound checks that the client has its own qty there (CLIENT_STOCK).",
+    long: "Stock stays on the same bays, tagged with its owner. A client's order only plans, reserves, and picks that client's stock, and your own orders skip client stock; outbound checks the owner's qty at the bay (CLIENT_STOCK).",
     path: "/setup/clients",
   },
   {

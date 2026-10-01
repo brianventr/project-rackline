@@ -1,10 +1,17 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { newId } from "../lib/ids";
-import type { MovementDraft } from "../domain/inventory";
+import { balanceKey, type MovementDraft } from "../domain/inventory";
 import type { StockedBay } from "../domain/partial-pick";
+import {
+  freeQty,
+  ownerBaysByItem,
+  type BayReservation,
+  type BayStock,
+  type StockOwner,
+} from "../domain/client-stock";
 import {
   allocatedQtyAt,
   applyAllocationsToOnHand,
@@ -34,10 +41,12 @@ export async function loadOpenAllocations(
       itemId: schema.inventoryAllocations.itemId,
       sku: schema.items.sku,
       qty: schema.inventoryAllocations.qty,
+      clientId: schema.orders.clientId,
     })
     .from(schema.inventoryAllocations)
     .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryAllocations.locationId))
     .innerJoin(schema.items, eq(schema.items.id, schema.inventoryAllocations.itemId))
+    .leftJoin(schema.orders, eq(schema.orders.id, schema.inventoryAllocations.orderId))
     .where(
       and(
         eq(schema.inventoryAllocations.organizationId, organizationId),
@@ -75,15 +84,17 @@ export function annotateAtp<T extends { locationId: string; itemId: string; qty:
   });
 }
 
-export async function loadAtpBaysByItem(
+const ID_CHUNK = 90;
+
+/** Every bay holding the items, with holds, 3PL client ownership, and open reservations, for `ownerBaysByItem`. */
+export async function loadBayStock(
   db: AppDb,
   organizationId: string,
   itemIds: string[],
-  excludeOrderId?: string,
   warehouseId?: string,
-): Promise<Map<string, StockedBay[]>> {
-  const byItem = new Map<string, StockedBay[]>();
-  if (itemIds.length === 0) return byItem;
+): Promise<BayStock[]> {
+  const ids = [...new Set(itemIds)];
+  if (ids.length === 0) return [];
   const rows = await db
     .select({
       itemId: schema.inventoryBalances.itemId,
@@ -101,26 +112,64 @@ export async function loadAtpBaysByItem(
     .where(
       and(
         eq(schema.inventoryBalances.organizationId, organizationId),
-        inArray(schema.inventoryBalances.itemId, itemIds),
+        inArray(schema.inventoryBalances.itemId, ids),
         warehouseId ? eq(schema.locations.warehouseId, warehouseId) : undefined,
       ),
     );
-  const available = await atpOnHand(db, organizationId, rows, { excludeOrderId, warehouseId });
-  for (const row of available) {
-    const list = byItem.get(row.itemId) ?? [];
-    list.push({
-      locationId: row.locationId,
-      locationCode: row.locationCode,
-      locationName: row.locationName,
-      barcode: row.barcode,
-      qty: row.qty,
-      type: row.type,
-      slotRole: row.slotRole,
-      zoneId: row.zoneId,
-    });
-    byItem.set(row.itemId, list);
+  if (rows.length === 0) return [];
+  const available = await availableOnHand(db, organizationId, rows, warehouseId);
+  const allocations = await loadOpenAllocations(db, organizationId, { warehouseId });
+  const clientQty = new Map<string, Map<string, number>>();
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const owned = await db
+      .select({
+        locationId: schema.clientBalances.locationId,
+        itemId: schema.clientBalances.itemId,
+        clientId: schema.clientBalances.clientId,
+        qty: schema.clientBalances.qty,
+      })
+      .from(schema.clientBalances)
+      .where(
+        and(
+          eq(schema.clientBalances.organizationId, organizationId),
+          inArray(schema.clientBalances.itemId, ids.slice(i, i + ID_CHUNK)),
+          gt(schema.clientBalances.qty, 0),
+        ),
+      );
+    for (const row of owned) {
+      const key = balanceKey(row.locationId, row.itemId);
+      const byClient = clientQty.get(key) ?? new Map<string, number>();
+      byClient.set(row.clientId, (byClient.get(row.clientId) ?? 0) + row.qty);
+      clientQty.set(key, byClient);
+    }
   }
-  return byItem;
+  const reservations = new Map<string, BayReservation[]>();
+  for (const row of allocations) {
+    const key = balanceKey(row.locationId, row.itemId);
+    const list = reservations.get(key) ?? [];
+    list.push({ orderId: row.orderId, clientId: row.clientId ?? null, qty: row.qty });
+    reservations.set(key, list);
+  }
+  return rows.map(({ qty, ...row }, index) => {
+    const key = balanceKey(row.locationId, row.itemId);
+    return {
+      ...row,
+      onHand: qty,
+      available: available[index]?.qty ?? qty,
+      clientQty: clientQty.get(key) ?? new Map(),
+      reservations: reservations.get(key) ?? [],
+    };
+  });
+}
+
+/** Bays per item an order can pick from, each cut to what the order's owner may plan there. */
+export async function loadAtpBaysByItem(
+  db: AppDb,
+  organizationId: string,
+  itemIds: string[],
+  options: { owner: StockOwner; excludeOrderId?: string; warehouseId?: string },
+): Promise<Map<string, StockedBay[]>> {
+  return ownerBaysByItem(await loadBayStock(db, organizationId, itemIds, options.warehouseId), options);
 }
 
 export async function ensureAllocated(
@@ -129,18 +178,16 @@ export async function ensureAllocated(
     organizationId: string;
     warehouseId: string;
     orderId: string;
+    /** The order's 3PL client; its reservations only come from that client's stock, and own stock from no client's. */
+    clientId: StockOwner;
     lines: { id: string; itemId: string; sku: string; remaining: number }[];
   },
 ): Promise<OpenAllocation[]> {
   const existing = await loadOpenAllocations(db, input.organizationId, { orderId: input.orderId });
   if (existing.length > 0) return existing;
 
-  const baysByItem = await loadAtpBaysByItem(
-    db,
-    input.organizationId,
-    [...new Set(input.lines.map((line) => line.itemId))],
-    input.orderId,
-  );
+  const itemIds = [...new Set(input.lines.map((line) => line.itemId))];
+  const stock = await loadBayStock(db, input.organizationId, itemIds, input.warehouseId);
   const { drafts, short } = planAllocations({
     lines: input.lines.map((line) => ({
       lineId: line.id,
@@ -148,11 +195,16 @@ export async function ensureAllocated(
       sku: line.sku,
       remaining: line.remaining,
     })),
-    baysByItem,
+    baysByItem: ownerBaysByItem(stock, { owner: input.clientId, excludeOrderId: input.orderId }),
   });
   if (short.length > 0) {
     const first = short[0]!;
-    throw new InsufficientAtpError(first.sku, first.atp, first.remaining + first.atp);
+    const itemId = input.lines.find((line) => line.sku === first.sku)?.itemId;
+    const anyOwner = stock
+      .filter((bay) => bay.itemId === itemId)
+      .reduce((sum, bay) => sum + freeQty(bay, input.orderId), 0);
+    const ownership = anyOwner > first.atp ? input.clientId : undefined;
+    throw new InsufficientAtpError(first.sku, first.atp, first.remaining + first.atp, undefined, ownership);
   }
   if (drafts.length === 0) return [];
 

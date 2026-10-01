@@ -296,23 +296,6 @@ export function planQuickShipRestore(snapshot: QuickShipSnapshot, current: Quick
   };
 }
 
-/** Stock this order already reserved is still free for this order to ship. */
-export function withOwnReservations(
-  baysByItem: Map<string, StockedBay[]>,
-  reservations: { itemId: string; locationId: string; locationCode: string; qty: number }[],
-): Map<string, StockedBay[]> {
-  const out = new Map<string, StockedBay[]>();
-  for (const [itemId, bays] of baysByItem) out.set(itemId, bays.map((bay) => ({ ...bay })));
-  for (const row of reservations) {
-    const bays = out.get(row.itemId) ?? [];
-    const bay = bays.find((entry) => entry.locationId === row.locationId);
-    if (bay) bay.qty += row.qty;
-    else bays.push({ locationId: row.locationId, locationCode: row.locationCode, locationName: row.locationCode, barcode: "", qty: row.qty });
-    out.set(row.itemId, bays);
-  }
-  return out;
-}
-
 export type ShipSetupStep = { id: "store" | "carrier" | "ship-from" | "box"; label: string; done: boolean; to: string };
 
 export function shipSetupSteps(input: {

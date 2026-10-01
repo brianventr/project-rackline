@@ -261,6 +261,16 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
     const needed = num(body, "needed");
     const bay = str(body, "locationCode");
     const where = bay ? ` at ${bay}` : "";
+    const owned = Object.hasOwn(body, "clientId");
+    if (owned) {
+      const forWhom = body.clientId ? "for this 3PL client" : "as your own stock";
+      const hint = body.clientId
+        ? "Other owners' stock does not count. Receive more for this client."
+        : "Stock that belongs to 3PL clients does not count. Receive more of your own.";
+      if (atp == null || atp <= 0) return { message: `${noneOf(body)} is available ${forWhom}.`, hint };
+      const need = needed != null ? `, and this needs ${needed}` : "";
+      return { message: `Only ${qtyOf(atp, body)} ${isAre(atp)} available ${forWhom}${need}.`, hint };
+    }
     if (atp == null || atp <= 0) {
       return {
         message: `${noneOf(body)} is available${where}.`,
@@ -276,6 +286,19 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
   CLIENT_STOCK: ({ body }) => {
     const onHand = num(body, "onHand");
     const needed = num(body, "needed");
+    if (body.clientId === null) {
+      if (onHand == null || onHand <= 0) {
+        return {
+          message: "All of this SKU at this bay belongs to 3PL clients.",
+          hint: "Pick your own stock from another bay.",
+        };
+      }
+      const need = needed != null ? `, and this needs ${needed}` : "";
+      return {
+        message: `Only ${onHand} of this SKU at this bay ${isAre(onHand)} your own stock${need}.`,
+        hint: `The rest belongs to 3PL clients. Lower the qty to ${onHand}, or pick from another bay.`,
+      };
+    }
     if (onHand == null || onHand <= 0) {
       return {
         message: "This 3PL client has none of this SKU at this bay.",
