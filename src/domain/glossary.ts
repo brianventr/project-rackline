@@ -544,6 +544,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     long: "A duplicate reads as CONFLICT and a record still in use as IN_USE, with no reference, because nothing crashed.",
   },
   {
+    id: "scan-session",
+    term: "Scan session",
+    aliases: ["recorded scan", "floor scan", "server scan"],
+    short: "The scans the server writes down while a Manufacturer pick, pack, or batch pick is open. The post checks those, not a list the browser sends.",
+    long: "Each scan is stored as it happens, and sending the same scan id again is the same scan. A pick needs the bay and one scan of each SKU. A pack needs one scan per unit. The same serial cannot be scanned twice. Garage keeps posting its own evidence and does not open a session.",
+    path: "/floor/pick",
+  },
+  {
     id: "tracker-webhook",
     term: "Tracker webhook",
     aliases: ["carrier webhook", "tracking webhook", "easypost webhook"],

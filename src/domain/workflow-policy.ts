@@ -138,6 +138,89 @@ function postedBySku(lines: ScanCheckLine[]): PostedSku[] {
   return [...bySku.values()];
 }
 
+/** One scan the server recorded for a floor session. */
+export type RecordedScan = {
+  kind: string;
+  code: string;
+  sku?: string | null;
+  serial?: string | null;
+  locationId?: string | null;
+  locationCode?: string | null;
+  clientScanId?: string | null;
+  /** Set once a post has used an item scan. Bay and plate scans are not consumed. */
+  consumedAt?: number | null;
+};
+
+const BAY_KINDS = new Set(["location", "plate"]);
+
+function scanSerial(scan: RecordedScan): string {
+  return (scan.serial || (scan.kind === "serial" ? scan.code : "")).trim();
+}
+
+/** The serial that appears twice in the session, or null. Consumed scans still count. */
+export function repeatedSerial(scans: RecordedScan[]): string | null {
+  const seen = new Set<string>();
+  for (const scan of scans) {
+    const serial = scanSerial(scan);
+    if (!serial) continue;
+    const key = serial.toUpperCase();
+    if (seen.has(key)) return serial;
+    seen.add(key);
+  }
+  return null;
+}
+
+/** True when `serial` is already on a scan other than this client id. */
+export function serialAlreadyRecorded(scans: RecordedScan[], serial: string, clientScanId?: string | null): boolean {
+  const key = serial.trim().toUpperCase();
+  if (!key) return false;
+  return scans.some((scan) => scan.clientScanId !== clientScanId && scanSerial(scan).toUpperCase() === key);
+}
+
+/**
+ * The evidence a post should trust: bay and plate scans, plus item scans not yet consumed.
+ * A plate scan counts as its bay. Later bay scans replace earlier ones.
+ */
+export function evidenceFromRecordedScans(scans: RecordedScan[]): ScanEvidence {
+  let locationScan: string | null = null;
+  const itemScans: string[] = [];
+  for (const scan of scans) {
+    if (scan.kind === "location") locationScan = scan.locationCode || scan.code;
+    else if (scan.kind === "plate") {
+      if (scan.locationCode) locationScan = scan.locationCode;
+    } else if (!BAY_KINDS.has(scan.kind) && !scan.consumedAt) {
+      const code = (scan.sku || scan.code).trim();
+      if (code) itemScans.push(code);
+    }
+  }
+  return { locationScan, itemScans };
+}
+
+/**
+ * Manufacturer posts must carry a session of server-recorded scans. Garage does not, and keeps the
+ * client evidence path. A serial may be recorded once in the session.
+ */
+export function assertRecordedScans(
+  policy: WorkflowPolicy,
+  verb: ScanVerb,
+  lines: ScanCheckLine[],
+  scans: RecordedScan[] | null | undefined,
+  bay?: { code: string; barcode: string } | null,
+): void {
+  if (!requiresScan(policy, verb)) return;
+  if (!scans) {
+    throw new WorkflowPolicyError(
+      `Start a scan session before this ${verb}. Manufacturer mode records each scan on the server.`,
+      "SCAN_REQUIRED",
+    );
+  }
+  const repeat = repeatedSerial(scans);
+  if (repeat) {
+    throw new WorkflowPolicyError(`Serial ${repeat} was already scanned.`, "SCAN_REQUIRED");
+  }
+  assertScanned(policy, verb, lines, evidenceFromRecordedScans(scans), bay);
+}
+
 /** Throws the 409 the floor shows when a Manufacturer post is missing its scans. */
 export function assertScanned(
   policy: WorkflowPolicy,

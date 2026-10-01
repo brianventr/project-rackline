@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { loadWorkflowPolicy } from "../db/workflow";
-import { assertScanned, type ScanEvidence } from "../domain/workflow-policy";
+import { assertRecordedScans, assertScanned, requiresScan, type ScanEvidence } from "../domain/workflow-policy";
+import { consumeItemScans, loadRecordedScans } from "../db/scan-sessions";
 import { loadPacksForItem } from "../db/item-packs";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import * as schema from "../db/schema";
@@ -262,7 +263,7 @@ wavesRoute.post("/waves/:id/release", async (c) => {
 });
 
 wavesRoute.post("/waves/:id/batch-pick", async (c) => {
-  const body = await c.req.json<{ locationId?: string; itemId?: string; qty?: number; scan?: ScanEvidence }>();
+  const body = await c.req.json<{ locationId?: string; itemId?: string; qty?: number; scan?: ScanEvidence; sessionId?: string }>();
   const locationId = requireString(body.locationId, "locationId");
   const itemId = requireString(body.itemId, "itemId");
   const qty = requireInt(body.qty, "qty");
@@ -277,13 +278,15 @@ wavesRoute.post("/waves/:id/batch-pick", async (c) => {
   const batchLine = wave.batchLines.find((line) => line.itemId === itemId);
   if (!batchLine) badRequest("SKU is not on this wave batch");
   const item = await getOrgItem(db, organizationId, itemId);
-  assertScanned(
-    await loadWorkflowPolicy(db, organizationId),
-    "pick",
-    [{ lineId: itemId, qty, sku: item.sku, barcode: item.barcode, packs: await loadPacksForItem(db, organizationId, itemId) }],
-    body.scan,
-    bay,
-  );
+  const batchPolicy = await loadWorkflowPolicy(db, organizationId);
+  const batchLines = [{ lineId: itemId, qty, sku: item.sku, barcode: item.barcode, packs: await loadPacksForItem(db, organizationId, itemId) }];
+  let scanSessionId: string | null = null;
+  if (requiresScan(batchPolicy, "pick")) {
+    assertRecordedScans(batchPolicy, "pick", batchLines, await loadRecordedScans(db, organizationId, user.id, body.sessionId), bay);
+    scanSessionId = body.sessionId ?? null;
+  } else {
+    assertScanned(batchPolicy, "pick", batchLines, body.scan, bay);
+  }
   if (qty > batchLine.remaining) {
     throw new OverBatchPickError(batchLine.sku, batchLine.remaining, qty);
   }
@@ -436,6 +439,7 @@ wavesRoute.post("/waves/:id/batch-pick", async (c) => {
     now,
   });
 
+  await consumeItemScans(db, scanSessionId);
   return c.json(await waveDetail(db, organizationId, wave.id));
 });
 

@@ -11,7 +11,7 @@ import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 import { useSession } from "../../session";
 import { checkScanEvidence, workflowPolicy } from "@/domain/workflow-policy";
 import { scanIntoLine } from "@/domain/pack-sizes";
-import { EMPTY_SCAN_LOG, afterPost, recordScan, scanEvidence, type ScanLog } from "./scan-log";
+import { EMPTY_SCAN_LOG, afterPost, createScanRecorder, recordScan, scanEvidence, serverScanFromHit, type ScanLog } from "./scan-log";
 
 const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -46,6 +46,11 @@ export function FloorWavePage() {
   const [done, setDone] = useState<string | null>(null);
   const needScan = workflowPolicy(me.organization.operatingMode).scanVerifiedPick;
   const [scanLog, setScanLog] = useState<ScanLog>(EMPTY_SCAN_LOG);
+  const scanTaskRef = useRef<string | null>(null);
+  scanTaskRef.current = active?.id ?? null;
+  const scanRecorder = useRef(createScanRecorder("batch-pick", () => scanTaskRef.current));
+  const needScanRef = useRef(needScan);
+  needScanRef.current = needScan;
 
   function applyWave(wave: Wave) {
     countedItem.current = null;
@@ -110,6 +115,7 @@ export function FloorWavePage() {
             return;
           }
           setScanLog((log) => recordScan(log, hit));
+          if (needScanRef.current) scanRecorder.current.record(serverScanFromHit(hit));
           if (hit.kind === "location" && hit.location) {
             setLocationId(hit.location.id);
             report?.(true);
@@ -183,9 +189,10 @@ export function FloorWavePage() {
     if (!active) return;
     setError(null);
     try {
+      const sessionId = needScan ? await scanRecorder.current.flush() : null;
       const next = await api<Wave>(`/api/waves/${active.id}/batch-pick`, {
         method: "POST",
-        body: JSON.stringify({ locationId, itemId, qty: Number(qty), scan: scanEvidence(scanLog, locationId) }),
+        body: JSON.stringify({ locationId, itemId, qty: Number(qty), scan: scanEvidence(scanLog, locationId), sessionId }),
       });
       setScanLog(afterPost);
       countedItem.current = null;

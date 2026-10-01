@@ -1955,6 +1955,54 @@ export const exceptionClaims = sqliteTable(
   ],
 );
 
+/**
+ * A floor task's scans, recorded by the server as they happen. Manufacturer pick, pack, and batch
+ * pick check this list. `consumed_at` is set on item scans when a post accepts them; bay scans stay.
+ */
+export const floorScanSessions = sqliteTable(
+  "floor_scan_sessions",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id").references(() => warehouses.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    task: text("task").notNull(),
+    refId: text("ref_id").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("floor_scan_sessions_org_task").on(t.organizationId, t.userId, t.task, t.refId)],
+);
+
+export const floorScans = sqliteTable(
+  "floor_scans",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => floorScanSessions.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    clientScanId: text("client_scan_id").notNull(),
+    kind: text("kind").notNull(),
+    code: text("code").notNull(),
+    sku: text("sku"),
+    serial: text("serial"),
+    locationId: text("location_id"),
+    locationCode: text("location_code"),
+    consumedAt: integer("consumed_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("floor_scans_session_client").on(t.sessionId, t.clientScanId),
+    index("floor_scans_session_serial").on(t.sessionId, t.serial),
+  ],
+);
+
 export const auditEvents = sqliteTable(
   "audit_events",
   {

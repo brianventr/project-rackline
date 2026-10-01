@@ -44,7 +44,7 @@ import { cn } from "@/lib/utils";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 import { checkScanEvidence, workflowPolicy } from "@/domain/workflow-policy";
-import { EMPTY_SCAN_LOG, afterPost, recordScan, scanEvidence, scannedPlate, type ScanLog } from "./scan-log";
+import { EMPTY_SCAN_LOG, afterPost, createScanRecorder, recordScan, scanEvidence, scannedPlate, serverScanFromHit, type ScanLog } from "./scan-log";
 
 type PickMode = "guided" | "list";
 
@@ -99,6 +99,11 @@ export function FloorPickPage() {
   const [busy, setBusy] = useState(false);
   const needScan = workflowPolicy(me.organization.operatingMode).scanVerifiedPick;
   const [scanLog, setScanLog] = useState<ScanLog>(EMPTY_SCAN_LOG);
+  const scanTaskRef = useRef<string | null>(null);
+  scanTaskRef.current = active?.id ?? null;
+  const scanRecorder = useRef(createScanRecorder("pick", () => scanTaskRef.current));
+  const needScanRef = useRef(needScan);
+  needScanRef.current = needScan;
   // Pack scans add to the latest qty on screen, read through refs since scans resolve out of order.
   // `counted` holds line ids (list) and stop keys (guided) scanned or typed since the last prefill.
   const qtysRef = useRef(qtys);
@@ -289,6 +294,7 @@ export function FloorPickPage() {
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
         .then(async (hit) => {
           setScanLog((log) => recordScan(log, hit));
+          if (needScanRef.current) scanRecorder.current.record(serverScanFromHit(hit));
           if (hit.kind === "order") {
             const order = await api<Order>(`/api/orders/${hit.order.id}`);
             const job = jobForRef(jobs, "order", order.id, desiredVerb("order", order.status) ?? "pick");
@@ -364,6 +370,7 @@ export function FloorPickPage() {
           weightGrams: parseWeightGrams(weights[line.id]),
         }))
         .filter((line) => line.qty > 0);
+      const sessionId = needScan ? await scanRecorder.current.flush() : null;
       const picked = await api<Order>(`/api/orders/${active.id}/pick`, {
         method: "POST",
         body: JSON.stringify({
@@ -371,6 +378,7 @@ export function FloorPickPage() {
           lines,
           scan: scanEvidence(scanLog, locationId),
           plateCode: scannedPlate(scanLog, locationId) ?? undefined,
+          sessionId,
         }),
       });
       setScanLog(afterPost);
@@ -409,9 +417,10 @@ export function FloorPickPage() {
         serials: serials[stop.lineId],
         weightGrams: parseWeightGrams(weights[stop.lineId]),
       });
+      const sessionId = needScan ? await scanRecorder.current.flush() : null;
       const picked = await api<Order>(`/api/orders/${active.id}/pick`, {
         method: "POST",
-        body: JSON.stringify({ ...body, scan: scanEvidence(scanLog, bayId), plateCode: plateCode ?? undefined }),
+        body: JSON.stringify({ ...body, scan: scanEvidence(scanLog, bayId), plateCode: plateCode ?? undefined, sessionId }),
       });
       setScanLog(afterPost);
       counted.current.delete(key);

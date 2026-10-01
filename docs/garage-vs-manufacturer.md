@@ -225,6 +225,8 @@ The mode sets a workflow policy on the server, not just in the menu:
 
 Floor Pick, Pack, and Wave keep a record of what was scanned since the last post: the bay you are standing at and the SKUs you scanned. That record goes with the post. Quantities start at zero. The post button stays disabled, with the reason shown, until the scans match. After a post, the SKUs clear and the bay stays, because you are still standing there.
 
+Manufacturer also writes each scan to the server as it happens. The screen opens a scan session for the order or wave, and `POST /api/floor/scans` stores the scan (the same client scan id is stored once). Pick, pack, and batch pick name that session. The server checks the scans it recorded — the bay, one SKU scan per pick line, one scan per packed unit, and each serial once — and refuses a second scan of the same serial. A post with no recorded scans is refused. Garage does not open a session and can still post the evidence it always sent.
+
 - **Pick and Wave:** scan the SKU once, then type the qty.
 - **Pack:** scan each unit as it goes in the box. Every scan of an item, serial, or lot barcode adds 1 to that line, up to what is left to pack. Scanning the same serial twice counts once, and a scan past what is left is refused ("All 2 SHADE left to pack are already scanned."). If you type a qty ahead of your scans, the next scans count toward it before adding more.
 

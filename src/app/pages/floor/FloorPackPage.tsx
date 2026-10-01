@@ -14,7 +14,7 @@ import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 import { checkScanEvidence, countScans, workflowPolicy } from "@/domain/workflow-policy";
-import { EMPTY_SCAN_LOG, afterPost, recordUnitScan, scanEvidence, type ScanLog } from "./scan-log";
+import { EMPTY_SCAN_LOG, afterPost, createScanRecorder, recordUnitScan, scanEvidence, serverScansFromUnit, type ScanLog } from "./scan-log";
 
 const textLink =
   "inline-flex min-h-11 items-center rounded-sm text-sm underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -51,6 +51,9 @@ export function FloorPackPage() {
   const [error, setError] = useState<string | null>(null);
   const needScan = workflowPolicy(me.organization.operatingMode).scanVerifiedPack;
   const [scanLog, setScanLogState] = useState<ScanLog>(EMPTY_SCAN_LOG);
+  const scanTaskRef = useRef<string | null>(null);
+  scanTaskRef.current = active?.id ?? null;
+  const scanRecorder = useRef(createScanRecorder("pack", () => scanTaskRef.current));
   const scanLogRef = useRef(scanLog);
   const setScanLog = (next: ScanLog) => {
     scanLogRef.current = next;
@@ -164,6 +167,7 @@ export function FloorPackPage() {
             let nextLog = log;
             for (let i = 0; i < pack.qty; i += 1) nextLog = recordUnitScan(nextLog, unit);
             setScanLog(nextLog);
+            if (needScan) scanRecorder.current.recordMany(serverScansFromUnit(unit, pack.qty));
             setQtys({ ...qtysRef.current, ...Object.fromEntries(scanned.adds.map((add) => [add.lineId, String(add.qty)])) });
             report?.(true);
             return;
@@ -198,6 +202,7 @@ export function FloorPackPage() {
           }
           if (needScan) {
             setScanLog(recordUnitScan(log, unit));
+            scanRecorder.current.record(serverScansFromUnit(unit)[0] ?? null);
             if (result.add) setQtys({ ...qtysRef.current, [result.add.lineId]: String(result.add.qty) });
           } else if (result.add) {
             const lineId = result.add.lineId;
@@ -222,9 +227,10 @@ export function FloorPackPage() {
       if (canStartPack(active.status)) {
         setActive(await api<Order>(`/api/orders/${active.id}/start-pack`, { method: "POST" }));
       }
+      const sessionId = needScan ? await scanRecorder.current.flush() : null;
       const packed = await api<Order>(`/api/orders/${active.id}/pack`, {
         method: "POST",
-        body: JSON.stringify(post),
+        body: JSON.stringify({ ...post, sessionId }),
       });
       setScanLog(afterPost(scanLogRef.current));
       applyOrder(packed);
@@ -242,11 +248,13 @@ export function FloorPackPage() {
       if (canStartPack(active.status)) {
         setActive(await api<Order>(`/api/orders/${active.id}/start-pack`, { method: "POST" }));
       }
+      const sessionId = needScan ? await scanRecorder.current.flush() : null;
       const packed = await api<Order>(`/api/orders/${active.id}/packages`, {
         method: "POST",
         body: JSON.stringify({
           pack: true,
           ...post,
+          sessionId,
           weightOz: Number(weightOz),
           lengthIn: Number(lengthIn),
           widthIn: Number(widthIn),
