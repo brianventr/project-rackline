@@ -21,6 +21,7 @@ import { LinesField, SelectField, TextField, useZodForm, type ZodFormOutput } fr
 import { Term } from "../components/term";
 import { apiMutate, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
+import { useSession } from "../session";
 import { cn } from "@/lib/utils";
 import { STEP_RULES } from "@/domain/step-stamps";
 import { RETURN_STEPS, canReceiveReturn } from "@/domain/status";
@@ -298,6 +299,7 @@ function ReturnDetail({ id }: { id: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [buyingLabel, setBuyingLabel] = useState(false);
   const returnLabels = useReturnLabels(id);
+  const owner = useSession().role === "owner";
   const { error, run } = useWrite();
 
   async function load() {
@@ -378,7 +380,7 @@ function ReturnDetail({ id }: { id: string }) {
     : null;
 
   const canBuyLabel =
-    current.status !== "received" && !(returnLabels.data?.labels ?? []).some((label) => label.status === "active");
+    owner && current.status !== "received" && !(returnLabels.data?.labels ?? []).some((label) => label.status === "active");
   const menu: DocumentAction[] = [
     ...(current.status === "open" ? [{ label: "Start receiving", icon: Play, onSelect: start }] : []),
     ...(receivable ? [{ label: "Open on floor", icon: ScanLine, to: `/floor/return?id=${current.id}` }] : []),
