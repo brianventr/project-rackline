@@ -515,7 +515,7 @@ Each order can have a tracking page for its customer, at `/t/…`, in both modes
 - **What it never shows.** Prices, the customer's name or email, the street, the postcode, Rackline ids, or any other order. A link that matches no order is not found.
 - **Branding.** Settings → Warehouse → **Tracking page** sets a **Brand colour**, a hex colour such as `#1f6feb`, and a **Logo URL**, which has to start with `https://`. The return label page uses them too. With neither set, the page shows the shop's name in plain colours.
 
-Rackline does not email the link yet. Paste it into your own message to the customer.
+Rackline emails that link when the customer-email settings say to. See [Customer emails](#17-customer-emails). You can still copy it and paste it into your own message.
 
 ## 14. Return labels
 
