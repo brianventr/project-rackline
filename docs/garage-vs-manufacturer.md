@@ -122,6 +122,84 @@ The queue sends these orders to **Needs attention** instead of guessing:
 
 **Print labels** (after a run, or from selected shipped rows) opens every label on one page (`/ship/labels`). **Print all** opens a single browser print. If this workstation has a thermal printer bound for shipping labels (Settings → Printers), it sends one job per label instead.
 
+### Shipping rules
+
+**Settings → Shipping rules** (owners) is an ordered list of rules that choose the box and service for an order before quick-ship runs. The Ship queue and the Shipping group on Integrations link to it.
+
+- **When.** A rule matches on any mix of: SKUs on the order, parcel weight (from and to, in ounces), how many different SKUs, how many units, ship-to country, state or province, postal code prefix, and sales channel (Shopify, Etsy, WooCommerce, Faire, Manual, Crowdfunding). Every condition you fill in has to match, and a list matches when any entry does. A rule with no conditions matches every order, which makes it a good last rule.
+- **Then.** Use a box, use a service or a rate choice (see Rate choice), or hold the order for review. A rule can do one of these or several.
+- **Order.** Rules are checked top to bottom, and the first enabled rule that matches wins. The arrows on each row move it. A rule runs in every building, or in just one.
+
+The weight a rule sees is the weight typed on the order, or read off the scale at the station. Otherwise it is the SKUs' ship weights added up, without the box. If a SKU has no ship weight, weight conditions do not match.
+
+What wins, for every order:
+
+- **Box.** A box picked in the toolbar, then the rule's box, then the smallest box the items fit (see Automatic box), then the default box.
+- **Service.** A service picked in the toolbar, then the rule's service or rate choice, then the order's own service, then the building's rate choice.
+
+The queue says why on every row. Under the box and the service it shows **Rule: Small parcels**, **Auto**, **Default box**, **Cheapest**, and so on. Quick-ship saves the same words on the order as its ship reason, for example `Mailer (Rule: Small parcels) · UPS Ground (Cheapest)`, and the Shipped tab shows it next to the postage. **Ship** on a row, **Create labels & ship**, and Scan to ship all ask the same question, so they get the same answer.
+
+**Hold for review** sends matching orders to **Needs attention** with the rule's name, and bulk ship leaves them out (`SHIP_RULE_HOLD`). Once someone has looked, **Ship anyway** on the row or at the station, or **Ship** on the order page, ships it. A rule whose service no connected carrier account offers holds its orders too (`SHIP_RULE_SERVICE`), until you edit the rule or turn the service back on in Settings → Carriers.
+
+Rules only steer quick-ship. In Manufacturer they wait, and labels bought on the order page or on Floor → Ship use the box and service picked there.
+
+### Rate choice
+
+Each building has a **Rate choice** on Settings → Warehouse, under its default service. A rule can name one too.
+
+- **Default service.** The building's default service. New buildings start here.
+- **Cheapest.** The lowest price, then the earliest arrival.
+- **Fastest.** The earliest arrival, then the lowest price. Arrival is the carrier's next pickup after its cutoff, plus its transit days, counted in working days.
+- **Cheapest on time.** The cheapest quote that arrives by the promise date: the day the order came in, plus the building's **Delivery promise** in working days. If nothing arrives in time, it takes the fastest, and the row says nothing arrives by that day. With no delivery promise set, it takes the cheapest.
+
+A rate choice applies only when nothing more specific names a service: not the toolbar, not a rule's own service, and not the order's own service.
+
+Cheapest, fastest, and on time ask every connected carrier account for rates on the order's parcel, with at most four carrier calls at once. An account that has not answered in 8 seconds is skipped. A quote is kept for 10 minutes for the same order, parcel, and addresses, so the queue, the station, and the ship that follows agree on the price. Once a carrier account other than Rackline Ground is connected, Rackline Ground is never chosen, so an account that fails to quote never turns into a demo label.
+
+The queue prices the 25 oldest orders that are ready to ship and shows the chosen service and price on each. The rest say **Quoted when shipped**. Quick-ship records the price on the order and its label. When no account returns a rate, the order waits under **Needs attention** (`NO_RATE`). Like rules, a rate choice only steers quick-ship, so it waits in Manufacturer.
+
+### Automatic box
+
+When the building has more than one saved box, quick-ship packs each order in the smallest box it fits, and the queue shows **Auto** next to the box. For that to work:
+
+- Give each SKU a ship size (length, width, and height) on Items.
+- Give each box its inside size and a max weight in the **Boxes** sheet. A box with no inside size is measured by its outside size, and one with no max weight takes any weight.
+
+How it picks:
+
+1. Every unit has to fit on its own. Its sides and the box's inside sides are each sorted longest first and compared one by one, so a unit may turn any way that keeps it square to the box.
+2. More than one unit also has to fit by volume, using at most 80% of the inside. The rest is left for gaps and padding.
+3. A box with a max weight has to carry the parcel: the weight typed or read off the scale, or else the ship weights plus the empty box.
+4. Of the boxes that pass, the least outside volume wins, because carriers bill by the outside size. A tie goes to the default box, then by name.
+
+When it cannot pick, the order goes in the default box and the row says why: **No ship size on** the SKUs that lack one, or **Too big for every box**. A too-big order still ships on the default box's size, so check it before you ship. With a single saved box, every order uses it, and the row still warns when the items are too big for it. A box picked in the toolbar, or a rule's box, wins over the automatic pick.
+
+### Pack-bench scale
+
+A USB postal scale plugged into the pack-bench computer can fill in the weight. Rackline reads it straight from the browser (WebHID), so there is nothing to install. That needs Chrome or Edge on a computer, not Safari, Firefox, or a phone, and a scale that shows up as a standard USB scale (HID usage page 0x8D), which most postal scales that need no driver do.
+
+- **Connect scale** asks the browser for permission once. After that, Rackline finds the scale again when the page opens or the scale is plugged back in. **Disconnect** forgets it.
+- The live readout shows the weight and the scale's state: **Stable**, **Settling**, **Empty**, or a problem such as below zero or over the scale's limit.
+- **Use scale weight** puts the settled weight in the parcel weight, rounded up to the next whole ounce. It is on the order's **Shipping** tab and on Floor → Ship, in both modes. Scan to ship reads the scale by itself.
+- In any other browser, or with no scale, the button does not show and you type the weight as before.
+
+### Scan to ship
+
+**Scan to ship** in the Ship queue's header (or `/ship?station=1`) turns the queue into a pack-bench station with one large scan box:
+
+1. **Scan the pack slip.** The slip's barcode is the order number. A barcode gun, or typing the number and pressing Enter, opens the order with its items, the rule that matched, and the box and service Rackline chose, with the reason for each.
+2. **Put the box on the scale.** The weight fills in live, and the box, service, and price are worked out again as the weight changes, since a weight rule or a rate can change with it. A typed weight wins over the scale. With no scale connected, the station uses the ship weights plus the box.
+3. **Press Enter.** Rackline quick-ships the order at that weight, with the toolbar's box and service if you picked any, and prints the label. A thermal printer bound for shipping labels on this workstation (Settings → Printers) gets the label directly. Otherwise the browser's print dialog opens with only the label on the page. The scan box is then ready for the next slip.
+
+A few details:
+
+- A scan matches the order number with or without `#`, with an `ORD:` or `SO:` prefix, or by just the part after the last dash (`WAVE1` for `ORD-WAVE1`) when only one order in the queue ends that way. A scan that names no order in this building's queue says so and stays on the station. It does not open another page.
+- An order that needs attention shows why, with a link to open it, instead of shipping. A held order shows **Ship anyway**.
+- **Auto-ship on a settled weight** ships without Enter. Owners turn it on per browser, and it only shows when a scale can connect. Once a slip is scanned, the order ships when the scale moves and then settles on a weight. It fires once per order, and only after the scale has moved since the scan, so a box already sitting on the scale waits for Enter.
+- A thermal printer suits a busy bench better than the browser dialog, because it prints without a click.
+- In a browser without WebHID, the station says so and you type each weight.
+- Manufacturer has no station. Quick-ship is off there, and `/ship` opens Waves.
+
 ### What Garage packs away
 
 The menu is short: Bench (Ship, Today, Floor, Shelf map), Parts, Build, Ship, Shelf, Runway, and Settings for owners. Yard, ASNs, waves, replenishment, holds, counts, equipment, labor, 3PL clients, zones, billing, EDI, and Traffic are hidden. Opening one of those pages by link sends you to Today. Floor Pick, Pack, and Ship are not offered as floor tiles or ranked jobs, but they stay reachable from an order for the cases the queue hands off (boxed orders and weighed SKUs).
