@@ -371,6 +371,11 @@ export function ShipQueuePage() {
                   <Link to={`/stock/items/${row.blocker.itemId}?tab=settings`}>Add customs</Link>
                 </Button>
               ) : null}
+              {row.blocker.code === "NEED_WEIGHT" ? (
+                <Button size="xs" variant="outline" asChild>
+                  <Link to="/stock/items">Add weight</Link>
+                </Button>
+              ) : null}
               {row.blocker.code === "ADDRESS_INVALID" ? (
                 <>
                   {extraSuggestion(row.blocker.error, row.blocker.suggestion) ? (
@@ -390,9 +395,11 @@ export function ShipQueuePage() {
                     <Button size="xs" variant="outline" onClick={() => editAddress(row)}>
                       Edit address
                     </Button>
-                    <Button size="xs" variant="outline" disabled={shipping !== null} onClick={() => void shipToThisAddress(row)}>
-                      {shipping === row.id ? "Shipping…" : "Ship anyway to this address"}
-                    </Button>
+                    {owner ? (
+                      <Button size="xs" variant="outline" disabled={shipping !== null} onClick={() => void shipToThisAddress(row)}>
+                        {shipping === row.id ? "Shipping…" : "Ship anyway to this address"}
+                      </Button>
+                    ) : null}
                   </span>
                 </>
               ) : null}
