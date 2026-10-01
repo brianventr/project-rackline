@@ -94,6 +94,7 @@ export function ShipStation({
   const [reprinting, setReprinting] = useState(false);
   const [autoShip, setAutoShipState] = useState(loadAutoShip);
   const scanRef = useRef<HTMLInputElement>(null);
+  const weightRef = useRef<HTMLInputElement>(null);
   // A scan made before the station opened belongs to the page it was made on.
   const handledAt = useRef(scanner.lastScan?.at ?? 0);
   const watch = useRef<ScaleWatch>(FRESH_SCALE_WATCH);
@@ -191,8 +192,9 @@ export function ShipStation({
       ? stationWeight({ typed, scale: { connected: true, reading: options.reading }, computedOz: current.parcel.weightOz ?? null })
       : weight;
     if (!at.ok) {
-      setNotice({ title: at.error });
+      setNotice(null);
       report(false);
+      weightRef.current?.focus();
       return;
     }
     busy.current = true;
@@ -275,6 +277,12 @@ export function ShipStation({
 
   function submitWeight(event: FormEvent) {
     event.preventDefault();
+    const raw = typed.trim();
+    // A pack slip scanned while this field had focus lands here; open its order instead of reading it as a weight.
+    if (raw && !/^\d*\.?\d+$/.test(raw) && orders && matchShipScan(raw, orders)) {
+      scanner.emitScan(raw, "typed");
+      return;
+    }
     void ship();
   }
 
@@ -416,6 +424,8 @@ export function ShipStation({
                   {weight.ok ? <span className="text-xs text-muted-foreground">{WEIGHT_SOURCE[weight.source]}</span> : null}
                 </span>
                 <Input
+                  ref={weightRef}
+                  data-scan-capture
                   aria-label="Type a weight in ounces"
                   inputMode="decimal"
                   autoComplete="off"
