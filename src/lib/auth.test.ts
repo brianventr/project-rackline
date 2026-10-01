@@ -3,6 +3,7 @@ import * as schema from "../db/schema";
 import type { AppDb } from "../db/stock";
 import { SIGN_IN_ACTION, SIGN_IN_CODE } from "../domain/audit";
 import { recordSignIn, resolveAuthSecret } from "./auth";
+import { channelSecret, LOCAL_DEV_SECRET } from "./secret-box";
 
 describe("auth secret", () => {
   it("uses the env secret when it is long enough", () => {
@@ -11,8 +12,10 @@ describe("auth secret", () => {
     );
   });
 
-  it("falls back only on localhost", () => {
-    expect(resolveAuthSecret({}, "http://localhost:5173").length).toBeGreaterThanOrEqual(32);
+  it("falls back only on localhost, and matches the key that seals credentials", () => {
+    expect(resolveAuthSecret({}, "http://localhost:5173")).toBe(LOCAL_DEV_SECRET);
+    expect(resolveAuthSecret({}, "http://localhost:5173")).toBe(channelSecret({}, "http://localhost:5173"));
+    expect(resolveAuthSecret({}, "http://127.0.0.1:8787")).toBe(channelSecret({ BETTER_AUTH_URL: "" }, "http://127.0.0.1:8787"));
     expect(() => resolveAuthSecret({}, "https://rackline.example")).toThrow(/BETTER_AUTH_SECRET/);
     expect(() => resolveAuthSecret({ BETTER_AUTH_SECRET: "short" }, "https://rackline.example")).toThrow(
       /BETTER_AUTH_SECRET/,

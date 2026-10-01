@@ -8,15 +8,12 @@ import { signInAudit } from "../domain/audit";
 import { isSignupSession } from "../domain/team-status";
 import { newId } from "./ids";
 import { sendMail } from "./mail";
-
-const LOCAL_DEV_SECRET = "dev-only-local-secret-do-not-use-in-prod-32ch";
+import { isLocalDevUrl, LOCAL_DEV_SECRET } from "./secret-box";
 
 export function resolveAuthSecret(env: { BETTER_AUTH_SECRET?: string }, origin: string): string {
   const fromEnv = env.BETTER_AUTH_SECRET?.trim() ?? "";
   if (fromEnv.length >= 32) return fromEnv;
-  if (origin.startsWith("http://localhost") || origin.startsWith("http://127.0.0.1")) {
-    return LOCAL_DEV_SECRET;
-  }
+  if (isLocalDevUrl(origin)) return LOCAL_DEV_SECRET;
   throw new Error("BETTER_AUTH_SECRET must be set (32+ characters)");
 }
 

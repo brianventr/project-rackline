@@ -11,6 +11,7 @@ import {
   netPickSlices,
   remainingToUnpick,
   takeFromSlices,
+  unpickAllocationTargets,
   type PickHistoryEntry,
   type PickSlice,
   type UnpickLine,
@@ -118,16 +119,17 @@ export async function persistUnpick(input: {
   const skuByItem = new Map(input.lines.map((line) => [line.itemId, line.sku]));
   let slices = await loadNetPickSlices(input.db, input.organizationId, input.orderId);
   const taken: PickSlice[] = [];
+  const takenByLine = new Map<string, PickSlice[]>();
   for (const line of input.lines) {
     const qty = postedByLine.get(line.id) ?? 0;
     if (qty <= 0) continue;
     const next = takeFromSlices(slices, line.itemId, qty);
-    taken.push(
-      ...next.taken.map((slice) => ({
-        ...slice,
-        locationId: input.locationId || slice.locationId,
-      })),
-    );
+    const lineSlices = next.taken.map((slice) => ({
+      ...slice,
+      locationId: input.locationId || slice.locationId,
+    }));
+    takenByLine.set(line.id, lineSlices);
+    taken.push(...lineSlices);
     slices = next.rest;
   }
 
@@ -171,24 +173,28 @@ export async function persistUnpick(input: {
     ? await loadOpenAllocations(input.db, input.organizationId, { orderId: input.orderId })
     : [];
   const restoreExtras = input.restoreAllocations
-    ? input.lines.flatMap((line) => {
-        const qty = postedByLine.get(line.id) ?? 0;
-        if (qty <= 0) return [];
-        const locationId =
-          input.locationId || taken.find((slice) => slice.itemId === line.itemId)?.locationId || input.pickLocationId;
-        if (!locationId) return [];
-        return restoreAllocationStatements(input.db, {
+    ? unpickAllocationTargets(
+        input.lines.map((line) => ({
+          lineId: line.id,
+          itemId: line.itemId,
+          qty: postedByLine.get(line.id) ?? 0,
+          slices: (takenByLine.get(line.id) ?? []).map((slice) => ({ locationId: slice.locationId, qty: slice.qty })),
+        })),
+        input.locationId,
+        input.pickLocationId,
+      ).flatMap((target) =>
+        restoreAllocationStatements(input.db, {
           organizationId: input.organizationId,
           warehouseId: input.warehouseId,
           orderId: input.orderId,
           allocations,
-          orderLineId: line.id,
-          locationId,
-          itemId: line.itemId,
-          qty,
+          orderLineId: target.orderLineId,
+          locationId: target.locationId,
+          itemId: target.itemId,
+          qty: target.qty,
           now,
-        });
-      })
+        }),
+      )
     : [];
 
   await persistStockPlan(input.db, {

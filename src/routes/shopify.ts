@@ -53,33 +53,33 @@ import {
 export const shopifyPublicRoute = new Hono<AppEnv>();
 export const shopifyRoute = new Hono<AppEnv>();
 
-async function opened(db: AppEnv["Variables"]["db"], row: ShopifyConnectionRow | undefined) {
-  return row ? openShopifyRow(db, credentialSecret, row) : null;
+async function opened(db: AppEnv["Variables"]["db"], row: ShopifyConnectionRow | undefined, origin?: string) {
+  return row ? openShopifyRow(db, () => credentialSecret(origin), row) : null;
 }
 
-async function sealedShopifyWebhook(plain: string): Promise<string> {
-  const sealed = await sealSecret(credentialSecret(), plain);
+async function sealedShopifyWebhook(plain: string, origin?: string): Promise<string> {
+  const sealed = await sealSecret(credentialSecret(origin), plain);
   if (!sealed) badRequest("webhookSecret is required");
   return sealed;
 }
 
-async function connectionByShop(db: AppEnv["Variables"]["db"], shopDomain: string) {
+async function connectionByShop(db: AppEnv["Variables"]["db"], shopDomain: string, origin?: string) {
   const domain = normalizeShopDomain(shopDomain);
   const [row] = await db
     .select()
     .from(schema.shopifyConnections)
     .where(eq(schema.shopifyConnections.shopDomain, domain))
     .limit(1);
-  return opened(db, row);
+  return opened(db, row, origin);
 }
 
-async function connectionByOrg(db: AppEnv["Variables"]["db"], organizationId: string) {
+async function connectionByOrg(db: AppEnv["Variables"]["db"], organizationId: string, origin?: string) {
   const [row] = await db
     .select()
     .from(schema.shopifyConnections)
     .where(eq(schema.shopifyConnections.organizationId, organizationId))
     .limit(1);
-  return opened(db, row);
+  return opened(db, row, origin);
 }
 
 function publicUrls(origin: string) {
@@ -123,7 +123,7 @@ async function handleSignedBody(c: Context<AppEnv>, pathKind: "webhook" | "notif
   const raw = await c.req.text();
   const shopHeader = c.req.header("X-Shopify-Shop-Domain") || c.req.header("x-shopify-shop-domain");
   if (!shopHeader) unauthorized("Missing X-Shopify-Shop-Domain");
-  const connection = await connectionByShop(c.get("db"), shopHeader);
+  const connection = await connectionByShop(c.get("db"), shopHeader, c.get("origin"));
   if (!connection) {
     return c.json({ ignored: true, reason: "unknown_shop" }, 404);
   }
@@ -265,20 +265,20 @@ shopifyPublicRoute.get("/shopify/oauth/callback", async (c) => {
   if (!tokenRes.ok || !accessToken) return c.redirect(installRedirect(origin, "error=token"));
 
   const db = c.get("db");
-  const taken = await connectionByShop(db, shop);
+  const taken = await connectionByShop(db, shop, origin);
   if (taken && taken.organizationId !== state.organizationId) {
     return c.redirect(installRedirect(origin, "error=shop"));
   }
-  const existing = await connectionByOrg(db, state.organizationId);
+  const existing = await connectionByOrg(db, state.organizationId, origin);
   const now = Date.now();
-  const sealedToken = await sealSecret(credentialSecret(), accessToken);
+  const sealedToken = await sealSecret(credentialSecret(origin), accessToken);
   if (existing) {
     await db
       .update(schema.shopifyConnections)
       .set({
         shopDomain: shop,
         accessToken: sealedToken,
-        webhookSecret: await sealedShopifyWebhook(apiSecret),
+        webhookSecret: await sealedShopifyWebhook(apiSecret, origin),
         mode: "live",
         apiVersion: existing.apiVersion || SHOPIFY_API_VERSION,
         updatedAt: now,
@@ -290,7 +290,7 @@ shopifyPublicRoute.get("/shopify/oauth/callback", async (c) => {
       organizationId: state.organizationId,
       shopDomain: shop,
       accessToken: sealedToken,
-      webhookSecret: await sealedShopifyWebhook(apiSecret),
+      webhookSecret: await sealedShopifyWebhook(apiSecret, origin),
       apiVersion: SHOPIFY_API_VERSION,
       shopifyLocationGid: null,
       mode: "live",
@@ -328,7 +328,7 @@ shopifyRoute.get("/shopify/oauth/start", async (c) => {
 });
 
 shopifyRoute.get("/shopify/connection", async (c) => {
-  const row = await connectionByOrg(c.get("db"), c.get("organizationId")!);
+  const row = await connectionByOrg(c.get("db"), c.get("organizationId")!, c.get("origin"));
   return c.json(serializeConnection(row, originFrom(c.req.url)));
 });
 
@@ -346,17 +346,17 @@ shopifyRoute.put("/shopify/connection", async (c) => {
   const mode = body.mode === "live" ? "live" : "demo";
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const existing = await connectionByOrg(db, organizationId);
+  const existing = await connectionByOrg(db, organizationId, c.get("origin"));
   if (mode === "live" && !body.accessToken?.trim() && !existing?.accessToken) {
     badRequest("Admin API access token is required for live mode");
   }
   const now = Date.now();
   const webhookPlain = body.webhookSecret?.trim() || existing?.webhookSecret;
   if (!webhookPlain) badRequest("webhookSecret is required");
-  const webhookSecret = await sealedShopifyWebhook(webhookPlain);
+  const webhookSecret = await sealedShopifyWebhook(webhookPlain, c.get("origin"));
   // Left out, the stored token stays as it is, even one this deployment cannot open.
   const token = body.accessToken === undefined ? undefined : body.accessToken?.trim() || null;
-  const accessToken = token ? await sealSecret(credentialSecret(), token) : token;
+  const accessToken = token ? await sealSecret(credentialSecret(c.get("origin")), token) : token;
 
   if (existing) {
     await db
@@ -386,14 +386,14 @@ shopifyRoute.put("/shopify/connection", async (c) => {
       updatedAt: now,
     });
   }
-  const row = await connectionByOrg(db, organizationId);
+  const row = await connectionByOrg(db, organizationId, c.get("origin"));
   return c.json(serializeConnection(row, originFrom(c.req.url)));
 });
 
 shopifyRoute.post("/shopify/enable-demo", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const existing = await connectionByOrg(db, organizationId);
+  const existing = await connectionByOrg(db, organizationId, c.get("origin"));
   if (existing) {
     return c.json(serializeConnection(existing, originFrom(c.req.url)));
   }
@@ -403,14 +403,14 @@ shopifyRoute.post("/shopify/enable-demo", async (c) => {
     organizationId,
     shopDomain: `demo-${organizationId.slice(0, 8)}.myshopify.com`,
     accessToken: null,
-    webhookSecret: await sealedShopifyWebhook(`rackline-demo-${organizationId.slice(0, 8)}`),
+    webhookSecret: await sealedShopifyWebhook(`rackline-demo-${organizationId.slice(0, 8)}`, c.get("origin")),
     apiVersion: SHOPIFY_API_VERSION,
     shopifyLocationGid: demoShopifyLocationGid(),
     mode: "demo",
     createdAt: now,
     updatedAt: now,
   });
-  const row = await connectionByOrg(db, organizationId);
+  const row = await connectionByOrg(db, organizationId, c.get("origin"));
   return c.json(serializeConnection(row, originFrom(c.req.url)), 201);
 });
 
@@ -426,7 +426,7 @@ shopifyRoute.post("/shopify/simulate-order", async (c) => {
   }
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  let connection = await connectionByOrg(db, organizationId);
+  let connection = await connectionByOrg(db, organizationId, c.get("origin"));
   if (!connection) {
     const now = Date.now();
     await db.insert(schema.shopifyConnections).values({
@@ -434,14 +434,14 @@ shopifyRoute.post("/shopify/simulate-order", async (c) => {
       organizationId,
       shopDomain: `demo-${organizationId.slice(0, 8)}.myshopify.com`,
       accessToken: null,
-      webhookSecret: await sealedShopifyWebhook(`rackline-demo-${organizationId.slice(0, 8)}`),
+      webhookSecret: await sealedShopifyWebhook(`rackline-demo-${organizationId.slice(0, 8)}`, c.get("origin")),
       apiVersion: SHOPIFY_API_VERSION,
       shopifyLocationGid: demoShopifyLocationGid(),
       mode: "demo",
       createdAt: now,
       updatedAt: now,
     });
-    connection = await connectionByOrg(db, organizationId);
+    connection = await connectionByOrg(db, organizationId, c.get("origin"));
   }
   if (!connection) badRequest("Could not create Shopify connection");
 
@@ -473,7 +473,7 @@ shopifyRoute.post("/shopify/simulate-order", async (c) => {
 shopifyRoute.get("/shopify/inventory", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const connection = await connectionByOrg(db, organizationId);
+  const connection = await connectionByOrg(db, organizationId, c.get("origin"));
   const rows = await loadSellableRows(db, organizationId);
   return c.json({
     connected: Boolean(connection),
@@ -486,7 +486,7 @@ shopifyRoute.get("/shopify/inventory", async (c) => {
 shopifyRoute.get("/shopify/locations", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const connection = await connectionByOrg(db, organizationId);
+  const connection = await connectionByOrg(db, organizationId, c.get("origin"));
   if (!connection) return c.json([]);
   if (connection.mode === "live" && !connection.accessToken) conflict(SHOPIFY_TOKEN_UNREADABLE, "SHOPIFY_TOKEN");
   try {

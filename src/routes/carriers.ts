@@ -33,33 +33,37 @@ import { sealSecret } from "../lib/secret-box";
 export const carriersRoute = new Hono<AppEnv>();
 
 /** Every carrier row for the org, with API keys and secrets in the clear. */
-export async function loadCarrierConnections(db: AppEnv["Variables"]["db"], organizationId: string) {
+function sealingKey(origin?: string) {
+  return () => credentialSecret(origin);
+}
+
+export async function loadCarrierConnections(db: AppEnv["Variables"]["db"], organizationId: string, origin?: string) {
   const rows = await db
     .select()
     .from(schema.carrierConnections)
     .where(eq(schema.carrierConnections.organizationId, organizationId));
-  return Promise.all(rows.map((row) => openCarrierRow(db, credentialSecret, row)));
+  return Promise.all(rows.map((row) => openCarrierRow(db, sealingKey(origin), row)));
 }
 
-async function loadCarrierConnection(db: AppEnv["Variables"]["db"], organizationId: string, id: string) {
+async function loadCarrierConnection(db: AppEnv["Variables"]["db"], organizationId: string, id: string, origin?: string) {
   const [row] = await db
     .select()
     .from(schema.carrierConnections)
     .where(and(eq(schema.carrierConnections.id, id), eq(schema.carrierConnections.organizationId, organizationId)))
     .limit(1);
   if (!row) notFound("Carrier account not found");
-  return openCarrierRow(db, credentialSecret, row);
+  return openCarrierRow(db, sealingKey(origin), row);
 }
 
 /**
  * The carrier secrets a write sets, sealed. A field left undefined is not in the result, so the
  * stored value stays as it is, even one this deployment cannot open.
  */
-async function sealedKeys(creds: Pick<CarrierCredentials, CarrierSecretField>) {
+async function sealedKeys(creds: Pick<CarrierCredentials, CarrierSecretField>, origin?: string) {
   const out: Partial<Record<CarrierSecretField, string | null>> = {};
   for (const field of CARRIER_SECRET_FIELDS) {
     const value = creds[field];
-    if (value !== undefined) out[field] = value ? await sealSecret(credentialSecret(), value) : null;
+    if (value !== undefined) out[field] = value ? await sealSecret(credentialSecret(origin), value) : null;
   }
   return out;
 }
@@ -169,7 +173,7 @@ carriersRoute.get("/carriers", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const warehouse = await warehouseForOrg(db, organizationId, c.req.query("warehouseId"));
-  const connections = await loadCarrierConnections(db, organizationId);
+  const connections = await loadCarrierConnections(db, organizationId, c.get("origin"));
   return c.json({
     catalog: publicCarrierCatalog(),
     connections: connections.map((row) => presentConnection(asLike(row), c.get("origin"))),
@@ -203,7 +207,7 @@ carriersRoute.post("/carriers/enable-demo", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const now = Date.now();
-  const existing = await loadCarrierConnections(db, organizationId);
+  const existing = await loadCarrierConnections(db, organizationId, c.get("origin"));
   const have = new Set(existing.map((row) => row.provider));
   for (const seed of demoCarrierSeeds()) {
     if (have.has(seed.provider)) continue;
@@ -229,7 +233,7 @@ carriersRoute.post("/carriers/enable-demo", async (c) => {
       .set({ shipFromAddress: "14 Dock St, Portland, OR 97209" })
       .where(eq(schema.warehouses.id, warehouse.id));
   }
-  const connections = await loadCarrierConnections(db, organizationId);
+  const connections = await loadCarrierConnections(db, organizationId, c.get("origin"));
   const nextWarehouse = await warehouseForOrg(db, organizationId, warehouse?.id);
   return c.json(
     {
@@ -270,7 +274,7 @@ carriersRoute.post("/carriers", async (c) => {
     : defaultEnabledServices(providerId);
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const existing = await loadCarrierConnections(db, organizationId);
+  const existing = await loadCarrierConnections(db, organizationId, c.get("origin"));
   if (existing.some((row) => row.provider === providerId)) {
     conflict(`${provider.name} is already connected`);
   }
@@ -284,8 +288,8 @@ carriersRoute.post("/carriers", async (c) => {
     provider: providerId,
     nickname: optionalString(body.nickname) || provider.name,
     accountNumber: creds.accountNumber,
-    ...(await sealedKeys(creds)),
-    ...(await sealWebhookSecret(credentialSecret, optionalString(body.webhookSecret) ?? null)),
+    ...(await sealedKeys(creds, c.get("origin"))),
+    ...(await sealWebhookSecret(() => credentialSecret(c.get("origin")), optionalString(body.webhookSecret) ?? null)),
     mode,
     status: "connected",
     enabledServicesJson: JSON.stringify(enabledServices),
@@ -313,7 +317,7 @@ carriersRoute.patch("/carriers/:id", async (c) => {
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const existing = await loadCarrierConnection(db, organizationId, c.req.param("id"));
+  const existing = await loadCarrierConnection(db, organizationId, c.req.param("id"), c.get("origin"));
   const mode = body.mode === undefined ? existing.mode : body.mode === "live" ? "live" : "demo";
   const creds: CarrierCredentials = {
     accountNumber:
@@ -335,14 +339,17 @@ carriersRoute.patch("/carriers/:id", async (c) => {
     .set({
       nickname: optionalString(body.nickname) || existing.nickname,
       accountNumber: creds.accountNumber,
-      ...(await sealedKeys({
-        apiKey: body.apiKey === undefined ? undefined : creds.apiKey,
-        apiSecret: body.apiSecret === undefined ? undefined : creds.apiSecret,
-        meterNumber: body.meterNumber === undefined ? undefined : creds.meterNumber,
-      })),
+      ...(await sealedKeys(
+        {
+          apiKey: body.apiKey === undefined ? undefined : creds.apiKey,
+          apiSecret: body.apiSecret === undefined ? undefined : creds.apiSecret,
+          meterNumber: body.meterNumber === undefined ? undefined : creds.meterNumber,
+        },
+        c.get("origin"),
+      )),
       ...(body.webhookSecret === undefined
         ? {}
-        : await sealWebhookSecret(credentialSecret, keepOrReplace(body.webhookSecret, existing.webhookSecret))),
+        : await sealWebhookSecret(() => credentialSecret(c.get("origin")), keepOrReplace(body.webhookSecret, existing.webhookSecret))),
       mode,
       status: existing.status,
       enabledServicesJson: JSON.stringify(enabledServices),
@@ -360,7 +367,7 @@ carriersRoute.post("/carriers/:id/test", async (c) => {
   requireOwner(c.get("role"));
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const existing = await loadCarrierConnection(db, organizationId, c.req.param("id"));
+  const existing = await loadCarrierConnection(db, organizationId, c.req.param("id"), c.get("origin"));
   const now = Date.now();
   let result: { ok: true; message: string } | { ok: false; error: string } = testConnectionResult({
     provider: existing.provider,
@@ -455,7 +462,7 @@ carriersRoute.delete("/carriers/:id", async (c) => {
       and(eq(schema.warehouses.organizationId, organizationId), eq(schema.warehouses.defaultCarrierConnectionId, existing.id)),
     );
   if (wasDefault) {
-    const remaining = await loadCarrierConnections(db, organizationId);
+    const remaining = await loadCarrierConnections(db, organizationId, c.get("origin"));
     const fallback = remaining.find((row) => row.provider === "rackline") ?? remaining[0];
     if (fallback) {
       await db
@@ -482,9 +489,15 @@ function trackerHmacHeader(headers: { header: (name: string) => string | undefin
 }
 
 /** Opens one connection and checks its tracker secret. A stored secret that cannot be opened fails closed. */
-async function verifyTrackerConnection(db: CarrierDb, row: CarrierRow, raw: string, hmac: string | undefined): Promise<CarrierRow> {
+async function verifyTrackerConnection(
+  db: CarrierDb,
+  row: CarrierRow,
+  raw: string,
+  hmac: string | undefined,
+  origin?: string,
+): Promise<CarrierRow> {
   const stored = Boolean(row.webhookSecret);
-  const opened = await openCarrierRow(db, credentialSecret, row);
+  const opened = await openCarrierRow(db, sealingKey(origin), row);
   if (isLiveAggregator(row.provider, row.mode) && stored) {
     if (!opened.webhookSecret || !(await verifyTrackerHmac(opened.webhookSecret, raw, hmac))) {
       unauthorized("Invalid tracker HMAC");
@@ -660,7 +673,7 @@ carriersPublicRoute.post("/carriers/trackers/webhooks", async (c) => {
   if (choice.kind === "one") {
     const [row] = await db.select().from(schema.carrierConnections).where(eq(schema.carrierConnections.id, choice.id)).limit(1);
     if (!row) unauthorized("Invalid tracker HMAC");
-    await verifyTrackerConnection(db, row, raw, hmac);
+    await verifyTrackerConnection(db, row, raw, hmac, c.get("origin"));
     connectionId = row.id;
   }
 
@@ -697,7 +710,7 @@ carriersPublicRoute.post("/carriers/trackers/webhooks/:connectionId", async (c) 
     .where(eq(schema.carrierConnections.id, c.req.param("connectionId")))
     .limit(1);
   if (!row) notFound("Carrier account not found");
-  await verifyTrackerConnection(db, row, raw, trackerHmacHeader(c.req));
+  await verifyTrackerConnection(db, row, raw, trackerHmacHeader(c.req), c.get("origin"));
 
   const packageHits = await db
     .select()

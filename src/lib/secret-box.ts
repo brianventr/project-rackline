@@ -80,11 +80,22 @@ export async function readStoredSecret(
   return { value: stored, reseal: await sealSecret(secret, stored) };
 }
 
-/** Deployed workers must set BETTER_AUTH_SECRET; only a localhost auth URL may fall back to a dev key. */
-export function channelSecret(env: { BETTER_AUTH_SECRET?: string; BETTER_AUTH_URL?: string }): string {
+/** The only localhost fallback. Sign-in and sealed credentials must use this same value. */
+export const LOCAL_DEV_SECRET = "dev-only-local-secret-do-not-use-in-prod-32ch";
+
+export function isLocalDevUrl(url: string | null | undefined): boolean {
+  const value = url ?? "";
+  return value.startsWith("http://localhost") || value.startsWith("http://127.0.0.1");
+}
+
+/**
+ * Deployed workers must set BETTER_AUTH_SECRET. A localhost auth URL, or a localhost request origin
+ * when that URL is unset, may fall back to the same dev key sign-in uses. No other host may.
+ */
+export function channelSecret(env: { BETTER_AUTH_SECRET?: string; BETTER_AUTH_URL?: string }, origin?: string): string {
   const fromEnv = env.BETTER_AUTH_SECRET?.trim() ?? "";
   if (fromEnv.length >= 32) return fromEnv;
-  const url = env.BETTER_AUTH_URL ?? "";
-  if (url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")) return "rackline-local-dev-channel-secret";
+  const url = env.BETTER_AUTH_URL?.trim() || origin || "";
+  if (isLocalDevUrl(url)) return LOCAL_DEV_SECRET;
   throw new Error("BETTER_AUTH_SECRET must be set (32+ characters) to store channel credentials");
 }

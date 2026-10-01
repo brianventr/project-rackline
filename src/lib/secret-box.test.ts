@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { channelSecret, isSealed, openSecret, readStoredSecret, sealSecret, secretFingerprint } from "./secret-box";
+import { channelSecret, isSealed, LOCAL_DEV_SECRET, openSecret, readStoredSecret, sealSecret, secretFingerprint } from "./secret-box";
+import { resolveAuthSecret } from "./auth";
 
 describe("secret box", () => {
   it("round-trips a value and never stores it in the clear", async () => {
@@ -54,10 +55,14 @@ describe("secret box", () => {
     expect(await secretFingerprint("other")).not.toBe(fp);
   });
 
-  it("only falls back to a dev key on localhost", () => {
+  it("only falls back to a dev key on localhost, the same key sign-in uses", () => {
     const strong = "x".repeat(32);
     expect(channelSecret({ BETTER_AUTH_SECRET: strong })).toBe(strong);
-    expect(channelSecret({ BETTER_AUTH_URL: "http://localhost:5173" })).toBeTruthy();
+    expect(channelSecret({ BETTER_AUTH_URL: "http://localhost:5173" })).toBe(LOCAL_DEV_SECRET);
+    expect(channelSecret({}, "http://localhost:5175")).toBe(LOCAL_DEV_SECRET);
+    expect(channelSecret({}, "http://127.0.0.1:5175")).toBe(resolveAuthSecret({}, "http://127.0.0.1:5175"));
+    expect(() => channelSecret({})).toThrow(/BETTER_AUTH_SECRET/);
     expect(() => channelSecret({ BETTER_AUTH_URL: "https://rackline.example" })).toThrow(/BETTER_AUTH_SECRET/);
+    expect(() => channelSecret({}, "https://rackline.example")).toThrow(/BETTER_AUTH_SECRET/);
   });
 });

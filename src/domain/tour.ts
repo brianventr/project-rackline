@@ -24,7 +24,7 @@ export type TourStep = {
 };
 
 /** Bump when the tour changes enough that people who saw it should see it again. */
-export const TOUR_VERSION = 1;
+export const TOUR_VERSION = 2;
 
 export const TOUR_STEPS: readonly TourStep[] = [
   {
