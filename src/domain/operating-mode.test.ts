@@ -25,6 +25,7 @@ describe("operating mode", () => {
 
   it("keeps the founder bench and hides the leased warehouse", () => {
     expect(garageAllowsPath("/today")).toBe(true);
+    expect(garageAllowsPath("/exceptions?tab=mine")).toBe(true);
     expect(garageAllowsPath("/welcome")).toBe(true);
     expect(garageAllowsPath("/welcome?step=racks")).toBe(true);
     expect(garageAllowsPath("/live")).toBe(true);
@@ -54,6 +55,7 @@ describe("operating mode", () => {
     expect(garageAllowsPath("/stock/replenish")).toBe(false);
     expect(garageAllowsPath("/stock/plates")).toBe(false);
     expect(garageAllowsPath("/floor/plates?code=LP-000001")).toBe(false);
+    expect(garageAllowsPath("/floor/exceptions")).toBe(false);
     expect(garageAllowsPath("/equipment")).toBe(false);
     expect(garageAllowsPath("/analytics/traffic")).toBe(false);
     expect(garageAllowsPath("/setup/clients")).toBe(false);
@@ -66,6 +68,7 @@ describe("operating mode", () => {
     expect(urls).toEqual([
       "/ship",
       "/today",
+      "/exceptions",
       "/floor",
       "/map",
       "/inbound/purchases",

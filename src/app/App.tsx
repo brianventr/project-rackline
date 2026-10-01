@@ -7,6 +7,7 @@ import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { LandingPage } from "./pages/LandingPage";
 import { ComparePage, IndustryPage, UseCasePage } from "./marketing/MarketingRoutes";
 import { TodayPage } from "./pages/TodayPage";
+import { ExceptionsPage } from "./pages/ExceptionsPage";
 import { WelcomePage } from "./pages/WelcomePage";
 import { LivePage } from "./pages/LivePage";
 import { ItemsPage } from "./pages/ItemsPage";
@@ -135,6 +136,7 @@ export function App() {
       <Route path="/compare/:slug" element={<ComparePage />} />
       <Route element={<Guard me={me} />}>
         <Route path="/today" element={<TodayPage />} />
+        <Route path="/exceptions" element={<ExceptionsPage />} />
         <Route
           path="/welcome"
           element={
