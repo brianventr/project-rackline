@@ -5,6 +5,8 @@
  * item on plates never exceed the bay's balance of it.
  */
 import { balanceKey, parseBalanceKey } from "./inventory";
+import { allocateFifoLots, allocateSerials, type LotRow } from "./lots";
+import { isExpiredLot } from "./expiry";
 
 export const PLATE_TYPES = ["tote", "pallet", "carton"] as const;
 export type PlateType = (typeof PLATE_TYPES)[number];
@@ -255,6 +257,47 @@ export function looseSerials(serials: string[], plates: Plate[], itemId: string)
     for (const line of plate.lines) if (line.itemId === itemId && line.serial) plated.add(line.serial);
   }
   return serials.filter((serial) => !plated.has(serial.trim().toUpperCase()));
+}
+
+function liveUnits(lots: LotRow[]): number {
+  return lots.filter((row) => row.qty > 0 && !isExpiredLot(row.expiresOn)).reduce((sum, row) => sum + row.qty, 0);
+}
+
+/**
+ * FIFO lots for taking `qty` of an item from a bay: every loose lot first, and only the shortfall
+ * from lots on plates. Without plates it is plain FIFO, refusals included.
+ */
+export function allocateLooseFirstLots(
+  lots: LotRow[],
+  plates: Plate[],
+  locationId: string,
+  itemId: string,
+  qty: number,
+  sku: string,
+): LotRow[] {
+  const loose = looseLots(lots, plates, locationId, itemId);
+  const fromLoose = liveUnits(loose);
+  if (fromLoose >= qty) return allocateFifoLots(loose, qty, sku);
+  if (fromLoose === 0 || liveUnits(lots) < qty) return allocateFifoLots(lots, qty, sku);
+  const first = allocateFifoLots(loose, fromLoose, sku);
+  const taken = new Map(first.map((row) => [row.lotCode, row.qty]));
+  const rest = lots.map((row) => ({ ...row, qty: row.qty - (taken.get(row.lotCode.trim().toUpperCase()) ?? 0) }));
+  const merged = new Map<string, LotRow>();
+  for (const row of [...first, ...allocateFifoLots(rest, qty - fromLoose, sku)]) {
+    const prior = merged.get(row.lotCode);
+    if (prior) prior.qty += row.qty;
+    else merged.set(row.lotCode, { ...row });
+  }
+  return [...merged.values()];
+}
+
+/** Serials for taking `qty` of an item from a bay: loose ones first, then the ones on plates. */
+export function allocateLooseFirstSerials(serials: string[], plates: Plate[], itemId: string, qty: number, sku: string): string[] {
+  const loose = looseSerials(serials, plates, itemId);
+  if (loose.length >= qty) return allocateSerials(loose, qty, sku);
+  if (loose.length === 0 || serials.length < qty) return allocateSerials(serials, qty, sku);
+  const plated = serials.filter((serial) => !loose.includes(serial));
+  return [...allocateSerials(loose, loose.length, sku), ...allocateSerials(plated, qty - loose.length, sku)];
 }
 
 /** A bay's balances split into what is on plates and what is loose. */

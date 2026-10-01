@@ -170,30 +170,36 @@ platesRoute.post("/plates/:ref/lines", async (c) => {
     item = await getOrgItem(db, organizationId, body.itemId.trim());
   } else {
     const parsed = parseScan(requireString(body.scan, "scan"));
-    if (parsed.kind === "serial" && !itemScanValue(parsed)) {
+    const code = itemScanValue(parsed);
+    const scanned = code ? await resolveItemScan(db, organizationId, code) : null;
+    if (scanned) {
+      item = scanned.item;
+      perUnit = scanned.pack?.qty ?? 1;
+      lotCode ??= parsed.gs1?.lot ?? null;
+      if (parsed.gs1?.serial && serials.length === 0) serials = [parsed.gs1.serial.toUpperCase()];
+    } else if (parsed.kind === "serial" || parsed.kind === "unknown") {
+      const serial = parsed.value.toUpperCase();
       const [row] = await db
         .select({ itemId: schema.serials.itemId })
         .from(schema.serials)
         .where(
           and(
             eq(schema.serials.organizationId, organizationId),
-            eq(schema.serials.serialCode, parsed.value),
+            eq(schema.serials.serialCode, serial),
+            eq(schema.serials.locationId, bayId),
             eq(schema.serials.status, "on_hand"),
           ),
         )
         .limit(1);
-      if (!row) notFound(`Serial ${parsed.value} is not on hand`);
+      if (!row) {
+        notFound(parsed.kind === "serial" ? `Serial ${serial} is not in ${bay.code}` : "No item or serial matches that barcode");
+      }
       item = await getOrgItem(db, organizationId, row.itemId);
-      serials = [parsed.value];
+      serials = [serial];
+    } else if (code) {
+      notFound("No item matches that barcode");
     } else {
-      const code = itemScanValue(parsed);
-      if (!code) badRequest("Scan an item, case, or serial barcode to put it on the plate");
-      const scanned = await resolveItemScan(db, organizationId, code);
-      if (!scanned) notFound("No item matches that barcode");
-      item = scanned.item;
-      perUnit = scanned.pack?.qty ?? 1;
-      lotCode ??= parsed.gs1?.lot ?? null;
-      if (parsed.gs1?.serial && serials.length === 0) serials = [parsed.gs1.serial.toUpperCase()];
+      badRequest("Scan an item, case, or serial barcode to put it on the plate");
     }
   }
 

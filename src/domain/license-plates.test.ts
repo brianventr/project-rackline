@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { InsufficientStockError } from "./inventory";
 import {
+  allocateLooseFirstLots,
+  allocateLooseFirstSerials,
   applyPlateOps,
   assertPlateCan,
   canPlate,
@@ -181,6 +184,40 @@ describe("the invariant", () => {
       { itemId: "shade", qty: 20, onPlates: 10, loose: 10 },
       { itemId: "cord", qty: 5, onPlates: 0, loose: 5 },
     ]);
+  });
+});
+
+describe("loose-first allocation", () => {
+  const lots = [
+    { lotCode: "L1", qty: 6, expiresOn: null },
+    { lotCode: "L2", qty: 4, expiresOn: null },
+  ];
+  const onL1 = [plate("LP-000001", [line("bulb", 6, "L1")])];
+
+  it("takes loose lots before the lots on plates", () => {
+    expect(allocateLooseFirstLots(lots, onL1, bay, "bulb", 3, "LED-BULB")).toEqual([{ lotCode: "L2", qty: 3, expiresOn: null }]);
+  });
+
+  it("takes every loose lot before cutting into a plate's lot", () => {
+    expect(allocateLooseFirstLots(lots, onL1, bay, "bulb", 5, "LED-BULB")).toEqual([
+      { lotCode: "L2", qty: 4, expiresOn: null },
+      { lotCode: "L1", qty: 1, expiresOn: null },
+    ]);
+  });
+
+  it("is plain FIFO without plates, and refuses what the bay cannot cover", () => {
+    expect(allocateLooseFirstLots(lots, [], bay, "bulb", 7, "LED-BULB")).toEqual([
+      { lotCode: "L1", qty: 6, expiresOn: null },
+      { lotCode: "L2", qty: 1, expiresOn: null },
+    ]);
+    expect(() => allocateLooseFirstLots(lots, onL1, bay, "bulb", 11, "LED-BULB")).toThrow(InsufficientStockError);
+  });
+
+  it("takes loose serials first, then serials on plates", () => {
+    const onPlate = [plate("LP-000001", [line("lamp", 1, null, "S1"), line("lamp", 1, null, "S2")])];
+    expect(allocateLooseFirstSerials(["S1", "S2", "S3"], onPlate, "lamp", 1, "LAMP")).toEqual(["S3"]);
+    expect(allocateLooseFirstSerials(["S1", "S2", "S3"], onPlate, "lamp", 2, "LAMP")).toEqual(["S3", "S1"]);
+    expect(() => allocateLooseFirstSerials(["S1"], onPlate, "lamp", 2, "LAMP")).toThrow(InsufficientStockError);
   });
 });
 

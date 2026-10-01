@@ -5,8 +5,6 @@ import type { AppDb } from "./stock";
 import type { MovementDraft } from "../domain/inventory";
 import { InsufficientStockError } from "../domain/inventory";
 import {
-  allocateFifoLots,
-  allocateSerials,
   assertSerialQty,
   builtLotCode,
   generatedSerial,
@@ -18,11 +16,10 @@ import {
   addUtcDays,
   assertLotNotExpired,
   assertSameLotExpiry,
-  isExpiredLot,
   requireExpiry,
   utcYyyymmdd,
 } from "../domain/expiry";
-import { looseLots, looseSerials } from "../domain/license-plates";
+import { allocateLooseFirstLots, allocateLooseFirstSerials } from "../domain/license-plates";
 import { loadPlates } from "./license-plates";
 import { badRequest } from "../lib/http";
 import { newId } from "../lib/ids";
@@ -164,8 +161,11 @@ async function expandOne(
       );
       throw new HeldStockError(item.sku, hit?.locationCode ?? movement.fromLocationId, hit?.number ?? "hold", hit?.reason ?? "QC");
     }
-    const allocated = allocateFifoLots(
-      await looseLotsFirst(db, organizationId, movement.fromLocationId, item.id, available, movement.qty),
+    const allocated = allocateLooseFirstLots(
+      available,
+      await loadPlates(db, organizationId, { locationIds: [movement.fromLocationId] }),
+      movement.fromLocationId,
+      item.id,
       movement.qty,
       item.sku,
     );
@@ -211,28 +211,11 @@ async function attachOutboundSerials(
   if (serials.length === 0 && movement.fromLocationId) {
     const onHand = await loadSerialsAt(db, organizationId, movement.fromLocationId, item.id);
     const plates = await loadPlates(db, organizationId, { locationIds: [movement.fromLocationId] });
-    const loose = looseSerials(onHand, plates, item.id);
-    serials = allocateSerials(loose.length >= movement.qty ? loose : onHand, movement.qty, item.sku);
+    serials = allocateLooseFirstSerials(onHand, plates, item.id, movement.qty, item.sku);
   } else if (serials.length) {
     assertSerialQty(movement.qty, serials, item.sku);
   }
   return [{ ...movement, serials: serials.length ? serials : null }];
-}
-
-/** The lots no plate holds when they cover `qty`, so loose stock goes first; otherwise every lot. */
-async function looseLotsFirst<T extends { lotCode: string; qty: number; expiresOn: number | null }>(
-  db: AppDb,
-  organizationId: string,
-  locationId: string,
-  itemId: string,
-  lots: T[],
-  qty: number,
-): Promise<T[]> {
-  const plates = await loadPlates(db, organizationId, { locationIds: [locationId] });
-  if (plates.length === 0) return lots;
-  const loose = looseLots(lots, plates, locationId, itemId);
-  const live = loose.filter((row) => row.qty > 0 && !isExpiredLot(row.expiresOn)).reduce((sum, row) => sum + row.qty, 0);
-  return live >= qty ? loose : lots;
 }
 
 async function loadLotsAt(db: AppDb, organizationId: string, locationId: string, itemId: string) {
