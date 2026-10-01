@@ -326,3 +326,15 @@ A scan of an each keeps working as before. On Pick, Putaway, and Wave it still f
 **Manufacturer scan proof.** One scan of a case label proves every unit in it. A pack of 24 bulbs is proven by one scan of their case barcode, where an inner pack of 4 only proves 4 of the 24.
 
 **Case codes that are plain numbers.** An ITF-14 case code such as `10614141000019` starts with digits that also look like a GS1 lot (`10`) or serial (`21`). Rackline tries a plain number as an item or pack barcode first, then as a lot or serial.
+
+## 10. Bin capacity
+
+A bay can have a limit on how many units it holds, how much they weigh, and how much room they take. Owners set the limits on the bay's **Capacity** card under **Stock → Locations**, in units, pounds, and cubic feet. A blank limit means no limit, and a bay with no limits works exactly as before.
+
+- **What counts.** A bay's weight and volume are its stock times each item's weight and size. Rackline takes those from the item's ship weight and dimensions, or else from its smallest pack size. An item with neither counts only toward the unit limit, and the Capacity card names it.
+- **What is refused.** A receive or move that would take a bay past any limit is refused with 409 `LOCATION_FULL`, which names the bay, what it would hold, and the limit. That covers receives, putaway, transfers, replenishment, ASN and yard receives, returns, and plate moves.
+- **What is not checked.** Counts, adjustments, builds, unpicks, and dekits never hit a limit, so the ledger can always be put right. A bay already over its limit can still give stock up.
+- **Owner override.** When an owner hits a full bay, Floor Receive and Put away offer **Fill past its limit**, and the API takes `overrideCapacity: true`. Each override writes a `capacity.override` row to the audit log in the same batch as the stock. An operator who sends the flag gets 403.
+- **Putaway.** Suggestions skip full bays, prefer a bay with room for the whole qty, and never suggest more than a bay has room for.
+
+Manufacturer shows a **Fill** column on Locations, the Capacity card on each bay, and fill % on the floor-plan map. The meter turns amber at 85% and red once the bay is full. Garage hides capacity, but a limit set in Manufacturer still holds, and the bay's page still shows it.
