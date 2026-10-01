@@ -172,6 +172,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/stock/locations",
   },
   {
+    id: "slotting",
+    term: "Slotting",
+    aliases: ["plan slotting", "pick-face assignment", "velocity slotting"],
+    short: "Opens a transfer that puts a fast SKU on a pick face. Stock does not move until that transfer is posted.",
+    long: "The rank is picks and shipments over the last 30 days, the same movement ABC uses. The move is from the bulk bay onto an empty pick face, or one whose SKU is slower. A SKU already on a pick face is skipped, and a slower SKU never displaces a faster one. Qty is what is available in bulk, capped by the pick face max when it is set. Planning again does not open a second transfer for the same SKU and destination. Manufacturer only.",
+    path: "/stock/locations",
+  },
+  {
     id: "bulk-bay",
     term: "Bulk bay",
     aliases: ["bulk", "bulk storage", "reserve storage", "overstock"],
@@ -505,6 +513,21 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     aliases: ["bom", "bill of materials", "recipes", "kitting steps"],
     short: "What one unit of a finished or WIP SKU consumes, plus numbered steps for the bench. Kits and work orders build from it.",
     path: "/make/recipes",
+  },
+  {
+    id: "nested-recipe",
+    term: "Nested recipe",
+    aliases: ["nested bom", "child work order", "build short sub-assemblies"],
+    short: "A component with its own recipe. Build short sub-assemblies opens a child work order for the qty that is short.",
+    long: "The parent still consumes that component, so completing it returns COMPONENT_SHORT and names the child until the component is on hand. Completing the child does not complete the parent. Only the direct components are opened, not every level. A cycle is refused, and a recipe stops at five levels.",
+    path: "/make/recipes",
+  },
+  {
+    id: "work-center",
+    term: "Work center",
+    aliases: ["work centers", "work centre", "bench routing"],
+    short: "Where a recipe step is done. Stock stays on one ledger. The center is only a name on the step.",
+    path: "/setup/warehouse",
   },
   {
     id: "work-order",

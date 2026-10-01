@@ -19,8 +19,8 @@ describe("normalizeBomSteps", () => {
         components,
       ),
     ).toEqual([
-      { id: null, seq: 1, title: "Base", body: "", imageUrl: null, componentItemId: null },
-      { id: null, seq: 2, title: "Cord", body: "Thread the cord.", imageUrl: null, componentItemId: null },
+      { id: null, seq: 1, title: "Base", body: "", imageUrl: null, componentItemId: null, workCenterId: null },
+      { id: null, seq: 2, title: "Cord", body: "Thread the cord.", imageUrl: null, componentItemId: null, workCenterId: null },
     ]);
   });
 
@@ -37,5 +37,14 @@ describe("normalizeBomSteps", () => {
     expect(
       normalizeBomSteps([{ title: "Seat base", componentItemId: "base" }], components)[0]?.componentItemId,
     ).toBe("base");
+  });
+
+  it("keeps a work center that belongs to the organization", () => {
+    expect(
+      normalizeBomSteps([{ title: "Weld", workCenterId: "bench" }], components, ["bench"])[0]?.workCenterId,
+    ).toBe("bench");
+    expect(() => normalizeBomSteps([{ title: "Weld", workCenterId: "missing" }], components, ["bench"])).toThrow(
+      "Work center is not in this organization",
+    );
   });
 });

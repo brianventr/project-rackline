@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useWatch } from "react-hook-form";
 import { ArrowRightLeft, Hammer, Map as MapIcon, MapPin, Plus, Printer, Tags, Trash2 } from "lucide-react";
-import { api, errorText, type InventoryRow, type Location, type Me, type Plate } from "../api";
+import { api, errorText, type InventoryRow, type Location, type Me, type Plate, type SlottingPlan } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, Card, EmptyState, ErrorBanner, PageHeader, StatusBadge, Table, ToneBadge } from "../components/ui";
 import { NumberField, SelectField, TextField, useZodForm, type ZodFormInput, type ZodFormOutput } from "../components/form-kit";
@@ -304,6 +304,8 @@ function LocationList({ me }: { me: Me }) {
     );
   }
 
+  const garage = isGarageMode(me.organization.operatingMode);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
@@ -327,12 +329,13 @@ function LocationList({ me }: { me: Me }) {
           </>
         }
       />
+      {garage ? null : <SlottingCard warehouseId={warehouseId} owner={me.role === "owner"} />}
       <DataTable
         id="locations"
         data={rows}
         loading={locations.isLoading || inventory.isLoading}
         error={locations.error?.message ?? inventory.error?.message}
-        columns={isGarageMode(me.organization.operatingMode) ? LOCATION_COLUMNS : MANUFACTURER_COLUMNS}
+        columns={garage ? LOCATION_COLUMNS : MANUFACTURER_COLUMNS}
         getRowId={(row) => row.id}
         rowHref={(row) => `/stock/locations/${row.id}`}
         tabs={LOCATION_TABS}
@@ -687,5 +690,79 @@ function LocationDetail({ me, id }: { me: Me; id: string }) {
         ) : null}
       </DocumentFrame>
     </div>
+  );
+}
+
+function SlottingCard({ warehouseId, owner }: { warehouseId: string; owner: boolean }) {
+  const write = useWrite();
+  const plan = useApiQuery<SlottingPlan>(warehouseId ? `/api/slotting?warehouseId=${encodeURIComponent(warehouseId)}` : null);
+  const proposals = plan.data?.proposals ?? [];
+
+  async function create() {
+    if (!warehouseId) return;
+    const result = await write.run(
+      "Plan slotting",
+      () =>
+        api<SlottingPlan>("/api/slotting/plan", {
+          method: "POST",
+          body: JSON.stringify({ warehouseId }),
+        }),
+      (done) =>
+        done.created > 0
+          ? `Opened ${done.created} ${done.created === 1 ? "transfer" : "transfers"}. Stock stays until each one is posted.`
+          : "No new transfers. Open ones already cover these moves.",
+    );
+    if (result) void plan.refetch();
+  }
+
+  return (
+    <Card className="space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <p className="text-sm font-medium">
+            <Term id="slotting">Slotting</Term>
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Fast movers in bulk can move onto a <Term id="pick-face">pick face</Term>. Planning opens a transfer and does
+            not move stock.
+          </p>
+        </div>
+        {owner ? (
+          <Button size="sm" disabled={write.busy || !warehouseId} onClick={() => void create()}>
+            <ArrowRightLeft className="size-4" />
+            Plan slotting
+          </Button>
+        ) : null}
+      </div>
+      <ErrorBanner error={write.error ?? plan.error?.message ?? null} />
+      {plan.isLoading ? <p className="text-sm text-muted-foreground">Checking pick faces…</p> : null}
+      {!plan.isLoading && proposals.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No moves. Fast SKUs are already on a pick face, or nothing in bulk has moved.</p>
+      ) : null}
+      {proposals.length > 0 ? (
+        <Table columns={["SKU", "Qty", "From", "To", "Transfer"]}>
+          {proposals.map((row) => (
+            <tr key={`${row.itemId}:${row.toLocationId}`}>
+              <td>
+                <span className="font-mono">{row.sku}</span>
+                {row.itemName ? <span className="text-muted-foreground"> {row.itemName}</span> : null}
+              </td>
+              <td className="font-mono tabular-nums">{row.qty}</td>
+              <td className="font-mono">{row.fromCode}</td>
+              <td className="font-mono">{row.toCode}</td>
+              <td>
+                {row.transfer ? (
+                  <Link className="font-mono underline" to={`/inbound/putaway/${row.transfer.id}`}>
+                    {row.transfer.number}
+                  </Link>
+                ) : (
+                  <Muted>Not opened</Muted>
+                )}
+              </td>
+            </tr>
+          ))}
+        </Table>
+      ) : null}
+    </Card>
   );
 }

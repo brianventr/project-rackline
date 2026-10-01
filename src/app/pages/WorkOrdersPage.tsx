@@ -321,6 +321,27 @@ function WorkOrderDetail({ id }: { id: string }) {
     if (next) setOrder(next);
   }
 
+  async function buildShort() {
+    const result = await run(
+      "Build short sub-assemblies",
+      () =>
+        api<{ created: { id: string; number: string; sku: string; qty: number }[]; existing: { number: string }[] }>(
+          `/api/work-orders/${id}/build-short`,
+          { method: "POST", body: "{}" },
+        ),
+      (done) => {
+        if (done.created.length === 0 && done.existing.length === 0) return "Nothing is short.";
+        const opened = done.created.map((row) => `${row.number} for ${row.sku} × ${row.qty}`);
+        const kept = done.existing.map((row) => row.number);
+        return [...opened, ...kept.map((number) => `${number} is already open`)].join(". ") + ".";
+      },
+    );
+    if (result) {
+      const next = await api<WorkOrder>(`/api/work-orders/${id}`);
+      setOrder(next);
+    }
+  }
+
   async function complete() {
     const qty = Number(thisQty);
     const next = await run(
@@ -351,6 +372,7 @@ function WorkOrderDetail({ id }: { id: string }) {
 
   const menu: DocumentAction[] = [
     ...(current.status === "draft" ? [{ label: "Start", icon: Play, onSelect: start }] : []),
+    ...(completable ? [{ label: "Build short sub-assemblies", icon: ListTree, onSelect: buildShort }] : []),
     { label: "Open on floor", icon: ScanLine, to: `/floor/assemble?id=${current.id}` },
     { label: "Recipe", icon: BookOpen, to: `/make/recipes?item=${current.itemId}` },
   ];
@@ -391,6 +413,24 @@ function WorkOrderDetail({ id }: { id: string }) {
                 <DocumentFact label="Created">
                   <RelativeTime at={current.createdAt} />
                 </DocumentFact>
+                {current.parentWorkOrderId ? (
+                  <DocumentFact label="Parent">
+                    <Link className="font-mono underline" to={`/make/work-orders/${current.parentWorkOrderId}`}>
+                      {current.parentNumber ?? "Parent work order"}
+                    </Link>
+                  </DocumentFact>
+                ) : null}
+                {(current.children ?? []).length > 0 ? (
+                  <DocumentFact label="Children">
+                    <span className="flex flex-col items-end gap-1">
+                      {(current.children ?? []).map((child) => (
+                        <Link key={child.id} className="font-mono underline" to={`/make/work-orders/${child.id}`}>
+                          {child.number} · {child.sku}
+                        </Link>
+                      ))}
+                    </span>
+                  </DocumentFact>
+                ) : null}
               </div>
             </Card>
           </DocumentRail>
