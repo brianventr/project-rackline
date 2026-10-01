@@ -32,6 +32,7 @@ import { orderAddressVerdict } from "../db/address-checks";
 import { AddressInvalidError } from "../domain/address-check";
 import { loadCarrierConnections, recordCarrierEvent } from "./carriers";
 import { scheduleShopifySellableSync } from "../db/shopify-sellable";
+import { scheduleOrderCreated, scheduleOrderShipped } from "../db/outbound-webhooks";
 import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { splitCatchWeight } from "../domain/catch-weight";
@@ -560,6 +561,12 @@ ordersRoute.post("/orders", async (c) => {
     organizationId,
     lines.map((line) => line.itemId),
   );
+  scheduleOrderCreated(db, organizationId, {
+    number: created.number,
+    status: created.status,
+    city: created.shipToCity,
+    lines: created.lines.map((line) => ({ sku: line.sku, qty: line.qty })),
+  });
   return c.json(created, 201);
 });
 
@@ -2021,9 +2028,28 @@ async function loadPickWeightsByItem(
 }
 
 /** After the order is shipped. `waitUntil` keeps the mail off this request. */
-function scheduleShippedEmail(c: Context<AppEnv>, order: { id: string; status: string }) {
+function scheduleShippedEmail(
+  c: Context<AppEnv>,
+  order: {
+    id: string;
+    status: string;
+    number: string;
+    shipToCity?: string | null;
+    trackingCompany?: string | null;
+    carrierService?: string | null;
+    trackingNumber?: string | null;
+  },
+) {
   if (order.status !== "shipped") return;
   scheduleCustomerEmails(c, { event: "shipped", orderIds: [order.id] });
+  const organizationId = c.get("organizationId");
+  if (!organizationId) return;
+  scheduleOrderShipped(c.get("db"), organizationId, {
+    number: order.number,
+    status: order.status,
+    carrier: order.trackingCompany || order.carrierService || null,
+    trackingNumber: order.trackingNumber ?? null,
+  });
 }
 
 async function shipOrderCartons(
@@ -2507,6 +2533,12 @@ ordersRoute.post("/orders/:id/short-ship", async (c) => {
     order.lines.map((line) => line.itemId),
   );
   scheduleShippedEmail(c, shipped);
+  scheduleOrderCreated(db, organizationId, {
+    number: backorder.number,
+    status: backorder.status,
+    city: backorder.shipToCity,
+    lines: backorder.lines.map((line) => ({ sku: line.sku, qty: line.qty })),
+  });
   return c.json(shipped);
 });
 

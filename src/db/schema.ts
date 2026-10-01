@@ -2175,6 +2175,63 @@ export const idempotencyKeys = sqliteTable(
   (t) => [uniqueIndex("idempotency_keys_org_key").on(t.organizationId, t.key)],
 );
 
+export const apiKeys = sqliteTable(
+  "api_keys",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    secretHash: text("secret_hash").notNull(),
+    prefix: text("prefix").notNull(),
+    scopes: text("scopes").notNull(),
+    createdAt: integer("created_at").notNull(),
+    revokedAt: integer("revoked_at"),
+  },
+  (t) => [uniqueIndex("api_keys_secret_hash").on(t.secretHash), index("api_keys_org").on(t.organizationId)],
+);
+
+export const webhookEndpoints = sqliteTable(
+  "webhook_endpoints",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    events: text("events").notNull(),
+    /** Sealed signing secret. The clear secret is returned only from the create call. */
+    secret: text("secret").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("webhook_endpoints_org").on(t.organizationId)],
+);
+
+export const webhookDeliveries = sqliteTable(
+  "webhook_deliveries",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    endpointId: text("endpoint_id")
+      .notNull()
+      .references(() => webhookEndpoints.id, { onDelete: "cascade" }),
+    event: text("event").notNull(),
+    status: text("status").notNull(),
+    responseCode: integer("response_code"),
+    error: text("error"),
+    payloadJson: text("payload_json").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("webhook_deliveries_org_created").on(t.organizationId, t.createdAt),
+    index("webhook_deliveries_endpoint").on(t.endpointId, t.createdAt),
+  ],
+);
+
 export const auditEvents = sqliteTable(
   "audit_events",
   {

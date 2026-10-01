@@ -569,6 +569,22 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/setup/clients",
   },
   {
+    id: "api-key",
+    term: "API key",
+    aliases: ["public api", "bearer key", "read api"],
+    short: "A key other systems use to read orders, stock, or shipments. Rackline stores only its hash, and the secret is shown once.",
+    long: "Send it as Authorization: Bearer. A missing or revoked key is refused. A key without the scope for that list is refused too. Pages are 50 rows, and the cursor does not carry an internal id.",
+    path: "/setup/integrations",
+  },
+  {
+    id: "outbound-webhook",
+    term: "Outbound webhook",
+    aliases: ["signed webhook", "rackline signature"],
+    short: "An https call Rackline makes when an order is created, an order ships, or stock changes. The body is signed.",
+    long: "The Rackline-Signature header is the hex HMAC-SHA256 of the raw body, using the secret shown when the endpoint was added. A failed delivery shows in Exceptions. Send again posts the same body. The user's action still finishes if the receiver is down.",
+    path: "/setup/integrations",
+  },
+  {
     id: "job",
     term: "Floor job",
     aliases: ["job", "next job", "my jobs", "claim"],

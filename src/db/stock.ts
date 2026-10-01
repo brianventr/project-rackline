@@ -31,6 +31,7 @@ import {
 import { loadOpenAssignmentForOperator } from "./equipment";
 import { capacityStatements, type CapacityLocation, type CapacityOverride } from "./capacity";
 import { plateStatements } from "./license-plates";
+import { scheduleStockChanged } from "./outbound-webhooks";
 import type { PlateOp } from "../domain/license-plates";
 export type AppDb = DrizzleD1Database<typeof import("./schema")>;
 
@@ -241,6 +242,13 @@ export async function persistStockPlan(
     if (itemIds.length > 0) {
       const { scheduleShopifySellableSync } = await import("./shopify-sellable");
       await scheduleShopifySellableSync(db, input.organizationId, itemIds);
+    }
+  }
+  if (movements.length > 0) {
+    try {
+      scheduleStockChanged(db, input.organizationId, movements, input.now);
+    } catch (err) {
+      console.error("webhook schedule", err);
     }
   }
 }

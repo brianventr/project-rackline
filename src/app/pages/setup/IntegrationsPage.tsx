@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { StatusTone } from "@/domain/status";
 import { relativeTime } from "@/domain/relative-time";
 import { channelHealthBadge } from "./channel-health";
+import { PublicApiPanel } from "./PublicApiPanel";
 
 type Connection = {
   tone: StatusTone;
@@ -195,6 +196,8 @@ export function IntegrationsPage() {
           state={{ tone: "neutral", label: "CSV export", detail: "Download valuation, invoices, and COGS.", connected: true }}
         />
       </Group>
+
+      {owner ? <PublicApiPanel /> : null}
 
       {garage ? (
         <p className="text-sm text-muted-foreground">

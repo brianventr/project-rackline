@@ -4,6 +4,7 @@ import type { AppDb } from "./stock";
 import { newId } from "../lib/ids";
 import { orderJobInput, syncDocumentJob } from "./jobs";
 import { reserveOrderStock } from "./allocations";
+import { scheduleOrderCreated } from "./outbound-webhooks";
 import { ensureCustomer } from "./parties";
 import { normalizeSku, type ChannelId, type ChannelOrder } from "../domain/channels/adapter";
 
@@ -140,6 +141,12 @@ export async function persistChannelOrder(
     orderId,
     clientId: null,
     lines: reserveLines,
+  });
+  scheduleOrderCreated(db, organizationId, {
+    number: row.number,
+    status: row.status,
+    city: row.shipToCity,
+    lines: reserveLines.map((line) => ({ sku: line.sku, qty: line.qty })),
   });
   return { orderId, number: row.number, created: true, missingSkus: [...missing] };
 }

@@ -677,3 +677,11 @@ The organization invoice list at `/api/billing/portal/…` is unchanged. That li
 ## 25. Invoice export
 
 Settings → Accounting downloads a QBO/Xero CSV of invoices next to the inventory valuation CSV. Owners only. Each stored invoice line is its own row (invoice number, client code, status, period, line, qty, unit amount, amount). An invoice that has no lines stored is one row for the invoice total. Valuation stays at `/api/accounting/valuation.csv`. Invoices are `/api/accounting/invoices.csv`.
+
+## 26. Public API and outbound webhooks
+
+Settings → Integrations lists API keys and outbound endpoints for owners, in both Garage and Manufacturer. Creating a key shows the secret once. Rackline stores the SHA-256 hash and a short prefix, not the secret. The secret looks like `rk_live_` plus 32 url-safe characters. Send it as `Authorization: Bearer`.
+
+`GET /api/v1/orders`, `GET /api/v1/stock`, and `GET /api/v1/shipments` do not use a browser session. A missing or revoked key is unauthorized. A key without `orders:read`, `stock:read`, or `shipments:read` for that list is forbidden. Each page is at most 50 rows, with a cursor. The JSON uses order numbers and SKUs.
+
+An endpoint is an https URL, or http on localhost. Choose `order.created`, `order.shipped`, and `stock.changed`. Rackline posts the JSON after the order is created, after it ships, and after stock moves. The post runs after the response, so a down receiver does not fail or slow the action. The `Rackline-Signature` header is the hex HMAC-SHA256 of the raw body. The signing secret is sealed at rest and shown once. Each attempt is a delivery row (status, response code, error). A failed delivery shows in Exceptions, and **Send again** posts that same body.
