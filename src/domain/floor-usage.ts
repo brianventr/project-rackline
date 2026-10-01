@@ -34,6 +34,7 @@ export const FLOOR_PATH_GROUP: Readonly<Record<string, FloorGroupId>> = {
   "/floor/replenish": "stock",
   "/floor/count": "stock",
   "/floor/hold": "stock",
+  "/floor/exceptions": "stock",
   "/floor/plates": "stock",
   "/floor/adjust": "stock",
   "/floor/assemble": "make",
