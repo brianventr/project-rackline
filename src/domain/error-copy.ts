@@ -43,6 +43,9 @@ export const ERROR_CODES = [
   "CARRIER_LIVE",
   "LIVE_ADDRESS",
   "NO_RATE",
+  "NEED_WEIGHT",
+  "SHIP_RULE_HOLD",
+  "SHIP_RULE_SERVICE",
   "RETURN_LABEL_UNSUPPORTED",
   "CUSTOMS_REQUIRED",
   "CUSTOMS_UNSUPPORTED",
@@ -398,6 +401,21 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
     message: text ? asSentence(text) : "The carrier did not return a rate for this parcel.",
     hint: "Choose another service, or check the carton weight and size.",
   }),
+  NEED_WEIGHT: ({ text }) => {
+    const skus = text.match(/ship weight for (.+?) before/i)?.[1];
+    return {
+      message: skus ? `Live postage needs a ship weight for ${skus}.` : "Live postage needs a weight for this parcel.",
+      hint: "Add a ship weight on the item's Settings, or type the parcel weight.",
+    };
+  },
+  SHIP_RULE_HOLD: ({ text }) => ({
+    message: splitSentences(text || "A shipping rule holds this order for review").message,
+    hint: "Check the order, then choose Ship anyway in the ship queue.",
+  }),
+  SHIP_RULE_SERVICE: ({ text }) => {
+    const copy = splitSentences(text || "A shipping rule ships with a service no connected carrier account offers");
+    return { message: copy.message, hint: copy.hint ?? "Edit the rule in Settings → Shipping rules, or turn the service back on." };
+  },
   RETURN_LABEL_UNSUPPORTED: ({ text }) => {
     const carrier = text.match(/direct (\S+) account/i)?.[1];
     return {

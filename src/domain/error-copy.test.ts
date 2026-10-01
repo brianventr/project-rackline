@@ -99,6 +99,17 @@ const SAMPLE: Record<ErrorCode, { status: number; body: Record<string, unknown> 
     body: { error: "Live postage needs a street, city, region, and postal code on ship-from and ship-to." },
   },
   NO_RATE: { status: 409, body: { error: "EasyPost did not return a Priority rate for this parcel." } },
+  NEED_WEIGHT: { status: 409, body: { error: "Add a ship weight for SHADE, CORD before buying live postage" } },
+  SHIP_RULE_HOLD: {
+    status: 409,
+    body: { error: "Held for review by rule “Big orders”. Open the order to check it, then ship it." },
+  },
+  SHIP_RULE_SERVICE: {
+    status: 409,
+    body: {
+      error: "Rule “Oversize” ships with a service no connected carrier account offers. Edit the rule or turn the service back on.",
+    },
+  },
   RETURN_LABEL_UNSUPPORTED: {
     status: 409,
     body: {
@@ -340,6 +351,25 @@ describe("explainError — every code", () => {
       message: "A direct UPS account cannot buy return labels in Rackline yet.",
       hint: "Choose a service on EasyPost, ShipEngine, FedEx, or Rackline Ground.",
     });
+  });
+
+  it("quick-ship stops name the SKUs without a weight and the rule that holds or misroutes the order", () => {
+    expect(explain("NEED_WEIGHT")).toEqual({
+      message: "Live postage needs a ship weight for SHADE, CORD.",
+      hint: "Add a ship weight on the item's Settings, or type the parcel weight.",
+      code: "NEED_WEIGHT",
+    });
+    expect(explain("SHIP_RULE_HOLD")).toMatchObject({
+      message: "Held for review by rule “Big orders”.",
+      hint: "Check the order, then choose Ship anyway in the ship queue.",
+    });
+    expect(explain("SHIP_RULE_SERVICE")).toMatchObject({
+      message: "Rule “Oversize” ships with a service no connected carrier account offers.",
+      hint: "Edit the rule or turn the service back on.",
+    });
+    expect(explainError(409, { code: "SHIP_RULE_SERVICE" }, "").hint).toBe(
+      "Edit the rule in Settings → Shipping rules, or turn the service back on.",
+    );
   });
 
   it("customs codes name the SKU and the fix", () => {
