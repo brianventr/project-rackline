@@ -198,14 +198,16 @@ describe("openShopifyRow", () => {
 
   it("opens a sealed Shopify webhook secret and writes nothing", async () => {
     const { db, writes } = fakeDb();
-    const opened = await openShopifyRow(db, () => SECRET, shopifyRow(null, await sealSecret(SECRET, "shpss_live")));
+    const sealed = await sealSecret(SECRET, "shpss_live");
+    const opened = await openShopifyRow(db, () => SECRET, shopifyRow(null, sealed ?? undefined));
     expect(opened.webhookSecret).toBe("shpss_live");
     expect(writes).toEqual([]);
   });
 
   it("reads a Shopify webhook secret sealed under another key as missing", async () => {
     const { db, writes } = fakeDb();
-    const opened = await openShopifyRow(db, () => SECRET, shopifyRow(null, await sealSecret("an-older-secret", "shpss_live")));
+    const sealed = await sealSecret("an-older-secret", "shpss_live");
+    const opened = await openShopifyRow(db, () => SECRET, shopifyRow(null, sealed ?? undefined));
     expect(opened.webhookSecret).toBe("");
     expect(writes).toEqual([]);
   });

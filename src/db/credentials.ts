@@ -105,7 +105,9 @@ export async function openShopifyRow(db: AppDb, secret: SecretSource, row: Shopi
         .where(
           and(
             eq(schema.shopifyConnections.id, row.id),
-            ...(patch.accessToken ? [eq(schema.shopifyConnections.accessToken, row.accessToken)] : []),
+            ...(patch.accessToken && row.accessToken
+              ? [eq(schema.shopifyConnections.accessToken, row.accessToken)]
+              : []),
             ...(patch.webhookSecret ? [eq(schema.shopifyConnections.webhookSecret, row.webhookSecret)] : []),
           ),
         ),
