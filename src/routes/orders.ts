@@ -447,6 +447,7 @@ ordersRoute.get("/orders", async (c) => {
     byOrder.set(line.orderId, list);
   }
   const allocations = await loadOpenAllocations(db, organizationId);
+  const soft = await loadOpenSoftAllocations(db, organizationId);
   const allocsByOrder = new Map<string, OpenAllocation[]>();
   for (const row of allocations) {
     const list = allocsByOrder.get(row.orderId) ?? [];
@@ -460,13 +461,20 @@ ordersRoute.get("/orders", async (c) => {
   return c.json(
     rows.map((row) => {
       const reserved = allocsByOrder.get(row.id) ?? [];
+      const softRows = soft.filter((held) => held.orderId === row.id);
       const packages = packagesByOrder.get(row.id) ?? [];
+      const lines = withCartonRemaining(
+        withAllocations((byOrder.get(row.id) ?? []).map(withRemaining), reserved, softRows),
+        packages,
+      );
       return {
         ...row,
         allocatedUnits: allocatedUnits(reserved),
+        reservedUnits: lines.reduce((sum, line) => sum + (line.reservedQty ?? 0), 0),
+        shortUnits: row.stockReservedAt == null ? 0 : lines.reduce((sum, line) => sum + (line.shortQty ?? 0), 0),
         allocations: reserved,
         packages,
-        lines: withCartonRemaining(withAllocations((byOrder.get(row.id) ?? []).map(withRemaining), reserved), packages),
+        lines,
       };
     }),
   );

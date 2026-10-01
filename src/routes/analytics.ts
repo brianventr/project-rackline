@@ -11,7 +11,7 @@ import {
 } from "../domain/traffic";
 import { isRunwayMultiplier, isRunwayWindow } from "../domain/runway";
 import { loadRunway } from "../db/runway";
-import { loadPromiseFacts } from "../db/promise";
+import { loadPromiseBoard, loadPromiseFacts } from "../db/promise";
 import { askPromise, parseCutoff, parsePromiseQty, parsePromiseSku, planPromises } from "../domain/promise";
 
 export const analyticsRoute = new Hono<AppEnv>();
@@ -207,6 +207,5 @@ analyticsRoute.get("/analytics/promises", async (c) => {
   const warehouseId = c.req.query("warehouseId");
   if (!warehouseId) badRequest("warehouseId is required");
   const cutoffMinutes = readCutoff(c.req.query("cutoff"));
-  const facts = await loadPromiseFacts(db, organizationId, warehouseId, { cutoffMinutes });
-  return c.json(planPromises(facts.input).board);
+  return c.json(await loadPromiseBoard(db, organizationId, warehouseId, { cutoffMinutes }));
 });
