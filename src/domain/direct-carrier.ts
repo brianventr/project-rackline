@@ -1,4 +1,4 @@
-import type { LiveShipAddress, ParcelDims } from "./carrier-live";
+import type { LiveShipAddress, ParcelDims, ReturnLabelRequest } from "./carrier-live";
 
 export const DIRECT_PROVIDERS = ["ups", "fedex", "usps", "dhl"] as const;
 export type DirectProvider = (typeof DIRECT_PROVIDERS)[number];
@@ -67,6 +67,7 @@ export type ParsedDirectLabel = {
   labelId: string | null;
   postageCents: number | null;
   trackingUrl: string | null;
+  labelUrl?: string | null;
 };
 
 export type ParsedDirectRate = {
@@ -197,13 +198,19 @@ function fedexAddress(address: LiveShipAddress) {
   };
 }
 
+/**
+ * A FedEx return keeps the direction it travels: the customer is the shipper and the building the
+ * recipient, with the account in the request paying for it.
+ */
 export function fedexShipBody(input: {
   accountNumber: string;
   serviceId: string;
   shipFrom: LiveShipAddress;
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
+  returnLabel?: ReturnLabelRequest | null;
 }) {
+  const ret = input.returnLabel ?? null;
   return {
     labelResponseOptions: "URL_ONLY",
     accountNumber: { value: input.accountNumber },
@@ -214,6 +221,14 @@ export function fedexShipBody(input: {
       packagingType: "YOUR_PACKAGING",
       pickupType: "DROPOFF_AT_FEDEX_LOCATION",
       shippingChargesPayment: { paymentType: "SENDER" },
+      ...(ret
+        ? {
+            shipmentSpecialServices: {
+              specialServiceTypes: ["RETURN_SHIPMENT"],
+              returnShipmentDetail: { returnType: "PRINT_RETURN_LABEL" },
+            },
+          }
+        : {}),
       labelSpecification: { imageType: "PDF", labelStockType: "PAPER_4X6" },
       requestedPackageLineItems: [
         {
@@ -224,6 +239,7 @@ export function fedexShipBody(input: {
             height: input.parcel.heightIn,
             units: "IN",
           },
+          ...(ret ? { customerReferences: [{ customerReferenceType: "RMA_ASSOCIATION", value: ret.rmaNumber }] } : {}),
         },
       ],
     },
@@ -245,12 +261,17 @@ export function parseFedexLabel(payload: unknown): ParsedDirectLabel | null {
   if (!tracking) return null;
   const rating = asRecord(asRecord(first.completedShipmentDetail)?.shipmentRating);
   const detail = asRecord(Array.isArray(rating?.shipmentRateDetails) ? rating.shipmentRateDetails[0] : rating?.shipmentRateDetails);
+  const documents = Array.isArray(piece?.packageDocuments) ? piece.packageDocuments : [];
+  const labelUrl = documents
+    .map((doc) => asRecord(doc)?.url)
+    .find((url): url is string => typeof url === "string" && /^https?:\/\//i.test(url));
   return {
     trackingNumber: tracking,
     shipmentId: tracking,
     labelId: tracking,
     postageCents: cents(detail?.totalNetCharge ?? piece?.baseRateAmount),
     trackingUrl: `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(tracking)}`,
+    labelUrl: labelUrl ?? null,
   };
 }
 

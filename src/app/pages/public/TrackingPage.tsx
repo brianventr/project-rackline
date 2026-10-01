@@ -1,10 +1,19 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ExternalLink, Package, Truck } from "lucide-react";
+import { ExternalLink, Truck } from "lucide-react";
 import { api, ApiError, type PublicTracking, type PublicTrackingPackage } from "../../api";
 import { ToneBadge } from "../../components/ui";
-import type { StatusTone } from "@/domain/status";
-import { formatDay, formatMoment, PublicLoading, PublicMessage, PublicShell, useNoIndex } from "./public-page";
+import {
+  EventTimeline,
+  formatDay,
+  formatMoment,
+  ItemList,
+  PublicLoading,
+  PublicMessage,
+  PublicShell,
+  trackerTone,
+  useNoIndex,
+} from "./public-page";
 
 const HEADLINES: Record<PublicTracking["order"]["status"], string> = {
   processing: "Getting your order ready",
@@ -12,13 +21,6 @@ const HEADLINES: Record<PublicTracking["order"]["status"], string> = {
   delivered: "Delivered",
   cancelled: "This order was cancelled",
 };
-
-function statusTone(status: string | null): StatusTone {
-  if (status === "delivered") return "success";
-  if (status === "exception") return "danger";
-  if (status === "in_transit") return "progress";
-  return "info";
-}
 
 /** `/t/:token`: what a customer sees from the tracking link. No sign-in. */
 export function TrackingPage() {
@@ -70,7 +72,7 @@ export function TrackingPage() {
         <PublicMessage title="Not shipped yet" body="Tracking shows up here as soon as your order leaves the shop." />
       ) : null}
 
-      {single || view.packages.length === 0 ? <ItemList items={view.items} /> : null}
+      {single || view.packages.length === 0 ? <ItemList items={view.items} title="In your order" /> : null}
 
       <p className="pt-2 text-center text-xs text-muted-foreground">Sent by {view.shop.name}</p>
     </PublicShell>
@@ -88,7 +90,7 @@ function PackageCard({ pkg, showItems }: { pkg: PublicTrackingPackage; showItems
             {pkg.service ?? pkg.carrier ?? "Carrier"}
           </p>
         </div>
-        <ToneBadge tone={statusTone(pkg.status)}>{pkg.statusLabel}</ToneBadge>
+        <ToneBadge tone={trackerTone(pkg.status)}>{pkg.statusLabel}</ToneBadge>
       </div>
 
       {pkg.deliveredAt ? (
@@ -119,48 +121,9 @@ function PackageCard({ pkg, showItems }: { pkg: PublicTrackingPackage; showItems
         </div>
       ) : null}
 
-      {pkg.events.length > 0 ? (
-        <ol className="space-y-3 border-l pl-4">
-          {pkg.events.map((event, index) => (
-            <li key={`${event.at}-${index}`} className="relative">
-              <span
-                aria-hidden
-                className={`absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-card ${index === 0 ? "bg-primary" : "bg-muted-foreground/40"}`}
-              />
-              <p className="text-sm font-medium">{event.label}</p>
-              {event.message && event.message !== event.label ? (
-                <p className="text-sm text-muted-foreground">{event.message}</p>
-              ) : null}
-              <p className="text-xs text-muted-foreground">
-                {formatMoment(event.at)}
-                {event.place ? ` · ${event.place}` : ""}
-              </p>
-            </li>
-          ))}
-        </ol>
-      ) : null}
+      <EventTimeline events={pkg.events} />
 
-      {showItems && pkg.items.length > 0 ? <ItemList items={pkg.items} bare /> : null}
-    </section>
-  );
-}
-
-function ItemList({ items, bare = false }: { items: { name: string; qty: number }[]; bare?: boolean }) {
-  if (items.length === 0) return null;
-  return (
-    <section className={bare ? "space-y-2 border-t pt-3" : "space-y-2 rounded-lg border bg-card p-4 shadow-xs"}>
-      <h2 className="flex items-center gap-1.5 text-sm font-semibold">
-        <Package className="size-4 text-muted-foreground" aria-hidden />
-        {bare ? "In this package" : "In your order"}
-      </h2>
-      <ul className="divide-y text-sm">
-        {items.map((item, index) => (
-          <li key={`${item.name}-${index}`} className="flex justify-between gap-3 py-1.5">
-            <span className="min-w-0 truncate">{item.name}</span>
-            <span className="shrink-0 tabular-nums text-muted-foreground">× {item.qty}</span>
-          </li>
-        ))}
-      </ul>
+      {showItems ? <ItemList items={pkg.items} title="In this package" bare /> : null}
     </section>
   );
 }

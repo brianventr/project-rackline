@@ -60,6 +60,12 @@ const SAMPLE: Record<ErrorCode, { status: number; body: Record<string, unknown> 
     body: { error: "Live postage needs a street, city, region, and postal code on ship-from and ship-to." },
   },
   NO_RATE: { status: 409, body: { error: "EasyPost did not return a Priority rate for this parcel." } },
+  RETURN_LABEL_UNSUPPORTED: {
+    status: 409,
+    body: {
+      error: "A direct UPS account cannot buy return labels in Rackline yet. Choose a service on EasyPost, ShipEngine, or FedEx.",
+    },
+  },
   NEED_PACKAGE: { status: 409, body: { error: "Buy a label for every carton before shipping" } },
   SHIPPED: { status: 409, body: { error: "Carton is already shipped" } },
   CANCELLED: { status: 409, body: { error: "Cancelled orders cannot drop a carton" } },
@@ -229,6 +235,10 @@ describe("explainError — every code", () => {
     expect(explain("NO_RATE")).toMatchObject({
       message: "EasyPost did not return a Priority rate for this parcel.",
       hint: "Choose another service, or check the carton weight and size.",
+    });
+    expect(explain("RETURN_LABEL_UNSUPPORTED")).toMatchObject({
+      message: "A direct UPS account cannot buy return labels in Rackline yet.",
+      hint: "Choose a service on EasyPost, ShipEngine, FedEx, or Rackline Ground.",
     });
   });
 

@@ -45,6 +45,7 @@ import { laborRoute } from "./routes/labor";
 import { printersRoute } from "./routes/printers";
 import { billingRoute, billingPublicRoute } from "./routes/billing";
 import { trackingPublicRoute, trackingRoute } from "./routes/tracking";
+import { returnLabelsPublicRoute, returnLabelsRoute } from "./routes/return-labels";
 import { ediRoute } from "./routes/edi";
 import { equipmentRoute } from "./routes/equipment";
 import { analyticsRoute } from "./routes/analytics";
@@ -126,6 +127,7 @@ app.route("/api", carriersPublicRoute);
 app.route("/api", billingPublicRoute);
 app.route("/api", channelsPublicRoute);
 app.route("/api", trackingPublicRoute);
+app.route("/api", returnLabelsPublicRoute);
 
 app.use("/api/*", async (c, next) => {
   const path = new URL(c.req.url).pathname;
@@ -140,7 +142,8 @@ app.use("/api/*", async (c, next) => {
     path.startsWith("/api/channels/woocommerce/webhook/") ||
     path === "/api/channels/etsy/oauth/callback" ||
     path.startsWith("/api/billing/portal/") ||
-    path.startsWith("/api/track/")
+    path.startsWith("/api/track/") ||
+    path.startsWith("/api/return-label/")
   ) {
     return next();
   }
@@ -227,6 +230,7 @@ app.route("/api", vendorReturnsRoute);
 app.route("/api", jobsRoute);
 app.route("/api", carriersRoute);
 app.route("/api", trackingRoute);
+app.route("/api", returnLabelsRoute);
 app.route("/api", wavesRoute);
 app.route("/api", asnsRoute);
 app.route("/api", zonesRoute);

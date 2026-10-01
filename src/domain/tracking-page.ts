@@ -291,7 +291,8 @@ function orderStatus(status: string, packages: PublicTrackingPackage[]): PublicT
   return "processing";
 }
 
-function safeLink(value: string | null): string | null {
+/** A link a public page may render: http or https only. */
+export function safeLink(value: string | null): string | null {
   if (!value) return null;
   try {
     const url = new URL(value);

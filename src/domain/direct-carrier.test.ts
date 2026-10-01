@@ -3,6 +3,7 @@ import {
   dhlShipmentBody,
   directServiceCode,
   fedexRateBody,
+  fedexShipBody,
   parseDhlLabel,
   parseDhlRates,
   parseFedexLabel,
@@ -133,5 +134,41 @@ describe("direct carrier payloads", () => {
       { serviceId: "dhl_express", amountCents: 4050, transitDays: null },
       { serviceId: "dhl_express", amountCents: 1000, transitDays: null },
     ]);
+  });
+
+  it("builds a FedEx return from the customer to the building and keeps its label link", () => {
+    const outbound = fedexShipBody({ accountNumber: "FX", serviceId: "fedex_ground", shipFrom: from, shipTo: to, parcel });
+    expect("shipmentSpecialServices" in outbound.requestedShipment).toBe(false);
+    const ret = fedexShipBody({
+      accountNumber: "FX",
+      serviceId: "fedex_ground",
+      shipFrom: to,
+      shipTo: from,
+      parcel,
+      returnLabel: { rmaNumber: "RMA-7" },
+    });
+    expect(ret.requestedShipment.shipper.contact.personName).toBe("Harbor");
+    expect(ret.requestedShipment.recipients[0]!.contact.personName).toBe("Main");
+    expect(ret.requestedShipment).toMatchObject({
+      shipmentSpecialServices: {
+        specialServiceTypes: ["RETURN_SHIPMENT"],
+        returnShipmentDetail: { returnType: "PRINT_RETURN_LABEL" },
+      },
+    });
+    expect(ret.requestedShipment.requestedPackageLineItems[0]).toMatchObject({
+      customerReferences: [{ customerReferenceType: "RMA_ASSOCIATION", value: "RMA-7" }],
+    });
+    expect(
+      parseFedexLabel({
+        output: {
+          transactionShipments: [
+            {
+              masterTrackingNumber: "7950",
+              pieceResponses: [{ trackingNumber: "7950", packageDocuments: [{ contentType: "LABEL", url: "https://fx.example/l.pdf" }] }],
+            },
+          ],
+        },
+      }),
+    ).toMatchObject({ trackingNumber: "7950", labelUrl: "https://fx.example/l.pdf" });
   });
 });

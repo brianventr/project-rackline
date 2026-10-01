@@ -5,6 +5,7 @@ import {
   type LiveLabelResult,
   type LiveShipAddress,
   type ParcelDims,
+  type ReturnLabelRequest,
 } from "../domain/carrier-live";
 import type { CarrierProviderId, CarrierRateQuote, EnabledCarrierService } from "../domain/carriers";
 import { isDirectProvider } from "../domain/direct-carrier";
@@ -20,6 +21,7 @@ export type PostageConnection = {
   accountNumber?: string | null;
 };
 
+/** Buy one label. `shipFrom` and `shipTo` are where the parcel travels, for a return too. */
 export async function buyLivePostage(input: {
   connection: PostageConnection;
   services: EnabledCarrierService[];
@@ -27,6 +29,7 @@ export async function buyLivePostage(input: {
   shipFrom: LiveShipAddress;
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
+  returnLabel?: ReturnLabelRequest | null;
 }): Promise<LiveLabelResult> {
   const { connection } = input;
   if (!connection.apiKey) throw new CarrierLiveError("Live postage needs an API key");
@@ -39,6 +42,7 @@ export async function buyLivePostage(input: {
       shipFrom: input.shipFrom,
       shipTo: input.shipTo,
       parcel: input.parcel,
+      returnLabel: input.returnLabel,
     });
   }
   if (isLiveDirect(connection.provider, connection.mode) && isDirectProvider(connection.provider)) {
@@ -52,6 +56,7 @@ export async function buyLivePostage(input: {
       shipFrom: input.shipFrom,
       shipTo: input.shipTo,
       parcel: input.parcel,
+      returnLabel: input.returnLabel,
     });
   }
   throw new CarrierLiveError("Live postage is not enabled for this carrier.");

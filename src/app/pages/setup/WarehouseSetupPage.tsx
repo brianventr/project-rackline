@@ -57,6 +57,7 @@ const buildingFormSchema = z.object({
     }
   }),
   shipFromAddress: optionalText,
+  returnAddress: optionalText,
   city: optionalText,
   region: optionalText,
   country: optionalText,
@@ -89,6 +90,7 @@ export function WarehouseSetupPage() {
     name: "",
     timeZone: "UTC",
     shipFromAddress: "",
+    returnAddress: "",
     city: "",
     region: "",
     country: "",
@@ -123,6 +125,7 @@ export function WarehouseSetupPage() {
           name: current.name,
           timeZone: current.timeZone || "UTC",
           shipFromAddress: current.shipFromAddress || "",
+          returnAddress: current.returnAddress || "",
           city: current.city || "",
           region: current.region || "",
           country: current.country || "",
@@ -170,6 +173,7 @@ export function WarehouseSetupPage() {
             mapHeight: values.mapHeight,
             mapNorth: values.mapNorth,
             shipFromAddress: values.shipFromAddress,
+            returnAddress: values.returnAddress,
             city: values.city,
             region: values.region,
             country: values.country,
@@ -276,6 +280,14 @@ export function WarehouseSetupPage() {
               label="Ship-from address"
               rows={3}
               placeholder="14 Dock St, Portland, OR 97209"
+            />
+            <TextareaField
+              form={form}
+              name="returnAddress"
+              label="Return address"
+              rows={2}
+              placeholder="Blank sends returns to the ship-from address"
+              description="Where customer return labels are addressed."
             />
             <div className="grid grid-cols-3 items-start gap-3">
               <TextField form={form} name="city" label="City" placeholder="Portland" />

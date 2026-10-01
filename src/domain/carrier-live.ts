@@ -25,6 +25,12 @@ export type LiveShipAddress = {
   country: string;
 };
 
+/**
+ * Marks a label purchase as a customer return. The caller passes the addresses the way the parcel
+ * travels (customer to building); each carrier body turns that into what its API expects.
+ */
+export type ReturnLabelRequest = { rmaNumber: string };
+
 export class CarrierLiveError extends Error {
   constructor(
     message: string,
@@ -221,6 +227,8 @@ export type LiveLabelResult = {
   shipmentId?: string | null;
   labelId?: string | null;
   postageCents?: number | null;
+  /** The carrier's printable label, when its API hands back a link. */
+  labelUrl?: string | null;
   provider: CarrierProviderId;
 };
 

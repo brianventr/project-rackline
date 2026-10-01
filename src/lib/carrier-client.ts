@@ -2,12 +2,19 @@ import {
   CarrierLiveError,
   mapAggregatorService,
   pickMatchingLiveRate,
-  shipEngineServiceCode,
   type LiveLabelResult,
   type LiveShipAddress,
   type ParcelDims,
+  type ReturnLabelRequest,
 } from "../domain/carrier-live";
 import type { CarrierProviderId, CarrierRateQuote, EnabledCarrierService } from "../domain/carriers";
+import {
+  easyPostLabelUrl,
+  easyPostShipmentBody,
+  shipEngineLabelBody,
+  shipEngineLabelUrl,
+  shipEngineRateBody,
+} from "../domain/aggregator-carrier";
 
 export class CarrierApiError extends Error {
   constructor(
@@ -90,30 +97,6 @@ async function shipEngine<T>(apiKey: string, method: string, path: string, body?
   return payload as T;
 }
 
-function easyPostAddress(address: LiveShipAddress) {
-  return {
-    name: address.name,
-    street1: address.street1,
-    street2: address.street2,
-    city: address.city,
-    state: address.state,
-    zip: address.zip,
-    country: address.country,
-  };
-}
-
-function shipEngineAddress(address: LiveShipAddress) {
-  return {
-    name: address.name,
-    address_line1: address.street1,
-    address_line2: address.street2,
-    city_locality: address.city,
-    state_province: address.state,
-    postal_code: address.zip,
-    country_code: address.country,
-  };
-}
-
 export async function pingAggregator(provider: CarrierProviderId, apiKey: string): Promise<{ ok: true; message: string }> {
   if (provider === "easypost") {
     await easyPost(apiKey, "/carrier_accounts");
@@ -156,19 +139,9 @@ export async function shopEasyPostRates(input: {
   shipFrom: LiveShipAddress;
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
+  returnLabel?: ReturnLabelRequest | null;
 }): Promise<{ rates: CarrierRateQuote[]; shipmentId: string | null; raw: unknown }> {
-  const shipment = await easyPost<EasyPostShipment>(input.apiKey, "/shipments", {
-    shipment: {
-      from_address: easyPostAddress(input.shipFrom),
-      to_address: easyPostAddress(input.shipTo),
-      parcel: {
-        length: input.parcel.lengthIn,
-        width: input.parcel.widthIn,
-        height: input.parcel.heightIn,
-        weight: input.parcel.weightOz,
-      },
-    },
-  });
+  const shipment = await easyPost<EasyPostShipment>(input.apiKey, "/shipments", easyPostShipmentBody(input));
   return {
     rates: mapEasyPostRates(shipment.rates ?? [], input.services),
     shipmentId: shipment.id ?? null,
@@ -183,6 +156,7 @@ export async function buyEasyPostLabel(input: {
   shipFrom: LiveShipAddress;
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
+  returnLabel?: ReturnLabelRequest | null;
 }): Promise<LiveLabelResult> {
   const created = await shopEasyPostRates(input);
   const mapped = created.rates.map((row) => ({
@@ -207,6 +181,7 @@ export async function buyEasyPostLabel(input: {
     shipmentId: bought.id ?? created.shipmentId,
     labelId: bought.postage_label ? bought.id ?? created.shipmentId : created.shipmentId,
     postageCents: match.amountCents,
+    labelUrl: easyPostLabelUrl(bought),
     provider: "easypost",
   };
 }
@@ -222,25 +197,12 @@ export async function shopShipEngineRates(input: {
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
 }): Promise<{ rates: CarrierRateQuote[]; raw: unknown }> {
-  const payload = await shipEngine<{ rate_response?: { rates?: ShipEngineRate[] } }>(input.apiKey, "POST", "/v1/rates", {
-    rate_options: {},
-    shipment: {
-      validate_address: "no_validation",
-      ship_from: shipEngineAddress(input.shipFrom),
-      ship_to: shipEngineAddress(input.shipTo),
-      packages: [
-        {
-          weight: { value: input.parcel.weightOz, unit: "ounce" },
-          dimensions: {
-            unit: "inch",
-            length: input.parcel.lengthIn,
-            width: input.parcel.widthIn,
-            height: input.parcel.heightIn,
-          },
-        },
-      ],
-    },
-  });
+  const payload = await shipEngine<{ rate_response?: { rates?: ShipEngineRate[] } }>(
+    input.apiKey,
+    "POST",
+    "/v1/rates",
+    shipEngineRateBody(input),
+  );
   const byId = new Map(input.services.map((row) => [row.id, row]));
   const rates: CarrierRateQuote[] = [];
   for (const rate of payload.rate_response?.rates ?? []) {
@@ -264,6 +226,7 @@ export async function buyShipEngineLabel(input: {
   shipFrom: LiveShipAddress;
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
+  returnLabel?: ReturnLabelRequest | null;
 }): Promise<LiveLabelResult> {
   const payload = await shipEngine<{
     label_id?: string;
@@ -271,25 +234,7 @@ export async function buyShipEngineLabel(input: {
     tracking_number?: string;
     tracking_url?: string;
     shipment_cost?: { amount?: number };
-  }>(input.apiKey, "POST", "/v1/labels", {
-    shipment: {
-      service_code: shipEngineServiceCode(input.serviceId),
-      validate_address: "no_validation",
-      ship_from: shipEngineAddress(input.shipFrom),
-      ship_to: shipEngineAddress(input.shipTo),
-      packages: [
-        {
-          weight: { value: input.parcel.weightOz, unit: "ounce" },
-          dimensions: {
-            unit: "inch",
-            length: input.parcel.lengthIn,
-            width: input.parcel.widthIn,
-            height: input.parcel.heightIn,
-          },
-        },
-      ],
-    },
-  });
+  }>(input.apiKey, "POST", "/v1/labels", shipEngineLabelBody(input));
   const tracking = payload.tracking_number?.trim();
   if (!tracking) {
     throw new CarrierLiveError("ShipEngine bought a label without a tracking number.");
@@ -300,6 +245,7 @@ export async function buyShipEngineLabel(input: {
     shipmentId: payload.shipment_id ?? null,
     labelId: payload.label_id ?? null,
     postageCents: payload.shipment_cost?.amount != null ? Math.round(Number(payload.shipment_cost.amount) * 100) : null,
+    labelUrl: shipEngineLabelUrl(payload),
     provider: "shipengine",
   };
 }
@@ -329,6 +275,7 @@ export async function buyAggregatorLabel(input: {
   shipFrom: LiveShipAddress;
   shipTo: LiveShipAddress;
   parcel: ParcelDims;
+  returnLabel?: ReturnLabelRequest | null;
 }): Promise<LiveLabelResult> {
   if (input.provider === "easypost") return buyEasyPostLabel(input);
   if (input.provider === "shipengine") return buyShipEngineLabel(input);

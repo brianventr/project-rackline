@@ -477,11 +477,21 @@ carriersPublicRoute.post("/carriers/trackers/webhooks", async (c) => {
     .select()
     .from(schema.orders)
     .where(eq(schema.orders.trackingNumber, parsed.trackingNumber));
-  if (packageHits.length === 0 && orderHits.length === 0) {
+  const returnHits = await db
+    .select({ id: schema.returnLabels.id, organizationId: schema.returnLabels.organizationId, rmaId: schema.returnLabels.rmaId })
+    .from(schema.returnLabels)
+    .where(eq(schema.returnLabels.trackingNumber, parsed.trackingNumber));
+  if (packageHits.length === 0 && orderHits.length === 0 && returnHits.length === 0) {
     return c.json({ ignored: true, reason: "unknown_tracking" });
   }
 
-  const orgIds = [...new Set([...packageHits.map((row) => row.organizationId), ...orderHits.map((row) => row.organizationId)])];
+  const orgIds = [
+    ...new Set([
+      ...packageHits.map((row) => row.organizationId),
+      ...orderHits.map((row) => row.organizationId),
+      ...returnHits.map((row) => row.organizationId),
+    ]),
+  ];
   const connections = await db
     .select()
     .from(schema.carrierConnections)
@@ -565,6 +575,13 @@ carriersPublicRoute.post("/carriers/trackers/webhooks", async (c) => {
         .where(eq(schema.orders.id, orderId));
     }
   }
+  for (const label of returnHits) {
+    await db
+      .update(schema.returnLabels)
+      .set({ trackerStatus: status, trackerUpdatedAt: now })
+      .where(eq(schema.returnLabels.id, label.id));
+  }
+  const returnMatches = returnHits.map((row) => ({ returnLabelId: row.id, rmaId: row.rmaId, trackerStatus: status }));
 
   const connectionId = connections[0]?.id ?? null;
   for (const orgId of orgIds) {
@@ -575,11 +592,11 @@ carriersPublicRoute.post("/carriers/trackers/webhooks", async (c) => {
       kind: "tracker",
       status: "ok",
       request: { trackingNumber: parsed.trackingNumber, provider: parsed.provider, eventId: parsed.eventId },
-      response: { trackerStatus: status, matches: results },
+      response: { trackerStatus: status, matches: results, returnLabels: returnMatches },
       now,
     });
   }
 
-  return c.json({ ok: true, trackerStatus: status, matches: results });
+  return c.json({ ok: true, trackerStatus: status, matches: results, returnLabels: returnMatches });
 });
 

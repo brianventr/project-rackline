@@ -37,6 +37,7 @@ export const ERROR_CODES = [
   "CARRIER_LIVE",
   "LIVE_ADDRESS",
   "NO_RATE",
+  "RETURN_LABEL_UNSUPPORTED",
   "NEED_PACKAGE",
   "SHIPPED",
   "CANCELLED",
@@ -350,6 +351,15 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
     message: text ? asSentence(text) : "The carrier did not return a rate for this parcel.",
     hint: "Choose another service, or check the carton weight and size.",
   }),
+  RETURN_LABEL_UNSUPPORTED: ({ text }) => {
+    const carrier = text.match(/direct (\S+) account/i)?.[1];
+    return {
+      message: carrier
+        ? `A direct ${carrier} account cannot buy return labels in Rackline yet.`
+        : "This carrier account cannot buy return labels in Rackline yet.",
+      hint: "Choose a service on EasyPost, ShipEngine, FedEx, or Rackline Ground.",
+    };
+  },
   NEED_PACKAGE: ({ text }) => needPackageCopy(text),
   SHIPPED: ({ text }) => {
     if (/short-ship/i.test(text)) return splitSentences(text);

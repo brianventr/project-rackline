@@ -4,7 +4,9 @@ import {
   type LiveLabelResult,
   type LiveShipAddress,
   type ParcelDims,
+  type ReturnLabelRequest,
 } from "../domain/carrier-live";
+import { returnLabelRefusal } from "../domain/return-label";
 import type { CarrierRateQuote, EnabledCarrierService } from "../domain/carriers";
 import {
   dhlRateQuery,
@@ -157,6 +159,7 @@ function labelResult(provider: DirectProvider, parsed: NonNullable<ReturnType<ty
     shipmentId: parsed.shipmentId,
     labelId: parsed.labelId,
     postageCents: parsed.postageCents,
+    labelUrl: parsed.labelUrl ?? null,
     provider,
   };
 }
@@ -260,8 +263,10 @@ export async function shopDirectRates(input: Omit<ShipInput, "serviceId"> & { se
   return { rates: quotesFromParsed(parseDhlRates(payload), input.services), raw: payload };
 }
 
-export async function buyDirectLabel(input: ShipInput): Promise<LiveLabelResult> {
+export async function buyDirectLabel(input: ShipInput & { returnLabel?: ReturnLabelRequest | null }): Promise<LiveLabelResult> {
   const creds = requireCreds(input);
+  const refusal = input.returnLabel ? returnLabelRefusal({ provider: input.provider, mode: "live" }) : null;
+  if (refusal) throw new CarrierLiveError(refusal);
   const ship = {
     accountNumber: creds.accountNumber,
     serviceId: input.serviceId,
@@ -286,7 +291,7 @@ export async function buyDirectLabel(input: ShipInput): Promise<LiveLabelResult>
     const res = await fetch(`${FEDEX_ORIGIN}/ship/v1/shipments`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify(fedexShipBody(ship)),
+      body: JSON.stringify(fedexShipBody({ ...ship, returnLabel: input.returnLabel })),
     });
     const payload = await carrierJson(res, "FedEx");
     const parsed = parseFedexLabel(payload);

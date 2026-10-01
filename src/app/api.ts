@@ -239,6 +239,8 @@ export type WarehouseMapInfo = {
   /** Where north points on the map, degrees clockwise from the top edge; missing means 0. */
   mapNorth?: number;
   shipFromAddress?: string | null;
+  /** Where customer return labels are addressed; blank means the ship-from address. */
+  returnAddress?: string | null;
   city?: string | null;
   region?: string | null;
   country?: string | null;
@@ -844,6 +846,66 @@ export type PublicTracking = {
   };
   packages: PublicTrackingPackage[];
   items: { name: string; qty: number }[];
+};
+
+export type ReturnLabel = {
+  id: string;
+  rmaId: string;
+  status: "active" | "voided";
+  statusLabel: string;
+  carrierConnectionId: string | null;
+  carrierCompany: string;
+  carrierService: string;
+  serviceName: string;
+  trackingNumber: string;
+  trackingUrl: string | null;
+  /** The carrier's printable label; null for demo labels, which print from the customer page. */
+  labelUrl: string | null;
+  postageCents: number | null;
+  trackerStatus: string | null;
+  trackerUpdatedAt: number | null;
+  fromName: string;
+  fromAddress: string;
+  toName: string;
+  toAddress: string;
+  weightOz: number | null;
+  createdAt: number;
+  voidedAt: number | null;
+  /** The customer's page, `/r/:token`. */
+  path: string;
+  url: string;
+};
+
+/** What a new return label starts with: the original order's ship-to and service, and the building's return address. */
+export type ReturnLabelDraft = {
+  fromName: string;
+  fromAddress: string | null;
+  toName: string;
+  toAddress: string | null;
+  carrierService: string;
+  carrierConnectionId: string | null;
+};
+
+export type RmaReturnLabels = { labels: ReturnLabel[]; draft: ReturnLabelDraft };
+
+export type PublicReturnLabel = {
+  shop: { name: string; brandColor: string | null; logoUrl: string | null };
+  rmaNumber: string;
+  status: "active" | "voided";
+  statusLabel: string;
+  trackerStatus: string | null;
+  label: {
+    carrier: string;
+    service: string;
+    trackingNumber: string;
+    trackingUrl: string | null;
+    labelUrl: string | null;
+    from: { name: string; address: string };
+    to: { name: string; address: string };
+  } | null;
+  events: PublicTrackingEvent[];
+  items: { name: string; qty: number }[];
+  createdAt: number;
 };
 
 export type CarrierServiceOption = {
