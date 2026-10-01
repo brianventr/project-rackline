@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { openCarrierRow, openShopifyRow } from "./credentials";
-import { isSealed, openSecret, sealSecret } from "../lib/secret-box";
+import { isSealed, openSecret, sealSecret, secretFingerprint } from "../lib/secret-box";
 
 const SECRET = "credentials-test-secret-0123456789";
 
@@ -26,6 +26,8 @@ function carrierRow(keys: {
   apiKey: string | null;
   apiSecret: string | null;
   meterNumber?: string | null;
+  webhookSecret?: string | null;
+  webhookSecretFp?: string | null;
 }): typeof schema.carrierConnections.$inferSelect {
   return {
     id: "car-1",
@@ -39,7 +41,8 @@ function carrierRow(keys: {
     apiSecret: keys.apiSecret,
     meterNumber: keys.meterNumber ?? null,
     enabledServicesJson: "[]",
-    webhookSecret: null,
+    webhookSecret: keys.webhookSecret ?? null,
+    webhookSecretFp: keys.webhookSecretFp ?? null,
     isDefault: false,
     lastTestedAt: null,
     lastTestStatus: null,
@@ -49,13 +52,13 @@ function carrierRow(keys: {
   };
 }
 
-function shopifyRow(accessToken: string | null): typeof schema.shopifyConnections.$inferSelect {
+function shopifyRow(accessToken: string | null, webhookSecret = ""): typeof schema.shopifyConnections.$inferSelect {
   return {
     id: "shop-1",
     organizationId: "org-1",
     shopDomain: "northwind.myshopify.com",
     accessToken,
-    webhookSecret: "hook-secret",
+    webhookSecret,
     apiVersion: "2026-07",
     shopifyLocationGid: null,
     mode: "live",
@@ -117,6 +120,32 @@ describe("openCarrierRow", () => {
     expect(secret).not.toHaveBeenCalled();
   });
 
+  it("reads a plain tracker webhook secret and seals it with its fingerprint", async () => {
+    const { db, writes } = fakeDb();
+    const opened = await openCarrierRow(db, () => SECRET, carrierRow({ apiKey: null, apiSecret: null, webhookSecret: "whsec_live" }));
+    expect(opened.webhookSecret).toBe("whsec_live");
+    expect(writes).toHaveLength(1);
+    expect(await openSecret(SECRET, writes[0]!.values.webhookSecret as string)).toBe("whsec_live");
+    expect(writes[0]!.values.webhookSecretFp).toBe(await secretFingerprint("whsec_live"));
+    expect(isSealed(writes[0]!.values.webhookSecret as string)).toBe(true);
+  });
+
+  it("opens a sealed tracker webhook secret and writes nothing", async () => {
+    const { db, writes } = fakeDb();
+    const sealed = await sealSecret(SECRET, "whsec_live");
+    const opened = await openCarrierRow(db, () => SECRET, carrierRow({ apiKey: null, apiSecret: null, webhookSecret: sealed, webhookSecretFp: await secretFingerprint("whsec_live") }));
+    expect(opened.webhookSecret).toBe("whsec_live");
+    expect(writes).toEqual([]);
+  });
+
+  it("stores the fingerprint of a sealed webhook secret that does not have one yet", async () => {
+    const { db, writes } = fakeDb();
+    const sealed = await sealSecret(SECRET, "whsec_live");
+    const opened = await openCarrierRow(db, () => SECRET, carrierRow({ apiKey: null, apiSecret: null, webhookSecret: sealed }));
+    expect(opened.webhookSecret).toBe("whsec_live");
+    expect(writes[0]!.values).toEqual({ webhookSecretFp: await secretFingerprint("whsec_live") });
+  });
+
   it("still returns the keys when sealing them in place fails", async () => {
     const { db } = fakeDb({ failWrite: true });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -156,5 +185,30 @@ describe("openShopifyRow", () => {
     const secret = vi.fn(() => SECRET);
     await openShopifyRow(db, secret, shopifyRow(null));
     expect(secret).not.toHaveBeenCalled();
+  });
+
+  it("reads a plain Shopify webhook secret and seals it, with or without an Admin token", async () => {
+    const { db, writes } = fakeDb();
+    const opened = await openShopifyRow(db, () => SECRET, shopifyRow(null, "shpss_plain"));
+    expect(opened.webhookSecret).toBe("shpss_plain");
+    expect(writes).toHaveLength(1);
+    expect(Object.keys(writes[0]!.values)).toEqual(["webhookSecret"]);
+    expect(await openSecret(SECRET, writes[0]!.values.webhookSecret as string)).toBe("shpss_plain");
+  });
+
+  it("opens a sealed Shopify webhook secret and writes nothing", async () => {
+    const { db, writes } = fakeDb();
+    const sealed = await sealSecret(SECRET, "shpss_live");
+    const opened = await openShopifyRow(db, () => SECRET, shopifyRow(null, sealed ?? undefined));
+    expect(opened.webhookSecret).toBe("shpss_live");
+    expect(writes).toEqual([]);
+  });
+
+  it("reads a Shopify webhook secret sealed under another key as missing", async () => {
+    const { db, writes } = fakeDb();
+    const sealed = await sealSecret("an-older-secret", "shpss_live");
+    const opened = await openShopifyRow(db, () => SECRET, shopifyRow(null, sealed ?? undefined));
+    expect(opened.webhookSecret).toBe("");
+    expect(writes).toEqual([]);
   });
 });

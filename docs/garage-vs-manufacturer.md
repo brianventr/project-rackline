@@ -15,7 +15,7 @@ Most of this is the same in both modes. New organizations start in Garage.
 
 ### Deployment (one time)
 
-1. Set `BETTER_AUTH_SECRET` as a Wrangler secret, 32 characters or more. Sign-in needs it, and it is also the key that seals stored credentials: WooCommerce and Etsy keys, the Shopify Admin token, and carrier API keys and secrets (the FedEx client secret lives in the meter number field). A deployed Worker without it refuses to store them.
+1. Set `BETTER_AUTH_SECRET` as a Wrangler secret, 32 characters or more. Sign-in needs it, and it is also the key that seals stored credentials: WooCommerce and Etsy keys, the Shopify Admin token and webhook secret, and carrier API keys, secrets, and tracker webhook secrets (the FedEx client secret lives in the meter number field). A deployed Worker without it refuses to store them.
 2. Optional: set `MAIL_API_KEY` and `MAIL_FROM` for purchase-order email, password resets, and teammate invites.
 3. Optional: set `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET` to allow **Install Shopify app** (OAuth). Pasting an Admin token works without them.
 4. Optional: set `ETSY_API_KEY` (your Etsy app keystring) to allow a live Etsy connection. `ETSY_SHARED_SECRET` is optional. In your Etsy app, register the callback `https://<your-domain>/api/channels/etsy/oauth/callback`.
@@ -79,7 +79,7 @@ In **Manufacturer**, it is a floor flow:
 1. **Shopify** gets one `fulfillmentCreate` per shipped box, or one for the whole order when there are no boxes. If it fails, **Retry Shopify** is on the order's menu.
 2. **WooCommerce** is marked completed with the tracking number, and **Etsy** gets tracking on the receipt. This happens when the order is fully shipped. If it fails, the order still counts as shipped in Rackline, the error is saved on the order, and **Retry WooCommerce tracking** or **Retry Etsy tracking** appears on its menu.
 3. **Faire orders, and Etsy orders while Etsy is connected only by CSV,** do not post back. Mark them shipped in the channel. An Etsy order shipped without a live connection shows **Manual** under Tracking post-back, with "Mark it shipped in Etsy." and no retry, and it does not count as a failed post-back on Settings → Channels. The ship toast lists these orders too. Once Etsy is connected live, orders imported by CSV post tracking like any other.
-4. **Carrier tracking.** EasyPost and ShipEngine tracker webhooks move orders through at gate, in flight, and arrived on Traffic. Failures show as exceptions on Today, where you can buy a replacement label.
+4. **Carrier tracking.** EasyPost and ShipEngine tracker webhooks move orders through at gate, in flight, and arrived on Traffic. Failures show as exceptions on Today, where you can buy a replacement label. Each live account has its own URL (`/api/carriers/trackers/webhooks/<connection id>`), and Rackline checks that account's secret instead of every account. The older shared URL still works when the tracking number belongs to one live account. Shopify webhook secrets and tracker webhook secrets are sealed at rest; a secret saved before sealing still verifies, and is sealed the next time it is read.
 
 ## 3. Garage: simple on the surface, full ledger underneath
 
@@ -225,6 +225,8 @@ The mode sets a workflow policy on the server, not just in the menu:
 
 Floor Pick, Pack, and Wave keep a record of what was scanned since the last post: the bay you are standing at and the SKUs you scanned. That record goes with the post. Quantities start at zero. The post button stays disabled, with the reason shown, until the scans match. After a post, the SKUs clear and the bay stays, because you are still standing there.
 
+Manufacturer also writes each scan to the server as it happens. The screen opens a scan session for the order or wave, and `POST /api/floor/scans` stores the scan (the same client scan id is stored once). Pick, pack, and batch pick name that session. The server checks the scans it recorded — the bay, one SKU scan per pick line, one scan per packed unit, and each serial once — and refuses a second scan of the same serial. A post with no recorded scans is refused. Garage does not open a session and can still post the evidence it always sent.
+
 - **Pick and Wave:** scan the SKU once, then type the qty.
 - **Pack:** scan each unit as it goes in the box. Every scan of an item, serial, or lot barcode adds 1 to that line, up to what is left to pack. Scanning the same serial twice counts once, and a scan past what is left is refused ("All 2 SHADE left to pack are already scanned."). If you type a qty ahead of your scans, the next scans count toward it before adding more.
 
@@ -326,6 +328,7 @@ A 409 means Rackline refused the post to protect the ledger. Nothing was half wr
 - **`WAREHOUSE_FLOW`.** You tried one-click ship in Manufacturer. Pick and pack on the floor, or switch to Garage.
 - **`SCAN_REQUIRED`.** A Manufacturer pick or pack was missing a scan. For a pick, scan the bay shown, then each SKU once, then type the qty. For a pack, scan every unit going in the box.
 - **`INSUFFICIENT_ATP`.** Not enough free stock. It may be on hand but held, or reserved for another order already being picked.
+- **`CLIENT_STOCK`.** The units at that bay belong to another owner. A 3PL client's order only takes that client's stock, and your own orders never take client stock. Pick suggestions, reservations, quick ship, and the Ship queue follow the same rule, so an order whose only stock belongs to someone else shows as short (`INSUFFICIENT_ATP`, naming whose stock ran out) before anyone walks to the bay.
 - **`NEED_CARTON_FLOW`.** The order is packed in boxes. Open it and label and ship each box.
 - **`NEED_SCAN`.** A catch-weight SKU needs weighing on Floor → Pick before the Ship queue can finish it.
 - **`NEED_WEIGHT`.** Live postage needs a weight. Add a ship weight on the SKU, or type one on the order.
@@ -352,6 +355,10 @@ A 409 means Rackline refused the post to protect the ledger. Nothing was half wr
 - **`MISSING_APP`.** The Shopify OAuth install needs `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET`.
 - **`MISSING_LOCATION`.** Pick a Shopify location before pushing live sellable qty.
 - **`SHOPIFY_TOKEN`.** Rackline cannot read the Shopify access token, usually because `BETTER_AUTH_SECRET` changed. Paste the token again on Settings → Shopify, or reinstall the app. Fulfillment post-back fails with the same message, and **Retry Shopify** works once the token is back.
+- **`CONFLICT`.** Something with that code, SKU, barcode, or name already exists, often because the same save went through twice. The message names the field when it can. Refresh to see the one already saved.
+- **`IN_USE`.** The record you tried to delete is still used elsewhere. Remove or move what uses it first.
+
+Two related codes are not 409s. A 400 `BAD_REFERENCE` means the post pointed at something that no longer exists, usually deleted in another tab, so refresh and choose it again. A 500 `INTERNAL` says "Something went wrong on our side" with an 8-character reference. Quote it: the Worker log has the full error under that reference. No error ever shows database text.
 
 When quick-ship has more than one reason to stop, it answers with the first of these: the order itself (`NOT_SHIPPABLE`, `NEED_CARTON_FLOW`, `NEED_SCAN`, `INSUFFICIENT_ATP`), the rule's hold (`SHIP_RULE_HOLD`), the rule's service (`SHIP_RULE_SERVICE`), the address (`ADDRESS_INVALID`), customs (`CUSTOMS_REQUIRED`), the rate (`NO_RATE`), the weight (`NEED_WEIGHT`), then the label itself (`CARRIER_LIVE`, `LIVE_ADDRESS`, `CUSTOMS_UNSUPPORTED`). **Ship anyway** only gets past the hold, so under **Needs attention** the queue names a hold last, after anything else that would still stop the order.
 
@@ -363,13 +370,13 @@ When quick-ship has more than one reason to stop, it answers with the first of t
 
 **WooCommerce says it connected but orders do not arrive.** The key probably could not create the webhook. Copy the URL shown on Settings → Channels into WooCommerce → Settings → Advanced → Webhooks. The 15-minute pull still catches processing orders in the meantime.
 
-**Store or carrier keys stopped working after a redeploy.** WooCommerce and Etsy credentials, the Shopify Admin token, and carrier API keys and secrets are sealed with `BETTER_AUTH_SECRET`. If that secret changes, the stored values can no longer be read, and Rackline treats them as missing rather than guessing:
+**Store or carrier keys stopped working after a redeploy.** WooCommerce and Etsy credentials, the Shopify Admin token and webhook secret, and carrier API keys, secrets, and tracker webhook secrets are sealed with `BETTER_AUTH_SECRET`. If that secret changes, the stored values can no longer be read, and Rackline treats them as missing rather than guessing:
 
 - Reconnect a WooCommerce or Etsy channel.
 - On Settings → Shopify, paste the token again, or reinstall the app. A live store never falls back to demo: stock sync, the location list, and fulfillment fail with "Rackline cannot read the Shopify access token" until the token is back.
 - On Settings → Carriers, the account shows its keys as missing. Paste them again; until then, a live label is refused with "Live postage needs an API key".
 
-A Shopify token or carrier key saved by an older version of Rackline, before these were sealed, keeps working and is sealed the first time it is read. A deployed Worker with a secret shorter than 32 characters will not store credentials at all. Only local `http://localhost` uses a built-in development key.
+A Shopify token, webhook secret, or carrier key saved by an older version of Rackline, before these were sealed, keeps working and is sealed the first time it is read. A deployed Worker with a secret shorter than 32 characters will not store credentials at all. Only local `http://localhost` uses a built-in development key.
 
 **An order shipped but the store still shows it unfulfilled.** Open the order. If the post-back failed, the menu has **Retry Shopify**, or **Retry WooCommerce tracking** / **Retry Etsy tracking**. If Tracking post-back says **Manual**, the channel has no live connection (Etsy by CSV), so there is nothing to retry: mark it shipped in the channel. Faire orders never post back either.
 
@@ -500,7 +507,7 @@ Garage leaves out counts, EDI, and bay capacity, as it does everywhere else. Ope
 **Where it shows.**
 
 - **Garage.** Exceptions is in the Bench menu. Today's **Needs attention** tile counts open problems and opens the inbox. On the Ship queue, the **Needs attention** tab links to the inbox, which also holds what that tab cannot show.
-- **Manufacturer.** Today's **Needs attention** tile counts open problems, and the **Exceptions** card beside the work queue lists the top five. The floor launcher has an **Exceptions** tile for held bays, count variances, and over-full bays. Tapping one claims it and opens the floor screen that fixes it.
+- **Manufacturer.** Today's **Needs attention** tile counts open problems, and the **Exception inbox** card beside the work queue lists the top five. The work-queue lane **Equipment & certifications** is a different list — open checkouts, equipment out of service, and certifications due — and its count is not the inbox. The floor launcher has an **Exceptions** tile for held bays, count variances, and over-full bays. Tapping one claims it and opens the floor screen that fixes it.
 
 **API.** `GET /api/exceptions?warehouseId=…` returns the list, its counts, and which sources it read. `POST /api/exceptions/:source/:key/:verb` with the `warehouseId` claims, unclaims, snoozes (`hours`), resolves (`note`), reopens, or runs a fix (`verb` is `action`, with `actionId`). An owner takes over with `takeOver: true`. A problem that has already cleared answers 409 `EXCEPTION_CLEARED`, and one that someone changed a moment earlier answers 409 `EXCEPTION_CHANGED`.
 

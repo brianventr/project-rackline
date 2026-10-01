@@ -1,5 +1,6 @@
 import { suggestPickBay, type StockedBay } from "./partial-pick";
 import { normalizeOrderStatus } from "./status";
+import { publicErrorText } from "../lib/db-errors";
 
 export type QuickShipLine = {
   id: string;
@@ -175,14 +176,14 @@ export async function runQuickShip(steps: QuickShipStep[], undo: () => Promise<Q
     try {
       failure = await step.run();
     } catch (err) {
-      failure = { status: 500, error: err instanceof Error ? err.message : `The ${step.id} step failed` };
+      failure = { status: 500, error: publicErrorText(err, `The ${step.id} step failed`) };
     }
     if (!failure) continue;
     let undone: QuickShipUndone;
     try {
       undone = await undo();
     } catch (err) {
-      undone = { shipped: false, voidedLabel: false, restoreError: err instanceof Error ? err.message : "Undo failed" };
+      undone = { shipped: false, voidedLabel: false, restoreError: publicErrorText(err, "Undo failed") };
     }
     if (undone.shipped) return { ok: true };
     return { ok: false, step: step.id, failure: { ...failure, error: `${asSentence(failure.error)} ${quickShipUndoNote(undone)}` } };
@@ -293,23 +294,6 @@ export function planQuickShipRestore(snapshot: QuickShipSnapshot, current: Quick
     resetAllocations: snapshot.allocations.filter((row) => openQty.get(row.id) !== row.qty),
     restoreOrder: current.status !== snapshot.status || lines.length > 0,
   };
-}
-
-/** Stock this order already reserved is still free for this order to ship. */
-export function withOwnReservations(
-  baysByItem: Map<string, StockedBay[]>,
-  reservations: { itemId: string; locationId: string; locationCode: string; qty: number }[],
-): Map<string, StockedBay[]> {
-  const out = new Map<string, StockedBay[]>();
-  for (const [itemId, bays] of baysByItem) out.set(itemId, bays.map((bay) => ({ ...bay })));
-  for (const row of reservations) {
-    const bays = out.get(row.itemId) ?? [];
-    const bay = bays.find((entry) => entry.locationId === row.locationId);
-    if (bay) bay.qty += row.qty;
-    else bays.push({ locationId: row.locationId, locationCode: row.locationCode, locationName: row.locationCode, barcode: "", qty: row.qty });
-    out.set(row.itemId, bays);
-  }
-  return out;
 }
 
 export type ShipSetupStep = { id: "store" | "carrier" | "ship-from" | "box"; label: string; done: boolean; to: string };

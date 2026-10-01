@@ -9,6 +9,10 @@ BETTER_AUTH_URL=http://localhost:5173
 # MAIL_API_KEY=
 # MAIL_FROM=Rackline <floor@your-domain>
 
+# Optional. Shopify OAuth (Install Shopify app). Pasting an Admin token works without these.
+# SHOPIFY_API_KEY=
+# SHOPIFY_API_SECRET=
+
 # Optional. Live Etsy: your Etsy app's keystring turns on Connect Etsy shop and the receipt poll.
 # Register http://localhost:5173/api/channels/etsy/oauth/callback as a callback URL in the Etsy app.
 # Without it, Etsy orders come in by CSV and Send a sample order runs in demo.

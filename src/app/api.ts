@@ -1065,6 +1065,8 @@ export type CarrierConnection = {
   lastTestError: string | null;
   hasWebhookSecret?: boolean;
   webhookSecretHint?: string | null;
+  /** This account's tracker URL. The hub also keeps the older shared URL. */
+  trackerWebhookUrl?: string;
 };
 
 export type CarrierHub = {

@@ -42,8 +42,72 @@ import { plateUnits, withPlateShare } from "../domain/license-plates";
 import { loadDocumentNumber, loadOpenAssignmentForEquipment } from "../db/equipment";
 import { loadPackagesForAsns, loadUnputawayReceivedCartons } from "../db/asn-packages";
 import { asnCartonPutawayGate } from "../domain/cartons";
+import { isScanKind, isScanTask, openScanSession, recordFloorScan } from "../db/scan-sessions";
 
 export const floorRoute = new Hono<AppEnv>();
+
+floorRoute.post("/floor/scan-sessions", async (c) => {
+  const body = await c.req.json<{ task?: string; refId?: string }>();
+  const task = requireString(body.task, "task");
+  if (!isScanTask(task)) badRequest("task must be pick, pack, or batch-pick");
+  const refId = requireString(body.refId, "refId");
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  let warehouseId: string | null = null;
+  if (task === "batch-pick") {
+    const [wave] = await db
+      .select({ id: schema.waves.id, warehouseId: schema.waves.warehouseId })
+      .from(schema.waves)
+      .where(and(eq(schema.waves.id, refId), eq(schema.waves.organizationId, organizationId)))
+      .limit(1);
+    if (!wave) notFound("Wave not found");
+    warehouseId = wave.warehouseId;
+  } else {
+    const [order] = await db
+      .select({ id: schema.orders.id, warehouseId: schema.orders.warehouseId })
+      .from(schema.orders)
+      .where(and(eq(schema.orders.id, refId), eq(schema.orders.organizationId, organizationId)))
+      .limit(1);
+    if (!order) notFound("Order not found");
+    warehouseId = order.warehouseId;
+  }
+  const id = await openScanSession(db, {
+    organizationId,
+    userId: c.get("user")!.id,
+    warehouseId,
+    task,
+    refId,
+  });
+  return c.json({ id });
+});
+
+floorRoute.post("/floor/scans", async (c) => {
+  const body = await c.req.json<{
+    sessionId?: string;
+    clientScanId?: string;
+    kind?: string;
+    code?: string;
+    sku?: string | null;
+    serial?: string | null;
+    locationId?: string | null;
+    locationCode?: string | null;
+  }>();
+  const kind = requireString(body.kind, "kind");
+  if (!isScanKind(kind)) badRequest("kind must be location, plate, item, serial, or lot");
+  const recorded = await recordFloorScan(c.get("db"), {
+    organizationId: c.get("organizationId")!,
+    userId: c.get("user")!.id,
+    sessionId: requireString(body.sessionId, "sessionId"),
+    clientScanId: requireString(body.clientScanId, "clientScanId"),
+    kind,
+    code: requireString(body.code, "code"),
+    sku: body.sku,
+    serial: body.serial,
+    locationId: body.locationId,
+    locationCode: body.locationCode,
+  });
+  return c.json(recorded, recorded.duplicate ? 200 : 201);
+});
 
 const transferLineSelect = {
   id: schema.transferLines.id,

@@ -4,6 +4,7 @@ import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { badRequest, conflict, notFound } from "../lib/http";
 import { newId } from "../lib/ids";
+import { isUniqueViolation } from "../lib/db-errors";
 import { balanceKey, type MovementDraft } from "../domain/inventory";
 import {
   applyPlateOps,
@@ -356,10 +357,6 @@ async function highestPlateNumber(db: AppDb, organizationId: string): Promise<nu
     .from(schema.licensePlates)
     .where(eq(schema.licensePlates.organizationId, organizationId));
   return row?.top ?? 0;
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  return /UNIQUE constraint failed/i.test(err instanceof Error ? err.message : String(err));
 }
 
 /** A new empty plate at a bay. Without a code it takes the next LP- number. */

@@ -9,6 +9,7 @@ const ORDER_LIMIT = 90;
 
 export const carrierSource: ExceptionSource = {
   ...CARRIER_SOURCE,
+  loadLimit: ORDER_LIMIT,
   async load({ db, organizationId, warehouseId, now }) {
     const e = schema.carrierOutboundEvents;
     const o = schema.orders;

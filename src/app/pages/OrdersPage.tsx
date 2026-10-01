@@ -352,14 +352,14 @@ function OrderList() {
           <EmptyState
             icon={ClipboardList}
             title="No orders yet."
-            body="Connect Shopify so checkouts land here as pick tickets, or create a floor order by hand."
+            body="Connect a sales channel so orders land here as pick tickets, or create one by hand."
             action={
               <div className="flex flex-wrap justify-center gap-2">
                 <Button size="sm" onClick={() => setCreating(true)}>
                   New order
                 </Button>
                 <Button size="sm" variant="outline" asChild>
-                  <Link to="/setup/shopify">Connect Shopify</Link>
+                  <Link to="/setup/channels">Connect a channel</Link>
                 </Button>
               </div>
             }

@@ -70,6 +70,10 @@ export const ERROR_CODES = [
   "NOT_CONNECTED",
   "NOTHING_TO_BILL",
   "SAMPLE_EXISTS",
+  "CONFLICT",
+  "IN_USE",
+  "BAD_REFERENCE",
+  "INTERNAL",
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
@@ -264,6 +268,16 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
     const needed = num(body, "needed");
     const bay = str(body, "locationCode");
     const where = bay ? ` at ${bay}` : "";
+    const owned = Object.hasOwn(body, "clientId");
+    if (owned) {
+      const forWhom = body.clientId ? "for this 3PL client" : "as your own stock";
+      const hint = body.clientId
+        ? "Other owners' stock does not count. Receive more for this client."
+        : "Stock that belongs to 3PL clients does not count. Receive more of your own.";
+      if (atp == null || atp <= 0) return { message: `${noneOf(body)} is available ${forWhom}.`, hint };
+      const need = needed != null ? `, and this needs ${needed}` : "";
+      return { message: `Only ${qtyOf(atp, body)} ${isAre(atp)} available ${forWhom}${need}.`, hint };
+    }
     if (atp == null || atp <= 0) {
       return {
         message: `${noneOf(body)} is available${where}.`,
@@ -279,6 +293,19 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
   CLIENT_STOCK: ({ body }) => {
     const onHand = num(body, "onHand");
     const needed = num(body, "needed");
+    if (body.clientId === null) {
+      if (onHand == null || onHand <= 0) {
+        return {
+          message: "All of this SKU at this bay belongs to 3PL clients.",
+          hint: "Pick your own stock from another bay.",
+        };
+      }
+      const need = needed != null ? `, and this needs ${needed}` : "";
+      return {
+        message: `Only ${onHand} of this SKU at this bay ${isAre(onHand)} your own stock${need}.`,
+        hint: `The rest belongs to 3PL clients. Lower the qty to ${onHand}, or pick from another bay.`,
+      };
+    }
     if (onHand == null || onHand <= 0) {
       return {
         message: "This 3PL client has none of this SKU at this bay.",
@@ -517,6 +544,26 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
     message: "This workspace already has SKUs or bays.",
     hint: "Sample data only loads into an empty workspace.",
   }),
+  CONFLICT: ({ body }) => {
+    const field = str(body, "field");
+    if (!field) return { message: "That already exists.", hint: "Refresh to see the one already saved, or use a different name or code." };
+    return { message: `That ${field} is already taken.`, hint: `Use a different ${field}, or refresh to find the one already saved.` };
+  },
+  IN_USE: () => ({
+    message: "That is still in use, so it cannot be removed.",
+    hint: "Remove or move what uses it first.",
+  }),
+  BAD_REFERENCE: () => ({
+    message: "Something this refers to no longer exists.",
+    hint: "Refresh, choose it again, and retry.",
+  }),
+  INTERNAL: ({ body }) => {
+    const ref = str(body, "ref");
+    return {
+      message: "Something went wrong on our side.",
+      hint: ref ? `Try again in a moment. If it keeps happening, quote reference ${ref}.` : "Try again in a moment.",
+    };
+  },
 };
 
 function needPackageCopy(text: string): Copy {

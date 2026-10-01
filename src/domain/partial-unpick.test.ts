@@ -6,10 +6,41 @@ import {
   netPickSlices,
   remainingToUnpick,
   takeFromSlices,
+  unpickAllocationTargets,
 } from "./partial-unpick";
 
 const lamps = { lineId: "l1", sku: "LAMP", qtyPicked: 2, qtyPacked: 0 };
 const packed = { lineId: "l1", sku: "LAMP", qtyPicked: 2, qtyPacked: 1 };
+
+describe("unpick reservations", () => {
+  it("puts a line picked from two bays back on both", () => {
+    expect(
+      unpickAllocationTargets([
+        {
+          lineId: "l1",
+          itemId: "lamp",
+          qty: 5,
+          slices: [
+            { locationId: "bay-a", qty: 2 },
+            { locationId: "bay-b", qty: 3 },
+          ],
+        },
+      ]),
+    ).toEqual([
+      { orderLineId: "l1", itemId: "lamp", locationId: "bay-a", qty: 2 },
+      { orderLineId: "l1", itemId: "lamp", locationId: "bay-b", qty: 3 },
+    ]);
+  });
+
+  it("uses one chosen bay for the whole qty", () => {
+    expect(
+      unpickAllocationTargets(
+        [{ lineId: "l1", itemId: "lamp", qty: 5, slices: [{ locationId: "bay-a", qty: 2 }, { locationId: "bay-b", qty: 3 }] }],
+        "bay-c",
+      ),
+    ).toEqual([{ orderLineId: "l1", itemId: "lamp", locationId: "bay-c", qty: 5 }]);
+  });
+});
 
 describe("partial unpick", () => {
   it("puts unpacked qty back and keeps packed in the box", () => {

@@ -1,3 +1,5 @@
+import { isUnexpectedError } from "./db-errors";
+
 export class HttpError extends Error {
   constructor(
     public status: number,
@@ -11,6 +13,12 @@ export class HttpError extends Error {
 
 export function badRequest(message: string): never {
   throw new HttpError(400, message);
+}
+
+/** A 400 with a domain error's message. Database failures and crashes rethrow so the global handler logs them. */
+export function badRequestFrom(err: unknown, fallback: string): never {
+  if (isUnexpectedError(err)) throw err;
+  badRequest(err instanceof Error ? err.message : fallback);
 }
 
 export function notFound(message = "Not found"): never {

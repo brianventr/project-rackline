@@ -9,6 +9,7 @@ import {
   inBuilding,
   SOURCE_LIMIT,
   sourcesForMode,
+  absenceProvesCleared,
   visibleTo,
   type ClaimPatch,
   type ExceptionClaim,
@@ -65,9 +66,18 @@ export async function loadExceptionItems(
   return { items, sources: sources.map(sourceRef), capped, failed };
 }
 
-/** The problem as its source reports it now, or null once it has cleared. */
+/** The problem as its source reports it now, or null when this load does not include it. */
 export async function findException(ctx: ExceptionSourceContext, source: ExceptionSource, key: string): Promise<ExceptionItem | null> {
   return inBuilding(await source.load(ctx), ctx.warehouseId).find((item) => item.key === key) ?? null;
+}
+
+/**
+ * True only when the source's own load shows the problem is gone. A capped load that stopped before
+ * this key is not proof, and the claim stays.
+ */
+export async function problemCleared(ctx: ExceptionSourceContext, source: ExceptionSource, key: string): Promise<boolean> {
+  const items = await source.load(ctx);
+  return absenceProvesCleared(items, key, source.loadLimit);
 }
 
 export async function loadClaims(

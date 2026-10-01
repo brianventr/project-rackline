@@ -111,18 +111,6 @@ describe("quick ship", () => {
 });
 
 describe("quick ship helpers", () => {
-  it("adds an order's own reservations back to the bays it can ship from", async () => {
-    const { withOwnReservations } = await import("./quick-ship");
-    const bays = new Map([["a", [bay("shelf", 1)]]]);
-    const next = withOwnReservations(bays, [
-      { itemId: "a", locationId: "shelf", locationCode: "SHELF", qty: 2 },
-      { itemId: "b", locationId: "bin", locationCode: "BIN", qty: 1 },
-    ]);
-    expect(next.get("a")![0]!.qty).toBe(3);
-    expect(next.get("b")![0]!.qty).toBe(1);
-    expect(bays.get("a")![0]!.qty).toBe(1);
-  });
-
   it("checks the label before any stock moves", () => {
     expect(quickShipLabelBlocker({ live: false, hasApiKey: false })).toBeNull();
     expect(quickShipLabelBlocker({ purchaseError: "Unknown carrier service", live: false, hasApiKey: false })).toEqual({

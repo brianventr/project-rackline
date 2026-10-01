@@ -183,6 +183,7 @@ export function planUnpick(input: {
   serials?: string[] | null;
   weightGrams?: number | null;
   expiresOn?: number | null;
+  clientId?: string | null;
 }): StockPlan {
   requirePositiveQty(input.qty);
   const balances = new Map(input.balances);
@@ -202,6 +203,7 @@ export function planUnpick(input: {
         serials: input.serials ?? null,
         weightGrams: input.weightGrams ?? null,
         expiresOn: input.expiresOn ?? null,
+        clientId: input.clientId ?? null,
       },
     ],
   };

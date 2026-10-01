@@ -25,6 +25,11 @@ export type ExceptionActionCall = {
  * items; the inbox keeps the most pressing ones.
  */
 export type ExceptionSource = ExceptionSourceInfo & {
+  /**
+   * How many rows `load` stops at, or null when it returns every match. A key missing from a load
+   * that hit this cap is not proof the problem cleared.
+   */
+  loadLimit: number | null;
   load(ctx: ExceptionSourceContext): Promise<ExceptionItem[]>;
   action?(item: ExceptionItem, actionId: string): ExceptionActionCall | null;
 };

@@ -12,6 +12,8 @@ export type OpenAllocation = AllocationKey & {
   qty: number;
   locationCode: string;
   sku: string;
+  /** The reserving order's 3PL client, null for own stock. */
+  clientId?: string | null;
 };
 
 export type AllocationQty = AllocationKey & {
@@ -34,6 +36,8 @@ export class InsufficientAtpError extends Error {
     public atp: number,
     public needed: number,
     public locationCode?: string,
+    /** Set when other owners' stock would have covered it: the order's 3PL client, or null for own stock. */
+    public clientId?: string | null,
   ) {
     super(
       locationCode

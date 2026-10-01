@@ -525,7 +525,7 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     term: "3PL client",
     aliases: ["3pl", "client", "third party logistics", "client code"],
     short: "A brand you store and ship for. Its code tags orders, ASNs, and waves, and billing drafts one invoice per client.",
-    long: "Stock stays on the same bays; outbound checks that the client has its own qty there (CLIENT_STOCK).",
+    long: "Stock stays on the same bays, tagged with its owner. A client's order only plans, reserves, and picks that client's stock, and your own orders skip client stock; outbound checks the owner's qty at the bay (CLIENT_STOCK).",
     path: "/setup/clients",
   },
   {
@@ -543,6 +543,29 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     short: "Failed labels, stuck parcels, held stock, and other problems from every screen, in one list you claim like a job.",
     long: "Each problem is read live from where it lives, so fixing it there clears it on its own. Claim, snooze, or resolve it with a note; an owner can take over a claim. Garage leaves out counts, EDI, and bay capacity.",
     path: "/exceptions",
+  },
+  {
+    id: "error-reference",
+    term: "Error reference",
+    aliases: ["error ref", "reference code", "something went wrong", "internal error"],
+    short: "The 8-character code after “Something went wrong on our side.” Quote it, and the full error can be found in the Worker logs.",
+    long: "A duplicate reads as CONFLICT and a record still in use as IN_USE, with no reference, because nothing crashed.",
+  },
+  {
+    id: "scan-session",
+    term: "Scan session",
+    aliases: ["recorded scan", "floor scan", "server scan"],
+    short: "The scans the server writes down while a Manufacturer pick, pack, or batch pick is open. The post checks those, not a list the browser sends.",
+    long: "Each scan is stored as it happens, and sending the same scan id again is the same scan. A pick needs the bay and one scan of each SKU. A pack needs one scan per unit. The same serial cannot be scanned twice. Garage keeps posting its own evidence and does not open a session.",
+    path: "/floor/pick",
+  },
+  {
+    id: "tracker-webhook",
+    term: "Tracker webhook",
+    aliases: ["carrier webhook", "tracking webhook", "easypost webhook"],
+    short: "The URL a carrier calls when a parcel moves. Each EasyPost or ShipEngine account has its own, and the secret on it is sealed.",
+    long: "The older shared URL still works when the tracking number belongs to one live account. A secret saved before sealing still verifies, and is sealed the next time it is used.",
+    path: "/setup/carriers",
   },
   {
     id: "cutoff",

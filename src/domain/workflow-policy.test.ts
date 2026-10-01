@@ -4,10 +4,14 @@ import {
   WAREHOUSE_POLICY,
   WorkflowPolicyError,
   assertQuickShip,
+  assertRecordedScans,
   assertScanned,
   checkScanEvidence,
   countScans,
+  evidenceFromRecordedScans,
+  repeatedSerial,
   requiresScan,
+  serialAlreadyRecorded,
   workflowPolicy,
 } from "./workflow-policy";
 
@@ -103,6 +107,34 @@ describe("scan evidence", () => {
       expect((err as Error).message).toMatch(/Scan LAMP/);
     }
     expect(() => assertScanned(WAREHOUSE_POLICY, "pick", lines, { locationScan: "A-01-01", itemScans: ["LAMP", "CORD"] }, bay)).not.toThrow();
+  });
+
+  it("requires a server scan session in Manufacturer and ignores it in Garage", () => {
+    expect(() => assertRecordedScans(GARAGE_POLICY, "pick", lines, null, bay)).not.toThrow();
+    expect(() => assertRecordedScans(WAREHOUSE_POLICY, "pick", lines, null, bay)).toThrow(/scan session/);
+    expect(() => assertRecordedScans(WAREHOUSE_POLICY, "pack", lines, [])).toThrow(/Scan LAMP/);
+    const recorded = [
+      { kind: "location", code: "A-01-01", locationCode: "A-01-01" },
+      { kind: "item", code: "LAMP", sku: "LAMP" },
+      { kind: "item", code: "CORD", sku: "CORD" },
+    ];
+    expect(() => assertRecordedScans(WAREHOUSE_POLICY, "pick", lines, recorded, bay)).not.toThrow();
+    expect(evidenceFromRecordedScans([{ ...recorded[1]!, consumedAt: 1 }, recorded[0]!]).itemScans).toEqual([]);
+  });
+
+  it("counts one recorded scan per packed unit and refuses a repeated serial", () => {
+    const units = [
+      { kind: "item", code: "LAMP", sku: "LAMP" },
+      { kind: "serial", code: "SN-1", sku: "LAMP", serial: "SN-1" },
+      { kind: "item", code: "LAMP", sku: "LAMP" },
+      { kind: "item", code: "CORD", sku: "CORD" },
+    ];
+    expect(() => assertRecordedScans(WAREHOUSE_POLICY, "pack", lines, units)).not.toThrow();
+    const again = [...units, { kind: "serial", code: "sn-1", sku: "LAMP", serial: "sn-1" }];
+    expect(repeatedSerial(again)).toBe("sn-1");
+    expect(() => assertRecordedScans(WAREHOUSE_POLICY, "pack", lines, again)).toThrow(/SN-1|sn-1/);
+    expect(serialAlreadyRecorded(units, "SN-1", "same")).toBe(true);
+    expect(serialAlreadyRecorded([{ ...units[1]!, clientScanId: "same" }], "SN-1", "same")).toBe(false);
   });
 
   it("makes a Manufacturer pack scan every unit and ignores the bay", () => {

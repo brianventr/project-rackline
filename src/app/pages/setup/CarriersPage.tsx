@@ -593,11 +593,18 @@ export function CarriersPage() {
                 <div>
                   <h2 className="text-sm font-semibold">Tracker webhook</h2>
                   <p className="text-sm text-muted-foreground">
-                    EasyPost and ShipEngine POST tracker updates here. Demo records the payload. HMAC is required when the
-                    aggregator connection is live and has a webhook secret.
+                    EasyPost and ShipEngine POST tracker updates here. Give each live account its own URL so Rackline checks
+                    that account's secret. The shared URL still accepts a tracker when the tracking number belongs to one
+                    account. Demo records the payload. HMAC is required when the aggregator connection is live and has a
+                    webhook secret.
                   </p>
                 </div>
-                <CopyValue value={hub.trackerWebhookUrl} label="Tracker webhook URL" />
+                {hub.connections
+                  .filter((row) => row.trackerWebhookUrl)
+                  .map((row) => (
+                    <CopyValue key={row.id} value={row.trackerWebhookUrl!} label={`${row.nickname} webhook URL`} />
+                  ))}
+                <CopyValue value={hub.trackerWebhookUrl} label="Shared tracker webhook URL" />
               </div>
             </Card>
           ) : null}

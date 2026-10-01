@@ -231,7 +231,7 @@ channelsRoute.post("/channels/woocommerce/connect", async (c) => {
 
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const secret = channelSecret(c.env);
+  const secret = channelSecret(c.env, c.get("origin"));
   const hookSecret = randomVerifier();
   const row = await upsertConnection(db, organizationId, "woocommerce", {
     status: "active",
@@ -266,7 +266,7 @@ channelsRoute.post("/channels/etsy/connect", async (c) => {
   const state = `${Date.now()}.${randomVerifier()}`;
   await upsertConnection(db, organizationId, "etsy", {
     oauthState: state,
-    oauthVerifier: await sealSecret(channelSecret(c.env), verifier),
+    oauthVerifier: await sealSecret(channelSecret(c.env, c.get("origin")), verifier),
   });
   const url = etsyAuthorizeUrl({
     clientId: app.keystring,
@@ -431,7 +431,7 @@ channelsPublicRoute.post("/channels/woocommerce/webhook/:connectionId", async (c
     .where(and(eq(schema.channelConnections.id, c.req.param("connectionId")), eq(schema.channelConnections.channel, "woocommerce")))
     .limit(1);
   if (!conn || conn.mode !== "live") return c.json({ error: "Unknown connection" }, 404);
-  const secret = await openSecret(channelSecret(c.env), conn.webhookSecret);
+  const secret = await openSecret(channelSecret(c.env, c.get("origin")), conn.webhookSecret);
   if (!secret || !(await verifyWooSignature(secret, raw, c.req.header("x-wc-webhook-signature")))) {
     return c.json({ error: "Invalid signature" }, 401);
   }
@@ -471,7 +471,7 @@ channelsPublicRoute.get("/channels/etsy/oauth/callback", async (c) => {
     .where(and(eq(schema.channelConnections.oauthState, state), eq(schema.channelConnections.channel, "etsy")))
     .limit(1);
   if (!conn) return c.redirect(channelsRedirect(origin, "etsy=error&reason=state"));
-  const secret = channelSecret(c.env);
+  const secret = channelSecret(c.env, c.get("origin"));
   const verifier = await openSecret(secret, conn.oauthVerifier);
   if (!verifier) return c.redirect(channelsRedirect(origin, "etsy=error&reason=state"));
 

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { mapDomainError } from "./error-response";
+import { respondToError } from "./error-response";
 import type { AppEnv } from "./types";
 
 export type InternalOk<T> = { ok: true; status: number; body: T };
@@ -14,10 +14,8 @@ export type InternalResult<T> = InternalOk<T> | InternalErr;
 export function internalApi(c: Context<AppEnv>, routes: Hono<AppEnv>[]) {
   const inner = new Hono<AppEnv>();
   inner.onError((err, ic) => {
-    const mapped = mapDomainError(err);
-    if (mapped) return ic.json(mapped.body, mapped.status);
-    console.error(err);
-    return ic.json({ error: err instanceof Error ? err.message : "Internal error" }, 500);
+    const { status, body } = respondToError(err, `internal ${ic.req.method} ${new URL(ic.req.url).pathname}`);
+    return ic.json(body, status);
   });
   inner.use("*", async (ic, next) => {
     ic.set("db", c.get("db"));

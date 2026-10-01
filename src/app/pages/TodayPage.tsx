@@ -63,7 +63,7 @@ const LANE_LABEL: Record<LaneId, string> = {
   outbound: "Outbound",
   make: "Make",
   stock: "Stock",
-  exceptions: "Exceptions",
+  exceptions: "Equipment & certifications",
 };
 
 const LANE_ICON: Record<LaneId, LucideIcon> = {
@@ -79,7 +79,7 @@ const LANE_NEXT: Record<LaneId, string> = {
   outbound: "Open orders stay on the floor until someone picks them.",
   make: "Start a kit or work order when a recipe is ready.",
   stock: "Scan a bay to start a count, or wait for replenishment.",
-  exceptions: "Tracker exceptions and posted variances show up here.",
+  exceptions: "Open checkouts, equipment out of service, and certifications due soon.",
 };
 
 const GARAGE_LANE_NEXT: Record<LaneId, string> = {
@@ -87,7 +87,7 @@ const GARAGE_LANE_NEXT: Record<LaneId, string> = {
   outbound: "Orders wait here until you pick, pack, and ship them.",
   make: "Start a kit or a build when the recipe is ready.",
   stock: "The shelf is quiet. On-hand and runway live with your parts.",
-  exceptions: "A label that bounced shows up here.",
+  exceptions: "Forklifts, checkouts, and certifications are part of the full warehouse.",
 };
 
 type LaneAction = { label: string; to: string } | null;
@@ -104,7 +104,7 @@ const LANE_ACTION: Record<LaneId, LaneAction> = {
   outbound: { label: "New order", to: "/outbound/orders?new=1" },
   make: { label: "Open work orders", to: "/make/work-orders" },
   stock: { label: "Count a bay", to: "/floor/count" },
-  exceptions: { label: "Open the inbox", to: "/exceptions" },
+  exceptions: { label: "Open equipment", to: "/equipment" },
 };
 
 const GARAGE_LANE_ACTION: Record<LaneId, LaneAction> = {
@@ -112,7 +112,7 @@ const GARAGE_LANE_ACTION: Record<LaneId, LaneAction> = {
   outbound: { label: "New order", to: "/outbound/orders?new=1" },
   make: { label: "Open builds", to: "/make/work-orders" },
   stock: { label: "Open on hand", to: "/stock" },
-  exceptions: { label: "Open the inbox", to: "/exceptions" },
+  exceptions: null,
 };
 
 type WorkRow = {
@@ -487,7 +487,7 @@ export function TodayPage() {
           ) : null}
           {garage ? null : (
             <RailCard
-              title="Exceptions"
+              title="Exception inbox"
               icon={AlertTriangle}
               action={
                 <Link className="text-sm font-medium text-muted-foreground hover:text-foreground" to="/exceptions">
@@ -1578,29 +1578,6 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       actionTo: "/analytics/runway",
       action: "Runway",
       locate: { kind: "onHand" as const, itemId: row.itemId, sku: row.sku },
-    })),
-    ...(queues.shopifyExceptions ?? []).map((row) => ({
-      id: `shopify-${row.id}`,
-      lane: "exceptions" as const,
-      queue: "Shopify",
-      to: `/outbound/orders/${row.id}`,
-      title: row.shopifyOrderName || row.number,
-      meta: row.shopifySyncError || row.shopifySyncStatus || "Needs attention",
-      status: row.shopifySyncStatus || row.status,
-      actionTo: `/outbound/orders/${row.id}`,
-      action: "Open",
-    })),
-    ...(queues.trackerExceptions ?? []).map((row) => ({
-      id: row.id,
-      lane: "exceptions" as const,
-      queue: "Tracker",
-      to: `/outbound/orders/${row.orderId}`,
-      title: row.packageNumber ? `${row.number} ${row.packageNumber}` : row.number,
-      meta: row.trackingNumber ? `${row.trackingNumber} · ${row.trackerStatus}` : row.trackerStatus,
-      status: "exception",
-      actionTo: `/outbound/orders/${row.orderId}`,
-      action: "Relabel",
-      relabel: { orderId: row.orderId, packageId: row.packageNumber ? row.id : undefined },
     })),
     ...(queues.checkouts ?? []).map((row) => ({
       id: row.id,

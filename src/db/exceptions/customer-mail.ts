@@ -6,6 +6,7 @@ import { failedStatusError, type ExceptionSource } from "./source";
 
 export const customerMailSource: ExceptionSource = {
   ...CUSTOMER_MAIL_SOURCE,
+  loadLimit: SOURCE_LIMIT + 1,
   async load({ db, organizationId, warehouseId, now }) {
     const e = schema.customerEmails;
     const o = schema.orders;

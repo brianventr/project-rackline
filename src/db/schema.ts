@@ -535,18 +535,22 @@ export const shopifyWebhookReceipts = sqliteTable("shopify_webhook_receipts", {
   createdAt: integer("created_at").notNull(),
 });
 
-export const shopifyOutboundEvents = sqliteTable("shopify_outbound_events", {
-  id: text("id").primaryKey(),
-  organizationId: text("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull(),
-  status: text("status").notNull(),
-  requestJson: text("request_json").notNull(),
-  responseJson: text("response_json"),
-  createdAt: integer("created_at").notNull(),
-});
+export const shopifyOutboundEvents = sqliteTable(
+  "shopify_outbound_events",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    status: text("status").notNull(),
+    requestJson: text("request_json").notNull(),
+    responseJson: text("response_json"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("shopify_outbound_events_org_kind").on(t.organizationId, t.kind, t.createdAt)],
+);
 
 export const carrierConnections = sqliteTable(
   "carrier_connections",
@@ -565,6 +569,8 @@ export const carrierConnections = sqliteTable(
     meterNumber: text("meter_number"),
     enabledServicesJson: text("enabled_services_json").notNull().default("[]"),
     webhookSecret: text("webhook_secret"),
+    /** SHA-256 of the tracker webhook secret. A lookup key, not a secret. */
+    webhookSecretFp: text("webhook_secret_fp"),
     isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
     lastTestedAt: integer("last_tested_at"),
     lastTestStatus: text("last_test_status"),
@@ -572,22 +578,29 @@ export const carrierConnections = sqliteTable(
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
-  (t) => [uniqueIndex("carrier_connections_org_provider").on(t.organizationId, t.provider)],
+  (t) => [
+    uniqueIndex("carrier_connections_org_provider").on(t.organizationId, t.provider),
+    index("carrier_connections_webhook_fp").on(t.webhookSecretFp),
+  ],
 );
 
-export const carrierOutboundEvents = sqliteTable("carrier_outbound_events", {
-  id: text("id").primaryKey(),
-  organizationId: text("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  connectionId: text("connection_id").references(() => carrierConnections.id, { onDelete: "set null" }),
-  orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull(),
-  status: text("status").notNull(),
-  requestJson: text("request_json").notNull(),
-  responseJson: text("response_json"),
-  createdAt: integer("created_at").notNull(),
-});
+export const carrierOutboundEvents = sqliteTable(
+  "carrier_outbound_events",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id").references(() => carrierConnections.id, { onDelete: "set null" }),
+    orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    status: text("status").notNull(),
+    requestJson: text("request_json").notNull(),
+    responseJson: text("response_json"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("carrier_outbound_events_org_status").on(t.organizationId, t.status, t.kind, t.createdAt)],
+);
 
 export const trackerWebhookReceipts = sqliteTable(
   "tracker_webhook_receipts",
@@ -1986,6 +1999,54 @@ export const exceptionClaims = sqliteTable(
   (t) => [
     uniqueIndex("exception_claims_org_source_key").on(t.organizationId, t.source, t.key),
     index("exception_claims_org_key").on(t.organizationId, t.key),
+  ],
+);
+
+/**
+ * A floor task's scans, recorded by the server as they happen. Manufacturer pick, pack, and batch
+ * pick check this list. `consumed_at` is set on item scans when a post accepts them; bay scans stay.
+ */
+export const floorScanSessions = sqliteTable(
+  "floor_scan_sessions",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id").references(() => warehouses.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    task: text("task").notNull(),
+    refId: text("ref_id").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("floor_scan_sessions_org_task").on(t.organizationId, t.userId, t.task, t.refId)],
+);
+
+export const floorScans = sqliteTable(
+  "floor_scans",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => floorScanSessions.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    clientScanId: text("client_scan_id").notNull(),
+    kind: text("kind").notNull(),
+    code: text("code").notNull(),
+    sku: text("sku"),
+    serial: text("serial"),
+    locationId: text("location_id"),
+    locationCode: text("location_code"),
+    consumedAt: integer("consumed_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("floor_scans_session_client").on(t.sessionId, t.clientScanId),
+    index("floor_scans_session_serial").on(t.sessionId, t.serial),
   ],
 );
 

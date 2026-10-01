@@ -25,6 +25,38 @@ export class OverUnpickError extends Error {
   }
 }
 
+export type UnpickAllocationTarget = { orderLineId: string; itemId: string; locationId: string; qty: number };
+
+/**
+ * Where an unpick puts a line's reservation back. A chosen bay takes the whole qty. Otherwise each
+ * bay the line was picked from gets its own share; one fallback bay is used only when no slice is known.
+ */
+export function unpickAllocationTargets(
+  lines: { lineId: string; itemId: string; qty: number; slices: { locationId: string; qty: number }[] }[],
+  chosenLocationId?: string | null,
+  fallbackLocationId?: string | null,
+): UnpickAllocationTarget[] {
+  const out: UnpickAllocationTarget[] = [];
+  for (const line of lines) {
+    if (line.qty <= 0) continue;
+    if (chosenLocationId) {
+      out.push({ orderLineId: line.lineId, itemId: line.itemId, locationId: chosenLocationId, qty: line.qty });
+      continue;
+    }
+    const slices = line.slices.filter((slice) => slice.qty > 0 && slice.locationId);
+    if (slices.length === 0) {
+      if (fallbackLocationId) {
+        out.push({ orderLineId: line.lineId, itemId: line.itemId, locationId: fallbackLocationId, qty: line.qty });
+      }
+      continue;
+    }
+    for (const slice of slices) {
+      out.push({ orderLineId: line.lineId, itemId: line.itemId, locationId: slice.locationId, qty: slice.qty });
+    }
+  }
+  return out;
+}
+
 export function remainingToUnpick(line: UnpickLine, includePacked = false): number {
   return includePacked ? line.qtyPicked : line.qtyPicked - line.qtyPacked;
 }

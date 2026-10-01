@@ -22,6 +22,7 @@ function sameAsn(a: SQLWrapper, b: SQLWrapper) {
 
 export const ediSource: ExceptionSource = {
   ...EDI_SOURCE,
+  loadLimit: SOURCE_LIMIT + 1,
   async load({ db, organizationId, now }) {
     const inbox = schema.ediInbox;
     const later = alias(schema.ediInbox, "later_edi");
