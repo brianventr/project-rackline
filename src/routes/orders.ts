@@ -30,6 +30,7 @@ import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { splitCatchWeight } from "../domain/catch-weight";
 import { canRelabelException } from "../domain/tracker";
+import { newPublicToken } from "../domain/public-token";
 import {
   applyPartialPick,
   hasUnpicked,
@@ -1908,6 +1909,7 @@ async function shipOrderCartons(
               }
             : {}),
           ...trackingPatch,
+          trackingToken: order.trackingToken ?? newPublicToken(),
         })
         .where(eq(schema.orders.id, order.id)),
       ...(complete ? releaseAllocationStatements(db, order.id, now) : []),
@@ -2001,6 +2003,7 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
           trackingNumber: label.trackingNumber,
           trackingCompany: label.carrierCompany,
           trackingUrl: label.trackingUrl,
+          trackingToken: order.trackingToken ?? newPublicToken(),
           carrierService: label.carrierServiceId,
           carrierConnectionId: purchase.connectionId,
           labelStatus: "purchased",

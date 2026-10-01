@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Circle,
+  Link2,
   Package,
   PackageCheck,
   Printer,
@@ -36,6 +37,7 @@ import { useSession } from "../session";
 import { usePrint } from "../print/PrintProvider";
 import { ShipStation } from "./ShipStation";
 import { ShippingLabelCard, shippingLabelJob } from "./ShippingLabelPage";
+import { copyTrackingLink } from "../tracking-link";
 import { markShippedReminder } from "@/domain/channels/adapter";
 import { shortDay } from "@/domain/rate-choice";
 import { formatOz } from "@/domain/ship-defaults";
@@ -302,12 +304,18 @@ export function ShipQueuePage() {
       cell: (row) => {
         if (row.status === "shipped") {
           return (
-            <Button size="sm" variant="ghost" asChild>
-              <Link to={labelsHref([row.id])}>
-                <Printer className="size-4" />
-                Label
-              </Link>
-            </Button>
+            <span className="inline-flex items-center justify-end gap-1">
+              <Button size="sm" variant="ghost" title="Copy the customer's tracking page link" onClick={() => void copyTrackingLink(row.id)}>
+                <Link2 className="size-4" />
+                Tracking link
+              </Button>
+              <Button size="sm" variant="ghost" asChild>
+                <Link to={labelsHref([row.id])}>
+                  <Printer className="size-4" />
+                  Label
+                </Link>
+              </Button>
+            </span>
           );
         }
         if (!quickShip) {

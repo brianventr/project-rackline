@@ -5,6 +5,7 @@ import {
   ClipboardList,
   FileText,
   Layers,
+  Link2,
   PackageCheck,
   PackageMinus,
   Play,
@@ -82,6 +83,7 @@ import { useSession } from "../session";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { PickMap } from "../components/PickMap";
 import { ScaleWeight } from "../scale/ScaleWeight";
+import { copyTrackingLink } from "../tracking-link";
 
 export function OrdersPage() {
   const { id } = useParams();
@@ -804,6 +806,9 @@ function OrderDetail({ id }: { id: string }) {
     ...(canPickOrder(order.status) ? [{ label: "Pick list", icon: ClipboardList, to: `/outbound/orders/${order.id}/pick-list` }] : []),
     { label: "Pack slip", icon: FileText, to: `/outbound/orders/${order.id}/pack-slip` },
     ...(!hasPackages ? [{ label: "Shipping label", icon: Printer, to: `/outbound/orders/${order.id}/shipping-label` }] : []),
+    ...(order.status === "shipped" || order.trackingNumber || shippedCarton
+      ? [{ label: "Copy tracking link", icon: Link2, onSelect: () => copyTrackingLink(order.id) }]
+      : []),
     ...(packing && policy.officePickPack
       ? [{ label: "Pack into carton", icon: Box, onSelect: packIntoCarton, disabled: !thisPack }]
       : []),

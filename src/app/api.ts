@@ -114,7 +114,13 @@ export async function uploadFile<T>(path: string, file: File): Promise<T> {
 
 export type Me = {
   user: { id: string; name: string; email: string };
-  organization: { id: string; name: string; operatingMode?: "garage" | "warehouse" };
+  organization: {
+    id: string;
+    name: string;
+    operatingMode?: "garage" | "warehouse";
+    brandColor?: string | null;
+    logoUrl?: string | null;
+  };
   role: "owner" | "operator";
   floorVerbs?: string[];
   warehouses: { id: string; name: string }[];
@@ -534,6 +540,8 @@ export type Order = {
   trackingNumber?: string | null;
   trackingCompany?: string | null;
   trackingUrl?: string | null;
+  trackingToken?: string | null;
+  customsFormUrl?: string | null;
   shipToAddress?: string | null;
   shipToCity?: string | null;
   shipToRegion?: string | null;
@@ -799,6 +807,43 @@ export type ShippingLabel = {
   connectionId?: string | null;
   labelStatus?: string | null;
   packageNumber?: string | null;
+};
+
+export type TrackingLink = { token: string; path: string; url: string };
+
+export type PublicTrackingEvent = {
+  at: number;
+  status: string | null;
+  label: string;
+  message: string | null;
+  place: string | null;
+};
+
+export type PublicTrackingPackage = {
+  label: string;
+  carrier: string | null;
+  service: string | null;
+  trackingNumber: string | null;
+  trackingUrl: string | null;
+  status: string | null;
+  statusLabel: string;
+  estimatedDeliveryAt: number | null;
+  deliveredAt: number | null;
+  events: PublicTrackingEvent[];
+  items: { name: string; qty: number }[];
+};
+
+/** `GET /api/track/:token`, the customer's tracking page (`src/domain/tracking-page.ts`). */
+export type PublicTracking = {
+  shop: { name: string; brandColor: string | null; logoUrl: string | null };
+  order: {
+    number: string;
+    status: "processing" | "shipped" | "delivered" | "cancelled";
+    shippedAt: number | null;
+    destination: string | null;
+  };
+  packages: PublicTrackingPackage[];
+  items: { name: string; qty: number }[];
 };
 
 export type CarrierServiceOption = {

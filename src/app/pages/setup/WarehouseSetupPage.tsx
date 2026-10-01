@@ -31,6 +31,7 @@ import { RATE_STRATEGIES, RATE_STRATEGY_LABELS } from "@/domain/ship-rules";
 import { MAX_DELIVERY_DAYS } from "@/domain/rate-choice";
 import { describeNorth, NORTH_PRESETS, normalizeHeading } from "@/domain/compass";
 import { CompassRose } from "../../components/CompassRose";
+import { TrackingPageCard } from "./TrackingPageCard";
 
 function mapSize(label: string) {
   return wholeNumber(1, {
@@ -243,6 +244,8 @@ export function WarehouseSetupPage() {
           </div>
         </div>
       </Card>
+
+      <TrackingPageCard disabled={!operating.owner} />
 
       <Card>
         <form className="space-y-4" onSubmit={form.handleSubmit(save)}>
