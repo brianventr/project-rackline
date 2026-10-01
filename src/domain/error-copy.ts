@@ -21,6 +21,7 @@ export const ERROR_CODES = [
   "OVER_MOVE",
   "OVER_RETURN",
   "OVER_COMPLETE",
+  "STEPS_REQUIRED",
   "OVER_UNPICK",
   "OVER_BATCH_PICK",
   "HELD_STOCK",
@@ -228,6 +229,10 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
   OVER_MOVE: (ctx) => overCopy(ctx, "move", ""),
   OVER_RETURN: (ctx) => overCopy(ctx, "send back", "on this vendor return"),
   OVER_COMPLETE: (ctx) => overCopy(ctx, "build", ""),
+  STEPS_REQUIRED: ({ text }) => ({
+    message: asSentence(text),
+    hint: "Confirm that step, then complete again.",
+  }),
   OVER_UNPICK: ({ body, text }) => {
     const remaining = num(body, "remaining");
     if (remaining == null) return { message: asSentence(text), hint: "Lower the qty and try again." };

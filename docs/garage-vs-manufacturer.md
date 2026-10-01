@@ -607,3 +607,15 @@ The From address stays `MAIL_FROM`. You can set a sender name and a reply-to add
 - The ZIP check compares the ZIP's 3-digit prefix with the ranges that belong to that state. "Seattle, OR 98101" fails, because 981 is Washington and Oregon is 970–979. The first digit alone is not enough, since both start with 9.
 - A return label the carrier would not sell or void shows in Exceptions, even though the original order has already shipped.
 - An order with no ship weight, on a service that buys live postage, waits under **Needs attention** (`NEED_WEIGHT`).
+
+## 18. Step confirmation
+
+Completing a kit or a work order waits until the recipe steps are confirmed for the quantity you are posting. This is the same in Garage and Manufacturer, on the floor and from the office. A recipe with no steps still completes. Posting zero, or completing a build that is already finished, is unchanged.
+
+Each step has to be confirmed once for every unit in this complete. Posting 3 needs each step confirmed 3 times, or one confirmation that covers those 3. Confirmations already recorded count, so finishing the last unit only asks for what is still short. They are kept on that kit or work order.
+
+- A step tied to a component is confirmed by scanning that component's SKU, barcode, or pack barcode. A pack barcode confirms the pack's eaches.
+- A step with no component is confirmed on its own.
+- The photo on a step is there so you can see the part. It is not proof, and checking it off on the screen does not count.
+
+Until the steps for this complete are confirmed, the complete button stays disabled and the server answers 409 `STEPS_REQUIRED`, naming the next step, for example "Confirm step 1, Thread the cord, before completing." Each scan or confirm is saved as it happens.

@@ -733,6 +733,27 @@ export const bomSteps = sqliteTable(
   (t) => [uniqueIndex("bom_steps_bom_seq").on(t.bomId, t.seq)],
 );
 
+/** Confirmed recipe steps on a kit build or work order. Qty counts toward the units being completed. */
+export const stepConfirmations = sqliteTable(
+  "step_confirmations",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    refType: text("ref_type").notNull(),
+    refId: text("ref_id").notNull(),
+    stepId: text("step_id")
+      .notNull()
+      .references(() => bomSteps.id, { onDelete: "cascade" }),
+    qty: integer("qty").notNull(),
+    code: text("code"),
+    confirmedBy: text("confirmed_by"),
+    confirmedAt: integer("confirmed_at").notNull(),
+  },
+  (t) => [index("step_confirmations_ref").on(t.organizationId, t.refType, t.refId)],
+);
+
 export const workOrders = sqliteTable("work_orders", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id")

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Hammer } from "lucide-react";
 import { api, errorText, type ScanHit, type WorkOrder } from "../../api";
+import { confirmedQty } from "@/domain/step-confirm";
 import { Button, Card, DoneBanner, Field, Input, StatusBadge } from "../../components/ui";
 import { Term } from "../../components/term";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,6 +10,7 @@ import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } fr
 import { canCompleteWorkOrder } from "@/domain/status";
 import { AsBuiltList } from "../../components/as-built";
 import { KitRecipeCard } from "../../components/kit-recipe";
+import { StepGate, stepShortfall } from "../../components/step-gate";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 
@@ -26,10 +28,13 @@ export function FloorAssemblePage() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  function applyOrder(order: WorkOrder) {
+  function applyOrder(order: WorkOrder, resetQty = true) {
     setActive(order);
-    setThisQty(String(order.remaining ?? Math.max(0, order.qty - (order.qtyCompleted ?? 0))));
+    if (resetQty) setThisQty(String(order.remaining ?? Math.max(0, order.qty - (order.qtyCompleted ?? 0))));
   }
+
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   /** Open a work order unless a teammate has claimed it. Resolves true when it opened. */
   async function openOrder(id: string, nextJobs = jobs): Promise<boolean> {
@@ -62,6 +67,32 @@ export function FloorAssemblePage() {
     setError(null);
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
       .then(async (hit) => {
+        const open = activeRef.current;
+        if (open && hit.kind === "item") {
+          const ordered = [...(open.steps ?? [])].sort((a, b) => a.seq - b.seq);
+          const step = ordered.find(
+            (row) => row.componentItemId === hit.item.id && confirmedQty(open.confirmations ?? [], row.id) < open.qty,
+          );
+          if (!step) {
+            setError("That scan does not confirm a step.");
+            report?.(false);
+            return;
+          }
+          const room = open.qty - confirmedQty(open.confirmations ?? [], step.id);
+          const packQty = hit.pack?.qty && hit.pack.qty > 0 ? hit.pack.qty : 1;
+          try {
+            const updated = await api<WorkOrder>(`/api/work-orders/${open.id}/steps/confirm`, {
+              method: "POST",
+              body: JSON.stringify({ stepId: step.id, code: raw, qty: Math.min(packQty, room) }),
+            });
+            applyOrder(updated, false);
+            report?.(true);
+          } catch (err) {
+            setError(errorText(err, "Could not confirm that step."));
+            report?.(false);
+          }
+          return;
+        }
         if (hit.kind === "workOrder") {
           report?.(await openOrder(hit.workOrder.id));
           return;
@@ -74,6 +105,20 @@ export function FloorAssemblePage() {
         report?.(false);
       });
   }, [jobs, me.user.id]);
+
+  async function confirmStep(body: { stepId?: string; code?: string; qty?: number }) {
+    if (!active) return;
+    setError(null);
+    try {
+      const updated = await api<WorkOrder>(`/api/work-orders/${active.id}/steps/confirm`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      applyOrder(updated, false);
+    } catch (err) {
+      setError(errorText(err, "Could not confirm that step."));
+    }
+  }
 
   async function complete() {
     if (!active) return;
@@ -95,10 +140,15 @@ export function FloorAssemblePage() {
   }
 
   const remaining = active ? (active.remaining ?? Math.max(0, active.qty - (active.qtyCompleted ?? 0))) : 0;
+  const posted = Number(thisQty);
+  const postedQty = Number.isInteger(posted) && posted > 0 ? posted : 0;
+  const stepProblem = active
+    ? stepShortfall(active.steps, active.confirmations, active.qtyCompleted ?? 0, postedQty)
+    : null;
 
   return (
-    <FloorFrame title="Assemble" description="Scan the work order, confirm the bins, complete remaining qty." error={error}>
-      <FloorScanBox label="Scan work order" placeholder="WO-DEMO1" onScan={onScan} ready={loaded} />
+    <FloorFrame title="Assemble" description="Scan the work order, confirm each step, complete remaining qty." error={error}>
+      <FloorScanBox label={active ? "Scan component or work order" : "Scan work order"} placeholder="WO-DEMO1" onScan={onScan} ready={loaded} />
       <DoneBanner>{done}</DoneBanner>
       {!active ? (
         loaded ? (
@@ -140,9 +190,18 @@ export function FloorAssemblePage() {
             itemName={active.itemName}
             imageUrl={active.imageUrl}
             components={active.components}
-            steps={active.steps}
-            checkable
+            steps={canCompleteWorkOrder(active.status) && remaining > 0 ? undefined : active.steps}
           />
+          {canCompleteWorkOrder(active.status) && remaining > 0 ? (
+            <StepGate
+              steps={active.steps}
+              confirmations={active.confirmations}
+              qtyCompleted={active.qtyCompleted ?? 0}
+              postedQty={postedQty}
+              documentQty={active.qty}
+              onConfirm={(body) => void confirmStep(body)}
+            />
+          ) : null}
           {canCompleteWorkOrder(active.status) && remaining > 0 ? (
             <>
               <Field label={`This complete (remaining ${remaining})`}>
@@ -156,9 +215,14 @@ export function FloorAssemblePage() {
                   onChange={(e) => setThisQty(e.target.value)}
                 />
               </Field>
-              <Button className="h-14 w-full text-lg sm:w-auto" onClick={() => void complete()}>
+              <Button
+                className="h-14 w-full text-lg sm:w-auto"
+                disabled={postedQty <= 0 || Boolean(stepProblem)}
+                onClick={() => void complete()}
+              >
                 Complete work order
               </Button>
+              {stepProblem ? <p className="text-sm text-muted-foreground">{stepProblem}</p> : null}
             </>
           ) : (
             <div className="space-y-3">

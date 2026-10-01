@@ -14,6 +14,8 @@ import { loadAsBuiltForRef } from "../db/as-built";
 import { applyPartialComplete, isFullyCompleted, remainingToComplete, OverCompleteError } from "../domain/partial-complete";
 import { guardFloorJob, syncDocumentJob } from "../db/jobs";
 import { loadBomRecipe } from "../db/bom-recipe";
+import { loadStepConfirmations, recordStepConfirmation } from "../db/step-confirm";
+import { StepConfirmError, nextUnconfirmedStep, stepsRequiredMessage } from "../domain/step-confirm";
 
 export const kitsRoute = new Hono<AppEnv>();
 
@@ -44,11 +46,13 @@ async function kitWithItem(db: AppEnv["Variables"]["db"], organizationId: string
   if (!row) notFound("Kit build not found");
   const recipe = await loadBomRecipe(db, organizationId, row.itemId);
   const asBuilt = await loadAsBuiltForRef(db, organizationId, row.id);
+  const confirmations = await loadStepConfirmations(db, organizationId, "kit", row.id);
   return {
     ...row,
     remaining: remainingToComplete(row.qty, row.qtyCompleted),
     components: recipe.lines,
     steps: recipe.steps,
+    confirmations,
     asBuilt,
   };
 }
@@ -147,6 +151,38 @@ kitsRoute.post("/kits", async (c) => {
   return c.json(created, 201);
 });
 
+kitsRoute.post("/kits/:id/steps/confirm", async (c) => {
+  const body = await c.req.json<{ stepId?: string; code?: string; qty?: number }>().catch(() => ({}) as {
+    stepId?: string;
+    code?: string;
+    qty?: number;
+  });
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const kit = await kitWithItem(db, organizationId, c.req.param("id"));
+  if (!canCompleteKit(kit.status)) conflict("Kit already completed");
+  let requestedQty: number | null = null;
+  if (body.qty !== undefined && body.qty !== null) requestedQty = requireInt(body.qty, "qty");
+  try {
+    await recordStepConfirmation(db, {
+      organizationId,
+      refType: "kit",
+      refId: kit.id,
+      documentQty: kit.qty,
+      steps: kit.steps,
+      confirmedBy: c.get("user")?.id ?? null,
+      stepId: body.stepId,
+      code: body.code,
+      requestedQty,
+      now: Date.now(),
+    });
+  } catch (err) {
+    if (err instanceof StepConfirmError) badRequest(err.message);
+    throw err;
+  }
+  return c.json(await kitWithItem(db, organizationId, kit.id));
+});
+
 kitsRoute.post("/kits/:id/complete", async (c) => {
   const body = await c.req
     .json<{ qty?: number; lotCode?: string; serials?: string | string[] }>()
@@ -186,6 +222,14 @@ kitsRoute.post("/kits/:id/complete", async (c) => {
     if (err instanceof OverCompleteError) throw err;
     badRequest(err instanceof Error ? err.message : "Invalid complete qty");
   }
+
+  const gap = nextUnconfirmedStep({
+    steps: kit.steps,
+    confirmations: kit.confirmations,
+    qtyCompleted: kit.qtyCompleted,
+    postedQty: applied.postedQty,
+  });
+  if (gap) conflict(stepsRequiredMessage(gap.step), "STEPS_REQUIRED");
 
   const pairs = [
     ...kit.components.map((line) => ({ locationId: kit.sourceLocationId, itemId: line.itemId })),

@@ -507,6 +507,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/make/kits",
   },
   {
+    id: "step-confirmation",
+    term: "Step confirmation",
+    aliases: ["step gate", "confirm step", "recipe step scan"],
+    short: "Proof a recipe step was done for the units you are completing. Scan the component, or confirm a step that has no component. The photo is only a picture.",
+    long: "Completing a kit or work order waits until every step is confirmed for that qty. One confirmation can cover the qty, or you can confirm one unit at a time. A recipe with no steps still completes. Both modes use the same check.",
+    path: "/make/kits",
+  },
+  {
     id: "dekit",
     term: "Dekit",
     aliases: ["unkit", "break kit", "disassemble"],

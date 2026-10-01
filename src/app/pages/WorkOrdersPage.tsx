@@ -20,6 +20,7 @@ import { NumberField, SelectField, useZodForm, type ZodFormOutput } from "../com
 import { Term } from "../components/term";
 import { AsBuiltList } from "../components/as-built";
 import { KitRecipeCard } from "../components/kit-recipe";
+import { StepGate, stepShortfall } from "../components/step-gate";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -307,6 +308,19 @@ function WorkOrderDetail({ id }: { id: string }) {
     if (next) setOrder(next);
   }
 
+  async function confirmStep(body: { stepId?: string; code?: string; qty?: number }) {
+    const next = await run(
+      "Confirm step",
+      () =>
+        api<WorkOrder>(`/api/work-orders/${id}/steps/confirm`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      "Step confirmed.",
+    );
+    if (next) setOrder(next);
+  }
+
   async function complete() {
     const qty = Number(thisQty);
     const next = await run(
@@ -328,8 +342,11 @@ function WorkOrderDetail({ id }: { id: string }) {
     }
   }
 
+  const posted = Number(thisQty);
+  const postedQty = Number.isInteger(posted) && posted > 0 ? posted : 0;
+  const stepProblem = stepShortfall(current.steps, current.confirmations, current.qtyCompleted ?? 0, postedQty);
   const primary: DocumentAction | null = completable
-    ? { label: "Complete", icon: CheckCircle2, onSelect: complete, disabled: !(Number(thisQty) > 0) }
+    ? { label: "Complete", icon: CheckCircle2, onSelect: complete, disabled: postedQty <= 0 || Boolean(stepProblem) }
     : null;
 
   const menu: DocumentAction[] = [
@@ -390,6 +407,7 @@ function WorkOrderDetail({ id }: { id: string }) {
               {remaining} left to build. Complete consumes the recipe{sourceBay ? ` from ${sourceBay}` : ""} and puts finished{" "}
               {current.sku}
               {outputBay ? ` in ${outputBay}` : " in the output bay"}. A partial qty is fine.
+              {stepProblem ? ` ${stepProblem}` : ""}
             </p>
           </div>
         ) : null}
@@ -407,8 +425,21 @@ function WorkOrderDetail({ id }: { id: string }) {
                   itemName={current.itemName}
                   imageUrl={current.imageUrl}
                   components={current.components}
-                  steps={current.steps}
+                  steps={completable ? undefined : current.steps}
                 />
+                {completable ? (
+                  <div className="mt-3">
+                    <StepGate
+                      steps={current.steps}
+                      confirmations={current.confirmations}
+                      qtyCompleted={current.qtyCompleted ?? 0}
+                      postedQty={postedQty}
+                      documentQty={current.qty}
+                      typedScan
+                      onConfirm={(body) => void confirmStep(body)}
+                    />
+                  </div>
+                ) : null}
               </Card>
             ) : (
               <EmptyState

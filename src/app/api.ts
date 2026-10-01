@@ -821,6 +821,7 @@ export type WorkOrder = {
   asBuilt?: AsBuiltLink[];
   components?: { id?: string; itemId: string; qty: number; sku: string; itemName: string; imageUrl?: string | null }[];
   steps?: BomStep[];
+  confirmations?: { stepId: string; qty: number }[];
 };
 
 export type KitBuild = {
@@ -843,6 +844,7 @@ export type KitBuild = {
   catchWeight?: boolean;
   components?: { id?: string; itemId: string; qty: number; sku: string; itemName: string; imageUrl?: string | null }[];
   steps?: BomStep[];
+  confirmations?: { stepId: string; qty: number }[];
   asBuilt?: AsBuiltLink[];
 };
 

@@ -12,6 +12,7 @@ const SAMPLE: Record<ErrorCode, { status: number; body: Record<string, unknown> 
   OVER_MOVE: { status: 409, body: { error: "Cannot move 5 of LAMP: only 3 remaining", sku: "LAMP", remaining: 3, qty: 5 } },
   OVER_RETURN: { status: 409, body: { error: "Cannot return 5 of LAMP: only 3 remaining", sku: "LAMP", remaining: 3, qty: 5 } },
   OVER_COMPLETE: { status: 409, body: { error: "Cannot complete 5 of LAMP: only 3 remaining", sku: "LAMP", remaining: 3, qty: 5 } },
+  STEPS_REQUIRED: { status: 409, body: { error: "Confirm step 1, Thread the cord, before completing" } },
   OVER_UNPICK: { status: 409, body: { error: "Cannot unpick 5 of LAMP: only 3 remaining", sku: "LAMP", remaining: 3, qty: 5 } },
   OVER_BATCH_PICK: {
     status: 409,
