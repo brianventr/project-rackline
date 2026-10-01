@@ -15,6 +15,7 @@ import { destPatchFromAddress, originColumns, resolveOrigin } from "../domain/ge
 import { demoInventoryItemGid, demoShopifyLocationGid } from "../domain/shopify-sellable";
 import { syncShopifySellable } from "./shopify-sellable";
 import { backfillParties } from "./parties";
+import { createPlate, savePlateOps } from "./license-plates";
 import { rateActivity } from "../domain/billing";
 
 export const DEMO_EMAIL = "demo@northwind.makers";
@@ -1346,10 +1347,47 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       notes: "Bulbs, shades, and cords. Ships Tuesdays and Fridays.",
     })
     .where(and(eq(schema.vendors.organizationId, organizationId), eq(schema.vendors.name, "Harbor Components")));
+  await seedDemoPlate(db, { organizationId, warehouseId, userId, locationId: locIds.a0101!, itemId: item.cord, now });
   // Limits go on last so no seeded receive or move runs into them.
   await db.update(schema.locations).set({ maxQty: 40 }).where(eq(schema.locations.id, locIds.a0102!));
 
   return { organizationId };
+}
+
+/** A closed pallet in the bulk bay, made from stock the seed already left there. */
+async function seedDemoPlate(
+  db: AppDb,
+  input: { organizationId: string; warehouseId: string; userId: string; locationId: string; itemId: string; now: number },
+) {
+  const [balance] = await db
+    .select({ qty: schema.inventoryBalances.qty })
+    .from(schema.inventoryBalances)
+    .where(
+      and(
+        eq(schema.inventoryBalances.organizationId, input.organizationId),
+        eq(schema.inventoryBalances.locationId, input.locationId),
+        eq(schema.inventoryBalances.itemId, input.itemId),
+      ),
+    )
+    .limit(1);
+  const qty = Math.min(balance?.qty ?? 0, 12);
+  if (qty <= 0) return;
+  const plateId = await createPlate(db, {
+    organizationId: input.organizationId,
+    warehouseId: input.warehouseId,
+    locationId: input.locationId,
+    type: "pallet",
+    createdBy: input.userId,
+    now: input.now,
+  });
+  await savePlateOps(db, {
+    organizationId: input.organizationId,
+    now: input.now,
+    ops: [
+      { kind: "add", plateId, itemId: input.itemId, qty, lotCode: null },
+      { kind: "status", plateId, status: "closed" },
+    ],
+  });
 }
 
 async function applyLabor(
