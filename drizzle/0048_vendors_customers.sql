@@ -86,6 +86,9 @@ FROM (
 WHERE trim(`customer_name`) != ''
 GROUP BY `organization_id`, lower(trim(`customer_name`));
 
+-- Only for the backfill below: without it, each customer's lookup scans every order.
+CREATE INDEX `orders_org_customer_name_backfill` ON `orders` (`organization_id`, lower(trim(`customer_name`)), `created_at`);
+
 UPDATE `customers` SET `ship_to_address` = (
   SELECT o.`ship_to_address` FROM `orders` o
   WHERE o.`organization_id` = `customers`.`organization_id`
@@ -94,6 +97,8 @@ UPDATE `customers` SET `ship_to_address` = (
   ORDER BY o.`created_at` DESC
   LIMIT 1
 );
+
+DROP INDEX `orders_org_customer_name_backfill`;
 
 UPDATE `orders` SET `customer_id` = (
   SELECT c.`id` FROM `customers` c
