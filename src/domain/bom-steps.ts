@@ -14,6 +14,7 @@ export type BomStepInput = {
   body?: string | null;
   imageUrl?: string | null;
   componentItemId?: string | null;
+  workCenterId?: string | null;
 };
 
 export type NormalizedBomStep = {
@@ -23,12 +24,18 @@ export type NormalizedBomStep = {
   body: string;
   imageUrl: string | null;
   componentItemId: string | null;
+  workCenterId: string | null;
 };
 
-export function normalizeBomSteps(steps: unknown, componentItemIds: string[]): NormalizedBomStep[] {
+export function normalizeBomSteps(
+  steps: unknown,
+  componentItemIds: string[],
+  workCenterIds?: readonly string[],
+): NormalizedBomStep[] {
   if (steps == null) return [];
   if (!Array.isArray(steps)) throw new BomStepError("steps must be an array");
   const allowed = new Set(componentItemIds);
+  const centers = workCenterIds ? new Set(workCenterIds) : null;
   const pending = steps.map((raw, index) => {
     if (!raw || typeof raw !== "object") throw new BomStepError("Invalid step");
     const step = raw as BomStepInput;
@@ -40,6 +47,11 @@ export function normalizeBomSteps(steps: unknown, componentItemIds: string[]): N
     if (componentItemId && !allowed.has(componentItemId)) {
       throw new BomStepError("Step component must be on the recipe");
     }
+    const workCenterId =
+      typeof step.workCenterId === "string" && step.workCenterId.trim() ? step.workCenterId.trim() : null;
+    if (workCenterId && centers && !centers.has(workCenterId)) {
+      throw new BomStepError("Work center is not in this organization");
+    }
     let imageUrl: string | null;
     try {
       imageUrl = normalizeImageUrl(step.imageUrl ?? null);
@@ -49,7 +61,7 @@ export function normalizeBomSteps(steps: unknown, componentItemIds: string[]): N
     }
     const seq = typeof step.seq === "number" && Number.isFinite(step.seq) ? step.seq : index + 1;
     const id = typeof step.id === "string" && step.id.trim() ? step.id.trim() : null;
-    return { id, seq, title, body, imageUrl, componentItemId, index };
+    return { id, seq, title, body, imageUrl, componentItemId, workCenterId, index };
   });
   pending.sort((a, b) => a.seq - b.seq || a.index - b.index);
   return pending.map((step, index) => ({
@@ -59,5 +71,6 @@ export function normalizeBomSteps(steps: unknown, componentItemIds: string[]): N
     body: step.body,
     imageUrl: step.imageUrl,
     componentItemId: step.componentItemId,
+    workCenterId: step.workCenterId,
   }));
 }

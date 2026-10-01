@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -729,6 +729,19 @@ export const addressChecks = sqliteTable(
   (t) => [uniqueIndex("address_checks_order_hash").on(t.orderId, t.addressHash)],
 );
 
+export const workCenters = sqliteTable(
+  "work_centers",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+  },
+  (t) => [uniqueIndex("work_centers_org_code").on(t.organizationId, t.code)],
+);
+
 export const boms = sqliteTable(
   "boms",
   {
@@ -771,6 +784,8 @@ export const bomSteps = sqliteTable(
     body: text("body").notNull().default(""),
     imageUrl: text("image_url"),
     componentItemId: text("component_item_id").references(() => items.id, { onDelete: "set null" }),
+    /** Where this step is done. Stock is still the one ledger. */
+    workCenterId: text("work_center_id").references(() => workCenters.id, { onDelete: "set null" }),
   },
   (t) => [uniqueIndex("bom_steps_bom_seq").on(t.bomId, t.seq)],
 );
@@ -796,30 +811,38 @@ export const stepConfirmations = sqliteTable(
   (t) => [index("step_confirmations_ref").on(t.organizationId, t.refType, t.refId)],
 );
 
-export const workOrders = sqliteTable("work_orders", {
-  id: text("id").primaryKey(),
-  organizationId: text("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  warehouseId: text("warehouse_id")
-    .notNull()
-    .references(() => warehouses.id),
-  number: text("number").notNull(),
-  itemId: text("item_id")
-    .notNull()
-    .references(() => items.id),
-  qty: integer("qty").notNull(),
-  qtyCompleted: integer("qty_completed").notNull().default(0),
-  status: text("status").notNull(),
-  sourceLocationId: text("source_location_id")
-    .notNull()
-    .references(() => locations.id),
-  outputLocationId: text("output_location_id")
-    .notNull()
-    .references(() => locations.id),
-  createdAt: integer("created_at").notNull(),
-  completedAt: integer("completed_at"),
-});
+export const workOrders = sqliteTable(
+  "work_orders",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    number: text("number").notNull(),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id),
+    qty: integer("qty").notNull(),
+    qtyCompleted: integer("qty_completed").notNull().default(0),
+    status: text("status").notNull(),
+    sourceLocationId: text("source_location_id")
+      .notNull()
+      .references(() => locations.id),
+    outputLocationId: text("output_location_id")
+      .notNull()
+      .references(() => locations.id),
+    createdAt: integer("created_at").notNull(),
+    completedAt: integer("completed_at"),
+    /** Set when this order was opened to cover a short component of another order. */
+    parentWorkOrderId: text("parent_work_order_id").references((): AnySQLiteColumn => workOrders.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => [index("work_orders_parent").on(t.parentWorkOrderId)],
+);
 
 export const transfers = sqliteTable("transfers", {
   id: text("id").primaryKey(),
