@@ -373,7 +373,7 @@ export async function listFloorJobs(
   const views = await decorateJobs(db, rows);
   if (!filters.open) return views;
   const now = Date.now();
-  const facts = await loadRankFacts(db, organizationId, filters.warehouseId, views, now);
+  const facts = await loadRankFacts(db, organizationId, filters.warehouseId, views, now, null);
   const ranked = rankJobs(facts, { now });
   const byId = new Map(views.map((row) => [row.id, row]));
   return ranked.flatMap((row) => {
@@ -392,7 +392,14 @@ function minDays(current: number | undefined, next: number): number {
   return current == null || next < current ? next : current;
 }
 
-async function loadRankFacts(db: AppDb, organizationId: string, warehouseId: string | undefined, rows: FloorJobView[], now: number) {
+async function loadRankFacts(
+  db: AppDb,
+  organizationId: string,
+  warehouseId: string | undefined,
+  rows: FloorJobView[],
+  now: number,
+  lastAisle: string | null,
+) {
   if (rows.length === 0) return [];
   const allocatedItems = new Set<string>();
   const allocations = await loadOpenAllocations(db, organizationId, { warehouseId });
@@ -439,6 +446,48 @@ async function loadRankFacts(db: AppDb, organizationId: string, warehouseId: str
         lte(schema.lotBalances.expiresOn, addUtcDays(utcYyyymmdd(), EXPIRING_WITHIN_DAYS)),
       ),
     );
+  const pickItemIds = [...new Set([...itemsByOrder.values()].flat())];
+  const stockAisles: { itemId: string; aisle: string | null; qty: number }[] = [];
+  for (let i = 0; i < pickItemIds.length; i += 80) {
+    const chunk = pickItemIds.slice(i, i + 80);
+    const found = await db
+      .select({
+        itemId: schema.inventoryBalances.itemId,
+        aisle: schema.locations.aisle,
+        qty: schema.inventoryBalances.qty,
+      })
+      .from(schema.inventoryBalances)
+      .innerJoin(schema.locations, eq(schema.locations.id, schema.inventoryBalances.locationId))
+      .where(
+        and(
+          eq(schema.inventoryBalances.organizationId, organizationId),
+          inArray(schema.inventoryBalances.itemId, chunk),
+          gt(schema.inventoryBalances.qty, 0),
+          warehouseId ? eq(schema.locations.warehouseId, warehouseId) : undefined,
+        ),
+      );
+    stockAisles.push(...found);
+  }
+  function aisleForPick(orderId: string, current: string | null): string | null {
+    if (current) return current;
+    const items = new Set(itemsByOrder.get(orderId) ?? []);
+    const byAisle = new Map<string, number>();
+    for (const row of stockAisles) {
+      if (!row.aisle || !items.has(row.itemId)) continue;
+      byAisle.set(row.aisle, (byAisle.get(row.aisle) ?? 0) + row.qty);
+    }
+    if (lastAisle && (byAisle.get(lastAisle) ?? 0) > 0) return lastAisle;
+    let best: string | null = null;
+    let bestQty = 0;
+    for (const [aisle, qty] of byAisle) {
+      if (qty > bestQty) {
+        best = aisle;
+        bestQty = qty;
+      }
+    }
+    return best;
+  }
+
   const today = utcYyyymmdd();
   const expiryByLocItem = new Map<string, number>();
   const expiryByItem = new Map<string, number>();
@@ -470,7 +519,7 @@ async function loadRankFacts(db: AppDb, organizationId: string, warehouseId: str
       dueAt: row.dueAt,
       fromX: row.fromX,
       fromY: row.fromY,
-      aisle: row.aisle,
+      aisle: row.verb === "pick" && row.refType === "order" ? aisleForPick(row.refId, row.aisle) : row.aisle,
       starved: row.verb === "replenish" && Boolean(row.itemId && allocatedItems.has(row.itemId)),
       expiringDays: expiry ?? null,
       shopify: Boolean(row.title?.includes("Shopify") || row.number?.startsWith("#")),
@@ -478,6 +527,61 @@ async function loadRankFacts(db: AppDb, organizationId: string, warehouseId: str
     };
     return input;
   });
+}
+
+function postedVerbAndLocation(
+  verbOrType: string,
+  fromLocationId: string | null,
+  toLocationId: string | null,
+): { verb: FloorVerb | null; locationId: string | null } {
+  if (verbOrType === "receive") return { verb: "receive", locationId: toLocationId ?? fromLocationId };
+  if (verbOrType === "move" || verbOrType === "putaway" || verbOrType === "replenish") {
+    const verb: FloorVerb = verbOrType === "replenish" ? "replenish" : "putaway";
+    return { verb, locationId: toLocationId ?? fromLocationId };
+  }
+  if (verbOrType === "pick") return { verb: "pick", locationId: fromLocationId ?? toLocationId };
+  return { verb: isFloorVerb(verbOrType) ? verbOrType : null, locationId: fromLocationId ?? toLocationId };
+}
+
+/** The last ledger post by this person, else their last finished job. An open claim does not count. */
+async function lastPostedWork(
+  db: AppDb,
+  organizationId: string,
+  userId: string,
+): Promise<{ verb: FloorVerb | null; locationId: string | null }> {
+  const [movement] = await db
+    .select({
+      type: schema.inventoryMovements.type,
+      fromLocationId: schema.inventoryMovements.fromLocationId,
+      toLocationId: schema.inventoryMovements.toLocationId,
+      createdAt: schema.inventoryMovements.createdAt,
+    })
+    .from(schema.inventoryMovements)
+    .where(and(eq(schema.inventoryMovements.organizationId, organizationId), eq(schema.inventoryMovements.createdBy, userId)))
+    .orderBy(desc(schema.inventoryMovements.createdAt))
+    .limit(1);
+  const [done] = await db
+    .select({
+      verb: schema.floorJobs.verb,
+      fromLocationId: schema.floorJobs.fromLocationId,
+      toLocationId: schema.floorJobs.toLocationId,
+      doneAt: schema.floorJobs.doneAt,
+    })
+    .from(schema.floorJobs)
+    .where(
+      and(
+        eq(schema.floorJobs.organizationId, organizationId),
+        eq(schema.floorJobs.assigneeId, userId),
+        eq(schema.floorJobs.status, "done"),
+      ),
+    )
+    .orderBy(desc(schema.floorJobs.doneAt))
+    .limit(1);
+  const movementAt = movement?.createdAt ?? 0;
+  const jobAt = done?.doneAt ?? 0;
+  if (movement && movementAt >= jobAt) return postedVerbAndLocation(movement.type, movement.fromLocationId, movement.toLocationId);
+  if (done) return postedVerbAndLocation(done.verb, done.fromLocationId, done.toLocationId);
+  return { verb: null, locationId: null };
 }
 
 export async function nextFloorJobs(
@@ -511,45 +615,37 @@ export async function nextFloorJobs(
       allowed,
     ),
   );
+  const posted = await lastPostedWork(db, input.organizationId, input.userId);
   let fromX: number | null = null;
   let fromY: number | null = null;
-  let lastVerb: FloorVerb | null = null;
+  let lastVerb = posted.verb;
   let lastAisle: string | null = null;
-  if (input.fromLocationId) {
+  const standAt = input.fromLocationId ?? posted.locationId;
+  if (standAt) {
     const [loc] = await db
       .select()
       .from(schema.locations)
-      .where(eq(schema.locations.id, input.fromLocationId))
+      .where(eq(schema.locations.id, standAt))
       .limit(1);
     fromX = loc?.posX ?? null;
     fromY = loc?.posY ?? null;
-    lastAisle = loc?.aisle ?? null;
-  } else {
-    const [mine] = await db
-      .select()
-      .from(schema.floorJobs)
-      .where(
-        and(
-          eq(schema.floorJobs.organizationId, input.organizationId),
-          eq(schema.floorJobs.assigneeId, input.userId),
-          inArray(schema.floorJobs.status, ["claimed", "done"]),
-        ),
-      )
-      .orderBy(desc(schema.floorJobs.claimedAt), desc(schema.floorJobs.doneAt))
-      .limit(1);
-    if (mine?.fromLocationId) {
-      const [loc] = await db
-        .select()
-        .from(schema.locations)
-        .where(eq(schema.locations.id, mine.fromLocationId))
-        .limit(1);
-      fromX = loc?.posX ?? null;
-      fromY = loc?.posY ?? null;
-      lastAisle = loc?.aisle ?? null;
-      lastVerb = isFloorVerb(mine.verb) ? mine.verb : null;
-    }
   }
-  const facts = await loadRankFacts(db, input.organizationId, input.warehouseId, eligible, now);
+  if (posted.locationId) {
+    const [loc] = await db
+      .select({ aisle: schema.locations.aisle })
+      .from(schema.locations)
+      .where(eq(schema.locations.id, posted.locationId))
+      .limit(1);
+    lastAisle = loc?.aisle ?? null;
+  } else if (input.fromLocationId) {
+    const [loc] = await db
+      .select({ aisle: schema.locations.aisle })
+      .from(schema.locations)
+      .where(eq(schema.locations.id, input.fromLocationId))
+      .limit(1);
+    lastAisle = loc?.aisle ?? null;
+  }
+  const facts = await loadRankFacts(db, input.organizationId, input.warehouseId, eligible, now, lastAisle);
   const ctx: RankContext = { now, fromX, fromY, lastVerb, lastAisle };
   const ranked = rankJobs(facts, ctx);
   const byId = new Map(eligible.map((row) => [row.id, row]));

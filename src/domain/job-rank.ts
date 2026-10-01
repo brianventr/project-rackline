@@ -10,6 +10,11 @@ export const AGE_PER_HOUR = 200;
 export const WALK_PENALTY = 50;
 export const SAME_AISLE_BONUS = 80;
 export const SAME_VERB_BONUS = 40;
+/**
+ * A pick in the aisle just put away or received. Above age (72h), the Shopify bonus, and any walk
+ * this map can produce. Below a lot expiring inside 14 days, a starved pick face, and a pin.
+ */
+export const INTERLEAVE_SCORE = 80_000;
 
 export type RankInput = {
   id: string;
@@ -53,13 +58,22 @@ function hoursBetween(later: number, earlier: number): number {
 /** The reason every job gets when nothing more specific applies. The UI hides it as noise. */
 export const DEFAULT_JOB_REASON = "Oldest open work";
 
-export function jobReason(job: RankInput, now: number): string {
+export function interleavePick(job: RankInput, ctx: RankContext): boolean {
+  if (job.verb !== "pick") return false;
+  if (ctx.lastVerb !== "putaway" && ctx.lastVerb !== "receive") return false;
+  return Boolean(ctx.lastAisle && job.aisle && ctx.lastAisle === job.aisle);
+}
+
+export function jobReason(job: RankInput, ctxOrNow: RankContext | number): string {
+  const ctx: RankContext = typeof ctxOrNow === "number" ? { now: ctxOrNow } : ctxOrNow;
+  const now = ctx.now;
   if (job.pinned) return "Pinned";
   if (job.starved) return "Pick face is starving open picks";
   if (job.expiringDays != null && job.expiringDays <= 14) {
     if (job.expiringDays <= 0) return "Expired lot on the path";
     return `Expires in ${job.expiringDays} day${job.expiringDays === 1 ? "" : "s"}`;
   }
+  if (interleavePick(job, ctx)) return `Pick on aisle ${job.aisle}, the aisle you just worked`;
   if (job.dockDwellMs >= 2 * 3_600_000) return "Waiting on the dock";
   if (job.dueAt != null && job.dueAt <= now) return "Due now";
   if (job.shopify) return "Shopify order";
@@ -83,6 +97,7 @@ export function scoreJob(job: RankInput, ctx: RankContext): number {
   score += Math.min(72, hoursBetween(ctx.now, job.createdAt)) * AGE_PER_HOUR;
   score -= walkDistance(ctx.fromX, ctx.fromY, job.fromX, job.fromY) * WALK_PENALTY;
   if (ctx.lastAisle && job.aisle && ctx.lastAisle === job.aisle) score += SAME_AISLE_BONUS;
+  if (interleavePick(job, ctx)) score += INTERLEAVE_SCORE;
   if (ctx.lastVerb && ctx.lastVerb === job.verb) score += SAME_VERB_BONUS;
   return score;
 }
@@ -92,7 +107,7 @@ export function rankJobs(jobs: RankInput[], ctx: RankContext): RankedJob[] {
     .map((job) => ({
       ...job,
       score: scoreJob(job, ctx),
-      reason: jobReason(job, ctx.now),
+      reason: jobReason(job, ctx),
     }))
     .sort((a, b) => b.score - a.score || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
 }
