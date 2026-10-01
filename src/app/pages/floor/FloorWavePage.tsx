@@ -104,6 +104,11 @@ export function FloorWavePage() {
       }
       api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`)
         .then((hit) => {
+          if (hit.kind === "plate") {
+            setError(`A wave picks loose stock. Scan ${hit.plate.locationCode ?? "the bay"} instead of ${hit.plate.code}.`);
+            report?.(false);
+            return;
+          }
           setScanLog((log) => recordScan(log, hit));
           if (hit.kind === "location" && hit.location) {
             setLocationId(hit.location.id);

@@ -44,7 +44,7 @@ import { cn } from "@/lib/utils";
 import { useSession } from "../../session";
 import { jobForRef, useOpenJobs } from "../../jobs";
 import { checkScanEvidence, workflowPolicy } from "@/domain/workflow-policy";
-import { EMPTY_SCAN_LOG, afterPost, recordScan, scanEvidence, type ScanLog } from "./scan-log";
+import { EMPTY_SCAN_LOG, afterPost, recordScan, scanEvidence, scannedPlate, type ScanLog } from "./scan-log";
 
 type PickMode = "guided" | "list";
 
@@ -201,18 +201,29 @@ export function FloorPickPage() {
   const guidedScan = useCallback(
     (hit: ScanHit, report?: ScanReport): boolean => {
       if (!active || stops.length === 0 || !key) return false;
-      if (hit.kind === "location") {
-        const result = routeGuidedScan(stops, index, { kind: "location", locationId: hit.location.id }, bayId);
+      const at =
+        hit.kind === "location"
+          ? { id: hit.location.id, code: hit.location.code }
+          : hit.kind === "plate" && hit.plate.locationId
+            ? { id: hit.plate.locationId, code: hit.plate.code }
+            : null;
+      if (hit.kind === "plate" && !at) {
+        setError(`${hit.plate.code} is not in a bay.`);
+        report?.(false);
+        return true;
+      }
+      if (at) {
+        const result = routeGuidedScan(stops, index, { kind: "location", locationId: at.id }, bayId);
         if (result.type === "bay" || result.type === "choose-bay") {
           // The picker is standing at the scanned bay, so that stop is picked from it. Scanning a
           // stop's own bay drops an earlier "Other bay" choice instead of confirming that one.
           const target = stops[result.index]!;
-          setBayOverride((current) => withPickBay(current, target, hit.location.id));
+          setBayOverride((current) => withPickBay(current, target, at.id));
           goToStop(result.index, { bay: true });
           report?.(true);
         } else {
           const expected = locationCode(locations, bayId) ?? (result.type === "wrong-bay" ? result.expected : null);
-          setError(expected ? `That is ${hit.location.code}. Go to ${expected} for this pick.` : `Nothing to pick at ${hit.location.code}.`);
+          setError(expected ? `That is ${at.code}. Go to ${expected} for this pick.` : `Nothing to pick at ${at.code}.`);
           report?.(false);
         }
         return true;
@@ -290,6 +301,12 @@ export function FloorPickPage() {
             report?.(true);
             return;
           }
+          if (hit.kind === "plate") {
+            if (hit.plate.locationId) setLocationId(hit.plate.locationId);
+            else setError(`${hit.plate.code} is not in a bay.`);
+            report?.(Boolean(hit.plate.locationId));
+            return;
+          }
           if (hit.kind === "item" && active) {
             const line = (active.lines ?? []).find((row) => row.itemId === hit.item.id || row.sku === hit.item.sku);
             if (!line) {
@@ -349,7 +366,12 @@ export function FloorPickPage() {
         .filter((line) => line.qty > 0);
       const picked = await api<Order>(`/api/orders/${active.id}/pick`, {
         method: "POST",
-        body: JSON.stringify({ locationId, lines, scan: scanEvidence(scanLog, locationId) }),
+        body: JSON.stringify({
+          locationId,
+          lines,
+          scan: scanEvidence(scanLog, locationId),
+          plateCode: scannedPlate(scanLog, locationId) ?? undefined,
+        }),
       });
       setScanLog(afterPost);
       applyOrder(picked, locations);
@@ -368,6 +390,7 @@ export function FloorPickPage() {
     if (qty < 1) return;
     const after = qty >= stop.qty ? nextStopKey(stops, key) : key;
     const bayCode = locationCode(locations, bayId) ?? stop.locationCode ?? "";
+    const plateCode = scannedPlate(scanLog, bayId);
     // Pin this stop first: starting the pick re-plans the stops, and a failed post should stay here.
     setCursor(key);
     setError(null);
@@ -388,7 +411,7 @@ export function FloorPickPage() {
       });
       const picked = await api<Order>(`/api/orders/${active.id}/pick`, {
         method: "POST",
-        body: JSON.stringify({ ...body, scan: scanEvidence(scanLog, bayId) }),
+        body: JSON.stringify({ ...body, scan: scanEvidence(scanLog, bayId), plateCode: plateCode ?? undefined }),
       });
       setScanLog(afterPost);
       counted.current.delete(key);
@@ -398,7 +421,7 @@ export function FloorPickPage() {
       setWeights((current) => withoutKey(current, stop.lineId));
       setChecks(null);
       setCursor(after);
-      setNotice(`Picked ${qty} × ${stop.sku}${bayCode ? ` at ${bayCode}` : ""}.`);
+      setNotice(`Picked ${qty} × ${stop.sku}${plateCode ? ` off ${plateCode}` : bayCode ? ` at ${bayCode}` : ""}.`);
       applyOrder(picked, locations);
       await load();
     } catch (err) {
@@ -575,6 +598,7 @@ export function FloorPickPage() {
               overridden={Boolean(bayOverride[key])}
               locations={locations}
               checks={checks?.key === key ? checks : null}
+              plate={scannedPlate(scanLog, bayId)}
               qty={stepQtys[key] ?? String(stop.qty)}
               onQty={(value) => {
                 counted.current.add(key);
@@ -716,7 +740,7 @@ export function FloorPickPage() {
           <div className="flex flex-wrap gap-2">
             {canPickOrder(active.status) && remaining ? (
               <Button disabled={!thisPick || Boolean(listScanProblem)} onClick={() => void pick()}>
-                Pick from bay
+                {scannedPlate(scanLog, locationId) ? `Pick from ${scannedPlate(scanLog, locationId)}` : "Pick from bay"}
               </Button>
             ) : null}
             {canPickOrder(active.status) && remaining && thisPick && listScanProblem ? (
@@ -902,6 +926,7 @@ function GuidedStop({
   overridden,
   locations,
   checks,
+  plate,
   qty,
   onQty,
   lot,
@@ -926,6 +951,8 @@ function GuidedStop({
   overridden: boolean;
   locations: Location[];
   checks: StopChecks | null;
+  /** The license plate scanned in this bay; the pick comes off it. */
+  plate: string | null;
   qty: string;
   onQty: (value: string) => void;
   lot: string;
@@ -968,7 +995,9 @@ function GuidedStop({
           ) : (
             <h3 className="text-xl font-semibold leading-tight">No bay for this SKU</h3>
           )}
-          {bayId ? <CheckChip done={Boolean(checks?.bay)} todo="Scan bay" doneLabel="Bay scanned" /> : null}
+          {bayId ? (
+            <CheckChip done={Boolean(checks?.bay)} todo="Scan bay" doneLabel={plate ? `${plate} scanned` : "Bay scanned"} />
+          ) : null}
         </div>
         <p className="text-sm text-muted-foreground">
           {bayCode ? (
