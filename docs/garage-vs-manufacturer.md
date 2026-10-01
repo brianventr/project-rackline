@@ -444,3 +444,48 @@ Plates add three refusals:
 - **`PLATE_SHORT`.** The scanned plate does not hold what the pick needs. Pick the rest loose, or from another plate.
 
 Plates show on the bay's page under Locations, with an **On plates** column, on the map's bay panel, and on Floor Lookup, which opens a plate by its code.
+
+## 12. Exception inbox
+
+**Exceptions** gathers problems that used to wait on separate screens into one list: a label the carrier would not sell, a parcel stuck in transit, tracking a store never got, held stock, a count that changed stock. It is in the sidebar in both modes, after Today. Its badge counts open problems and turns amber while one of them is blocking.
+
+**Problems are read live.** Rackline does not copy a problem into the inbox. Each time the list loads, every source reports what is wrong right now, so fixing a problem where it lives, such as releasing the hold, buying the label, or posting a recount, takes it off the list without anyone closing it. The inbox stores only the claim: who has the problem, when its snooze ends, and who resolved it, with their note.
+
+**Claim it like a job.** Anyone can claim an unclaimed problem, and a claimed one belongs to its claimer. An operator who works on someone else's claim gets 409 `EXCEPTION_CLAIMED`. An owner can unclaim it, take it over, or act on it anyway.
+
+- **Snooze** hides a problem for an hour, up to a week. It comes back on its own, or straight away with **Wake**.
+- **Resolve** takes a note that says what you did. Use it for a problem handled outside Rackline, such as a refund. A resolved problem stays under **Resolved** until its source clears. If the problem starts again later, it opens again, unclaimed.
+- **Inline fixes** call the same endpoint, with the same guards, as the screen the fix belongs to. A fix that screen would refuse is refused here with the screen's own message. A fix that clears the problem takes it off the list.
+- Every claim, unclaim, snooze, resolve, reopen, and fix writes an `exception.*` row to the audit log.
+
+What the inbox watches:
+
+| Problem | Severity | Modes | Fix in place |
+| --- | --- | --- | --- |
+| An order held by a shipping rule | Blocking | Garage | **Ship anyway** |
+| A rule whose service no carrier account offers (owners) | Blocking | Garage | |
+| A live store whose last order sync failed (owners) | Blocking | Both | **Sync now** |
+| A parcel going back to the sender | Blocking | Both | |
+| A parcel with a delivery exception, or no tracking news for 5 days | Warning | Both | |
+| A label the carrier would not sell or void, or an old label left unvoided | Warning | Both | |
+| Etsy or WooCommerce not told that an order shipped | Warning | Both | **Retry post-back** |
+| Shopify not told that an order shipped | Warning | Both | **Retry fulfillment** |
+| A Shopify stock push that failed (owners) | Warning | Both | **Push stock again** |
+| An open hold | Warning | Both | **Release hold** |
+| A customer still owed units on a `-BO` backorder | Warning | Both | |
+| A supplier ASN the EDI inbox refused (owners) | Warning | Manufacturer | |
+| A posted count that changed stock | Info | Manufacturer | |
+| A bay over its capacity limit | Info | Manufacturer | |
+
+Garage leaves out counts, EDI, and bay capacity, as it does everywhere else. Operators do not see the owners-only rows.
+
+**Order and limits.** Blocking problems come first, then warnings, then info, oldest first within each. Each source lists at most 50 problems, most severe and then oldest first, and the page says when a source has more. A source that cannot be read is named in a banner, because its problems are missing, not fixed. Failed labels, counts, and refused ASNs look back 30 days, and tracking looks back 45.
+
+**Where it shows.**
+
+- **Garage.** Exceptions is in the Bench menu. Today's **Needs attention** tile counts open problems and opens the inbox. On the Ship queue, the **Needs attention** tab links to the inbox, which also holds what that tab cannot show.
+- **Manufacturer.** Today's **Needs attention** tile counts open problems, and the **Exceptions** card beside the work queue lists the top five. The floor launcher has an **Exceptions** tile for held bays, count variances, and over-full bays. Tapping one claims it and opens the floor screen that fixes it.
+
+**API.** `GET /api/exceptions?warehouseId=…` returns the list, its counts, and which sources it read. `POST /api/exceptions/:source/:key/:verb` with the `warehouseId` claims, unclaims, snoozes (`hours`), resolves (`note`), reopens, or runs a fix (`verb` is `action`, with `actionId`). An owner takes over with `takeOver: true`. A problem that has already cleared answers 409 `EXCEPTION_CLEARED`, and one that someone changed a moment earlier answers 409 `EXCEPTION_CHANGED`.
+
+**Not in the inbox yet.** A short pick is not recorded on its own, so the inbox lists the backorder a short ship leaves. Counts post without an approval step, so a variance is listed as info after it has changed stock. A 409 is answered on the screen that got it; the problem behind it is listed when it lasts, such as a hold or a failed label. A failed carrier connection test stays on Settings → Carriers.
