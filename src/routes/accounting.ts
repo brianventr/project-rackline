@@ -3,7 +3,7 @@ import { and, eq, gte, lte } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { requireOwner } from "../lib/org";
-import { buildValuationRows, cogsMovementsToCsv, valuationToCsv } from "../domain/accounting-export";
+import { buildValuationRows, cogsMovementsToCsv, invoicesToCsv, valuationToCsv, type InvoiceExportLine } from "../domain/accounting-export";
 
 export const accountingRoute = new Hono<AppEnv>();
 
@@ -29,6 +29,50 @@ accountingRoute.get("/accounting/valuation.csv", async (c) => {
   return c.body(csv, 200, {
     "Content-Type": "text/csv; charset=utf-8",
     "Content-Disposition": `attachment; filename="rackline-valuation-${asOf}.csv"`,
+  });
+});
+
+function parseInvoiceLines(value: string | null | undefined): InvoiceExportLine[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? (parsed as InvoiceExportLine[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+accountingRoute.get("/accounting/invoices.csv", async (c) => {
+  requireOwner(c.get("role"));
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const [invoiceRows, clientRows] = await Promise.all([
+    db
+      .select()
+      .from(schema.invoices)
+      .where(eq(schema.invoices.organizationId, organizationId))
+      .orderBy(schema.invoices.number),
+    db
+      .select({ id: schema.clients.id, code: schema.clients.code })
+      .from(schema.clients)
+      .where(eq(schema.clients.organizationId, organizationId)),
+  ]);
+  const clients = new Map(clientRows.map((row) => [row.id, row.code]));
+  const csv = invoicesToCsv(
+    invoiceRows.map((row) => ({
+      number: row.number,
+      clientCode: row.clientId ? clients.get(row.clientId) ?? null : null,
+      status: row.status,
+      periodStart: row.periodStart,
+      periodEnd: row.periodEnd,
+      amountCents: row.amountCents,
+      lines: parseInvoiceLines(row.linesJson),
+    })),
+  );
+  const asOf = new Date().toISOString().slice(0, 10);
+  return c.body(csv, 200, {
+    "Content-Type": "text/csv; charset=utf-8",
+    "Content-Disposition": `attachment; filename="rackline-invoices-${asOf}.csv"`,
   });
 });
 
@@ -81,8 +125,9 @@ accountingRoute.get("/accounting", async (c) => {
   return c.json({
     exports: [
       { id: "valuation", path: "/api/accounting/valuation.csv", label: "Inventory valuation (QBO/Xero CSV)" },
+      { id: "invoices", path: "/api/accounting/invoices.csv", label: "Invoices (QBO/Xero CSV)" },
       { id: "cogs", path: "/api/accounting/cogs.csv", label: "COGS movements (30d default)" },
     ],
-    note: "v1 is CSV export. Set unit cost on each SKU under Items. Live QBO/Xero journal sync comes next.",
+    note: "v1 is CSV export. Set unit cost on each SKU under Items. Valuation, invoices, and COGS download as CSV. Live QBO/Xero journal sync comes next.",
   });
 });

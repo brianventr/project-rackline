@@ -54,6 +54,7 @@ const ROUTES = new Set([
   "/setup/clients",
   "/setup/zones",
   "/setup/edi",
+  "/setup/integrations",
 ]);
 
 function top(query: string): string | undefined {

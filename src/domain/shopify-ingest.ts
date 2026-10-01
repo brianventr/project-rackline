@@ -16,6 +16,7 @@ import { createShopifyGraphqlClient, fetchOrderFulfillmentOrders } from "../lib/
 import { cancelOrderDocument } from "../db/unpick";
 import { orderJobInput, syncDocumentJob } from "../db/jobs";
 import { scheduleShopifySellableSync } from "../db/shopify-sellable";
+import { scheduleOrderCreated } from "../db/outbound-webhooks";
 import { copyIfEmptyImageUrl } from "../domain/media";
 import { ensureCustomer } from "../db/parties";
 import { reserveOrderStock } from "../db/allocations";
@@ -168,6 +169,12 @@ export async function persistInboundOrder(
     connection.organizationId,
     lines.map((line) => line.itemId),
   );
+  scheduleOrderCreated(db, connection.organizationId, {
+    number: inbound.shopifyOrderName,
+    status: "open",
+    city: inbound.dest.shipToCity,
+    lines: reserveLines.map((line) => ({ sku: line.sku, qty: line.qty })),
+  });
 
   return { orderId, created: true, number: inbound.shopifyOrderName };
 }

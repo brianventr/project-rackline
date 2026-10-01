@@ -24,7 +24,14 @@ export async function loadActivityDrafts(
   const periodEnd = now;
   const periodStart = now - PERIOD_MS;
   const clientRows = await db
-    .select({ id: schema.clients.id, code: schema.clients.code, name: schema.clients.name })
+    .select({
+      id: schema.clients.id,
+      code: schema.clients.code,
+      name: schema.clients.name,
+      storageCentsPerPiece: schema.clients.storageCentsPerPiece,
+      pickCentsPerUnit: schema.clients.pickCentsPerUnit,
+      cartonCents: schema.clients.cartonCents,
+    })
     .from(schema.clients)
     .where(eq(schema.clients.organizationId, organizationId));
   const buckets = new Map<string, Bucket>();
@@ -98,7 +105,11 @@ export async function loadActivityDrafts(
   for (const [clientId, activity] of buckets) {
     const client = known.get(clientId);
     if (!client) continue;
-    const rated = rateActivity(activity, rates);
+    const rated = rateActivity(activity, rates, {
+      storageCentsPerPiece: client.storageCentsPerPiece,
+      pickCentsPerUnit: client.pickCentsPerUnit,
+      cartonCents: client.cartonCents,
+    });
     if (!rated) continue;
     drafts.push({
       clientId,

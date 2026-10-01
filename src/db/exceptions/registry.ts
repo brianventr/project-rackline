@@ -11,6 +11,7 @@ import { shipRuleSource } from "./ship-rule";
 import { shopifySource } from "./shopify";
 import type { ExceptionSource } from "./source";
 import { trackerSource } from "./tracker";
+import { webhookSource } from "./webhooks";
 
 /** Every source the inbox reads, in the order it lists them. A new source is a module plus a line here. */
 export const EXCEPTION_SOURCES: readonly ExceptionSource[] = [
@@ -26,6 +27,7 @@ export const EXCEPTION_SOURCES: readonly ExceptionSource[] = [
   capacitySource,
   ediSource,
   customerMailSource,
+  webhookSource,
 ];
 
 export function exceptionSource(id: string): ExceptionSource | null {

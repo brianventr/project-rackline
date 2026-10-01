@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { StatusTone } from "@/domain/status";
 import { relativeTime } from "@/domain/relative-time";
 import { channelHealthBadge } from "./channel-health";
+import { PublicApiPanel } from "./PublicApiPanel";
 
 type Connection = {
   tone: StatusTone;
@@ -189,12 +190,14 @@ export function IntegrationsPage() {
         <IntegrationCard
           icon={Calculator}
           name="Accounting exports"
-          summary="QBO/Xero-ready valuation and COGS CSVs. Set unit cost on each SKU."
+          summary="QBO/Xero-ready valuation, invoice, and COGS CSVs. Set unit cost on each SKU."
           to="/setup/accounting"
           loading={false}
-          state={{ tone: "neutral", label: "CSV export", detail: "Download valuation and COGS by period.", connected: true }}
+          state={{ tone: "neutral", label: "CSV export", detail: "Download valuation, invoices, and COGS.", connected: true }}
         />
       </Group>
+
+      {owner ? <PublicApiPanel /> : null}
 
       {garage ? (
         <p className="text-sm text-muted-foreground">

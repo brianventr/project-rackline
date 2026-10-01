@@ -681,3 +681,23 @@ A component can be a made item with its own recipe. The recipe page links one le
 **Work centers** on Settings → Warehouse (Manufacturer) are a code and a name. A recipe step can name one. The step list on the floor shows that name. Stock is still one ledger. A center is only where the step is done.
 
 **Build short sub-assemblies** on a work order opens a child work order for each direct component that has its own recipe and is short on the source bay. The child is linked by `parent_work_order_id`, and its output bay is the parent's source bay so the component lands where the parent consumes it. It does not open grandchildren. Completing the parent still consumes that component, so it returns 409 `COMPONENT_SHORT` and names the child until the component is on hand. Completing the child does not complete the parent.
+
+## 26. Client rate cards and the client portal
+
+Manufacturer billing starts from the organization rate card on Settings → Billing: 2¢ per piece on hand, 25¢ per picked unit, and $1.50 per shipped carton, unless you change those cents. Each client on Settings → Clients can override any of the three. A blank field keeps the organization rate. Zero is a real price, not a blank. **Draft invoices** uses the card that belongs to the client whose activity is on the invoice.
+
+**Enable portal link** on the client mints a 128-bit token and shows the link once: `/portal/c/…`. **Rotate portal link** replaces it, and the old link stops working. The page needs no sign-in. It shows that client's on-hand totals (SKU, name, qty), open orders (number, status, destination city), recent shipments (order number, carrier, tracking number, status), and that client's own invoices. It does not show other clients, street addresses, or internal ids.
+
+The organization invoice list at `/api/billing/portal/…` is unchanged. That link lists the warehouse's invoices. The client link lists one client.
+
+## 27. Invoice export
+
+Settings → Accounting downloads a QBO/Xero CSV of invoices next to the inventory valuation CSV. Owners only. Each stored invoice line is its own row (invoice number, client code, status, period, line, qty, unit amount, amount). An invoice that has no lines stored is one row for the invoice total. Valuation stays at `/api/accounting/valuation.csv`. Invoices are `/api/accounting/invoices.csv`.
+
+## 28. Public API and outbound webhooks
+
+Settings → Integrations lists API keys and outbound endpoints for owners, in both Garage and Manufacturer. Creating a key shows the secret once. Rackline stores the SHA-256 hash and a short prefix, not the secret. The secret looks like `rk_live_` plus 32 url-safe characters. Send it as `Authorization: Bearer`.
+
+`GET /api/v1/orders`, `GET /api/v1/stock`, and `GET /api/v1/shipments` do not use a browser session. A missing or revoked key is unauthorized. A key without `orders:read`, `stock:read`, or `shipments:read` for that list is forbidden. Each page is at most 50 rows, with a cursor. The JSON uses order numbers and SKUs.
+
+An endpoint is an https URL, or http on localhost. Choose `order.created`, `order.shipped`, and `stock.changed`. Rackline posts the JSON after the order is created, after it ships, and after stock moves. The post runs after the response, so a down receiver does not fail or slow the action. The `Rackline-Signature` header is the hex HMAC-SHA256 of the raw body. The signing secret is sealed at rest and shown once. Each attempt is a delivery row (status, response code, error). A failed delivery shows in Exceptions, and **Send again** posts that same body.

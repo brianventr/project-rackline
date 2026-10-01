@@ -1561,6 +1561,11 @@ export type Client = {
   code: string;
   name: string;
   createdAt: number;
+  /** Null uses the organization rate. */
+  storageCentsPerPiece?: number | null;
+  pickCentsPerUnit?: number | null;
+  cartonCents?: number | null;
+  portalEnabled?: boolean;
 };
 
 export type Zone = {

@@ -5,6 +5,7 @@ import { createAuth } from "./lib/auth";
 import { getMembership } from "./lib/org";
 import { respondToError } from "./lib/error-response";
 import { originFrom, type AppEnv } from "./lib/types";
+import { runInRequestScope } from "./lib/request-scope";
 import { newId } from "./lib/ids";
 import * as schema from "./db/schema";
 import {
@@ -45,6 +46,9 @@ import { yardRoute } from "./routes/yard";
 import { laborRoute } from "./routes/labor";
 import { printersRoute } from "./routes/printers";
 import { billingRoute, billingPublicRoute } from "./routes/billing";
+import { portalPublicRoute } from "./routes/portal";
+import { publicApiRoute } from "./routes/public-api";
+import { integrationsRoute } from "./routes/integrations";
 import { trackingPublicRoute, trackingRoute } from "./routes/tracking";
 import { returnLabelsPublicRoute, returnLabelsRoute } from "./routes/return-labels";
 import { customsRoute } from "./routes/customs";
@@ -119,7 +123,21 @@ async function serveMarketingHtml(c: Context<AppEnv>) {
 app.use("/api/*", async (c, next) => {
   c.set("db", createDb(c.env.DB));
   c.set("origin", originFrom(c.req.url));
-  await next();
+  let executionCtx: { waitUntil(promise: Promise<unknown>): void } | undefined;
+  try {
+    executionCtx = c.executionCtx;
+  } catch {
+    executionCtx = undefined;
+  }
+  await runInRequestScope(
+    {
+      env: c.env,
+      waitUntil(promise) {
+        executionCtx?.waitUntil(promise);
+      },
+    },
+    () => next(),
+  );
 });
 
 app.on(["GET", "POST"], "/api/auth/*", (c) => {
@@ -132,6 +150,8 @@ app.route("/api", demoRoute);
 app.route("/api", shopifyPublicRoute);
 app.route("/api", carriersPublicRoute);
 app.route("/api", billingPublicRoute);
+app.route("/api", portalPublicRoute);
+app.route("/api", publicApiRoute);
 app.route("/api", channelsPublicRoute);
 app.route("/api", trackingPublicRoute);
 app.route("/api", returnLabelsPublicRoute);
@@ -150,6 +170,8 @@ app.use("/api/*", async (c, next) => {
     path.startsWith("/api/channels/woocommerce/webhook/") ||
     path === "/api/channels/etsy/oauth/callback" ||
     path.startsWith("/api/billing/portal/") ||
+    path.startsWith("/api/portal/c/") ||
+    path.startsWith("/api/v1/") ||
     path.startsWith("/api/track/") ||
     path.startsWith("/api/return-label/")
   ) {
@@ -266,20 +288,29 @@ app.route("/api", vendorsRoute);
 app.route("/api", customersRoute);
 app.route("/api", platesRoute);
 app.route("/api", exceptionsRoute);
+app.route("/api", integrationsRoute);
 
 export default {
   fetch: app.fetch,
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(
-      (async () => {
-        const db = createDb(env.DB);
-        try {
-          await runChannelCron(db, env);
-        } catch (err) {
-          console.error("channel cron failed", err);
-        }
-        await planAllCycleCounts(db);
-      })(),
+      runInRequestScope(
+        {
+          env,
+          waitUntil(promise) {
+            ctx.waitUntil(promise);
+          },
+        },
+        async () => {
+          const db = createDb(env.DB);
+          try {
+            await runChannelCron(db, env);
+          } catch (err) {
+            console.error("channel cron failed", err);
+          }
+          await planAllCycleCounts(db);
+        },
+      ),
     );
   },
 } satisfies ExportedHandler<AppEnv["Bindings"]>;

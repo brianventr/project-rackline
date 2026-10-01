@@ -9,6 +9,7 @@ import { destPatchFromAddress } from "../domain/geo";
 import { parseCrowdfundingCsv, resolveCrowdfundingRows } from "../domain/crowdfunding-import";
 import { syncDocumentJob, orderJobInput } from "../db/jobs";
 import { reserveOrderStock } from "../db/allocations";
+import { scheduleOrderCreated } from "../db/outbound-webhooks";
 import { ensureCustomer } from "../db/parties";
 
 export const importsRoute = new Hono<AppEnv>();
@@ -163,6 +164,12 @@ importsRoute.post("/imports/crowdfunding", async (c) => {
       orderId: id,
       clientId: null,
       lines: lineRows.map((line) => ({ id: line.id, itemId: line.itemId, sku: line.sku, qty: line.qty })),
+    });
+    scheduleOrderCreated(db, organizationId, {
+      number,
+      status: "open",
+      city: destPatchFromAddress(order.shipToAddress).shipToCity,
+      lines: lineRows.map((line) => ({ sku: line.sku, qty: line.qty })),
     });
     created.push({ id, number });
   }

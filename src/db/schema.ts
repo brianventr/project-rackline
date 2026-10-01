@@ -1375,8 +1375,17 @@ export const clients = sqliteTable(
     code: text("code").notNull(),
     name: text("name").notNull(),
     createdAt: integer("created_at").notNull(),
+    /** Null uses the organization rate on `billing_accounts.rates_json`. */
+    storageCentsPerPiece: integer("storage_cents_per_piece"),
+    pickCentsPerUnit: integer("pick_cents_per_unit"),
+    cartonCents: integer("carton_cents"),
+    /** Public `/portal/c/:token` link. Null until an owner enables it. Shown once, then only the fact that it exists. */
+    portalToken: text("portal_token"),
   },
-  (t) => [uniqueIndex("clients_org_code").on(t.organizationId, t.code)],
+  (t) => [
+    uniqueIndex("clients_org_code").on(t.organizationId, t.code),
+    uniqueIndex("clients_portal_token").on(t.portalToken),
+  ],
 );
 
 export const clientBalances = sqliteTable(
@@ -2187,6 +2196,63 @@ export const idempotencyKeys = sqliteTable(
     createdAt: integer("created_at").notNull(),
   },
   (t) => [uniqueIndex("idempotency_keys_org_key").on(t.organizationId, t.key)],
+);
+
+export const apiKeys = sqliteTable(
+  "api_keys",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    secretHash: text("secret_hash").notNull(),
+    prefix: text("prefix").notNull(),
+    scopes: text("scopes").notNull(),
+    createdAt: integer("created_at").notNull(),
+    revokedAt: integer("revoked_at"),
+  },
+  (t) => [uniqueIndex("api_keys_secret_hash").on(t.secretHash), index("api_keys_org").on(t.organizationId)],
+);
+
+export const webhookEndpoints = sqliteTable(
+  "webhook_endpoints",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    events: text("events").notNull(),
+    /** Sealed signing secret. The clear secret is returned only from the create call. */
+    secret: text("secret").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("webhook_endpoints_org").on(t.organizationId)],
+);
+
+export const webhookDeliveries = sqliteTable(
+  "webhook_deliveries",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    endpointId: text("endpoint_id")
+      .notNull()
+      .references(() => webhookEndpoints.id, { onDelete: "cascade" }),
+    event: text("event").notNull(),
+    status: text("status").notNull(),
+    responseCode: integer("response_code"),
+    error: text("error"),
+    payloadJson: text("payload_json").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("webhook_deliveries_org_created").on(t.organizationId, t.createdAt),
+    index("webhook_deliveries_endpoint").on(t.endpointId, t.createdAt),
+  ],
 );
 
 export const auditEvents = sqliteTable(
