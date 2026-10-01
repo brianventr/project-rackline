@@ -83,6 +83,19 @@ export function orderParcel(input: OrderParcelInput): OrderParcel {
   };
 }
 
+/** Live postage cannot be bought without a weight. The queue shows this under Needs attention (`NEED_WEIGHT`). */
+export function liveWeightBlocker(
+  live: boolean,
+  missingWeight: readonly string[],
+): { code: "NEED_WEIGHT"; error: string; sku: string | null } | null {
+  if (!live || missingWeight.length === 0) return null;
+  return {
+    code: "NEED_WEIGHT",
+    error: `Add a ship weight for ${missingWeight.join(", ")} before buying live postage`,
+    sku: missingWeight[0] ?? null,
+  };
+}
+
 function orderDims(
   lines: ShipWeightLine[],
   preset: PackagePreset | null,

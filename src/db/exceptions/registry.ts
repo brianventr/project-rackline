@@ -1,6 +1,7 @@
 import { backorderSource } from "./backorder";
 import { capacitySource } from "./capacity";
 import { carrierSource } from "./carrier";
+import { customerMailSource } from "./customer-mail";
 import { channelSyncSource } from "./channel-sync";
 import { countSource } from "./count";
 import { ediSource } from "./edi";
@@ -24,6 +25,7 @@ export const EXCEPTION_SOURCES: readonly ExceptionSource[] = [
   countSource,
   capacitySource,
   ediSource,
+  customerMailSource,
 ];
 
 export function exceptionSource(id: string): ExceptionSource | null {

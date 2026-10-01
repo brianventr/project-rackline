@@ -3,6 +3,7 @@ import {
   buildingDefaultService,
   defaultShipConnection,
   defaultShipService,
+  liveWeightBlocker,
   orderParcel,
   parsePresetInput,
   pickPreset,
@@ -135,5 +136,17 @@ describe("ship defaults", () => {
     expect(() => parsePresetInput({ ...outside, innerLengthIn: 11, innerWidthIn: 0, innerHeightIn: 5 })).toThrow(/Inside width/);
     expect(() => parsePresetInput({ ...outside, maxWeightOz: 8 })).toThrow(/Max weight/);
     expect(() => parsePresetInput({ ...outside, maxWeightOz: 9.5 })).toThrow(/Max weight/);
+  });
+});
+
+describe("liveWeightBlocker", () => {
+  it("holds a live service that has no ship weight, and leaves demo postage alone", () => {
+    expect(liveWeightBlocker(true, ["SHADE", "CORD"])).toEqual({
+      code: "NEED_WEIGHT",
+      error: "Add a ship weight for SHADE, CORD before buying live postage",
+      sku: "SHADE",
+    });
+    expect(liveWeightBlocker(false, ["SHADE"])).toBeNull();
+    expect(liveWeightBlocker(true, [])).toBeNull();
   });
 });

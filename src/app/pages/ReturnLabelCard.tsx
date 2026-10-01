@@ -10,6 +10,7 @@ import { Muted, RelativeTime } from "../components/cells";
 import { useConfirm } from "../components/confirm";
 import { apiMutate, useApiQuery } from "../query";
 import { useWrite } from "../use-write";
+import { useSession } from "../session";
 import { copyPublicLink } from "../tracking-link";
 import type { StatusTone } from "@/domain/status";
 
@@ -50,6 +51,7 @@ export function ReturnLabelCard({
   const labels = useReturnLabels(rma.id);
   const confirm = useConfirm();
   const write = useWrite();
+  const owner = useSession().role === "owner";
   const active = labels.data?.labels.find((row) => row.status === "active") ?? null;
   const lastVoided = !active && labels.data?.labels[0]?.status === "voided";
   const received = rma.status === "received";
@@ -110,6 +112,25 @@ export function ReturnLabelCard({
                 <Ban className="size-4" />
                 Void
               </Button>
+              {owner ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={write.busy}
+                  onClick={() =>
+                    void write.run(
+                      "Email return label",
+                      () =>
+                        apiMutate<{ logged?: boolean }>(`/api/returns/${encodeURIComponent(rma.id)}/customer-emails/return-label`, {
+                          body: "{}",
+                        }),
+                      (result) => (result?.logged ? "Return label logged. Mail is not configured." : "Return label emailed to the customer."),
+                    )
+                  }
+                >
+                  Email the label to the customer
+                </Button>
+              ) : null}
             </div>
           </>
         ) : (
@@ -121,7 +142,7 @@ export function ReturnLabelCard({
                   ? "The last label was voided. Buy a new one before the customer sends the box."
                   : "Buy a prepaid label the customer prints at home, then send them its link."}
             </p>
-            {!received ? (
+            {!received && owner ? (
               <Button size="sm" onClick={() => onCreatingChange(true)}>
                 <Tag className="size-4" />
                 Create return label

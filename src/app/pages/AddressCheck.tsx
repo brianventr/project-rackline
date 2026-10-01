@@ -5,6 +5,7 @@ import { errorText, type Order, type OrderAddressCheck } from "../api";
 import { Button, Card, Field } from "../components/ui";
 import { FormSheet } from "../components/form-sheet";
 import { useConfirm } from "../components/confirm";
+import { useSession } from "../session";
 import { apiMutate, useApiQuery } from "../query";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -99,6 +100,8 @@ export function AddressSheet({
  * same in Garage; this is where Manufacturer, which ships from the floor, fixes or accepts an address.
  */
 export function AddressCheckCard({ order, onChange }: { order: Order; onChange: () => void }) {
+  const me = useSession();
+  const owner = me.role === "owner";
   const confirm = useConfirm();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -164,9 +167,11 @@ export function AddressCheckCard({ order, onChange }: { order: Order; onChange: 
             Edit address
           </Button>
         ) : null}
-        <Button size="xs" variant="outline" disabled={busy} onClick={() => void accept()}>
-          Accept this address
-        </Button>
+        {owner ? (
+          <Button size="xs" variant="outline" disabled={busy} onClick={() => void accept()}>
+            Accept this address
+          </Button>
+        ) : null}
       </div>
       <AddressSheet order={order} problem={data.message} open={editing} onOpenChange={setEditing} onSaved={onChange} />
     </Card>

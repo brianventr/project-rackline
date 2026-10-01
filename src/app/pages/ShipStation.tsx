@@ -481,9 +481,11 @@ export function ShipStation({
                     Use suggested address
                   </Button>
                 ) : null}
-                <Button variant="outline" disabled={shipping} onClick={() => void ship({ acceptAddress: true })}>
-                  {shipping ? "Shipping…" : "Ship anyway to this address"}
-                </Button>
+                {owner ? (
+                  <Button variant="outline" disabled={shipping} onClick={() => void ship({ acceptAddress: true })}>
+                    {shipping ? "Shipping…" : "Ship anyway to this address"}
+                  </Button>
+                ) : null}
               </>
             ) : (
               <Button disabled={shipping} onClick={() => void ship()}>

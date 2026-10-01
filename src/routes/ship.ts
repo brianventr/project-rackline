@@ -20,7 +20,7 @@ import {
 import { isLivePostage, liveShipAddress, resolveParcel, type ParcelDims } from "../domain/carrier-live";
 import { shopLiveRates } from "../lib/live-postage";
 import { asCarrierLiveError } from "../lib/carrier-client";
-import { buildingDefaultService, orderParcel, parsePresetInput, pickPreset, type PackagePreset } from "../domain/ship-defaults";
+import { buildingDefaultService, liveWeightBlocker, orderParcel, parsePresetInput, pickPreset, type PackagePreset } from "../domain/ship-defaults";
 import { isRateStrategy, parseShipRuleInput, reorderShipRules, type ShipRule, type ShipRuleInput } from "../domain/ship-rules";
 import {
   arrivalYmd,
@@ -442,6 +442,8 @@ function shipBlocker(plan: ReturnType<typeof planQuickShip> | null, decision: Sh
   if (decision.address?.blocked) return addressBlocker(decision.address);
   if (decision.customs) return decision.customs;
   if (decision.rateError) return { code: "NO_RATE", error: decision.rateError, sku: null };
+  const weight = liveWeightBlocker(decision.live, decision.parcel.missingWeight);
+  if (weight) return weight;
   if (decision.plan.hold) return { code: "SHIP_RULE_HOLD", error: holdMessage(decision.plan), sku: null };
   return null;
 }
@@ -958,6 +960,7 @@ async function quickShipOne(
   const ctx = options.ctx ?? (await loadShipContext(db, organizationId));
   const { connections } = ctx;
   if (options.acceptAddress) {
+    if (c.get("role") !== "owner") return fail(403, "Owner role required");
     await acceptOrderAddress(db, organizationId, { order, buildingCountry: warehouse?.country, userId: c.get("user")!.id });
   }
   const decision = await decideShip(db, ctx, { warehouse, order, lines, picked: body });
@@ -1139,7 +1142,7 @@ shipRoute.post("/orders/:id/quick-ship", async (c) => {
     releaseHold: body.releaseHold === true,
     acceptAddress: body.acceptAddress === true,
   });
-  if (!outcome.ok) return c.json({ error: outcome.error, code: outcome.code, orderId: outcome.orderId }, outcome.status as 400 | 404 | 409);
+  if (!outcome.ok) return c.json({ error: outcome.error, code: outcome.code, orderId: outcome.orderId }, outcome.status as 400 | 403 | 404 | 409);
   return c.json(outcome);
 });
 

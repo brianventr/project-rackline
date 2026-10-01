@@ -62,6 +62,9 @@ describe("checkAddressParts", () => {
     expect(problemsOf("12 Main St\nSpringfield, ZZ 62701")).toBe("ZZ is not a US state.");
     expect(problemsOf("14 Dock St\nPortland, OR 9720")).toBe("9720 is not a US ZIP code.");
     expect(problemsOf("14 Dock St\nPortland, OR 07209")).toBe("ZIP code 07209 is not in Oregon.");
+    expect(problemsOf("400 Pine St\nSeattle, OR 98101")).toBe("ZIP code 98101 is not in Oregon.");
+    expect(problemsOf("400 Pine St\nSeattle, WA 98101")).toBeNull();
+    expect(problemsOf("14 Dock St\nPortland, OR 97209")).toBeNull();
     expect(problemsOf("1 Main St\nEl Paso, TX 88510")).toBeNull();
   });
 
