@@ -17,6 +17,7 @@ import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
 import { guardFloorJob, syncDocumentJob, type DocumentJobInput } from "../db/jobs";
+import { runIdempotent } from "../db/idempotency";
 import { plateForReceive } from "../db/license-plates";
 import { receiveOntoPlate } from "../domain/license-plates";
 import { loadReorderQueue } from "../db/reorder";
@@ -411,19 +412,22 @@ purchasesRoute.post("/purchases/:id/send", async (c) => {
   return c.json({ ...started, mintedAsnId: sent.asnId });
 });
 
-purchasesRoute.post("/purchases/:id/receive", async (c) => {
-  const body = await c.req.json<{
+async function postPurchaseReceive(
+  c: Context<AppEnv>,
+  id: string,
+  body: {
     locationId?: string;
     lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number; expiresOn?: unknown }[];
     overrideCapacity?: boolean;
     plateCode?: string;
-  }>();
+  },
+): Promise<Response> {
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
   const override = capacityOverride(c, body.overrideCapacity);
-  let purchase = await purchaseWithLines(db, organizationId, c.req.param("id"));
+  let purchase = await purchaseWithLines(db, organizationId, id);
   if (!canReceivePurchase(purchase.status)) conflict("Purchase is already received");
   await guardFloorJob(db, {
     ...purchaseJob(purchase),
@@ -519,4 +523,15 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
   const received = await purchaseWithLines(db, organizationId, purchase.id);
   await syncDocumentJob(db, purchaseJob(received));
   return c.json(received);
+}
+
+purchasesRoute.post("/purchases/:id/receive", async (c) => {
+  const body = await c.req.json<{
+    locationId?: string;
+    lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number; expiresOn?: unknown }[];
+    overrideCapacity?: boolean;
+    plateCode?: string;
+    idempotencyKey?: unknown;
+  }>();
+  return runIdempotent(c, body.idempotencyKey, () => postPurchaseReceive(c, c.req.param("id"), body));
 });

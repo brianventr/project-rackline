@@ -2147,6 +2147,25 @@ export const floorScans = sqliteTable(
   ],
 );
 
+/** One outcome per client key. Status 0 means the post is still running. Unique on organization and key. */
+export const idempotencyKeys = sqliteTable(
+  "idempotency_keys",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    responseStatus: integer("response_status").notNull(),
+    responseJson: text("response_json").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("idempotency_keys_org_key").on(t.organizationId, t.key)],
+);
+
 export const auditEvents = sqliteTable(
   "audit_events",
   {
