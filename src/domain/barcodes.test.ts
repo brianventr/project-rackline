@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { documentPath, itemScanValue, normalizeBarcode, parseGs1, parseScan } from "./barcodes";
+import { documentPath, findByScannedNumber, itemScanValue, normalizeBarcode, parseGs1, parseScan } from "./barcodes";
 
 describe("barcodes", () => {
   it("normalizes whitespace and case", () => {
@@ -63,6 +63,21 @@ describe("barcodes", () => {
     expect(itemScanValue(parseScan("SN:1001"))).toBeNull();
     expect(itemScanValue(parseScan("10LOT42"))).toBeNull();
     expect(itemScanValue(parseScan("LOC:A-01-01"))).toBeNull();
+  });
+
+  it("finds a document by its scanned number, ignoring case and spaces", () => {
+    const rows = [{ number: "Etsy 3100078467" }, { number: "#1004" }, { number: "ORD-DEMO1" }, { number: "Faire 7001" }];
+    const find = (value: string) => findByScannedNumber(rows, value)?.number;
+    expect(find(parseScan("Etsy 3100078467").value)).toBe("Etsy 3100078467");
+    expect(find(parseScan("ORD:Etsy 3100078467").value)).toBe("Etsy 3100078467");
+    expect(find("etsy 3100078467")).toBe("Etsy 3100078467");
+    expect(find("FAIRE7001")).toBe("Faire 7001");
+    expect(find("1004")).toBe("#1004");
+    expect(find("#1004")).toBe("#1004");
+    expect(find("ord-demo1")).toBe("ORD-DEMO1");
+    expect(find("DEMO1")).toBe("ORD-DEMO1");
+    expect(find("3100078467")).toBeUndefined();
+    expect(find("#")).toBeUndefined();
   });
 
   it("maps documents onto office record routes", () => {

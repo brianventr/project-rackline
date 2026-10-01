@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, type Me } from "./api";
 import { AppShell } from "./pages/AppShell";
 import { AuthPage } from "./pages/AuthPage";
@@ -87,6 +87,7 @@ import { ScannerProvider } from "./scanner/ScannerProvider";
 import { PrintProvider } from "./print/PrintProvider";
 import { ScaleProvider } from "./scale/ScaleProvider";
 import { homePath, OwnerOnly } from "./warehouse";
+import { isPublicPath, PublicRoutes } from "./pages/public/PublicRoutes";
 
 function Guard({ me }: { me: Me | null }) {
   if (!me) return <Navigate to="/login" replace />;
@@ -102,15 +103,19 @@ function Guard({ me }: { me: Me | null }) {
 }
 
 export function App() {
+  const publicPage = isPublicPath(useLocation().pathname);
   const [me, setMe] = useState<Me | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    if (publicPage) return;
     api<Me>("/api/me")
       .then(setMe)
       .catch(() => setMe(null))
       .finally(() => setReady(true));
-  }, []);
+  }, [publicPage]);
+
+  if (publicPage) return <PublicRoutes />;
 
   if (!ready) {
     return (

@@ -43,6 +43,13 @@ export const ERROR_CODES = [
   "CARRIER_LIVE",
   "LIVE_ADDRESS",
   "NO_RATE",
+  "NEED_WEIGHT",
+  "SHIP_RULE_HOLD",
+  "SHIP_RULE_SERVICE",
+  "RETURN_LABEL_UNSUPPORTED",
+  "CUSTOMS_REQUIRED",
+  "CUSTOMS_UNSUPPORTED",
+  "ADDRESS_INVALID",
   "NEED_PACKAGE",
   "SHIPPED",
   "CANCELLED",
@@ -420,6 +427,44 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
   NO_RATE: ({ text }) => ({
     message: text ? asSentence(text) : "The carrier did not return a rate for this parcel.",
     hint: "Choose another service, or check the carton weight and size.",
+  }),
+  NEED_WEIGHT: ({ text }) => {
+    const skus = text.match(/ship weight for (.+?) before/i)?.[1];
+    return {
+      message: skus ? `Live postage needs a ship weight for ${skus}.` : "Live postage needs a weight for this parcel.",
+      hint: "Add a ship weight on the item's Settings, or type the parcel weight.",
+    };
+  },
+  SHIP_RULE_HOLD: ({ text }) => ({
+    message: splitSentences(text || "A shipping rule holds this order for review").message,
+    hint: "Check the order, then choose Ship anyway in the ship queue.",
+  }),
+  SHIP_RULE_SERVICE: ({ text }) => {
+    const copy = splitSentences(text || "A shipping rule ships with a service no connected carrier account offers");
+    return { message: copy.message, hint: copy.hint ?? "Edit the rule in Settings → Shipping rules, or turn the service back on." };
+  },
+  RETURN_LABEL_UNSUPPORTED: ({ text }) => {
+    const carrier = text.match(/direct (\S+) account/i)?.[1];
+    return {
+      message: carrier
+        ? `A direct ${carrier} account cannot buy return labels in Rackline yet.`
+        : "This carrier account cannot buy return labels in Rackline yet.",
+      hint: "Choose a service on EasyPost, ShipEngine, FedEx, or Rackline Ground.",
+    };
+  },
+  CUSTOMS_REQUIRED: ({ text }) => {
+    const copy = splitSentences(text || "An item on this order has no customs details");
+    return { message: copy.message, hint: copy.hint ?? "Add its HS code, country of origin, and declared value under Customs on the item." };
+  },
+  CUSTOMS_UNSUPPORTED: ({ text }) => {
+    const copy = splitSentences(text || "This carrier account cannot buy this international label in Rackline yet");
+    return { message: copy.message, hint: copy.hint ?? "Choose a service on EasyPost or ShipEngine, or buy this label on the carrier's site." };
+  },
+  ADDRESS_INVALID: ({ body, text }) => ({
+    message: text ? asSentence(text) : "The ship-to address needs a look before a label.",
+    hint: str(body, "suggestion")
+      ? "Use the suggested address, edit it, or accept it as it is from the ship queue or the order page."
+      : "Edit the address, or accept it as it is from the ship queue or the order page.",
   }),
   NEED_PACKAGE: ({ text }) => needPackageCopy(text),
   SHIPPED: ({ text }) => {

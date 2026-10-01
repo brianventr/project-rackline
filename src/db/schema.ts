@@ -55,6 +55,9 @@ export const organizations = sqliteTable("organizations", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   operatingMode: text("operating_mode").notNull().default("warehouse"),
+  /** Tracking page accent, `#RRGGBB`; see `domain/branding.ts`. */
+  brandColor: text("brand_color"),
+  logoUrl: text("logo_url"),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -101,6 +104,8 @@ export const warehouses = sqliteTable("warehouses", {
   rateStrategy: text("rate_strategy").notNull().default("default"),
   /** Working days from order to doorstep the shop promises; the on-time rate choice aims for it. */
   deliveryDays: integer("delivery_days"),
+  /** Where customer return labels are addressed. Null means `shipFromAddress`. */
+  returnAddress: text("return_address"),
 });
 
 export const locations = sqliteTable(
@@ -170,6 +175,11 @@ export const items = sqliteTable(
     shipLengthIn: integer("ship_length_in"),
     shipWidthIn: integer("ship_width_in"),
     shipHeightIn: integer("ship_height_in"),
+    /** Customs declaration; see `domain/customs.ts`. The description falls back to `name`. */
+    hsCode: text("hs_code"),
+    originCountry: text("origin_country"),
+    customsDescription: text("customs_description"),
+    customsValueCents: integer("customs_value_cents"),
   },
   (t) => [
     uniqueIndex("items_org_sku").on(t.organizationId, t.sku),
@@ -372,6 +382,9 @@ export const orders = sqliteTable(
     trackingNumber: text("tracking_number"),
     trackingCompany: text("tracking_company"),
     trackingUrl: text("tracking_url"),
+    /** Key of the public tracking page `/t/:token`; see `domain/tracking-page.ts`. */
+    trackingToken: text("tracking_token"),
+    customsFormUrl: text("customs_form_url"),
     shipToAddress: text("ship_to_address"),
     carrierService: text("carrier_service"),
     carrierConnectionId: text("carrier_connection_id"),
@@ -402,6 +415,7 @@ export const orders = sqliteTable(
     shipReason: text("ship_reason"),
   },
   (t) => [
+    uniqueIndex("orders_tracking_token").on(t.trackingToken),
     uniqueIndex("shopify_orders_org_order").on(t.organizationId, t.shopifyOrderId),
     uniqueIndex("orders_org_source_external").on(t.organizationId, t.source, t.externalOrderId),
     index("orders_org_status_shipped").on(t.organizationId, t.status, t.shippedAt),
@@ -444,6 +458,7 @@ export const orderPackages = sqliteTable(
     trackingNumber: text("tracking_number"),
     trackingCompany: text("tracking_company"),
     trackingUrl: text("tracking_url"),
+    customsFormUrl: text("customs_form_url"),
     carrierService: text("carrier_service"),
     carrierConnectionId: text("carrier_connection_id"),
     carrierShipmentId: text("carrier_shipment_id"),
@@ -579,7 +594,76 @@ export const trackerWebhookReceipts = sqliteTable(
     payloadJson: text("payload_json").notNull(),
     createdAt: integer("created_at").notNull(),
   },
-  (t) => [uniqueIndex("tracker_webhook_receipts_event").on(t.organizationId, t.eventId)],
+  (t) => [
+    uniqueIndex("tracker_webhook_receipts_event").on(t.organizationId, t.eventId),
+    index("tracker_webhook_receipts_org_tracking").on(t.organizationId, t.trackingNumber, t.createdAt),
+  ],
+);
+
+/** A label the customer prints to send an RMA back; `token` keys the public page `/r/:token`. */
+export const returnLabels = sqliteTable(
+  "return_labels",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    rmaId: text("rma_id")
+      .notNull()
+      .references(() => rmas.id, { onDelete: "cascade" }),
+    token: text("token").notNull(),
+    status: text("status").notNull().default("active"),
+    carrierConnectionId: text("carrier_connection_id"),
+    carrierCompany: text("carrier_company").notNull(),
+    carrierService: text("carrier_service").notNull(),
+    trackingNumber: text("tracking_number").notNull(),
+    trackingUrl: text("tracking_url"),
+    labelUrl: text("label_url"),
+    carrierShipmentId: text("carrier_shipment_id"),
+    carrierLabelId: text("carrier_label_id"),
+    postageCents: integer("postage_cents"),
+    trackerStatus: text("tracker_status"),
+    trackerUpdatedAt: integer("tracker_updated_at"),
+    fromName: text("from_name").notNull(),
+    fromAddress: text("from_address").notNull(),
+    toName: text("to_name").notNull(),
+    toAddress: text("to_address").notNull(),
+    weightOz: integer("weight_oz"),
+    lengthIn: integer("length_in"),
+    widthIn: integer("width_in"),
+    heightIn: integer("height_in"),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at").notNull(),
+    voidedAt: integer("voided_at"),
+  },
+  (t) => [
+    uniqueIndex("return_labels_token").on(t.token),
+    index("return_labels_rma").on(t.rmaId),
+    index("return_labels_org_tracking").on(t.organizationId, t.trackingNumber),
+  ],
+);
+
+/** Carrier verification and the owner's override, per order and ship-to address; see `domain/address-check.ts`. */
+export const addressChecks = sqliteTable(
+  "address_checks",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    addressHash: text("address_hash").notNull(),
+    provider: text("provider"),
+    status: text("status").notNull(),
+    message: text("message"),
+    suggestionJson: text("suggestion_json"),
+    overrideBy: text("override_by"),
+    overrideAt: integer("override_at"),
+    checkedAt: integer("checked_at").notNull(),
+  },
+  (t) => [uniqueIndex("address_checks_order_hash").on(t.orderId, t.addressHash)],
 );
 
 export const boms = sqliteTable(

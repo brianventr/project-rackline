@@ -37,6 +37,35 @@ describe("live aggregator postage", () => {
     expect(shipEngineServiceCode("usps_priority")).toBe("usps_priority_mail");
   });
 
+  it("reads international rates as the one service each id buys abroad", () => {
+    expect(mapAggregatorService("UPS", "UPSStandard")).toBe("ups_ground");
+    expect(mapAggregatorService("UPS", "Expedited")).toBe("ups_2day");
+    expect(mapAggregatorService("UPS", "Express")).toBe("ups_next_day");
+    expect(mapAggregatorService("UPS", "UPSSaver")).toBeNull();
+    expect(mapAggregatorService("ups", "ups_worldwide_saver")).toBeNull();
+    expect(mapAggregatorService("FedEx", "INTERNATIONAL_PRIORITY")).toBe("fedex_2day");
+    expect(mapAggregatorService("FedEx", "INTERNATIONAL_FIRST")).toBeNull();
+    expect(mapAggregatorService("USPS", "FirstClassPackageInternationalService")).toBe("usps_ground_advantage");
+    expect(mapAggregatorService("stamps_com", "usps_priority_mail_international")).toBe("usps_priority");
+    expect(mapAggregatorService("USPS", "Express")).toBe("usps_express");
+    expect(mapAggregatorService("UPS", "NextDayAirSaver")).toBe("ups_next_day");
+    const bought: Array<[string, string]> = [
+      ["ups", "ups_ground"],
+      ["ups", "ups_2day"],
+      ["ups", "ups_next_day"],
+      ["fedex", "fedex_ground"],
+      ["fedex", "fedex_2day"],
+      ["stamps_com", "usps_ground_advantage"],
+      ["stamps_com", "usps_priority"],
+      ["stamps_com", "usps_express"],
+      ["dhl_express", "dhl_express"],
+    ];
+    for (const [carrier, serviceId] of bought) {
+      expect(mapAggregatorService(carrier, shipEngineServiceCode(serviceId, true))).toBe(serviceId);
+    }
+    expect(shipEngineServiceCode("fedex_home", true)).toBe("fedex_international_economy");
+  });
+
   it("requires a street city region postal for live labels and defaults the parcel", () => {
     expect(liveShipAddress({ name: "Northwind", text: "14 Dock St, Portland, OR 97209" })).toMatchObject({
       street1: "14 Dock St",

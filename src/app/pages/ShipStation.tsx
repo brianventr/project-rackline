@@ -24,6 +24,7 @@ import { FRESH_SCALE_WATCH, watchScale, type ScaleReading, type ScaleWatch } fro
 import { formatOz } from "@/domain/ship-defaults";
 import { matchShipScan, stationWeight, type StationWeight } from "@/domain/ship-station";
 import { cn } from "@/lib/utils";
+import { applySuggestedAddress, extraSuggestion } from "./AddressCheck";
 
 const AUTO_SHIP_KEY = "rackline.shipStation.autoShip";
 /** Wait for typing or a settling scale to pause before asking for a fresh decision. */
@@ -31,7 +32,7 @@ const DECIDE_DEBOUNCE_MS = 300;
 
 type PrintResult = { ok: boolean; message: string };
 
-type Notice = { title: string; held?: boolean };
+type Notice = { title: string; held?: boolean; address?: boolean };
 
 type Shipped = {
   orderId: string;
@@ -93,6 +94,7 @@ export function ShipStation({
   const [shipped, setShipped] = useState<Shipped | null>(null);
   const [reprinting, setReprinting] = useState(false);
   const [autoShip, setAutoShipState] = useState(loadAutoShip);
+  const [recheck, setRecheck] = useState(0);
   const scanRef = useRef<HTMLInputElement>(null);
   const weightRef = useRef<HTMLInputElement>(null);
   // A scan made before the station opened belongs to the page it was made on.
@@ -173,9 +175,9 @@ export function ShipStation({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [openId, decideOz, presetId, carrierService]);
+  }, [openId, decideOz, presetId, carrierService, recheck]);
 
-  async function ship(options: { releaseHold?: boolean; reading?: ScaleReading } = {}) {
+  async function ship(options: { releaseHold?: boolean; acceptAddress?: boolean; reading?: ScaleReading } = {}) {
     if (busy.current) return;
     if (!current) {
       setNotice({ title: "Scan a pack slip first." });
@@ -203,7 +205,12 @@ export function ShipStation({
     try {
       const outcome = await api<QuickShipOutcome>(`/api/orders/${encodeURIComponent(current.id)}/quick-ship`, {
         method: "POST",
-        body: JSON.stringify({ ...picked, weightOz: at.weightOz, releaseHold: options.releaseHold || undefined }),
+        body: JSON.stringify({
+          ...picked,
+          weightOz: at.weightOz,
+          releaseHold: options.releaseHold || undefined,
+          acceptAddress: options.acceptAddress || undefined,
+        }),
       });
       report(true);
       setOrderId(null);
@@ -231,6 +238,7 @@ export function ShipStation({
       setNotice({
         title: errorText(err, "Ship did not go through. Try again."),
         held: err instanceof ApiError && err.code === "SHIP_RULE_HOLD",
+        address: err instanceof ApiError && err.code === "ADDRESS_INVALID",
       });
     } finally {
       busy.current = false;
@@ -296,6 +304,14 @@ export function ShipStation({
       setReprinting(false);
       focusScan();
     }
+  }
+
+  async function takeSuggestion(row: ShipQueueOrder, suggestion: string | null | undefined) {
+    if (await applySuggestedAddress(row, suggestion)) {
+      setNotice(null);
+      setRecheck((count) => count + 1);
+    }
+    focusScan();
   }
 
   async function printShippedLabel(row: ShipQueueOrder) {
@@ -449,12 +465,26 @@ export function ShipStation({
               </span>
             </p>
           ) : null}
+          {extraSuggestion(view.blocker?.error, view.blocker?.suggestion) ? (
+            <Why text={`Suggested: ${view.blocker?.suggestion}`} />
+          ) : null}
           {decideError ? <Why text={decideError} warn /> : null}
           <div className="flex flex-wrap items-center gap-2">
             {view.blocker?.code === "SHIP_RULE_HOLD" || notice?.held ? (
               <Button variant="outline" disabled={shipping} onClick={() => void ship({ releaseHold: true })}>
                 {shipping ? "Shipping…" : "Ship anyway"}
               </Button>
+            ) : view.blocker?.code === "ADDRESS_INVALID" || notice?.address ? (
+              <>
+                {view.blocker?.suggestion ? (
+                  <Button variant="outline" disabled={shipping} onClick={() => void takeSuggestion(open, view.blocker?.suggestion)}>
+                    Use suggested address
+                  </Button>
+                ) : null}
+                <Button variant="outline" disabled={shipping} onClick={() => void ship({ acceptAddress: true })}>
+                  {shipping ? "Shipping…" : "Ship anyway to this address"}
+                </Button>
+              </>
             ) : (
               <Button disabled={shipping} onClick={() => void ship()}>
                 <Truck className="size-4" />

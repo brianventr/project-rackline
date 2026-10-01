@@ -83,6 +83,7 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     mapDepth?: number;
     mapHeight?: number;
     shipFromAddress?: string | null;
+    returnAddress?: string | null;
     city?: string | null;
     region?: string | null;
     country?: string | null;
@@ -109,6 +110,7 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
     mapDepth?: number;
     mapHeight?: number;
     shipFromAddress?: string | null;
+    returnAddress?: string | null;
     city?: string | null;
     region?: string | null;
     country?: string | null;
@@ -153,6 +155,9 @@ catalogRoute.patch("/warehouses/:id", async (c) => {
   if ("shipFromAddress" in body) {
     patch.shipFromAddress =
       typeof body.shipFromAddress === "string" ? body.shipFromAddress.trim() || null : null;
+  }
+  if ("returnAddress" in body) {
+    patch.returnAddress = typeof body.returnAddress === "string" ? body.returnAddress.trim() || null : null;
   }
   const mapWidth = optionalInt(body.mapWidth, "mapWidth");
   if (mapWidth !== undefined) {

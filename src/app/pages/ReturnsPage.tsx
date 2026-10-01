@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowDownToLine, Play, Plus, ScanLine, Undo2 } from "lucide-react";
+import { ArrowDownToLine, Play, Plus, ScanLine, Tag, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, errorText, type Item, type Location, type Order, type Rma, type RmaLine } from "../api";
 import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, StatusBadge, Table, summarizeLines } from "../components/ui";
@@ -31,6 +31,7 @@ import { ExpiryInput, parseExpiryInput } from "../components/expiry-field";
 import { DispositionSelect } from "../components/disposition-field";
 import { dispositionLabel, parseDisposition, type ReturnDisposition } from "@/domain/return-disposition";
 import { blankLine, returnFormSchema } from "@/domain/form-schemas";
+import { ReturnLabelCard, ReturnLabelStatusCell, useReturnLabels } from "./ReturnLabelCard";
 
 export function ReturnsPage() {
   const { id } = useParams();
@@ -105,6 +106,11 @@ const RETURN_COLUMNS: DataColumn<Rma>[] = [
       const units = rmaUnits(rma);
       return <ProgressCell done={units.received} total={units.expected} />;
     },
+  },
+  {
+    id: "label",
+    header: "Return label",
+    cell: (rma) => <ReturnLabelStatusCell rmaId={rma.id} />,
   },
   {
     id: "created",
@@ -290,6 +296,8 @@ function ReturnDetail({ id }: { id: string }) {
   const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [dispositions, setDispositions] = useState<Record<string, ReturnDisposition>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [buyingLabel, setBuyingLabel] = useState(false);
+  const returnLabels = useReturnLabels(id);
   const { error, run } = useWrite();
 
   async function load() {
@@ -369,9 +377,12 @@ function ReturnDetail({ id }: { id: string }) {
     ? { label: "Receive", icon: ArrowDownToLine, onSelect: receive, disabled: thisReceive <= 0 || !locationId }
     : null;
 
+  const canBuyLabel =
+    current.status !== "received" && !(returnLabels.data?.labels ?? []).some((label) => label.status === "active");
   const menu: DocumentAction[] = [
     ...(current.status === "open" ? [{ label: "Start receiving", icon: Play, onSelect: start }] : []),
     ...(receivable ? [{ label: "Open on floor", icon: ScanLine, to: `/floor/return?id=${current.id}` }] : []),
+    ...(canBuyLabel ? [{ label: "Create return label", icon: Tag, onSelect: () => setBuyingLabel(true) }] : []),
   ];
 
   const lineColumns = [
@@ -433,6 +444,7 @@ function ReturnDetail({ id }: { id: string }) {
                 </DocumentFact>
               </div>
             </Card>
+            <ReturnLabelCard rma={current} creating={buyingLabel} onCreatingChange={setBuyingLabel} />
           </DocumentRail>
         }
       >
