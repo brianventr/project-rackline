@@ -18,6 +18,7 @@ import { orderJobInput, syncDocumentJob } from "../db/jobs";
 import { scheduleShopifySellableSync } from "../db/shopify-sellable";
 import { copyIfEmptyImageUrl } from "../domain/media";
 import { ensureCustomer } from "../db/parties";
+import { reserveOrderStock } from "../db/allocations";
 
 export class ShopifyIngestError extends Error {
   constructor(
@@ -105,16 +106,19 @@ export async function persistInboundOrder(
     options?.fulfillmentOrderId ||
     (connection.mode === "demo" ? demoFulfillmentOrderId(inbound.shopifyOrderId) : null);
   const lines = [];
+  const reserveLines: { id: string; itemId: string; sku: string; qty: number }[] = [];
   for (const line of inbound.lines) {
     const item = await resolveItem(db, connection.organizationId, line.sku, line.title, now, line.imageUrl);
+    const lineId = newId();
     lines.push({
-      id: newId(),
+      id: lineId,
       orderId,
       itemId: item.id,
       qty: line.qty,
       shopifyLineItemId: line.shopifyLineItemId,
       shopifyFulfillmentLineItemId: line.shopifyFulfillmentLineItemId,
     });
+    reserveLines.push({ id: lineId, itemId: item.id, sku: item.sku, qty: line.qty });
   }
   const customer = await ensureCustomer(db, connection.organizationId, {
     name: inbound.customerName,
@@ -152,6 +156,13 @@ export async function persistInboundOrder(
 
   const [created] = await db.select().from(schema.orders).where(eq(schema.orders.id, orderId)).limit(1);
   if (created) await syncDocumentJob(db, orderJobInput(created));
+  await reserveOrderStock(db, {
+    organizationId: connection.organizationId,
+    warehouseId: warehouse.id,
+    orderId,
+    clientId: null,
+    lines: reserveLines,
+  });
   await scheduleShopifySellableSync(
     db,
     connection.organizationId,

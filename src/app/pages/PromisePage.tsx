@@ -86,6 +86,28 @@ function promiseColumns(timeZone: string): DataColumn<PromiseOrder>[] {
     },
     { id: "customer", header: "Customer", sortValue: (order) => order.customerName, cell: (order) => order.customerName },
     {
+      id: "stock",
+      header: "Stock",
+      sortValue: (order) => order.reservedUnits ?? 0,
+      csv: (order) => {
+        const reserved = order.reservedUnits ?? 0;
+        const short = order.shortUnits ?? 0;
+        if (reserved <= 0 && short <= 0) return "";
+        return [reserved > 0 ? `Reserved ${reserved}` : "", short > 0 ? `Short ${short}` : ""].filter(Boolean).join(", ");
+      },
+      cell: (order) => {
+        const reserved = order.reservedUnits ?? 0;
+        const short = order.shortUnits ?? 0;
+        if (reserved <= 0 && short <= 0) return <span className="text-muted-foreground">—</span>;
+        return (
+          <span className="flex flex-col items-start">
+            {reserved > 0 ? <span>Reserved {reserved}</span> : null}
+            {short > 0 ? <span className="text-[11px] text-muted-foreground">Short {short}</span> : null}
+          </span>
+        );
+      },
+    },
+    {
       id: "units",
       header: "Units",
       align: "right",
@@ -250,7 +272,10 @@ export function PromisePage() {
       <Card className="space-y-4">
         <div>
           <p className="text-sm font-medium">Ask about a SKU</p>
-          <p className="text-sm text-muted-foreground">A new order sits behind the open pick queue. Nothing is reserved.</p>
+          <p className="text-sm text-muted-foreground">
+            A new order sits behind the open pick queue. Asking here does not reserve stock. Open orders reserve ATP when
+            they are created, and the leave-by stays on this board.
+          </p>
         </div>
         <form className="flex flex-wrap items-start gap-3" onSubmit={askForm.handleSubmit(askSku)}>
           <TextField form={askForm} name="sku" label="SKU" placeholder="LAMP" className="w-40 [&_input]:font-mono" />

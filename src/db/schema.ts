@@ -421,6 +421,8 @@ export const orders = sqliteTable(
     customerId: text("customer_id").references(() => customers.id, { onDelete: "set null" }),
     /** Why quick-ship picked the box and service it did, e.g. `Mailer (Rule: Small parcels) · UPS Ground (Cheapest)`. */
     shipReason: text("ship_reason"),
+    /** Set when ingest tried a soft ATP reserve. Null on orders created before that. */
+    stockReservedAt: integer("stock_reserved_at"),
   },
   (t) => [
     uniqueIndex("orders_tracking_token").on(t.trackingToken),
@@ -1208,6 +1210,40 @@ export const inventoryAllocations = sqliteTable("inventory_allocations", {
   createdAt: integer("created_at").notNull(),
   releasedAt: integer("released_at"),
 });
+
+/**
+ * ATP held for an order with no bay pinned. Pick start converts open rows into `inventory_allocations`.
+ * `status` is open, released (cancel), or converted (pick start).
+ */
+export const softAllocations = sqliteTable(
+  "soft_allocations",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    orderLineId: text("order_line_id")
+      .notNull()
+      .references(() => orderLines.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id),
+    qty: integer("qty").notNull(),
+    status: text("status").notNull(),
+    createdAt: integer("created_at").notNull(),
+    releasedAt: integer("released_at"),
+  },
+  (t) => [
+    index("soft_allocations_org_status").on(t.organizationId, t.status),
+    index("soft_allocations_order").on(t.orderId),
+  ],
+);
 
 export type ItemType = "raw" | "wip" | "finished" | "packaging";
 export type LocationType = "receiving" | "storage" | "production" | "shipping";

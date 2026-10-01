@@ -49,7 +49,7 @@ Most of this is the same in both modes. New organizations start in Garage.
 
 Every channel lands orders in the same shape, so everything after this point works the same for every channel. Each order is keyed on its channel and the channel's order id. A second webhook, a pull that overlaps, or a re-pasted CSV returns the existing order instead of making a duplicate.
 
-An order that arrives is a promise, not a reservation. Stock is reserved when picking starts.
+An order that arrives soft-reserves ATP for what is on the shelf. The leave-by on Promise stays a quote. Pick start pins the reserve to a bay.
 
 ### Receiving
 
@@ -607,3 +607,11 @@ The From address stays `MAIL_FROM`. You can set a sender name and a reply-to add
 - The ZIP check compares the ZIP's 3-digit prefix with the ranges that belong to that state. "Seattle, OR 98101" fails, because 981 is Washington and Oregon is 970–979. The first digit alone is not enough, since both start with 9.
 - A return label the carrier would not sell or void shows in Exceptions, even though the original order has already shipped.
 - An order with no ship weight, on a service that buys live postage, waits under **Needs attention** (`NEED_WEIGHT`).
+
+## 18. Soft reserve
+
+Creating an order — a store webhook, a CSV paste, a crowdfunding import, or **New order** — reserves ATP for each line. The reserve counts against available qty for quick-ship, the ship queue, and the next order. It does not pin a bay. A 3PL client order only reserves that client's stock.
+
+If the shelf is short, the order still lands. The covered qty is reserved and the rest stays unreserved. That short qty shows in Exceptions as a backorder. Cancel releases the reserve. Starting the pick turns it into the bay allocation pick already used.
+
+The order page shows **Reserved**. Promise still shows the leave-by date, and a **Stock** column says how much is reserved. Asking Promise about a new qty does not reserve anything.

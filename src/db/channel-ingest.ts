@@ -3,6 +3,7 @@ import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { newId } from "../lib/ids";
 import { orderJobInput, syncDocumentJob } from "./jobs";
+import { reserveOrderStock } from "./allocations";
 import { ensureCustomer } from "./parties";
 import { normalizeSku, type ChannelId, type ChannelOrder } from "../domain/channels/adapter";
 
@@ -81,6 +82,7 @@ export async function persistChannelOrder(
   const missing = new Set<string>();
   const newItems: (typeof schema.items.$inferInsert)[] = [];
   const lines: (typeof schema.orderLines.$inferInsert)[] = [];
+  const reserveLines: { id: string; itemId: string; sku: string; qty: number }[] = [];
   for (const line of order.lines) {
     const key = normalizeSku(line.sku);
     let itemId = input.skus.get(key);
@@ -93,7 +95,9 @@ export async function persistChannelOrder(
       missing.add(line.sku);
       continue;
     }
-    lines.push({ id: newId(), orderId, itemId, qty: line.qty, qtyPicked: 0 });
+    const lineId = newId();
+    lines.push({ id: lineId, orderId, itemId, qty: line.qty, qtyPicked: 0 });
+    reserveLines.push({ id: lineId, itemId, sku: line.sku, qty: line.qty });
   }
   if (lines.length === 0) return { skipped: "unknown_skus", missingSkus: [...missing] };
 
@@ -130,5 +134,12 @@ export async function persistChannelOrder(
     throw err;
   }
   await syncDocumentJob(db, orderJobInput(row));
+  await reserveOrderStock(db, {
+    organizationId,
+    warehouseId: input.warehouseId,
+    orderId,
+    clientId: null,
+    lines: reserveLines,
+  });
   return { orderId, number: row.number, created: true, missingSkus: [...missing] };
 }

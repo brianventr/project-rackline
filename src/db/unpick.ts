@@ -4,7 +4,12 @@ import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import { chainPlans, planUnpick } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "./stock";
-import { loadOpenAllocations, releaseAllocationStatements, restoreAllocationStatements } from "./allocations";
+import {
+  loadOpenAllocations,
+  releaseAllocationStatements,
+  releaseSoftAllocationStatements,
+  restoreAllocationStatements,
+} from "./allocations";
 import {
   applyPartialUnpick,
   hasUnpickable,
@@ -291,6 +296,7 @@ export async function cancelOrderDocument(
           .set({ status: "cancelled", shopifySyncStatus: order.source === "shopify" ? "inbound" : order.shopifySyncStatus })
           .where(eq(schema.orders.id, order.id)),
         ...releaseAllocationStatements(db, order.id, now),
+        ...releaseSoftAllocationStatements(db, order.id, now),
       ],
     });
     return true;
@@ -302,6 +308,7 @@ export async function cancelOrderDocument(
       .set({ status: "cancelled", shopifySyncStatus: order.source === "shopify" ? "inbound" : order.shopifySyncStatus })
       .where(eq(schema.orders.id, order.id)),
     ...releaseAllocationStatements(db, order.id, now),
+    ...releaseSoftAllocationStatements(db, order.id, now),
   ] as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
   return true;
 }

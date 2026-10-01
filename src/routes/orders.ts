@@ -78,7 +78,11 @@ import {
   ensureAllocated,
   loadAtpBaysByItem,
   loadOpenAllocations,
+  loadOpenSoftAllocations,
   releaseAllocationStatements,
+  releaseSoftAllocationStatements,
+  reserveOrderStock,
+  type OpenSoftAllocation,
 } from "../db/allocations";
 import type { OpenAllocation } from "../domain/allocations";
 import { cancelOrderDocument, loadNetPickSlices, persistUnpick, remainingToUnpick } from "../db/unpick";
@@ -135,12 +139,23 @@ function withRemaining<T extends { id: string; sku: string; qty: number; qtyPick
   };
 }
 
-function withAllocations<T extends { id: string }>(lines: T[], allocations: OpenAllocation[]) {
+function withAllocations<T extends { id: string; qty?: number; qtyPicked?: number }>(
+  lines: T[],
+  allocations: OpenAllocation[],
+  soft: OpenSoftAllocation[] = [],
+) {
   return lines.map((line) => {
     const reserved = allocations.filter((row) => row.orderLineId === line.id);
+    const softQty = soft.filter((row) => row.orderLineId === line.id).reduce((sum, row) => sum + row.qty, 0);
+    const allocatedQty = reserved.reduce((sum, row) => sum + row.qty, 0);
+    const reservedQty = allocatedQty + softQty;
+    const needed = Math.max(0, (line.qty ?? 0) - (line.qtyPicked ?? 0));
     return {
       ...line,
-      allocatedQty: reserved.reduce((sum, row) => sum + row.qty, 0),
+      allocatedQty,
+      softReservedQty: softQty,
+      reservedQty,
+      shortQty: Math.max(0, needed - reservedQty),
       allocations: reserved.map((row) => ({
         id: row.id,
         locationId: row.locationId,
@@ -238,6 +253,7 @@ async function orderWithLines(
     .innerJoin(schema.items, eq(schema.items.id, schema.orderLines.itemId))
     .where(eq(schema.orderLines.orderId, id));
   const allocations = await loadOpenAllocations(db, organizationId, { orderId: id });
+  const soft = await loadOpenSoftAllocations(db, organizationId, { orderId: id });
   let preferredZoneId: string | null = null;
   if (order.waveId) {
     const [wave] = await db
@@ -265,14 +281,19 @@ async function orderWithLines(
     .select({ id: schema.orders.id, number: schema.orders.number, status: schema.orders.status })
     .from(schema.orders)
     .where(and(eq(schema.orders.organizationId, organizationId), eq(schema.orders.parentOrderId, order.id)));
+  const lineViews = withCartonRemaining(withAllocations(decorated, allocations, soft), packages);
+  const reservedUnits = lineViews.reduce((sum, line) => sum + (line.reservedQty ?? 0), 0);
+  const shortUnits = lineViews.reduce((sum, line) => sum + (line.shortQty ?? 0), 0);
   return {
     ...order,
     parent,
     backorders,
     allocatedUnits: allocatedUnits(allocations),
+    reservedUnits,
+    shortUnits,
     allocations,
     packages,
-    lines: withCartonRemaining(withAllocations(decorated, allocations), packages),
+    lines: lineViews,
   };
 }
 
@@ -483,12 +504,15 @@ ordersRoute.post("/orders", async (c) => {
   }
   const id = newId();
   const lines = [];
+  const reserveLines: { id: string; itemId: string; sku: string; qty: number }[] = [];
   for (const line of body.lines) {
     const itemId = requireString(line.itemId, "itemId");
     const qty = requireInt(line.qty, "qty");
     if (qty <= 0) badRequest("Line quantity must be positive");
-    await getOrgItem(db, organizationId, itemId);
-    lines.push({ id: newId(), orderId: id, itemId, qty, qtyPicked: 0 });
+    const item = await getOrgItem(db, organizationId, itemId);
+    const lineId = newId();
+    lines.push({ id: lineId, orderId: id, itemId, qty, qtyPicked: 0 });
+    reserveLines.push({ id: lineId, itemId, sku: item.sku, qty });
   }
   const customer = await ensureCustomer(db, organizationId, {
     customerId: body.customerId,
@@ -513,6 +537,13 @@ ordersRoute.post("/orders", async (c) => {
     ...lines.map((line) => db.insert(schema.orderLines).values(line)),
   ]);
 
+  await reserveOrderStock(db, {
+    organizationId,
+    warehouseId,
+    orderId: id,
+    clientId: body.clientId || null,
+    lines: reserveLines,
+  });
   const created = await orderWithLines(db, organizationId, id);
   await syncDocumentJob(db, orderJobInput(created));
   await scheduleShopifySellableSync(
@@ -2340,19 +2371,32 @@ ordersRoute.post("/orders/:id/short-ship", async (c) => {
     carrierService: order.carrierService,
     parentOrderId: order.id,
   });
-  const childLines = plan.remainder.map((row) => {
+  const childLineRows = plan.remainder.map((row) => {
     const parentLine = order.lines.find((line) => line.id === row.lineId);
-    return db.insert(schema.orderLines).values({
+    return {
       id: newId(),
       orderId: backorderId,
       itemId: row.itemId,
+      sku: parentLine?.sku ?? row.itemId,
       qty: row.qty,
       qtyPicked: 0,
       qtyPacked: 0,
       shopifyLineItemId: parentLine?.shopifyLineItemId ?? null,
       shopifyFulfillmentLineItemId: parentLine?.shopifyFulfillmentLineItemId ?? null,
-    });
+    };
   });
+  const childLines = childLineRows.map((row) =>
+    db.insert(schema.orderLines).values({
+      id: row.id,
+      orderId: row.orderId,
+      itemId: row.itemId,
+      qty: row.qty,
+      qtyPicked: row.qtyPicked,
+      qtyPacked: row.qtyPacked,
+      shopifyLineItemId: row.shopifyLineItemId,
+      shopifyFulfillmentLineItemId: row.shopifyFulfillmentLineItemId,
+    }),
+  );
   const shippedQtyByLine = new Map(plan.shippedByLine.map((row) => [row.lineId, row.qty]));
   const stampLines = order.lines.map((line) => {
     const shippedQty = shippedQtyByLine.get(line.id) ?? 0;
@@ -2369,6 +2413,7 @@ ordersRoute.post("/orders/:id/short-ship", async (c) => {
     closeOrder,
     ...stampLines,
     ...releaseAllocationStatements(db, order.id, now),
+    ...releaseSoftAllocationStatements(db, order.id, now),
     childOrder,
     ...childLines,
   ];
@@ -2423,6 +2468,13 @@ ordersRoute.post("/orders/:id/short-ship", async (c) => {
   const backorder = await orderWithLines(db, organizationId, backorderId);
   await syncDocumentJob(db, orderJobInput(shipped));
   await syncDocumentJob(db, orderJobInput(backorder));
+  await reserveOrderStock(db, {
+    organizationId,
+    warehouseId: order.warehouseId,
+    orderId: backorderId,
+    clientId: order.clientId,
+    lines: childLineRows.map((row) => ({ id: row.id, itemId: row.itemId, sku: row.sku, qty: row.qty })),
+  });
   await scheduleShopifySellableSync(
     db,
     organizationId,

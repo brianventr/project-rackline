@@ -316,7 +316,7 @@ function OrderList() {
         title="Orders"
         description={
           <>
-            Shopify checkouts and floor orders. Start pick to <Term id="allocation">reserve stock</Term>, then pick from
+            Shopify checkouts and floor orders. Creating an order <Term id="allocation">reserves stock</Term>. Start pick to pin a bay, then pick from
             the suggested bay.
           </>
         }
@@ -873,7 +873,9 @@ function OrderDetail({ id }: { id: string }) {
   const officePacking = packing && policy.officePickPack;
   const units = orderUnits(order);
   const tracksAnything = lines.some((line) => line.trackLot || line.trackSerial || line.catchWeight);
-  const hasAllocations = lines.some((line) => (line.allocations ?? []).length || (line.allocatedQty ?? 0) > 0);
+  const hasAllocations = lines.some(
+    (line) => (line.allocations ?? []).length || (line.reservedQty ?? line.allocatedQty ?? 0) > 0,
+  );
   const defaultView = canShipOrder(order.status) || (order.status === "packing" && !unpacked) ? "shipping" : "lines";
   const activeView = view ?? defaultView;
 
@@ -883,7 +885,7 @@ function OrderDetail({ id }: { id: string }) {
     "Picked",
     "Packed",
     "Shipped",
-    ...(hasAllocations ? ["Allocated"] : []),
+    ...(hasAllocations ? ["Reserved"] : []),
     ...(remaining ? ["Pick from"] : []),
     ...(officePicking ? ["This pick"] : []),
     ...(officePicking && tracksAnything ? ["Lot / serial"] : []),
@@ -925,6 +927,7 @@ function OrderDetail({ id }: { id: string }) {
             <Card className="space-y-3">
               <p className="text-sm font-medium">Units</p>
               <div className="space-y-2 text-sm">
+                <ProgressRow label="Reserved" done={order.reservedUnits ?? order.allocatedUnits ?? 0} total={units.ordered} />
                 <ProgressRow label="Picked" done={units.picked} total={units.ordered} />
                 <ProgressRow label="Packed" done={units.packed} total={units.ordered} />
                 <ProgressRow label="Shipped" done={order.status === "shipped" ? units.ordered : units.shipped} total={units.ordered} />
@@ -1063,9 +1066,11 @@ function OrderDetail({ id }: { id: string }) {
                     <td className="font-mono text-xs">
                       {(line.allocations ?? []).length
                         ? (line.allocations ?? []).map((row) => `${row.locationCode} ×${row.qty}`).join(", ")
-                        : (line.allocatedQty ?? 0) > 0
-                          ? line.allocatedQty
-                          : "—"}
+                        : (line.softReservedQty ?? 0) > 0
+                          ? `Reserved ×${line.softReservedQty}`
+                          : (line.allocatedQty ?? 0) > 0
+                            ? line.allocatedQty
+                            : "—"}
                     </td>
                   ) : null}
                   {remaining ? (

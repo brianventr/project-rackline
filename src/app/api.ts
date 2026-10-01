@@ -591,6 +591,9 @@ export type OrderLine = {
   qtyShipped?: number;
   cartonRemaining?: number;
   allocatedQty?: number;
+  softReservedQty?: number;
+  reservedQty?: number;
+  shortQty?: number;
   allocations?: OrderAllocation[];
   sku: string;
   itemName: string;
@@ -652,6 +655,8 @@ export type Order = {
   parent?: { id: string; number: string } | null;
   backorders?: { id: string; number: string; status: string }[];
   allocatedUnits?: number;
+  reservedUnits?: number;
+  shortUnits?: number;
   allocations?: OrderAllocation[];
   packages?: OrderPackage[];
   shopify?: { status?: string; fulfillmentId?: string | null; error?: string | null };

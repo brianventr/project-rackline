@@ -12,8 +12,8 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     id: "atp",
     term: "ATP",
     aliases: ["available to promise", "available", "available qty"],
-    short: "Available to promise: what is in a bay minus held stock and qty already reserved for orders being picked.",
-    long: "Starting a pick reserves against ATP. A second order that would oversell is blocked (INSUFFICIENT_ATP). A Promise quote does not reserve anything.",
+    short: "Available to promise: what is in a bay minus held stock and qty already reserved for orders.",
+    long: "Creating an order soft-reserves ATP. Pick start pins that reserve to a bay. A second order that would oversell is blocked (INSUFFICIENT_ATP). Asking Promise for a new qty does not reserve anything.",
     path: "/stock",
   },
   {
@@ -27,8 +27,8 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     id: "allocation",
     term: "Allocation",
     aliases: ["reservation", "reserve", "reserved", "allocated"],
-    short: "Qty set aside for one order at one bay. It is made when pick starts, not when the order is created.",
-    long: "Pick, move, replenish, kit, work order, and RTV cannot take another order's reservation. Leftovers release on ship or cancel; unpick puts the reservation back.",
+    short: "Qty set aside for one order. A soft reserve is taken when the order is created and counts against ATP without pinning a bay.",
+    long: "Pick start turns the soft reserve into a bay allocation. Pick, move, replenish, kit, work order, and RTV cannot take another order's reservation. Cancel releases it. A short order still ingests; only the qty ATP can cover is reserved.",
     path: "/outbound/orders",
   },
   {
@@ -579,7 +579,7 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     term: "Promise",
     aliases: ["leave by", "ship date quote", "delivery promise"],
     short: "A leave-by quote for an open order or a new qty of a SKU, from the shelf, the pick queue, floor pace, and dated inbound.",
-    long: "A promise does not reserve stock. Pick start still owns ATP.",
+    long: "Creating an order soft-reserves ATP. The leave-by date is still a quote: it stays on the board, and asking about a new qty does not reserve anything.",
     path: "/analytics/promise",
   },
   {

@@ -289,5 +289,61 @@ export async function loadPromiseBoard(
   options: { asOf?: number; cutoffMinutes?: number } = {},
 ): Promise<PromiseBoard> {
   const facts = await loadPromiseFacts(db, organizationId, warehouseId, options);
-  return planPromises(facts.input).board;
+  const board = planPromises(facts.input).board;
+  const held = await reservedByOrder(
+    db,
+    organizationId,
+    board.orders.map((order) => order.orderId),
+  );
+  for (const order of board.orders) {
+    const row = held.get(order.orderId);
+    order.reservedUnits = row?.reserved ?? 0;
+    order.shortUnits = row?.short ?? 0;
+  }
+  return board;
+}
+
+async function reservedByOrder(db: AppDb, organizationId: string, orderIds: string[]) {
+  const held = new Map<string, { reserved: number; short: number }>();
+  if (orderIds.length === 0) return held;
+  const orders = await db
+    .select({ id: schema.orders.id, stockReservedAt: schema.orders.stockReservedAt })
+    .from(schema.orders)
+    .where(and(eq(schema.orders.organizationId, organizationId), inArray(schema.orders.id, orderIds)));
+  const [lines, soft, pinned] = await Promise.all([
+    db
+      .select({
+        orderId: schema.orderLines.orderId,
+        lineId: schema.orderLines.id,
+        qty: schema.orderLines.qty,
+        qtyPicked: schema.orderLines.qtyPicked,
+      })
+      .from(schema.orderLines)
+      .where(inArray(schema.orderLines.orderId, orderIds)),
+    db
+      .select({ orderId: schema.softAllocations.orderId, orderLineId: schema.softAllocations.orderLineId, qty: schema.softAllocations.qty })
+      .from(schema.softAllocations)
+      .where(and(inArray(schema.softAllocations.orderId, orderIds), eq(schema.softAllocations.status, "open"))),
+    db
+      .select({
+        orderId: schema.inventoryAllocations.orderId,
+        orderLineId: schema.inventoryAllocations.orderLineId,
+        qty: schema.inventoryAllocations.qty,
+      })
+      .from(schema.inventoryAllocations)
+      .where(and(inArray(schema.inventoryAllocations.orderId, orderIds), eq(schema.inventoryAllocations.status, "open"))),
+  ]);
+  const reservedByLine = new Map<string, number>();
+  for (const row of [...soft, ...pinned]) {
+    reservedByLine.set(row.orderLineId, (reservedByLine.get(row.orderLineId) ?? 0) + row.qty);
+  }
+  const checked = new Map(orders.map((row) => [row.id, row.stockReservedAt != null]));
+  for (const line of lines) {
+    const current = held.get(line.orderId) ?? { reserved: 0, short: 0 };
+    const reserved = reservedByLine.get(line.lineId) ?? 0;
+    current.reserved += reserved;
+    if (checked.get(line.orderId)) current.short += Math.max(0, line.qty - line.qtyPicked - reserved);
+    held.set(line.orderId, current);
+  }
+  return held;
 }

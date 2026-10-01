@@ -16,7 +16,7 @@ import { loadUnputawayReceivedCartons } from "../db/asn-packages";
 import { countVariance } from "../domain/blind-count";
 import { applyHoldsToOnHand, matchingHoldForMove } from "../domain/holds";
 import { loadHeldLotQuantities, loadOpenHolds } from "../db/holds";
-import { annotateAtp, atpOnHand, loadOpenAllocations } from "../db/allocations";
+import { annotateAtp, atpOnHand, loadOpenAllocations, loadOpenSoftAllocations } from "../db/allocations";
 import { addUtcDays, EXPIRING_WITHIN_DAYS, utcYyyymmdd } from "../domain/expiry";
 import { CERT_EXPIRING_WITHIN_DAYS, isCertExpiring } from "../domain/equipment";
 import { loadAsBuiltForItem } from "../db/as-built";
@@ -488,10 +488,11 @@ catalogRoute.get("/items/:id", async (c) => {
   const heldLotQtys = await loadHeldLotQuantities(db, organizationId, openHolds);
   const available = applyHoldsToOnHand(located, openHolds, heldLotQtys);
   const allocations = await loadOpenAllocations(db, organizationId);
+  const soft = await loadOpenSoftAllocations(db, organizationId);
   return c.json({
     ...item,
     packs: await loadPacksForItem(db, organizationId, item.id),
-    onHand: annotateAtp(located, allocations, available),
+    onHand: annotateAtp(located, allocations, available, undefined, soft),
     lots: lots.map((row) => ({
       ...row,
       usedIn: genealogy.filter(
@@ -812,7 +813,8 @@ catalogRoute.get("/inventory", async (c) => {
   const heldLotQtys = await loadHeldLotQuantities(db, organizationId, openHolds);
   const available = applyHoldsToOnHand(rows, openHolds, heldLotQtys);
   const allocations = await loadOpenAllocations(db, organizationId);
-  return c.json(annotateAtp(rows, allocations, available));
+  const soft = await loadOpenSoftAllocations(db, organizationId);
+  return c.json(annotateAtp(rows, allocations, available, undefined, soft));
 });
 
 catalogRoute.get("/movements", async (c) => {
