@@ -110,13 +110,16 @@ The queue sends these orders to **Needs attention** instead of guessing:
 - Not enough free stock.
 - Orders that are cancelled or already shipped.
 - A missing ship weight, when the service buys live postage (`NEED_WEIGHT`).
+- A ship-to address that fails the address check (`ADDRESS_INVALID`). The row offers the ways past it (see Address checks).
+- An international order with an item that has no customs details (`CUSTOMS_REQUIRED`). **Add customs** on the row opens the item.
 
 ### Boxes, weights, and service
 
-- **Box presets.** The **Boxes** sheet (owners) saves your usual boxes: name, length, width and height in inches, and empty weight in ounces. The first box you add becomes the default, and you can switch the default at any time. The toolbar's box picker overrides the default for this run.
-- **Parcel weight.** Weight is each SKU's ship weight × qty, plus the box's empty weight. A weight typed on the order wins.
-- **Parcel size.** A size typed on the order wins, then the box, then the SKU's own size when the order is a single unit. A row with no ship weight shows **Add weight**, which links to Items.
-- **Service.** The toolbar's service picker applies to this run, and owners can press **Save as default** beside it to make that service the building's default. Otherwise each order keeps its own service, then the building's default service (Settings → Warehouse → Default service), then the first enabled service on your default carrier. Rackline Ground is the last fallback. A default whose carrier is disconnected, or whose service is turned off, is ignored.
+- **Box presets.** The **Boxes** sheet (owners) saves your usual boxes: name, outside and inside size in inches, and empty and max weight in ounces. The first box you add becomes the default, and you can switch the default at any time.
+- **Box.** A box picked in the toolbar applies to this run. Otherwise the box of the shipping rule that matched wins, then the smallest saved box the items fit (see Automatic box), then the default box.
+- **Parcel weight.** A weight typed or read off the scale at Scan to ship wins, then a weight typed on the order. Otherwise it is each SKU's ship weight × qty, plus the chosen box's empty weight.
+- **Parcel size.** A size typed on the order wins, then the chosen box, then the SKU's own size when the order is a single unit. A row with no ship weight shows **Add weight**, which links to Items.
+- **Service.** The toolbar's service picker applies to this run, and owners can press **Save as default** beside it to make that service the building's default. Otherwise the matched rule's service or rate choice wins, then the order's own service, then the building's rate choice (Settings → Warehouse). With rate choice left on **Default service**, that is the building's default service, then the first enabled service on your default carrier, with Rackline Ground as the last fallback. An order's or building's service whose carrier is disconnected, or that is turned off, is skipped. A rule's is not: the rule holds its orders instead (`SHIP_RULE_SERVICE`).
 
 ### Printing
 
@@ -286,6 +289,10 @@ Settings → Integrations changes with the mode:
 | Pack sizes (inner, case, pallet) | Yes: a case scan counts its eaches | Yes, and one case scan proves every unit in it |
 | Bin capacity (max units, weight, volume) | Hidden, but a limit set in Manufacturer still holds | Set per bay; fill % on Locations and the map; putaway skips full bays |
 | License plates (tote, pallet, carton) | Hidden; a plate made in Manufacturer stays in step when Garage ships from its bay | `LP-` codes on Stock → Plates and Floor → Plates: build in a bay, move in one scan, receive onto, pick off |
+| Customer tracking page (`/t/…`) | **Tracking link** on the Shipped tab, or the order's menu | **Copy tracking link** on the order's menu |
+| Return labels (`/r/…`) | Yes, on the return | Yes, on the return |
+| International labels with customs | Yes; the queue links to **Add customs** | Yes; the label is refused until the items have customs details |
+| Address check before a label | Ship queue, Scan to ship, and the order page: suggested address, edit, or ship to it as it is | The order page: suggested address, edit, or **Accept this address** |
 | Menu | Short bench menu | Full office menu plus Settings |
 
 ## 6. Switching modes
@@ -323,8 +330,15 @@ A 409 means Rackline refused the post to protect the ledger. Nothing was half wr
 - **`NEED_SCAN`.** A catch-weight SKU needs weighing on Floor → Pick before the Ship queue can finish it.
 - **`NEED_WEIGHT`.** Live postage needs a weight. Add a ship weight on the SKU, or type one on the order.
 - **`NOT_SHIPPABLE`.** The order is cancelled or already shipped.
-- **`LIVE_ADDRESS`.** The ship-from or ship-to is missing a street, city, region, or postal code.
+- **`SHIP_RULE_HOLD`.** A shipping rule holds the order for review, and bulk ship leaves it out. Check it, then press **Ship anyway** on the row or at the station.
+- **`SHIP_RULE_SERVICE`.** The rule that matched ships with a service no connected carrier account offers. Edit the rule, or turn the service back on in Settings → Carriers.
+- **`ADDRESS_INVALID`.** The ship-to is missing a part, has one that cannot be right, or the carrier could not find it. Use the suggested address, edit it, or ship to it as it is (see Address checks).
+- **`CUSTOMS_REQUIRED`.** An item on an international order has no HS code, country of origin, or declared value. The message names the SKU; add them under Customs on the item.
+- **`CUSTOMS_UNSUPPORTED`.** A direct USPS account cannot buy international labels in Rackline yet, and a parcel with one tariff code worth over $2,500 needs an export filing (an ITN) that Rackline cannot file. Use EasyPost or ShipEngine, or buy that label on the carrier's site.
+- **`NO_RATE`.** No connected carrier account quoted the parcel, so the rate choice had nothing to pick. Choose a service, or check the weight and size.
+- **`LIVE_ADDRESS`.** Live postage needs a street and city on the ship-from and ship-to, plus a region and postal code where the country uses them. The ship-to is checked first (`ADDRESS_INVALID`), so this is usually the building's ship-from, or a ship-to accepted as it is.
 - **`CARRIER_LIVE`.** The carrier refused the live label. No tracking number was invented.
+- **`RETURN_LABEL_UNSUPPORTED`.** A direct UPS, USPS, or DHL account cannot buy return labels in Rackline yet. Choose a service on EasyPost, ShipEngine, FedEx, or Rackline Ground.
 - **`OVER_PICK`, `OVER_PACK`, `OVER_RECEIVE`, `OVER_MOVE`.** More than is left on the document.
 - **`HELD_STOCK`.** The bay, SKU, or lot is on hold.
 - **`JOB_CLAIMED`.** Another operator has that floor job.
@@ -338,6 +352,8 @@ A 409 means Rackline refused the post to protect the ledger. Nothing was half wr
 - **`MISSING_APP`.** The Shopify OAuth install needs `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET`.
 - **`MISSING_LOCATION`.** Pick a Shopify location before pushing live sellable qty.
 - **`SHOPIFY_TOKEN`.** Rackline cannot read the Shopify access token, usually because `BETTER_AUTH_SECRET` changed. Paste the token again on Settings → Shopify, or reinstall the app. Fulfillment post-back fails with the same message, and **Retry Shopify** works once the token is back.
+
+When quick-ship has more than one reason to stop, it answers with the first of these: the order itself (`NOT_SHIPPABLE`, `NEED_CARTON_FLOW`, `NEED_SCAN`, `INSUFFICIENT_ATP`), the rule's hold (`SHIP_RULE_HOLD`), the rule's service (`SHIP_RULE_SERVICE`), the address (`ADDRESS_INVALID`), customs (`CUSTOMS_REQUIRED`), the rate (`NO_RATE`), the weight (`NEED_WEIGHT`), then the label itself (`CARRIER_LIVE`, `LIVE_ADDRESS`, `CUSTOMS_UNSUPPORTED`). **Ship anyway** only gets past the hold, so under **Needs attention** the queue names a hold last, after anything else that would still stop the order.
 
 ### Questions that come up
 
@@ -489,3 +505,73 @@ Garage leaves out counts, EDI, and bay capacity, as it does everywhere else. Ope
 **API.** `GET /api/exceptions?warehouseId=…` returns the list, its counts, and which sources it read. `POST /api/exceptions/:source/:key/:verb` with the `warehouseId` claims, unclaims, snoozes (`hours`), resolves (`note`), reopens, or runs a fix (`verb` is `action`, with `actionId`). An owner takes over with `takeOver: true`. A problem that has already cleared answers 409 `EXCEPTION_CLEARED`, and one that someone changed a moment earlier answers 409 `EXCEPTION_CHANGED`.
 
 **Not in the inbox yet.** A short pick is not recorded on its own, so the inbox lists the backorder a short ship leaves. Counts post without an approval step, so a variance is listed as info after it has changed stock. A 409 is answered on the screen that got it; the problem behind it is listed when it lasts, such as a hold or a failed label. A failed carrier connection test stays on Settings → Carriers.
+
+## 13. Customer tracking page
+
+Each order can have a tracking page for its customer, at `/t/…`, in both modes. It needs no sign-in. Every order gets its own long random link, so a link cannot be guessed from an order number or from another link.
+
+- **Copy the link.** **Copy tracking link** is on the order's menu once the order has shipped, has a tracking number, or has a box shipped. In Garage, **Tracking link** on each row of the Ship queue's **Shipped** tab copies the same link. The link is made when the order ships, or the first time someone copies it, and it stays the same after that.
+- **What the customer sees.** The shop's name, colour, and logo; the order number; the city, region, and country it is going to; and for each parcel, the carrier and service, the tracking number with the carrier's link, its status, the expected delivery, and its history. The items are listed under their parcels. Status and history come from EasyPost and ShipEngine tracker updates. A parcel whose label is bought but that has not gone yet says **Getting ready**, and one that has gone says **Shipped** until the carrier's first update.
+- **What it never shows.** Prices, the customer's name or email, the street, the postcode, Rackline ids, or any other order. A link that matches no order is not found.
+- **Branding.** Settings → Warehouse → **Tracking page** sets a **Brand colour**, a hex colour such as `#1f6feb`, and a **Logo URL**, which has to start with `https://`. The return label page uses them too. With neither set, the page shows the shop's name in plain colours.
+
+Rackline does not email the link yet. Paste it into your own message to the customer.
+
+## 14. Return labels
+
+A return label is a prepaid label from the customer back to your building. You buy it on the return (RMA), in either mode, and the customer prints it from a link, at `/r/…`, with no sign-in.
+
+1. Open the return and press **Create return label**, on its **Return label** card or its menu. The customer and their address come from the original order. A return with no original order needs the address typed.
+2. Pick a service and, if you like, a weight. A blank weight uses the original order's parcel weight, or 16 oz.
+3. Press **Buy label**. The label is addressed to the building's **Return address** (Settings → Warehouse), or to its ship-from address when that is blank.
+
+The card then shows the service, tracking number, postage, and when the label was bought, with **Print label** (**Download label** when the carrier sent a file), **Copy customer link**, and **Void**. The customer's page shows the label, the items to send back, and the carrier's updates. The Returns list shows each label's status in the carrier's words, from the same tracker updates as outbound parcels.
+
+- **Carriers.** EasyPost, ShipEngine, FedEx, and Rackline Ground can buy return labels, and so can a demo connection of any carrier. A live direct UPS, USPS, or DHL account cannot yet (`RETURN_LABEL_UNSUPPORTED`).
+- **One at a time.** A return has at most one active label, so void it before buying another. A return that is already received takes none.
+- **Voiding.** **Void** cancels the label, and a live one goes back to the carrier for a refund. The customer's page then says "This return label was cancelled". Once the carrier has scanned the label, it can no longer be voided.
+- **Across a border.** A return label carries no customs details yet, so a carrier may refuse one from another country. Buy that one on the carrier's site for now.
+
+## 15. International shipping
+
+An order is international when its ship-to country is not the building's. Everything here works the same in both modes.
+
+**Addresses.** Rackline reads a ship-to the way its country writes it: US, Canadian, UK, and Australian forms, and postcode-first or city-first lines elsewhere. A state or province and a postal code are only required where the country uses them. The country can be a code (`GB`) or a name (United Kingdom, Hong Kong, Singapore).
+
+**Customs details on items.** Each item has a **Customs** card on its **Settings** tab:
+
+- **HS code**, the item's tariff code.
+- **Country of origin**, where it was made.
+- **Customs description**. A blank one uses the item's name.
+- **Declared value per unit (USD)**.
+
+Every item an international order ships needs an HS code, an origin, and a value. Until it has them, the order waits under **Needs attention** with **Add customs**, which opens the item, and a label is refused with `CUSTOMS_REQUIRED`, naming the SKU. Rates still come back, so the queue can price the order while you fill them in.
+
+**What goes to the carrier.** Rackline sends one declaration per parcel with the label request: each line's description, HS code, origin, qty, weight, and value, marked as merchandise and signed with the shop's name. The line weights never add up to more than the parcel. From the US, the declaration carries the export exemption: `NOEEI 30.36` to Canada, and `NOEEI 30.37(a)` elsewhere. A parcel with one tariff code worth over $2,500 needs a filing (an ITN) that Rackline cannot make, so its label is refused with `CUSTOMS_UNSUPPORTED`.
+
+- **EasyPost and ShipEngine** take the declaration with the shipment, and buy the international counterpart of the service you picked. UPS Ground becomes UPS Standard, 2nd Day Air becomes Worldwide Expedited, and Next Day Air becomes Worldwide Express. FedEx Ground becomes International Economy, and 2Day becomes International Priority. USPS Ground Advantage, Priority Mail, and Priority Mail Express become First-Class Package, Priority Mail, and Priority Mail Express International.
+- **UPS, FedEx, and DHL Express accounts** get it in each carrier's own form: UPS's international forms, FedEx's customs clearance with a commercial invoice, and DHL's export declaration.
+- **A direct USPS account** cannot buy international labels in Rackline yet (`CUSTOMS_UNSUPPORTED`). Use USPS through EasyPost or ShipEngine.
+
+**Customs forms.** The label page and the batch label page (`/ship/labels`) show a **Customs** card for an international parcel. When the carrier made its own form, a CN22 or a commercial invoice, **Open customs form** opens it to print and attach. Otherwise Rackline's own declaration prints on the page after the label: a CN22 up to $400, and a CN23 above that. A thermal printer gets only the label, so print the form from the browser.
+
+## 16. Address checks
+
+Before Rackline buys a label, it checks the ship-to, in both modes. It looks for three things:
+
+- **Missing parts.** A street and a city, plus a state or province and a postal code where the country uses them.
+- **Parts that cannot be right.** A US state, Canadian province, or Australian state that does not exist. A postal code in the wrong form for the US, Canada, the UK, or Australia. A US ZIP code whose first digit belongs to other states ("ZIP code 10001 is not in Oregon."), or a Canadian postal code whose first letter belongs to another province. A street that ends in "Apt", "Unit", "Suite", or "#" with no number after it, and a US or Canadian street with no house number.
+- **What the carrier says.** With a live EasyPost or ShipEngine account connected, Rackline also asks it to verify the address, the default account first. The answer is kept for that order and address, so each address is asked about once. An account that errors, or takes more than 4 seconds, is skipped and asked again next time. The Ship queue asks about the same 25 oldest ready orders it prices. The rest use the checks above, or a carrier answer already on file.
+
+When the carrier finds the address, that clears the parts that look wrong, but not a missing part. The carrier's corrected address is offered as a suggestion when it changes something that matters: the country, a postal code or region that was missing, or in the US and Canada, the house number, the state or province, or the postal code (the first five digits of a ZIP). Spelling, capitals, abbreviations, and the city alone do not count, so `Street` against `St` never stops an order. When the carrier cannot find the address at all, the message says so, for example "EasyPost could not verify this address: …".
+
+**Getting past it.** An order with a problem waits under **Needs attention** with the reason (`ADDRESS_INVALID`). A label bought anywhere else is refused with the same code.
+
+- **Use suggested address** saves the carrier's correction on the order.
+- **Edit address** opens the ship-to to fix by hand. Saving it runs the check again.
+- **Ship anyway to this address**, on the Ship queue, ships to the address as it is, after a warning that a box the carrier cannot deliver comes back, and the carrier may charge for the return. Scan to ship offers **Use suggested address** and **Ship anyway to this address** too.
+- The order page shows an **Address check** card in both modes, with **Use suggested address**, **Edit address**, and **Accept this address**. That is how Manufacturer, which ships from the floor, gets past a hold: once accepted, labels from the order page and Floor → Ship go to the address as it is.
+
+An accepted address holds only for that exact address. Edit it, and the check runs again. The address can be edited until the order has a label, ships, or is cancelled. Once one box has a label, the others can still be accepted, but not edited.
+
+The check covers every label Rackline buys for an order: quick-ship, Scan to ship, the order page, boxes, and Floor → Ship. It applies to Rackline Ground and demo labels too, with only the checks Rackline makes itself. Pasting a tracking number skips it, because no label is bought. So does a replacement label for a parcel the carrier flagged on Today, because that parcel's address can no longer change.

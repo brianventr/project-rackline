@@ -12,7 +12,7 @@ import { docNumber, newId } from "../lib/ids";
 import { countCatchWeight } from "../lib/catch-weight";
 import { chainPlans, planCycleCount, planMove } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
-import { itemScanValue, parseScan } from "../domain/barcodes";
+import { findByScannedNumber, itemScanValue, parseScan } from "../domain/barcodes";
 import { canPostCount, canPostTransfer } from "../domain/status";
 import {
   applyPartialMove,
@@ -956,11 +956,7 @@ floorRoute.get("/scan", async (c) => {
     rows: T[],
     value: string,
   ): Promise<T | undefined> {
-    const needle = value.replace(/^[#]/, "").toUpperCase();
-    return rows.find((row) => {
-      const number = row.number.toUpperCase();
-      return number === value.toUpperCase() || number === needle || number.endsWith(`-${needle}`) || number === `#${needle}`;
-    });
+    return findByScannedNumber(rows, value);
   }
 
   if (parsed.kind === "plate") {

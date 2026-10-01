@@ -6,6 +6,7 @@ import { BarcodeLabel } from "../components/BarcodeLabel";
 import { Button, EmptyState, ErrorBanner, PageHeader } from "../components/ui";
 import { usePrint } from "../print/PrintProvider";
 import { cn } from "@/lib/utils";
+import { CustomsFormCard } from "./CustomsFormCard";
 
 export function ShippingLabelPage() {
   const { id, packageId } = useParams();
@@ -117,6 +118,7 @@ export function ShippingLabelPage() {
       <ErrorBanner error={error} />
       {message ? <p className="print:hidden text-sm text-muted-foreground">{message}</p> : null}
       <ShippingLabelCard label={label} />
+      <CustomsFormCard orderId={label.orderId} packageId={packageId} />
     </div>
   );
 }

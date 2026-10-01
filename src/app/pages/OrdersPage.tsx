@@ -5,6 +5,7 @@ import {
   ClipboardList,
   FileText,
   Layers,
+  Link2,
   PackageCheck,
   PackageMinus,
   Play,
@@ -25,6 +26,7 @@ import {
 import { toast } from "sonner";
 import {
   api,
+  ApiError,
   errorText,
   type CarrierHub,
   type CarrierRate,
@@ -79,11 +81,14 @@ import { planShortShip } from "@/domain/short-ship";
 import { workflowPolicy } from "@/domain/workflow-policy";
 import { startingShipService } from "@/domain/ship-service";
 import { canRetryPostBack, manualPostBackNote, markShippedIn } from "@/domain/channels/adapter";
+import { orderChannelName } from "@/domain/order-channel";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { useSession } from "../session";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
 import { PickMap } from "../components/PickMap";
 import { ScaleWeight } from "../scale/ScaleWeight";
+import { copyTrackingLink } from "../tracking-link";
+import { AddressCheckCard } from "./AddressCheck";
 
 export function OrdersPage() {
   const { id } = useParams();
@@ -105,13 +110,9 @@ const ORDER_TABS: TabDef<Order>[] = [
 ];
 
 const ORDER_FACETS: FacetDef<Order>[] = [
-  { id: "channel", label: "Channel", value: (order) => (order.source === "shopify" ? "shopify" : "floor"), format: channelLabel },
+  { id: "channel", label: "Channel", value: (order) => orderChannelName(order.source) },
   { id: "status", label: "Status", value: (order) => order.status, format: statusLabel },
 ];
-
-function channelLabel(source: string | null | undefined): string {
-  return source === "shopify" ? "Shopify" : "Floor";
-}
 
 function orderUnits(order: Order) {
   const lines = order.lines ?? [];
@@ -158,7 +159,7 @@ const ORDER_COLUMNS: DataColumn<Order>[] = [
   {
     id: "channel",
     header: "Channel",
-    sortValue: (order) => channelLabel(order.source),
+    sortValue: (order) => orderChannelName(order.source),
     cell: (order) =>
       order.source === "shopify" ? (
         <span className="inline-flex items-center gap-1.5 text-sm">
@@ -167,8 +168,8 @@ const ORDER_COLUMNS: DataColumn<Order>[] = [
         </span>
       ) : (
         <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Warehouse className="size-3.5" />
-          Floor
+          {(order.source ?? "manual") === "manual" ? <Warehouse className="size-3.5" /> : <Store className="size-3.5" />}
+          {orderChannelName(order.source)}
         </span>
       ),
   },
@@ -518,6 +519,7 @@ function OrderDetail({ id }: { id: string }) {
       if (success) toast.success(success(next ?? null));
     } catch (err) {
       setError(errorText(err, `${label} failed. Try again.`));
+      if (err instanceof ApiError && err.code === "ADDRESS_INVALID") void refreshApi(`/api/orders/${id}/address`);
     }
   }
 
@@ -822,6 +824,9 @@ function OrderDetail({ id }: { id: string }) {
     ...(canPickOrder(order.status) ? [{ label: "Pick list", icon: ClipboardList, to: `/outbound/orders/${order.id}/pick-list` }] : []),
     { label: "Pack slip", icon: FileText, to: `/outbound/orders/${order.id}/pack-slip` },
     ...(!hasPackages ? [{ label: "Shipping label", icon: Printer, to: `/outbound/orders/${order.id}/shipping-label` }] : []),
+    ...(order.status === "shipped" || order.trackingNumber || shippedCarton
+      ? [{ label: "Copy tracking link", icon: Link2, onSelect: () => copyTrackingLink(order.id) }]
+      : []),
     ...(packing && policy.officePickPack
       ? [{ label: "Pack into carton", icon: Box, onSelect: packIntoCarton, disabled: !thisPack }]
       : []),
@@ -944,7 +949,7 @@ function OrderDetail({ id }: { id: string }) {
                     {channelName}
                   </Link>
                 ) : (
-                  "Floor"
+                  orderChannelName(order.source)
                 )}
               </DocumentFact>
               {CHANNEL_POSTS_BACK.has(order.source ?? "") ? (
@@ -990,6 +995,7 @@ function OrderDetail({ id }: { id: string }) {
                 <p className="text-sm text-muted-foreground">{manualPostBackNote(order.source ?? "")}</p>
               ) : null}
             </Card>
+            <AddressCheckCard order={order} onChange={() => void run("Reload", load)} />
           </DocumentRail>
         }
       >

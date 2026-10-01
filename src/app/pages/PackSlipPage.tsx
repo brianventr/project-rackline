@@ -5,6 +5,7 @@ import { Button, ErrorBanner } from "../components/ui";
 import { BarcodeLabel } from "../components/BarcodeLabel";
 import { useSession } from "../session";
 import { useAutoPrint } from "../print/use-auto-print";
+import { orderChannelName } from "@/domain/order-channel";
 
 export function PackSlipPage() {
   const { id } = useParams();
@@ -53,7 +54,7 @@ export function PackSlipPage() {
       <dl className="grid grid-cols-2 gap-3 text-sm">
         <div>
           <dt className="text-muted-foreground">Channel</dt>
-          <dd>{order.source === "shopify" ? "Shopify" : "Floor"}</dd>
+          <dd>{orderChannelName(order.source)}</dd>
         </div>
         <div>
           <dt className="text-muted-foreground">Ordered</dt>

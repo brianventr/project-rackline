@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Circle,
+  Link2,
   Package,
   PackageCheck,
   Printer,
@@ -38,25 +39,20 @@ import { useSession } from "../session";
 import { usePrint } from "../print/PrintProvider";
 import { ShipStation } from "./ShipStation";
 import { ShippingLabelCard, shippingLabelJob } from "./ShippingLabelPage";
+import { copyTrackingLink } from "../tracking-link";
 import { markShippedReminder } from "@/domain/channels/adapter";
+import { orderChannelName } from "@/domain/order-channel";
 import { plural } from "@/domain/exceptions/inbox";
 import { shortDay } from "@/domain/rate-choice";
 import { formatOz } from "@/domain/ship-defaults";
 import { cn } from "@/lib/utils";
+import { AddressSheet, applySuggestedAddress, extraSuggestion } from "./AddressCheck";
 
 const TABS: TabDef<ShipQueueOrder>[] = [
   { id: "ready", label: "Ready to ship", match: (row) => row.status !== "shipped" && row.ready },
   { id: "attention", label: "Needs attention", match: (row) => row.status !== "shipped" && !row.ready },
   { id: "shipped", label: "Shipped", match: (row) => row.status === "shipped" },
 ];
-
-function channelLabel(source: string): string {
-  if (source === "shopify") return "Shopify";
-  if (source === "etsy") return "Etsy";
-  if (source === "faire") return "Faire";
-  if (source === "woocommerce") return "WooCommerce";
-  return "Manual";
-}
 
 function weightText(parcel: ShipQueueOrder["parcel"]): string | null {
   if (!parcel.weightOz) return null;
@@ -82,6 +78,8 @@ export function ShipQueuePage() {
   const [shipping, setShipping] = useState<string | null>(null);
   const [savingDefault, setSavingDefault] = useState(false);
   const [printing, setPrinting] = useState<ShippingLabel | null>(null);
+  const [addressFor, setAddressFor] = useState<ShipQueueOrder | null>(null);
+  const [addressOpen, setAddressOpen] = useState(false);
   const printer = usePrint();
   const boxOpen = params.get("setup") === "box";
   const stationOpen = params.get("station") === "1";
@@ -113,20 +111,22 @@ export function ShipQueuePage() {
     }
   }
 
-  async function post(ids: string[], releaseHold: boolean): Promise<QuickShipBatch> {
+  async function post(ids: string[], release: Release): Promise<QuickShipBatch> {
     const picked = { presetId: presetId || undefined, carrierService: serviceId || undefined };
-    if (!releaseHold) return apiMutate<QuickShipBatch>("/api/ship/quick-ship", { body: JSON.stringify({ ids, ...picked }) });
+    if (!release.releaseHold && !release.acceptAddress) {
+      return apiMutate<QuickShipBatch>("/api/ship/quick-ship", { body: JSON.stringify({ ids, ...picked }) });
+    }
     const outcome = await apiMutate<QuickShipOutcome>(`/api/orders/${encodeURIComponent(ids[0]!)}/quick-ship`, {
-      body: JSON.stringify({ ...picked, releaseHold: true }),
+      body: JSON.stringify({ ...picked, ...release }),
     });
     return { shipped: 1, failed: 0, total: 1, outcomes: [outcome] };
   }
 
-  async function ship(rows: ShipQueueOrder[], releaseHold = false) {
+  async function ship(rows: ShipQueueOrder[], release: Release = {}) {
     const ids = rows.map((row) => row.id);
     setShipping(ids.length === 1 ? ids[0]! : "bulk");
     try {
-      const result = await post(ids, releaseHold);
+      const result = await post(ids, release);
       const shippedIds = result.outcomes.filter((row) => row.ok).map((row) => row.orderId);
       const failed = result.outcomes.filter((row) => !row.ok);
       if (failed.length) {
@@ -175,7 +175,30 @@ export function ShipQueuePage() {
       confirmLabel: "Ship anyway",
       cancelLabel: "Keep holding",
     });
-    if (ok) await ship([row], true);
+    if (ok) await ship([row], { releaseHold: true });
+  }
+
+  async function shipToThisAddress(row: ShipQueueOrder) {
+    const ok = await confirm({
+      title: `Ship ${row.number} to this address?`,
+      body: (
+        <>
+          <span className="block whitespace-pre-line font-medium text-foreground">{row.shipToAddress || "No address"}</span>
+          <span className="mt-2 block">
+            The label is bought to the address as it is. If the carrier cannot deliver it, the box comes back and the
+            carrier may charge for the return.
+          </span>
+        </>
+      ),
+      confirmLabel: "Ship anyway",
+      cancelLabel: "Keep holding",
+    });
+    if (ok) await ship([row], { acceptAddress: true });
+  }
+
+  function editAddress(row: ShipQueueOrder) {
+    setAddressFor(row);
+    setAddressOpen(true);
   }
 
   const columns: DataColumn<ShipQueueOrder>[] = [
@@ -188,11 +211,11 @@ export function ShipQueuePage() {
     {
       id: "channel",
       header: "Channel",
-      sortValue: (row) => channelLabel(row.source),
+      sortValue: (row) => orderChannelName(row.source),
       cell: (row) => (
         <span className="inline-flex items-center gap-1.5 text-sm">
           {row.source === "manual" ? <Warehouse className="size-3.5 text-muted-foreground" /> : <Store className="size-3.5 text-tone-success" />}
-          {channelLabel(row.source)}
+          {orderChannelName(row.source)}
         </span>
       ),
     },
@@ -305,12 +328,18 @@ export function ShipQueuePage() {
       cell: (row) => {
         if (row.status === "shipped") {
           return (
-            <Button size="sm" variant="ghost" asChild>
-              <Link to={labelsHref([row.id])}>
-                <Printer className="size-4" />
-                Label
-              </Link>
-            </Button>
+            <span className="inline-flex items-center justify-end gap-1">
+              <Button size="sm" variant="ghost" title="Copy the customer's tracking page link" onClick={() => void copyTrackingLink(row.id)}>
+                <Link2 className="size-4" />
+                Tracking link
+              </Button>
+              <Button size="sm" variant="ghost" asChild>
+                <Link to={labelsHref([row.id])}>
+                  <Printer className="size-4" />
+                  Label
+                </Link>
+              </Button>
+            </span>
           );
         }
         if (!quickShip) {
@@ -336,6 +365,36 @@ export function ShipQueuePage() {
                 <Button size="xs" variant="outline" disabled={shipping !== null} onClick={() => void shipAnyway(row)}>
                   {shipping === row.id ? "Shipping…" : "Ship anyway"}
                 </Button>
+              ) : null}
+              {row.blocker.code === "CUSTOMS_REQUIRED" && row.blocker.itemId ? (
+                <Button size="xs" variant="outline" asChild>
+                  <Link to={`/stock/items/${row.blocker.itemId}?tab=settings`}>Add customs</Link>
+                </Button>
+              ) : null}
+              {row.blocker.code === "ADDRESS_INVALID" ? (
+                <>
+                  {extraSuggestion(row.blocker.error, row.blocker.suggestion) ? (
+                    <span className="text-right text-xs text-muted-foreground">Suggested: {row.blocker.suggestion}</span>
+                  ) : null}
+                  <span className="flex flex-wrap justify-end gap-1.5">
+                    {row.blocker.suggestion ? (
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={shipping !== null}
+                        onClick={() => void applySuggestedAddress(row, row.blocker?.suggestion)}
+                      >
+                        Use suggested address
+                      </Button>
+                    ) : null}
+                    <Button size="xs" variant="outline" onClick={() => editAddress(row)}>
+                      Edit address
+                    </Button>
+                    <Button size="xs" variant="outline" disabled={shipping !== null} onClick={() => void shipToThisAddress(row)}>
+                      {shipping === row.id ? "Shipping…" : "Ship anyway to this address"}
+                    </Button>
+                  </span>
+                </>
               ) : null}
             </span>
           );
@@ -518,11 +577,23 @@ export function ShipQueuePage() {
             }}
           />
         ) : null}
+        {addressFor ? (
+          <AddressSheet
+            key={addressFor.id}
+            order={addressFor}
+            problem={addressFor.blocker?.code === "ADDRESS_INVALID" ? addressFor.blocker.error : null}
+            open={addressOpen}
+            onOpenChange={setAddressOpen}
+          />
+        ) : null}
       </div>
       {printing ? <ShippingLabelCard label={printing} className="hidden print:block print:rounded-none print:border-0" /> : null}
     </>
   );
 }
+
+/** What a one-order ship lets through: a rule's hold, or the ship-to address as it is. */
+type Release = { releaseHold?: boolean; acceptAddress?: boolean };
 
 function ExceptionsCard() {
   const inbox = useExceptionInbox();

@@ -45,6 +45,10 @@ import {
   type ShipPlan,
 } from "../domain/ship-decision";
 import { loadShipRules } from "../db/ship-rules";
+import { customsBlocker, labelCountries, quoteCustoms } from "../domain/customs";
+import { buildingAddress, orderAddress } from "../domain/ship-address";
+import { AddressInvalidError, type AddressVerdict } from "../domain/address-check";
+import { acceptOrderAddress, loadAddressChecks, orderAddressVerdict, type AddressChecks } from "../db/address-checks";
 import {
   planQuickShip,
   quickShipLabelBlocker,
@@ -122,6 +126,10 @@ async function loadShipLines(db: Db, orderIds: string[]) {
       shipLengthIn: schema.items.shipLengthIn,
       shipWidthIn: schema.items.shipWidthIn,
       shipHeightIn: schema.items.shipHeightIn,
+      hsCode: schema.items.hsCode,
+      originCountry: schema.items.originCountry,
+      customsDescription: schema.items.customsDescription,
+      customsValueCents: schema.items.customsValueCents,
     })
     .from(schema.orderLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.orderLines.itemId))
@@ -140,15 +148,29 @@ type ShipContext = {
   services: ReturnType<typeof enabledServicesFromConnections>;
   /** Live accounts that failed or timed out during this request, with why; they are not asked again. */
   rateFailures: Map<string, string>;
+  /** Who certifies the customs declaration a live rate quote sends. */
+  signer: string;
 };
 
 async function loadShipContext(db: Db, organizationId: string): Promise<ShipContext> {
-  const [rules, presets, connections] = await Promise.all([
+  const [rules, presets, connections, [org]] = await Promise.all([
     loadShipRules(db, organizationId),
     loadPresets(db, organizationId),
     loadCarrierConnections(db, organizationId),
+    db
+      .select({ name: schema.organizations.name })
+      .from(schema.organizations)
+      .where(eq(schema.organizations.id, organizationId))
+      .limit(1),
   ]);
-  return { rules, presets, connections, services: enabledServicesFromConnections(connections), rateFailures: new Map() };
+  return {
+    rules,
+    presets,
+    connections,
+    services: enabledServicesFromConnections(connections),
+    rateFailures: new Map(),
+    signer: org?.name || "Shipper",
+  };
 }
 
 /** Per isolate, so a queue load and the quick-ship right after it usually see the same live quotes. */
@@ -163,6 +185,7 @@ async function shopOrderRates(
   ctx: ShipContext,
   warehouse: WarehouseRow | null | undefined,
   order: OrderRow,
+  lines: ShipLine[],
   parcel: Partial<ParcelDims>,
   shopLive: boolean,
 ): Promise<{ quotes: CarrierRateQuote[]; errors: string[]; unpriced: boolean }> {
@@ -195,6 +218,15 @@ async function shopOrderRates(
   if ("error" in shipFrom) return { quotes, errors: [shipFrom.error], unpriced };
   if ("error" in shipTo) return { quotes, errors: [shipTo.error], unpriced };
   const dims = resolveParcel(parcel);
+  const countries = labelCountries({ shipFrom: buildingAddress(warehouse), shipTo: orderAddress(order) });
+  const customs = quoteCustoms({
+    fromCountry: countries.from,
+    toCountry: countries.to,
+    lines,
+    parcelWeightOz: dims.weightOz,
+    signer: ctx.signer,
+    invoiceNumber: order.number,
+  });
   for (const connection of live) {
     const account = connection.nickname || connection.provider;
     const failed = ctx.rateFailures.get(connection.id);
@@ -221,10 +253,10 @@ async function shopOrderRates(
       unpriced = true;
       continue;
     }
-    const request = { orderId: order.id, parcel: dims, mode: "live", for: "rate choice" };
+    const request = { orderId: order.id, parcel: dims, mode: "live", for: "rate choice", ...(customs ? { customs } : {}) };
     try {
       const shopped = await withTimeout(
-        shopLiveRates({ connection, services, shipFrom, shipTo, parcel: dims }),
+        shopLiveRates({ connection, services, shipFrom, shipTo, parcel: dims, customs }),
         RATE_SHOP_TIMEOUT_MS,
         `${account} did not answer with rates in time`,
       );
@@ -270,6 +302,10 @@ type ShipDecision = {
   quotePending: boolean;
   /** The rate choice had nothing to pick from. */
   rateError: string | null;
+  /** An international order without a label yet whose items lack customs details. */
+  customs: ShipBlocker | null;
+  /** The ship-to address check, for an order without a label yet. */
+  address: AddressVerdict | null;
   boxReason: string | null;
   serviceReason: string | null;
   summary: string | null;
@@ -281,8 +317,10 @@ type DecideInput = {
   lines: ShipLine[];
   /** Picked at the bench for this ship. */
   picked?: QuickShipBody;
-  /** Ask live carrier accounts that have no cached quote. Defaults to yes. */
+  /** Ask live carrier accounts that have no cached quote or address check. Defaults to yes. */
   shopLive?: boolean;
+  /** Address checks loaded for a whole queue at once. */
+  addressChecks?: AddressChecks;
 };
 
 /** The box, service, and parcel quick-ship would use, and why. The queue, the scan station, and quick-ship all ask here. */
@@ -302,7 +340,18 @@ async function decideShip(db: Db, ctx: ShipContext, input: DecideInput): Promise
   });
   const parcel = orderParcel({ lines, preset: plan.box.preset, order: typed });
   const strategy = plan.service.kind === "strategy" ? plan.service.strategy : null;
-  const rates = await shopOrderRates(db, ctx, warehouse, order, parcel.parcel, strategy !== null && input.shopLive !== false);
+  const rates = await shopOrderRates(db, ctx, warehouse, order, lines, parcel.parcel, strategy !== null && input.shopLive !== false);
+  const labeled = Boolean(order.trackingNumber) && order.labelStatus === "purchased";
+  const customs = labeled ? null : customsBlocker({ shipFrom: buildingAddress(warehouse), shipTo: orderAddress(order), lines });
+  const address = labeled
+    ? null
+    : await orderAddressVerdict(db, order.organizationId, {
+        order,
+        buildingCountry: warehouse?.country,
+        connections: ctx.connections,
+        verify: input.shopLive !== false,
+        checks: input.addressChecks,
+      });
   const timeZone = warehouse?.timeZone || "UTC";
   const timing = { now: Date.now(), timeZone, cutoffs: parseCarrierCutoffs(warehouse?.carrierCutoffsJson) };
   const promise = promiseYmd(order.createdAt, timeZone, warehouse?.deliveryDays);
@@ -334,13 +383,22 @@ async function decideShip(db: Db, ctx: ShipContext, input: DecideInput): Promise
         : null,
     quotePending: strategy !== null && rates.unpriced,
     rateError: priced && !choice ? (rates.errors[0] ?? "No connected carrier account quoted this order") : null,
+    customs,
+    address,
     boxReason,
     serviceReason,
     summary: shipReasonSummary({ boxName: plan.box.preset?.name ?? null, boxReason, serviceName, serviceReason }),
   };
 }
 
-type ShipBlocker = { code: string; error: string; sku: string | null };
+type ShipBlocker = {
+  code: string;
+  error: string;
+  sku: string | null;
+  itemId?: string | null;
+  /** The carrier's corrected address on one line, for `ADDRESS_INVALID`. */
+  suggestion?: string | null;
+};
 
 /** The box, service, and quote the queue and the scan station show for one decision. */
 function decisionView(decision: ShipDecision) {
@@ -368,11 +426,21 @@ function decisionView(decision: ShipDecision) {
   };
 }
 
-/** Why quick-ship would stop, in the order it checks: the order itself first, then the rule, the rate, the hold. */
+function addressBlocker(verdict: AddressVerdict): ShipBlocker {
+  const { code, message, suggestion } = new AddressInvalidError(verdict);
+  return { code, error: message, sku: null, suggestion };
+}
+
+/**
+ * Why quick-ship would stop, in the order it checks: the order itself first, then the rule, the address, customs,
+ * the rate, the hold.
+ */
 function shipBlocker(plan: ReturnType<typeof planQuickShip> | null, decision: ShipDecision | null): ShipBlocker | null {
   if (plan && !plan.ok) return { code: plan.code, error: plan.error, sku: plan.sku ?? null };
   if (!decision) return null;
   if (decision.plan.problem) return { code: "SHIP_RULE_SERVICE", error: decision.plan.problem, sku: null };
+  if (decision.address?.blocked) return addressBlocker(decision.address);
+  if (decision.customs) return decision.customs;
   if (decision.rateError) return { code: "NO_RATE", error: decision.rateError, sku: null };
   if (decision.plan.hold) return { code: "SHIP_RULE_HOLD", error: holdMessage(decision.plan), sku: null };
   return null;
@@ -468,9 +536,20 @@ shipRoute.get("/ship/queue", async (c) => {
       .slice(0, QUEUE_LIVE_QUOTES)
       .map((order) => order.id),
   );
+  const addressChecks = await loadAddressChecks(
+    db,
+    organizationId,
+    open.map((order) => order.id),
+  );
   const decisions = new Map(
     await mapWithLimit(open, RATE_SHOP_CONCURRENCY, async (order) => {
-      const decision = await decideShip(db, ctx, { warehouse, order, lines: linesFor(order.id), shopLive: shopLive.has(order.id) });
+      const decision = await decideShip(db, ctx, {
+        warehouse,
+        order,
+        lines: linesFor(order.id),
+        shopLive: shopLive.has(order.id),
+        addressChecks,
+      });
       return [order.id, decision] as const;
     }),
   );
@@ -848,7 +927,7 @@ async function quickShipOne(
   call: ReturnType<typeof internalApi>,
   orderId: string,
   body: QuickShipBody,
-  options: { ctx?: ShipContext; releaseHold?: boolean } = {},
+  options: { ctx?: ShipContext; releaseHold?: boolean; acceptAddress?: boolean } = {},
 ): Promise<QuickShipOutcome> {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -878,11 +957,19 @@ async function quickShipOne(
     .limit(1);
   const ctx = options.ctx ?? (await loadShipContext(db, organizationId));
   const { connections } = ctx;
+  if (options.acceptAddress) {
+    await acceptOrderAddress(db, organizationId, { order, buildingCountry: warehouse?.country, userId: c.get("user")!.id });
+  }
   const decision = await decideShip(db, ctx, { warehouse, order, lines, picked: body });
   const current = order as ShipOrderRow;
   const hasLabel = Boolean(current.trackingNumber) && current.labelStatus === "purchased";
   if (decision.plan.hold && !options.releaseHold) return fail(409, holdMessage(decision.plan), "SHIP_RULE_HOLD");
   if (decision.plan.problem && !hasLabel) return fail(409, decision.plan.problem, "SHIP_RULE_SERVICE");
+  if (decision.address?.blocked) {
+    const blocker = addressBlocker(decision.address);
+    return fail(409, blocker.error, blocker.code);
+  }
+  if (decision.customs) return fail(409, decision.customs.error, decision.customs.code);
   if (decision.rateError && !hasLabel) return fail(409, decision.rateError, "NO_RATE");
   const { parcel, serviceId: carrierService, connectionId: carrierConnectionId } = decision;
   const connection = connections.find((row) => row.id === carrierConnectionId) ?? null;
@@ -1045,9 +1132,13 @@ shipRoute.post("/orders/:id/quick-ship", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   assertQuickShip(await loadWorkflowPolicy(db, organizationId));
-  const body = await c.req.json<QuickShipBody & { releaseHold?: boolean }>().catch(() => ({}) as QuickShipBody & { releaseHold?: boolean });
+  type Body = QuickShipBody & { releaseHold?: boolean; acceptAddress?: boolean };
+  const body = await c.req.json<Body>().catch(() => ({}) as Body);
   const call = internalApi(c, [ordersRoute]);
-  const outcome = await quickShipOne(c, call, c.req.param("id"), body, { releaseHold: body.releaseHold === true });
+  const outcome = await quickShipOne(c, call, c.req.param("id"), body, {
+    releaseHold: body.releaseHold === true,
+    acceptAddress: body.acceptAddress === true,
+  });
   if (!outcome.ok) return c.json({ error: outcome.error, code: outcome.code, orderId: outcome.orderId }, outcome.status as 400 | 404 | 409);
   return c.json(outcome);
 });

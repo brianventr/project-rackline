@@ -1,5 +1,6 @@
 import { createAuthClient } from "better-auth/react";
 import { composeErrorText, explainError, type ExplainedError } from "@/domain/error-copy";
+import type { CustomsDeclaration, CustomsGap } from "@/domain/customs";
 import type { PlateStatus, PlateType } from "@/domain/license-plates";
 
 export const authClient = createAuthClient({
@@ -115,7 +116,13 @@ export async function uploadFile<T>(path: string, file: File): Promise<T> {
 
 export type Me = {
   user: { id: string; name: string; email: string };
-  organization: { id: string; name: string; operatingMode?: "garage" | "warehouse" };
+  organization: {
+    id: string;
+    name: string;
+    operatingMode?: "garage" | "warehouse";
+    brandColor?: string | null;
+    logoUrl?: string | null;
+  };
   role: "owner" | "operator";
   floorVerbs?: string[];
   warehouses: { id: string; name: string }[];
@@ -167,6 +174,10 @@ export type Item = {
   shipLengthIn?: number | null;
   shipWidthIn?: number | null;
   shipHeightIn?: number | null;
+  hsCode?: string | null;
+  originCountry?: string | null;
+  customsDescription?: string | null;
+  customsValueCents?: number | null;
   onHand?: {
     locationId: string;
     locationCode: string;
@@ -304,6 +315,8 @@ export type WarehouseMapInfo = {
   /** Where north points on the map, degrees clockwise from the top edge; missing means 0. */
   mapNorth?: number;
   shipFromAddress?: string | null;
+  /** Where customer return labels are addressed; blank means the ship-from address. */
+  returnAddress?: string | null;
   city?: string | null;
   region?: string | null;
   country?: string | null;
@@ -615,6 +628,8 @@ export type Order = {
   trackingNumber?: string | null;
   trackingCompany?: string | null;
   trackingUrl?: string | null;
+  trackingToken?: string | null;
+  customsFormUrl?: string | null;
   shipToAddress?: string | null;
   shipToCity?: string | null;
   shipToRegion?: string | null;
@@ -880,6 +895,134 @@ export type ShippingLabel = {
   connectionId?: string | null;
   labelStatus?: string | null;
   packageNumber?: string | null;
+};
+
+export type ItemCustoms = Required<Pick<Item, "id" | "sku" | "hsCode" | "originCountry" | "customsDescription" | "customsValueCents">>;
+
+export type { CustomsDeclaration, CustomsGap };
+
+/** `GET /api/orders/:id/customs`: what prints with an international label. */
+export type OrderCustoms = {
+  international: boolean;
+  fromCountry: string | null;
+  toCountry: string | null;
+  /** The carrier's own customs form for this label, when it returned one. */
+  formUrl: string | null;
+  formKind: "CN22" | "CN23" | null;
+  declaration: CustomsDeclaration | null;
+  /** The declaration is the one the label's purchase sent, rather than what the items say now. */
+  declared: boolean;
+  gaps: CustomsGap[];
+};
+
+/** `GET /api/orders/:id/address`: the check a label purchase and quick-ship run on the ship-to address. */
+export type OrderAddressCheck = {
+  orderId: string;
+  /** False once the order has a label, has shipped, or is cancelled. */
+  editable: boolean;
+  blocked: boolean;
+  /** Someone chose to ship to this exact address as it is. */
+  overridden: boolean;
+  message: string | null;
+  /** The carrier's corrected address on one line. */
+  suggestion: string | null;
+};
+
+export type TrackingLink = { token: string; path: string; url: string };
+
+export type PublicTrackingEvent = {
+  at: number;
+  status: string | null;
+  label: string;
+  message: string | null;
+  place: string | null;
+};
+
+export type PublicTrackingPackage = {
+  label: string;
+  carrier: string | null;
+  service: string | null;
+  trackingNumber: string | null;
+  trackingUrl: string | null;
+  status: string | null;
+  statusLabel: string;
+  estimatedDeliveryAt: number | null;
+  deliveredAt: number | null;
+  events: PublicTrackingEvent[];
+  items: { name: string; qty: number }[];
+};
+
+/** `GET /api/track/:token`, the customer's tracking page (`src/domain/tracking-page.ts`). */
+export type PublicTracking = {
+  shop: { name: string; brandColor: string | null; logoUrl: string | null };
+  order: {
+    number: string;
+    status: "processing" | "shipped" | "delivered" | "cancelled";
+    shippedAt: number | null;
+    destination: string | null;
+  };
+  packages: PublicTrackingPackage[];
+  items: { name: string; qty: number }[];
+};
+
+export type ReturnLabel = {
+  id: string;
+  rmaId: string;
+  status: "active" | "voided";
+  statusLabel: string;
+  carrierConnectionId: string | null;
+  carrierCompany: string;
+  carrierService: string;
+  serviceName: string;
+  trackingNumber: string;
+  trackingUrl: string | null;
+  /** The carrier's printable label; null for demo labels, which print from the customer page. */
+  labelUrl: string | null;
+  postageCents: number | null;
+  trackerStatus: string | null;
+  trackerUpdatedAt: number | null;
+  fromName: string;
+  fromAddress: string;
+  toName: string;
+  toAddress: string;
+  weightOz: number | null;
+  createdAt: number;
+  voidedAt: number | null;
+  /** The customer's page, `/r/:token`. */
+  path: string;
+  url: string;
+};
+
+/** What a new return label starts with: the original order's ship-to and service, and the building's return address. */
+export type ReturnLabelDraft = {
+  fromName: string;
+  fromAddress: string | null;
+  toName: string;
+  toAddress: string | null;
+  carrierService: string;
+  carrierConnectionId: string | null;
+};
+
+export type RmaReturnLabels = { labels: ReturnLabel[]; draft: ReturnLabelDraft };
+
+export type PublicReturnLabel = {
+  shop: { name: string; brandColor: string | null; logoUrl: string | null };
+  rmaNumber: string;
+  status: "active" | "voided";
+  statusLabel: string;
+  trackerStatus: string | null;
+  label: {
+    carrier: string;
+    service: string;
+    trackingNumber: string;
+    trackingUrl: string | null;
+    labelUrl: string | null;
+    from: { name: string; address: string };
+    to: { name: string; address: string };
+  } | null;
+  events: PublicTrackingEvent[];
+  items: { name: string; qty: number }[];
+  createdAt: number;
 };
 
 export type CarrierServiceOption = {
@@ -1791,7 +1934,11 @@ export type ShipQueueOrder = {
   /** Written when quick-ship bought the label: `Mailer (Auto) · UPS Ground (Cheapest)`. */
   shipReason: string | null;
   ready: boolean;
-  blocker: { code: string; error: string; sku: string | null } | null;
+  /**
+   * `itemId` is set when the fix is on an item, as for `CUSTOMS_REQUIRED`. `suggestion` is the carrier's corrected
+   * address on one line, for `ADDRESS_INVALID`.
+   */
+  blocker: { code: string; error: string; sku: string | null; itemId?: string | null; suggestion?: string | null } | null;
 };
 
 /** `POST /api/ship/decide`: one order's box, service, and quote at a given weight, and what would stop quick-ship. */

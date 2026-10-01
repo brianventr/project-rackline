@@ -99,6 +99,41 @@ const SAMPLE: Record<ErrorCode, { status: number; body: Record<string, unknown> 
     body: { error: "Live postage needs a street, city, region, and postal code on ship-from and ship-to." },
   },
   NO_RATE: { status: 409, body: { error: "EasyPost did not return a Priority rate for this parcel." } },
+  NEED_WEIGHT: { status: 409, body: { error: "Add a ship weight for SHADE, CORD before buying live postage" } },
+  SHIP_RULE_HOLD: {
+    status: 409,
+    body: { error: "Held for review by rule “Big orders”. Open the order to check it, then ship it." },
+  },
+  SHIP_RULE_SERVICE: {
+    status: 409,
+    body: {
+      error: "Rule “Oversize” ships with a service no connected carrier account offers. Edit the rule or turn the service back on.",
+    },
+  },
+  RETURN_LABEL_UNSUPPORTED: {
+    status: 409,
+    body: {
+      error: "A direct UPS account cannot buy return labels in Rackline yet. Choose a service on EasyPost, ShipEngine, or FedEx.",
+    },
+  },
+  CUSTOMS_REQUIRED: {
+    status: 409,
+    body: {
+      error: "LAMP needs an HS code and a declared value to ship abroad. Add them under Customs on the item.",
+      sku: "LAMP",
+      items: [{ sku: "LAMP", itemId: "i1", missing: ["hsCode", "customsValueCents"] }],
+    },
+  },
+  CUSTOMS_UNSUPPORTED: {
+    status: 409,
+    body: {
+      error: "A direct USPS account cannot buy international labels in Rackline yet. Choose a USPS service on EasyPost or ShipEngine.",
+    },
+  },
+  ADDRESS_INVALID: {
+    status: 409,
+    body: { error: "The ship-to address has no ZIP code. ZZ is not a US state.", suggestion: null },
+  },
   NEED_PACKAGE: { status: 409, body: { error: "Buy a label for every carton before shipping" } },
   SHIPPED: { status: 409, body: { error: "Carton is already shipped" } },
   CANCELLED: { status: 409, body: { error: "Cancelled orders cannot drop a carton" } },
@@ -312,6 +347,68 @@ describe("explainError — every code", () => {
       message: "EasyPost did not return a Priority rate for this parcel.",
       hint: "Choose another service, or check the carton weight and size.",
     });
+    expect(explain("RETURN_LABEL_UNSUPPORTED")).toMatchObject({
+      message: "A direct UPS account cannot buy return labels in Rackline yet.",
+      hint: "Choose a service on EasyPost, ShipEngine, FedEx, or Rackline Ground.",
+    });
+  });
+
+  it("quick-ship stops name the SKUs without a weight and the rule that holds or misroutes the order", () => {
+    expect(explain("NEED_WEIGHT")).toEqual({
+      message: "Live postage needs a ship weight for SHADE, CORD.",
+      hint: "Add a ship weight on the item's Settings, or type the parcel weight.",
+      code: "NEED_WEIGHT",
+    });
+    expect(explain("SHIP_RULE_HOLD")).toMatchObject({
+      message: "Held for review by rule “Big orders”.",
+      hint: "Check the order, then choose Ship anyway in the ship queue.",
+    });
+    expect(explain("SHIP_RULE_SERVICE")).toMatchObject({
+      message: "Rule “Oversize” ships with a service no connected carrier account offers.",
+      hint: "Edit the rule or turn the service back on.",
+    });
+    expect(explainError(409, { code: "SHIP_RULE_SERVICE" }, "").hint).toBe(
+      "Edit the rule in Settings → Shipping rules, or turn the service back on.",
+    );
+  });
+
+  it("customs codes name the SKU and the fix", () => {
+    expect(explain("CUSTOMS_REQUIRED")).toMatchObject({
+      message: "LAMP needs an HS code and a declared value to ship abroad.",
+      hint: "Add them under Customs on the item.",
+    });
+    expect(explainError(409, { code: "CUSTOMS_REQUIRED" }, "")).toMatchObject({
+      message: "An item on this order has no customs details.",
+      hint: "Add its HS code, country of origin, and declared value under Customs on the item.",
+    });
+    expect(explain("CUSTOMS_UNSUPPORTED")).toMatchObject({
+      message: "A direct USPS account cannot buy international labels in Rackline yet.",
+      hint: "Choose a USPS service on EasyPost or ShipEngine.",
+    });
+    const itn = explainError(
+      409,
+      {
+        code: "CUSTOMS_UNSUPPORTED",
+        error:
+          "One tariff code on this parcel is worth over $2,500, which needs an export filing (an ITN) that Rackline cannot file yet. Buy this label on the carrier's site.",
+      },
+      "x",
+    );
+    expect(itn.hint).toBe("Buy this label on the carrier's site.");
+  });
+
+  it("an address hold keeps every problem in the message and offers the suggestion when there is one", () => {
+    expect(explain("ADDRESS_INVALID")).toMatchObject({
+      message: "The ship-to address has no ZIP code. ZZ is not a US state.",
+      hint: "Edit the address, or accept it as it is from the ship queue or the order page.",
+    });
+    expect(
+      explain("ADDRESS_INVALID", {
+        error: "EasyPost knows this address as 14 DOCK ST, PORTLAND, OR 97210-4321, US.",
+        suggestion: "14 DOCK ST, PORTLAND, OR 97210-4321, US",
+      }).hint,
+    ).toBe("Use the suggested address, edit it, or accept it as it is from the ship queue or the order page.");
+    expect(explainError(409, { code: "ADDRESS_INVALID" }, "").message).toBe("The ship-to address needs a look before a label.");
   });
 
   it("NEED_PACKAGE picks the right carton step", () => {

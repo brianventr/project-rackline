@@ -25,12 +25,16 @@ import {
 import { isLivePostage, postagePurchaseMessage, requireLiveShipAddress, resolveParcel } from "../domain/carrier-live";
 import { asCarrierLiveError } from "../lib/carrier-client";
 import { buyLivePostage, shopLiveRates, voidLivePostage } from "../lib/live-postage";
+import { customsForOrderLabel } from "../db/customs";
+import { orderAddressVerdict } from "../db/address-checks";
+import { AddressInvalidError } from "../domain/address-check";
 import { loadCarrierConnections, recordCarrierEvent } from "./carriers";
 import { scheduleShopifySellableSync } from "../db/shopify-sellable";
 import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { splitCatchWeight } from "../domain/catch-weight";
 import { canRelabelException } from "../domain/tracker";
+import { newPublicToken } from "../domain/public-token";
 import {
   applyPartialPick,
   hasUnpicked,
@@ -1116,7 +1120,13 @@ ordersRoute.post("/orders/:id/packages/:pkgId/label", async (c) => {
   if (!pkg) notFound("Carton not found");
   const status = order.status === "draft" ? "open" : order.status;
   if (status === "cancelled") conflict("Cancelled orders cannot take a label");
-  const { label, purchase, parcel, liveLabel, connection } = await purchaseOrderLabel(db, organizationId, order, body, pkg);
+  const { label, purchase, parcel, liveLabel, connection, customs, customsFormUrl } = await purchaseOrderLabel(
+    db,
+    organizationId,
+    order,
+    body,
+    pkg,
+  );
   const live = Boolean(liveLabel);
   const trackerStatus = live ? "pre_transit" : pkg.trackerStatus;
   await db
@@ -1137,6 +1147,7 @@ ordersRoute.post("/orders/:id/packages/:pkgId/label", async (c) => {
       heightIn: parcel.heightIn,
       trackerStatus,
       trackerUpdatedAt: live ? Date.now() : pkg.trackerUpdatedAt,
+      ...(customsFormUrl !== undefined ? { customsFormUrl } : {}),
     })
     .where(eq(schema.orderPackages.id, pkg.id));
   const packages = (await loadPackagesForOrders(db, [order.id])).get(order.id) ?? [];
@@ -1163,6 +1174,7 @@ ordersRoute.post("/orders/:id/packages/:pkgId/label", async (c) => {
       parcel,
       packageId: pkg.id,
       packageNumber: pkg.number,
+      ...(customs ? { customs } : {}),
     },
     response: {
       trackingNumber: label.trackingNumber,
@@ -1234,6 +1246,7 @@ ordersRoute.post("/orders/:id/packages/:pkgId/label/void", async (c) => {
       postageCents: null,
       trackerStatus: null,
       trackerUpdatedAt: null,
+      customsFormUrl: null,
     })
     .where(eq(schema.orderPackages.id, pkg.id));
   const packages = (await loadPackagesForOrders(db, [order.id])).get(order.id) ?? [];
@@ -1279,7 +1292,7 @@ ordersRoute.post("/orders/:id/packages/:pkgId/relabel", async (c) => {
     carrierService: pkg.carrierService,
     packageId: pkg.id,
   });
-  const { label, purchase, parcel, liveLabel, connection } = await purchaseOrderLabel(
+  const { label, purchase, parcel, liveLabel, connection, customs, customsFormUrl } = await purchaseOrderLabel(
     db,
     organizationId,
     order,
@@ -1306,6 +1319,7 @@ ordersRoute.post("/orders/:id/packages/:pkgId/relabel", async (c) => {
       heightIn: parcel.heightIn,
       trackerStatus: "pre_transit",
       trackerUpdatedAt: now,
+      customsFormUrl: customsFormUrl ?? null,
     })
     .where(eq(schema.orderPackages.id, pkg.id));
   const packages = (await loadPackagesForOrders(db, [order.id])).get(order.id) ?? [];
@@ -1334,6 +1348,7 @@ ordersRoute.post("/orders/:id/packages/:pkgId/relabel", async (c) => {
       packageId: pkg.id,
       packageNumber: pkg.number,
       relabel: true,
+      ...(customs ? { customs } : {}),
     },
     response: {
       trackingNumber: label.trackingNumber,
@@ -1432,6 +1447,7 @@ async function purchaseOrderLabel(
     lengthIn?: number | null;
     widthIn?: number | null;
     heightIn?: number | null;
+    lines?: Array<{ itemId: string; qty: number }>;
   },
   options?: { forceNewTracking?: boolean },
 ) {
@@ -1452,6 +1468,28 @@ async function purchaseOrderLabel(
     !explicitTracking &&
     connection &&
     isLivePostage(connection.provider, connection.mode);
+  const existingTracking = options?.forceNewTracking ? null : pkg ? pkg.trackingNumber : order.trackingNumber;
+  const minting = !explicitTracking && (live || !existingTracking);
+  // A replacement for a parcel the carrier flagged goes where the first label went; that address can no longer change or be accepted.
+  if (minting && !options?.forceNewTracking) {
+    const address = await orderAddressVerdict(db, organizationId, {
+      order,
+      shipToAddress,
+      buildingCountry: warehouse?.country,
+      connections,
+      verify: true,
+    });
+    if (address.blocked) throw new AddressInvalidError(address);
+  }
+  const customs = minting
+    ? await customsForOrderLabel(db, organizationId, {
+        order,
+        lines: pkg?.lines ?? order.lines,
+        warehouse,
+        shipToAddress,
+        parcelWeightOz: parcel.weightOz,
+      })
+    : null;
   let liveLabel = null;
   if (live) {
     if (!connection.apiKey) badRequest("Live postage needs an API key");
@@ -1476,6 +1514,7 @@ async function purchaseOrderLabel(
           country: order.shipToCountry,
         }),
         parcel,
+        customs,
       });
     } catch (err) {
       await recordCarrierEvent(db, {
@@ -1484,13 +1523,18 @@ async function purchaseOrderLabel(
         orderId: order.id,
         kind: "buy",
         status: "failed",
-        request: { carrierService: purchase.service.id, connectionId: purchase.connectionId, mode: "live", parcel },
+        request: {
+          carrierService: purchase.service.id,
+          connectionId: purchase.connectionId,
+          mode: "live",
+          parcel,
+          ...(customs ? { customs } : {}),
+        },
         response: { error: err instanceof Error ? err.message : "Buy failed" },
       });
       throw asCarrierLiveError(err);
     }
   }
-  const existingTracking = options?.forceNewTracking ? null : pkg ? pkg.trackingNumber : order.trackingNumber;
   const existingUrl = options?.forceNewTracking ? null : pkg ? pkg.trackingUrl : order.trackingUrl;
   const existingCompany = pkg ? pkg.trackingCompany : order.trackingCompany;
   const label = buildShippingLabel({
@@ -1504,7 +1548,17 @@ async function purchaseOrderLabel(
     carrierConnectionId: purchase.connectionId,
     labelStatus: "purchased",
   });
-  return { label, purchase, shipFromAddress, parcel, liveLabel, connection };
+  return {
+    label,
+    purchase,
+    shipFromAddress,
+    parcel,
+    liveLabel,
+    connection,
+    customs,
+    /** Undefined when this reused the label already on file, so the caller keeps its form. */
+    customsFormUrl: minting ? (liveLabel?.customsFormUrl ?? null) : undefined,
+  };
 }
 
 async function tryVoidOldAggregatorLabel(
@@ -1603,6 +1657,14 @@ ordersRoute.post("/orders/:id/rates", async (c) => {
     shipFrom: shipFromAddress,
     shipTo: shipToAddress,
   });
+  const customs = liveConnections.length
+    ? await customsForOrderLabel(
+        db,
+        organizationId,
+        { order, lines: order.lines, warehouse, shipToAddress, parcelWeightOz: parcel.weightOz },
+        { quote: true },
+      )
+    : null;
   for (const connection of liveConnections) {
     const liveServices = services.filter((row) => row.connectionId === connection.id);
     if (liveServices.length === 0) continue;
@@ -1625,6 +1687,7 @@ ordersRoute.post("/orders/:id/rates", async (c) => {
           country: order.shipToCountry,
         }),
         parcel,
+        customs,
       });
       rates.push(...shopped.rates);
       await recordCarrierEvent(db, {
@@ -1633,7 +1696,7 @@ ordersRoute.post("/orders/:id/rates", async (c) => {
         orderId: order.id,
         kind: "rates",
         status: "ok",
-        request: { orderId: order.id, shipFromAddress, shipToAddress, parcel, mode: "live" },
+        request: { orderId: order.id, shipFromAddress, shipToAddress, parcel, mode: "live", ...(customs ? { customs } : {}) },
         response: { rates: shopped.rates, shipmentId: shopped.shipmentId ?? null },
       });
     } catch (err) {
@@ -1643,7 +1706,7 @@ ordersRoute.post("/orders/:id/rates", async (c) => {
         orderId: order.id,
         kind: "rates",
         status: "failed",
-        request: { orderId: order.id, shipFromAddress, shipToAddress, parcel, mode: "live" },
+        request: { orderId: order.id, shipFromAddress, shipToAddress, parcel, mode: "live", ...(customs ? { customs } : {}) },
         response: { error: err instanceof Error ? err.message : "Rates failed" },
       });
       throw asCarrierLiveError(err);
@@ -1675,7 +1738,12 @@ ordersRoute.post("/orders/:id/label", async (c) => {
   if (!packageGate.ok) conflict(packageGate.error, packageGate.code);
   const quotedCents = optionalInt(body.quotedCents, "quotedCents");
   if (quotedCents !== undefined && quotedCents < 0) badRequest("quotedCents cannot be negative");
-  const { label, purchase, parcel, liveLabel, connection } = await purchaseOrderLabel(db, organizationId, order, body);
+  const { label, purchase, parcel, liveLabel, connection, customs, customsFormUrl } = await purchaseOrderLabel(
+    db,
+    organizationId,
+    order,
+    body,
+  );
   const live = Boolean(liveLabel);
   await db
     .update(schema.orders)
@@ -1693,6 +1761,7 @@ ordersRoute.post("/orders/:id/label", async (c) => {
       trackerUpdatedAt: live ? Date.now() : order.trackerUpdatedAt,
       ...parcelPatch(parcel),
       ...destPatchFromAddress(label.shipToAddress),
+      ...(customsFormUrl !== undefined ? { customsFormUrl } : {}),
     })
     .where(eq(schema.orders.id, order.id));
   await recordCarrierEvent(db, {
@@ -1706,6 +1775,7 @@ ordersRoute.post("/orders/:id/label", async (c) => {
       connectionId: purchase.connectionId,
       mode: live ? "live" : connection?.mode ?? "demo",
       parcel,
+      ...(customs ? { customs } : {}),
     },
     response: {
       trackingNumber: label.trackingNumber,
@@ -1763,6 +1833,7 @@ ordersRoute.post("/orders/:id/label/void", async (c) => {
       carrierShipmentId: null,
       carrierLabelId: null,
       postageCents: null,
+      customsFormUrl: null,
     })
     .where(eq(schema.orders.id, order.id));
   await recordCarrierEvent(db, {
@@ -1802,7 +1873,7 @@ ordersRoute.post("/orders/:id/relabel", async (c) => {
     trackingNumber: order.trackingNumber,
     carrierService: order.carrierService,
   });
-  const { label, purchase, parcel, liveLabel, connection } = await purchaseOrderLabel(
+  const { label, purchase, parcel, liveLabel, connection, customs, customsFormUrl } = await purchaseOrderLabel(
     db,
     organizationId,
     order,
@@ -1825,6 +1896,7 @@ ordersRoute.post("/orders/:id/relabel", async (c) => {
       postageCents: liveLabel?.postageCents ?? null,
       trackerStatus: "pre_transit",
       trackerUpdatedAt: now,
+      customsFormUrl: customsFormUrl ?? null,
       ...parcelPatch(parcel),
       ...destPatchFromAddress(label.shipToAddress),
     })
@@ -1841,6 +1913,7 @@ ordersRoute.post("/orders/:id/relabel", async (c) => {
       mode: liveLabel ? "live" : connection?.mode ?? "demo",
       parcel,
       relabel: true,
+      ...(customs ? { customs } : {}),
     },
     response: {
       trackingNumber: label.trackingNumber,
@@ -1976,6 +2049,7 @@ async function shipOrderCartons(
               }
             : {}),
           ...trackingPatch,
+          trackingToken: order.trackingToken ?? newPublicToken(),
         })
         .where(eq(schema.orders.id, order.id)),
       ...(complete ? releaseAllocationStatements(db, order.id, now) : []),
@@ -2052,7 +2126,7 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   });
   const plan: StockPlan = { balances: new Map(), movements };
   const now = Date.now();
-  const { label, purchase, parcel, liveLabel } = await purchaseOrderLabel(db, organizationId, order, body);
+  const { label, purchase, parcel, liveLabel, customsFormUrl } = await purchaseOrderLabel(db, organizationId, order, body);
   const liveBuy = Boolean(liveLabel);
   await persistStockPlan(db, {
     organizationId,
@@ -2069,6 +2143,7 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
           trackingNumber: label.trackingNumber,
           trackingCompany: label.carrierCompany,
           trackingUrl: label.trackingUrl,
+          trackingToken: order.trackingToken ?? newPublicToken(),
           carrierService: label.carrierServiceId,
           carrierConnectionId: purchase.connectionId,
           labelStatus: "purchased",
@@ -2077,6 +2152,7 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
           postageCents: liveLabel?.postageCents ?? order.postageCents,
           trackerStatus: liveBuy ? "pre_transit" : order.trackerStatus,
           trackerUpdatedAt: liveBuy ? now : order.trackerUpdatedAt,
+          ...(customsFormUrl !== undefined ? { customsFormUrl } : {}),
           ...parcelPatch(parcel),
           ...destPatchFromAddress(label.shipToAddress),
           shopifySyncStatus: order.source === "shopify" ? "pending_fulfill" : order.shopifySyncStatus,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Printer } from "lucide-react";
 import { api, errorText, type ShippingLabel } from "../api";
@@ -6,6 +6,7 @@ import { Button, EmptyState, ErrorBanner, PageHeader } from "../components/ui";
 import { usePrint } from "../print/PrintProvider";
 import { resolvePrinterForKind } from "@/domain/print-station";
 import { ShippingLabelCard, shippingLabelJob } from "./ShippingLabelPage";
+import { CustomsFormCard } from "./CustomsFormCard";
 
 /** Every label from one ship run on one page: a single browser print, or one job per label on a thermal printer. */
 export function ShipLabelsPage() {
@@ -75,7 +76,10 @@ export function ShipLabelsPage() {
         <EmptyState icon={Printer} title="No labels to print." body="Ship an order first, then its label shows up here." />
       ) : null}
       {(labels ?? []).map((label) => (
-        <ShippingLabelCard key={label.orderId} label={label} className="print:break-after-page print:rounded-none print:border-0" />
+        <Fragment key={label.orderId}>
+          <ShippingLabelCard label={label} className="print:break-after-page print:rounded-none print:border-0" />
+          <CustomsFormCard orderId={label.orderId} className="print:break-after-page" />
+        </Fragment>
       ))}
     </div>
   );
