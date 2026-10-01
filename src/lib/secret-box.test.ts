@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channelSecret, isSealed, openSecret, readStoredSecret, sealSecret } from "./secret-box";
+import { channelSecret, isSealed, openSecret, readStoredSecret, sealSecret, secretFingerprint } from "./secret-box";
 
 describe("secret box", () => {
   it("round-trips a value and never stores it in the clear", async () => {
@@ -44,6 +44,14 @@ describe("secret box", () => {
   it("reads nothing as nothing", async () => {
     expect(await readStoredSecret("one", null)).toEqual({ value: null, reseal: null });
     expect(await readStoredSecret("one", "")).toEqual({ value: null, reseal: null });
+  });
+
+  it("fingerprints a secret without revealing it", async () => {
+    const fp = await secretFingerprint("whsec_live");
+    expect(fp).toMatch(/^[0-9a-f]{64}$/);
+    expect(fp).not.toContain("whsec");
+    expect(await secretFingerprint("whsec_live")).toBe(fp);
+    expect(await secretFingerprint("other")).not.toBe(fp);
   });
 
   it("only falls back to a dev key on localhost", () => {

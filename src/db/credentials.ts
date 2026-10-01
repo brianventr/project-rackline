@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import * as schema from "./schema";
 import type { AppDb } from "./stock";
-import { readStoredSecret } from "../lib/secret-box";
+import { readStoredSecret, sealSecret, secretFingerprint } from "../lib/secret-box";
 
 type CarrierRow = typeof schema.carrierConnections.$inferSelect;
 type ShopifyRow = typeof schema.shopifyConnections.$inferSelect;
@@ -22,30 +22,61 @@ async function reseal(write: Promise<unknown>): Promise<void> {
   }
 }
 
+/** A tracker webhook secret as stored: sealed, plus the fingerprint a webhook looks up. */
+export async function sealWebhookSecret(
+  secret: SecretSource,
+  plain: string | null | undefined,
+): Promise<{ webhookSecret: string | null; webhookSecretFp: string | null }> {
+  const value = plain?.trim() || null;
+  if (!value) return { webhookSecret: null, webhookSecretFp: null };
+  return {
+    webhookSecret: await sealSecret(secret(), value),
+    webhookSecretFp: await secretFingerprint(value),
+  };
+}
+
 /**
- * A carrier row with its API key, secret, and meter number in the clear. Values still stored as plain
- * text are sealed in place, unless another write changed them since this read.
+ * A carrier row with its API key, secret, meter number, and tracker webhook secret in the clear.
+ * Values still stored as plain text are sealed in place, unless another write changed them since this
+ * read. A plain webhook secret also gains its fingerprint on that write.
  */
 export async function openCarrierRow(db: AppDb, secret: SecretSource, row: CarrierRow): Promise<CarrierRow> {
-  if (!CARRIER_SECRET_FIELDS.some((field) => row[field])) return row;
+  const keyFields = CARRIER_SECRET_FIELDS.filter((field) => row[field]);
+  const hasWebhook = Boolean(row.webhookSecret);
+  if (keyFields.length === 0 && !hasWebhook) return row;
   const key = secret();
   const opened = { ...row };
-  const resealed: Partial<Record<CarrierSecretField, string>> = {};
-  for (const field of CARRIER_SECRET_FIELDS) {
+  const patch: Partial<Pick<CarrierRow, CarrierSecretField | "webhookSecret" | "webhookSecretFp">> = {};
+  for (const field of keyFields) {
     const read = await readStoredSecret(key, row[field]);
     opened[field] = read.value;
-    if (read.reseal) resealed[field] = read.reseal;
+    if (read.reseal) patch[field] = read.reseal;
   }
-  const fields = Object.keys(resealed) as CarrierSecretField[];
-  if (fields.length > 0) {
+  if (hasWebhook) {
+    const read = await readStoredSecret(key, row.webhookSecret);
+    opened.webhookSecret = read.value;
+    if (read.reseal && read.value) {
+      patch.webhookSecret = read.reseal;
+      patch.webhookSecretFp = await secretFingerprint(read.value);
+    } else if (read.value && !row.webhookSecretFp) {
+      patch.webhookSecretFp = await secretFingerprint(read.value);
+    }
+  }
+  const touched = Object.keys(patch) as (keyof typeof patch)[];
+  if (touched.length > 0) {
     await reseal(
       db
         .update(schema.carrierConnections)
-        .set(resealed)
+        .set(patch)
         .where(
           and(
             eq(schema.carrierConnections.id, row.id),
-            ...fields.map((field) => eq(schema.carrierConnections[field], row[field]!)),
+            ...keyFields
+              .filter((field) => patch[field])
+              .map((field) => eq(schema.carrierConnections[field], row[field]!)),
+            ...(patch.webhookSecret || patch.webhookSecretFp
+              ? [eq(schema.carrierConnections.webhookSecret, row.webhookSecret!)]
+              : []),
           ),
         ),
     );
@@ -54,21 +85,31 @@ export async function openCarrierRow(db: AppDb, secret: SecretSource, row: Carri
 }
 
 /**
- * A Shopify connection with its Admin token in the clear. A token still stored as plain text is sealed
- * in place, unless another write changed it since this read.
+ * A Shopify connection with its Admin token and webhook secret in the clear. A value still stored as
+ * plain text is sealed in place, unless another write changed it since this read. A secret this
+ * deployment cannot open comes back empty so a later save does not seal the ciphertext.
  */
 export async function openShopifyRow(db: AppDb, secret: SecretSource, row: ShopifyRow): Promise<ShopifyRow> {
-  if (!row.accessToken) return row;
-  const token = await readStoredSecret(secret(), row.accessToken);
-  if (token.reseal) {
+  if (!row.accessToken && !row.webhookSecret) return row;
+  const key = secret();
+  const token = row.accessToken ? await readStoredSecret(key, row.accessToken) : { value: row.accessToken, reseal: null };
+  const hook = row.webhookSecret ? await readStoredSecret(key, row.webhookSecret) : { value: row.webhookSecret, reseal: null };
+  const patch: Partial<Pick<ShopifyRow, "accessToken" | "webhookSecret">> = {};
+  if (token.reseal) patch.accessToken = token.reseal;
+  if (hook.reseal) patch.webhookSecret = hook.reseal;
+  if (patch.accessToken || patch.webhookSecret) {
     await reseal(
       db
         .update(schema.shopifyConnections)
-        .set({ accessToken: token.reseal })
+        .set(patch)
         .where(
-          and(eq(schema.shopifyConnections.id, row.id), eq(schema.shopifyConnections.accessToken, row.accessToken)),
+          and(
+            eq(schema.shopifyConnections.id, row.id),
+            ...(patch.accessToken ? [eq(schema.shopifyConnections.accessToken, row.accessToken)] : []),
+            ...(patch.webhookSecret ? [eq(schema.shopifyConnections.webhookSecret, row.webhookSecret)] : []),
+          ),
         ),
     );
   }
-  return { ...row, accessToken: token.value };
+  return { ...row, accessToken: token.value, webhookSecret: hook.value ?? "" };
 }

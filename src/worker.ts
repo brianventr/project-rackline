@@ -143,6 +143,7 @@ app.use("/api/*", async (c, next) => {
     path === "/api/shopify/fulfillment_order_notification" ||
     path === "/api/shopify/oauth/callback" ||
     path === "/api/carriers/trackers/webhooks" ||
+    path.startsWith("/api/carriers/trackers/webhooks/") ||
     path.startsWith("/api/channels/woocommerce/webhook/") ||
     path === "/api/channels/etsy/oauth/callback" ||
     path.startsWith("/api/billing/portal/") ||

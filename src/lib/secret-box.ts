@@ -1,7 +1,7 @@
 /**
- * AES-GCM for credentials at rest: channel keys and tokens, the Shopify Admin token, and carrier API
- * keys and secrets. The key is derived from BETTER_AUTH_SECRET with HKDF, so rotating that secret makes
- * stored credentials unreadable and the owner reconnects.
+ * AES-GCM for credentials at rest: channel keys and tokens, the Shopify Admin token and webhook secret,
+ * and carrier API keys, secrets, and tracker webhook secrets. The key is derived from BETTER_AUTH_SECRET
+ * with HKDF, so rotating that secret makes stored credentials unreadable and the owner reconnects.
  */
 const PREFIX = "sb1:";
 const INFO = new TextEncoder().encode("rackline-channel-credentials");
@@ -58,6 +58,12 @@ export async function openSecret(secret: string, sealed: string | null | undefin
 
 export function isSealed(value: string | null | undefined): boolean {
   return typeof value === "string" && value.startsWith(PREFIX);
+}
+
+/** SHA-256 hex of a webhook secret. Safe to store and look up; it is not enough to verify a signature. */
+export async function secretFingerprint(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /**

@@ -557,6 +557,8 @@ export const carrierConnections = sqliteTable(
     meterNumber: text("meter_number"),
     enabledServicesJson: text("enabled_services_json").notNull().default("[]"),
     webhookSecret: text("webhook_secret"),
+    /** SHA-256 of the tracker webhook secret. A lookup key, not a secret. */
+    webhookSecretFp: text("webhook_secret_fp"),
     isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
     lastTestedAt: integer("last_tested_at"),
     lastTestStatus: text("last_test_status"),
@@ -564,7 +566,10 @@ export const carrierConnections = sqliteTable(
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
-  (t) => [uniqueIndex("carrier_connections_org_provider").on(t.organizationId, t.provider)],
+  (t) => [
+    uniqueIndex("carrier_connections_org_provider").on(t.organizationId, t.provider),
+    index("carrier_connections_webhook_fp").on(t.webhookSecretFp),
+  ],
 );
 
 export const carrierOutboundEvents = sqliteTable("carrier_outbound_events", {

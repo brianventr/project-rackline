@@ -181,6 +181,7 @@ describe("searchGlossary", () => {
       ["brand colour", "tracking-page"],
       ["return label", "return-label"],
       ["copy customer link", "return-label"],
+      ["tracker webhook", "tracker-webhook"],
       ["exception inbox", "exception-inbox"],
       ["exceptions", "exception-inbox"],
       ["needs attention", "exception-inbox"],

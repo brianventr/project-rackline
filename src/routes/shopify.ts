@@ -57,6 +57,12 @@ async function opened(db: AppEnv["Variables"]["db"], row: ShopifyConnectionRow |
   return row ? openShopifyRow(db, credentialSecret, row) : null;
 }
 
+async function sealedShopifyWebhook(plain: string): Promise<string> {
+  const sealed = await sealSecret(credentialSecret(), plain);
+  if (!sealed) badRequest("webhookSecret is required");
+  return sealed;
+}
+
 async function connectionByShop(db: AppEnv["Variables"]["db"], shopDomain: string) {
   const domain = normalizeShopDomain(shopDomain);
   const [row] = await db
@@ -272,7 +278,7 @@ shopifyPublicRoute.get("/shopify/oauth/callback", async (c) => {
       .set({
         shopDomain: shop,
         accessToken: sealedToken,
-        webhookSecret: apiSecret,
+        webhookSecret: await sealedShopifyWebhook(apiSecret),
         mode: "live",
         apiVersion: existing.apiVersion || SHOPIFY_API_VERSION,
         updatedAt: now,
@@ -284,7 +290,7 @@ shopifyPublicRoute.get("/shopify/oauth/callback", async (c) => {
       organizationId: state.organizationId,
       shopDomain: shop,
       accessToken: sealedToken,
-      webhookSecret: apiSecret,
+      webhookSecret: await sealedShopifyWebhook(apiSecret),
       apiVersion: SHOPIFY_API_VERSION,
       shopifyLocationGid: null,
       mode: "live",
@@ -345,8 +351,9 @@ shopifyRoute.put("/shopify/connection", async (c) => {
     badRequest("Admin API access token is required for live mode");
   }
   const now = Date.now();
-  const webhookSecret = body.webhookSecret?.trim() || existing?.webhookSecret;
-  if (!webhookSecret) badRequest("webhookSecret is required");
+  const webhookPlain = body.webhookSecret?.trim() || existing?.webhookSecret;
+  if (!webhookPlain) badRequest("webhookSecret is required");
+  const webhookSecret = await sealedShopifyWebhook(webhookPlain);
   // Left out, the stored token stays as it is, even one this deployment cannot open.
   const token = body.accessToken === undefined ? undefined : body.accessToken?.trim() || null;
   const accessToken = token ? await sealSecret(credentialSecret(), token) : token;
@@ -396,7 +403,7 @@ shopifyRoute.post("/shopify/enable-demo", async (c) => {
     organizationId,
     shopDomain: `demo-${organizationId.slice(0, 8)}.myshopify.com`,
     accessToken: null,
-    webhookSecret: `rackline-demo-${organizationId.slice(0, 8)}`,
+    webhookSecret: await sealedShopifyWebhook(`rackline-demo-${organizationId.slice(0, 8)}`),
     apiVersion: SHOPIFY_API_VERSION,
     shopifyLocationGid: demoShopifyLocationGid(),
     mode: "demo",
@@ -427,7 +434,7 @@ shopifyRoute.post("/shopify/simulate-order", async (c) => {
       organizationId,
       shopDomain: `demo-${organizationId.slice(0, 8)}.myshopify.com`,
       accessToken: null,
-      webhookSecret: `rackline-demo-${organizationId.slice(0, 8)}`,
+      webhookSecret: await sealedShopifyWebhook(`rackline-demo-${organizationId.slice(0, 8)}`),
       apiVersion: SHOPIFY_API_VERSION,
       shopifyLocationGid: demoShopifyLocationGid(),
       mode: "demo",

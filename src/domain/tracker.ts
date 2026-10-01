@@ -1,3 +1,4 @@
+import { isLiveAggregator } from "./carrier-live";
 import type { TrafficFlightStatus } from "./traffic";
 
 export const TRACKER_STATUSES = ["pre_transit", "in_transit", "delivered", "exception"] as const;
@@ -183,6 +184,40 @@ export async function trackerHmacBase64(secret: string, body: string): Promise<s
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
+}
+
+/**
+ * A carrier connection the tracker webhook can see without reading its secret. `webhookSecretFp` is
+ * the SHA-256 of that secret, when Rackline has computed it.
+ */
+export type TrackerSecretCandidate = {
+  id: string;
+  provider: string;
+  mode: string;
+  webhookSecretFp: string | null;
+  hasSecret: boolean;
+};
+
+export type TrackerSecretChoice = { kind: "unsigned" } | { kind: "one"; id: string } | { kind: "ambiguous" };
+
+/**
+ * Which one connection a shared tracker URL should open. Live accounts with a webhook secret must
+ * verify; the choice is made from provider and fingerprint, never by decrypting every secret. More
+ * than one distinct secret is ambiguous — the per-connection URL is how that webhook verifies.
+ */
+export function chooseTrackerConnection(
+  candidates: TrackerSecretCandidate[],
+  provider: ParsedTrackerWebhook["provider"],
+): TrackerSecretChoice {
+  const live = candidates.filter((row) => isLiveAggregator(row.provider, row.mode) && row.hasSecret);
+  if (live.length === 0) return { kind: "unsigned" };
+  const scoped =
+    provider === "easypost" || provider === "shipengine" ? live.filter((row) => row.provider === provider) : live;
+  const pool = scoped.length > 0 ? scoped : live;
+  if (pool.length === 1) return { kind: "one", id: pool[0]!.id };
+  const fingerprints = new Set(pool.map((row) => row.webhookSecretFp).filter((fp): fp is string => Boolean(fp)));
+  if (fingerprints.size === 1 && pool.every((row) => row.webhookSecretFp)) return { kind: "one", id: pool[0]!.id };
+  return { kind: "ambiguous" };
 }
 
 export async function verifyTrackerHmac(secret: string, body: string, header: string | undefined): Promise<boolean> {

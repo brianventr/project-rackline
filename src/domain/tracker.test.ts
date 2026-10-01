@@ -8,6 +8,7 @@ import {
   trackerToFlight,
   verifyTrackerHmac,
   canRelabelException,
+  chooseTrackerConnection,
 } from "./tracker";
 
 describe("tracker status map", () => {
@@ -113,5 +114,32 @@ describe("tracker status map", () => {
     expect(await verifyTrackerHmac("whsec", body, `sha256=${hex}`)).toBe(true);
     expect(await verifyTrackerHmac("whsec", body, "deadbeef")).toBe(false);
     expect(await verifyTrackerHmac("whsec", body, undefined)).toBe(false);
+  });
+});
+
+describe("tracker secret lookup", () => {
+  const easy = { id: "easy", provider: "easypost", mode: "live", webhookSecretFp: "fp-easy", hasSecret: true };
+  const engine = { id: "engine", provider: "shipengine", mode: "live", webhookSecretFp: "fp-engine", hasSecret: true };
+
+  it("opens nothing when no live account has a secret", () => {
+    expect(chooseTrackerConnection([{ ...easy, mode: "demo", hasSecret: false }], "easypost")).toEqual({ kind: "unsigned" });
+    expect(chooseTrackerConnection([], "demo")).toEqual({ kind: "unsigned" });
+  });
+
+  it("opens the one account that matches the payload's carrier", () => {
+    expect(chooseTrackerConnection([easy, engine], "easypost")).toEqual({ kind: "one", id: "easy" });
+    expect(chooseTrackerConnection([engine], "demo")).toEqual({ kind: "one", id: "engine" });
+  });
+
+  it("opens one account when every candidate shares a fingerprint", () => {
+    const copy = { ...easy, id: "easy-2", webhookSecretFp: "fp-easy" };
+    expect(chooseTrackerConnection([easy, copy], "easypost")).toEqual({ kind: "one", id: "easy" });
+  });
+
+  it("refuses to pick among different secrets", () => {
+    expect(chooseTrackerConnection([easy, engine], "demo")).toEqual({ kind: "ambiguous" });
+    expect(chooseTrackerConnection([{ ...easy, webhookSecretFp: null }, { ...easy, id: "easy-2", webhookSecretFp: null }], "easypost")).toEqual({
+      kind: "ambiguous",
+    });
   });
 });

@@ -15,7 +15,7 @@ Most of this is the same in both modes. New organizations start in Garage.
 
 ### Deployment (one time)
 
-1. Set `BETTER_AUTH_SECRET` as a Wrangler secret, 32 characters or more. Sign-in needs it, and it is also the key that seals stored credentials: WooCommerce and Etsy keys, the Shopify Admin token, and carrier API keys and secrets (the FedEx client secret lives in the meter number field). A deployed Worker without it refuses to store them.
+1. Set `BETTER_AUTH_SECRET` as a Wrangler secret, 32 characters or more. Sign-in needs it, and it is also the key that seals stored credentials: WooCommerce and Etsy keys, the Shopify Admin token and webhook secret, and carrier API keys, secrets, and tracker webhook secrets (the FedEx client secret lives in the meter number field). A deployed Worker without it refuses to store them.
 2. Optional: set `MAIL_API_KEY` and `MAIL_FROM` for purchase-order email, password resets, and teammate invites.
 3. Optional: set `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET` to allow **Install Shopify app** (OAuth). Pasting an Admin token works without them.
 4. Optional: set `ETSY_API_KEY` (your Etsy app keystring) to allow a live Etsy connection. `ETSY_SHARED_SECRET` is optional. In your Etsy app, register the callback `https://<your-domain>/api/channels/etsy/oauth/callback`.
@@ -79,7 +79,7 @@ In **Manufacturer**, it is a floor flow:
 1. **Shopify** gets one `fulfillmentCreate` per shipped box, or one for the whole order when there are no boxes. If it fails, **Retry Shopify** is on the order's menu.
 2. **WooCommerce** is marked completed with the tracking number, and **Etsy** gets tracking on the receipt. This happens when the order is fully shipped. If it fails, the order still counts as shipped in Rackline, the error is saved on the order, and **Retry WooCommerce tracking** or **Retry Etsy tracking** appears on its menu.
 3. **Faire orders, and Etsy orders while Etsy is connected only by CSV,** do not post back. Mark them shipped in the channel. An Etsy order shipped without a live connection shows **Manual** under Tracking post-back, with "Mark it shipped in Etsy." and no retry, and it does not count as a failed post-back on Settings → Channels. The ship toast lists these orders too. Once Etsy is connected live, orders imported by CSV post tracking like any other.
-4. **Carrier tracking.** EasyPost and ShipEngine tracker webhooks move orders through at gate, in flight, and arrived on Traffic. Failures show as exceptions on Today, where you can buy a replacement label.
+4. **Carrier tracking.** EasyPost and ShipEngine tracker webhooks move orders through at gate, in flight, and arrived on Traffic. Failures show as exceptions on Today, where you can buy a replacement label. Each live account has its own URL (`/api/carriers/trackers/webhooks/<connection id>`), and Rackline checks that account's secret instead of every account. The older shared URL still works when the tracking number belongs to one live account. Shopify webhook secrets and tracker webhook secrets are sealed at rest; a secret saved before sealing still verifies, and is sealed the next time it is read.
 
 ## 3. Garage: simple on the surface, full ledger underneath
 
@@ -368,13 +368,13 @@ When quick-ship has more than one reason to stop, it answers with the first of t
 
 **WooCommerce says it connected but orders do not arrive.** The key probably could not create the webhook. Copy the URL shown on Settings → Channels into WooCommerce → Settings → Advanced → Webhooks. The 15-minute pull still catches processing orders in the meantime.
 
-**Store or carrier keys stopped working after a redeploy.** WooCommerce and Etsy credentials, the Shopify Admin token, and carrier API keys and secrets are sealed with `BETTER_AUTH_SECRET`. If that secret changes, the stored values can no longer be read, and Rackline treats them as missing rather than guessing:
+**Store or carrier keys stopped working after a redeploy.** WooCommerce and Etsy credentials, the Shopify Admin token and webhook secret, and carrier API keys, secrets, and tracker webhook secrets are sealed with `BETTER_AUTH_SECRET`. If that secret changes, the stored values can no longer be read, and Rackline treats them as missing rather than guessing:
 
 - Reconnect a WooCommerce or Etsy channel.
 - On Settings → Shopify, paste the token again, or reinstall the app. A live store never falls back to demo: stock sync, the location list, and fulfillment fail with "Rackline cannot read the Shopify access token" until the token is back.
 - On Settings → Carriers, the account shows its keys as missing. Paste them again; until then, a live label is refused with "Live postage needs an API key".
 
-A Shopify token or carrier key saved by an older version of Rackline, before these were sealed, keeps working and is sealed the first time it is read. A deployed Worker with a secret shorter than 32 characters will not store credentials at all. Only local `http://localhost` uses a built-in development key.
+A Shopify token, webhook secret, or carrier key saved by an older version of Rackline, before these were sealed, keeps working and is sealed the first time it is read. A deployed Worker with a secret shorter than 32 characters will not store credentials at all. Only local `http://localhost` uses a built-in development key.
 
 **An order shipped but the store still shows it unfulfilled.** Open the order. If the post-back failed, the menu has **Retry Shopify**, or **Retry WooCommerce tracking** / **Retry Etsy tracking**. If Tracking post-back says **Manual**, the channel has no live connection (Etsy by CSV), so there is nothing to retry: mark it shipped in the channel. Faire orders never post back either.
 

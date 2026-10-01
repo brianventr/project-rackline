@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, or } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, optionalString, requireString, unauthorized } from "../lib/http";
@@ -23,10 +23,10 @@ import { asCarrierLiveError, pingAggregator } from "../lib/carrier-client";
 import { pingDirect } from "../lib/direct-carrier";
 import { isLiveAggregator, isLiveDirect } from "../domain/carrier-live";
 import { isDirectProvider } from "../domain/direct-carrier";
-import { normalizeTrackerStatus, parseTrackerWebhook, verifyTrackerHmac } from "../domain/tracker";
+import { chooseTrackerConnection, normalizeTrackerStatus, parseTrackerWebhook, verifyTrackerHmac } from "../domain/tracker";
 import { loadPackagesForOrders, orderPatchFromPackages } from "../db/packages";
 import { buildingDefaultService } from "../domain/ship-defaults";
-import { CARRIER_SECRET_FIELDS, openCarrierRow, type CarrierSecretField } from "../db/credentials";
+import { CARRIER_SECRET_FIELDS, openCarrierRow, sealWebhookSecret, type CarrierSecretField } from "../db/credentials";
 import { credentialSecret } from "../lib/credential-secret";
 import { sealSecret } from "../lib/secret-box";
 
@@ -65,13 +65,27 @@ async function sealedKeys(creds: Pick<CarrierCredentials, CarrierSecretField>) {
 }
 
 /** A written row as the API shows it: hints come from the values in the clear, not the sealed columns. */
-function withKeys(row: typeof schema.carrierConnections.$inferSelect, creds: CarrierCredentials) {
+function withKeys(
+  row: typeof schema.carrierConnections.$inferSelect,
+  creds: CarrierCredentials,
+  webhookSecret: string | null,
+) {
   return asLike({
     ...row,
     apiKey: creds.apiKey ?? null,
     apiSecret: creds.apiSecret ?? null,
     meterNumber: creds.meterNumber ?? null,
+    webhookSecret,
   });
+}
+
+function presentConnection(row: CarrierConnectionLike, origin: string) {
+  const serialized = serializeCarrierConnection(row);
+  const tracker =
+    row.provider === "easypost" || row.provider === "shipengine"
+      ? `${origin}/api/carriers/trackers/webhooks/${row.id}`
+      : undefined;
+  return tracker ? { ...serialized, trackerWebhookUrl: tracker } : serialized;
 }
 
 export async function recordCarrierEvent(
@@ -158,7 +172,7 @@ carriersRoute.get("/carriers", async (c) => {
   const connections = await loadCarrierConnections(db, organizationId);
   return c.json({
     catalog: publicCarrierCatalog(),
-    connections: connections.map((row) => serializeCarrierConnection(asLike(row))),
+    connections: connections.map((row) => presentConnection(asLike(row), c.get("origin"))),
     enabledServices: enabledServicesFromConnections(connections.map(asLike)),
     shipFromAddress: warehouse?.shipFromAddress ?? null,
     warehouseId: warehouse?.id ?? null,
@@ -220,7 +234,7 @@ carriersRoute.post("/carriers/enable-demo", async (c) => {
   return c.json(
     {
       catalog: publicCarrierCatalog(),
-      connections: connections.map((row) => serializeCarrierConnection(asLike(row))),
+      connections: connections.map((row) => presentConnection(asLike(row), c.get("origin"))),
       enabledServices: enabledServicesFromConnections(connections.map(asLike)),
       shipFromAddress: nextWarehouse?.shipFromAddress ?? null,
       warehouseId: nextWarehouse?.id ?? null,
@@ -271,7 +285,7 @@ carriersRoute.post("/carriers", async (c) => {
     nickname: optionalString(body.nickname) || provider.name,
     accountNumber: creds.accountNumber,
     ...(await sealedKeys(creds)),
-    webhookSecret: optionalString(body.webhookSecret) ?? null,
+    ...(await sealWebhookSecret(credentialSecret, optionalString(body.webhookSecret) ?? null)),
     mode,
     status: "connected",
     enabledServicesJson: JSON.stringify(enabledServices),
@@ -280,7 +294,8 @@ carriersRoute.post("/carriers", async (c) => {
     updatedAt: now,
   });
   const [row] = await db.select().from(schema.carrierConnections).where(eq(schema.carrierConnections.id, id)).limit(1);
-  return c.json(serializeCarrierConnection(withKeys(row!, creds)), 201);
+  const webhookPlain = optionalString(body.webhookSecret) ?? null;
+  return c.json(presentConnection(withKeys(row!, creds, webhookPlain), c.get("origin")), 201);
 });
 
 carriersRoute.patch("/carriers/:id", async (c) => {
@@ -325,8 +340,9 @@ carriersRoute.patch("/carriers/:id", async (c) => {
         apiSecret: body.apiSecret === undefined ? undefined : creds.apiSecret,
         meterNumber: body.meterNumber === undefined ? undefined : creds.meterNumber,
       })),
-      webhookSecret:
-        body.webhookSecret === undefined ? existing.webhookSecret : keepOrReplace(body.webhookSecret, existing.webhookSecret),
+      ...(body.webhookSecret === undefined
+        ? {}
+        : await sealWebhookSecret(credentialSecret, keepOrReplace(body.webhookSecret, existing.webhookSecret))),
       mode,
       status: existing.status,
       enabledServicesJson: JSON.stringify(enabledServices),
@@ -335,7 +351,9 @@ carriersRoute.patch("/carriers/:id", async (c) => {
     })
     .where(eq(schema.carrierConnections.id, existing.id))
     .returning();
-  return c.json(serializeCarrierConnection(withKeys(row, creds)));
+  const webhookPlain =
+    body.webhookSecret === undefined ? (existing.webhookSecret ?? null) : keepOrReplace(body.webhookSecret, existing.webhookSecret);
+  return c.json(presentConnection(withKeys(row, creds, webhookPlain), c.get("origin")));
 });
 
 carriersRoute.post("/carriers/:id/test", async (c) => {
@@ -407,7 +425,10 @@ carriersRoute.post("/carriers/:id/test", async (c) => {
   });
   const [row] = await db.select().from(schema.carrierConnections).where(eq(schema.carrierConnections.id, existing.id)).limit(1);
   if (!ok) badRequest(result.error);
-  return c.json({ connection: serializeCarrierConnection(withKeys(row!, existing)), ...response });
+  return c.json({
+    connection: presentConnection(withKeys(row!, existing, existing.webhookSecret ?? null), c.get("origin")),
+    ...response,
+  });
 });
 
 carriersRoute.delete("/carriers/:id", async (c) => {
@@ -446,75 +467,53 @@ carriersRoute.delete("/carriers/:id", async (c) => {
   return c.json({ disconnected: true });
 });
 
-export const carriersPublicRoute = new Hono<AppEnv>();
+type CarrierDb = AppEnv["Variables"]["db"];
+type CarrierRow = typeof schema.carrierConnections.$inferSelect;
 
-carriersPublicRoute.post("/carriers/trackers/webhooks", async (c) => {
-  const db = c.get("db");
-  const raw = await c.req.text();
-  let payload: unknown = {};
-  if (raw) {
-    try {
-      payload = JSON.parse(raw) as unknown;
-    } catch {
-      badRequest("Invalid JSON");
-    }
-  }
-  const parsed = parseTrackerWebhook(payload);
-  if (!parsed) badRequest("Tracker payload needs a tracking number and status");
-  const hmac =
-    c.req.header("X-Hmac-Signature") ||
-    c.req.header("x-hmac-signature") ||
-    c.req.header("X-ShipEngine-Hmac-SHA256") ||
-    c.req.header("x-shipengine-hmac-sha256") ||
-    c.req.header("X-Tracker-Hmac") ||
-    c.req.header("x-tracker-hmac");
-
-  const packageHits = await db
-    .select()
-    .from(schema.orderPackages)
-    .where(eq(schema.orderPackages.trackingNumber, parsed.trackingNumber));
-  const orderHits = await db
-    .select()
-    .from(schema.orders)
-    .where(eq(schema.orders.trackingNumber, parsed.trackingNumber));
-  const returnHits = await db
-    .select({ id: schema.returnLabels.id, organizationId: schema.returnLabels.organizationId, rmaId: schema.returnLabels.rmaId })
-    .from(schema.returnLabels)
-    .where(eq(schema.returnLabels.trackingNumber, parsed.trackingNumber));
-  if (packageHits.length === 0 && orderHits.length === 0 && returnHits.length === 0) {
-    return c.json({ ignored: true, reason: "unknown_tracking" });
-  }
-
-  const orgIds = [
-    ...new Set([
-      ...packageHits.map((row) => row.organizationId),
-      ...orderHits.map((row) => row.organizationId),
-      ...returnHits.map((row) => row.organizationId),
-    ]),
-  ];
-  const connections = await db
-    .select()
-    .from(schema.carrierConnections)
-    .where(
-      and(
-        inArray(schema.carrierConnections.organizationId, orgIds),
-        or(eq(schema.carrierConnections.provider, "easypost"), eq(schema.carrierConnections.provider, "shipengine")),
-      ),
-    );
-  const liveSecrets = connections.filter(
-    (row) => isLiveAggregator(row.provider, row.mode) && Boolean(row.webhookSecret),
+function trackerHmacHeader(headers: { header: (name: string) => string | undefined }): string | undefined {
+  return (
+    headers.header("X-Hmac-Signature") ||
+    headers.header("x-hmac-signature") ||
+    headers.header("X-ShipEngine-Hmac-SHA256") ||
+    headers.header("x-shipengine-hmac-sha256") ||
+    headers.header("X-Tracker-Hmac") ||
+    headers.header("x-tracker-hmac")
   );
-  if (liveSecrets.length > 0) {
-    let ok = false;
-    for (const row of liveSecrets) {
-      if (await verifyTrackerHmac(row.webhookSecret!, raw, hmac)) {
-        ok = true;
-        break;
-      }
-    }
-    if (!ok) unauthorized("Invalid tracker HMAC");
-  }
+}
 
+/** Opens one connection and checks its tracker secret. A stored secret that cannot be opened fails closed. */
+async function verifyTrackerConnection(db: CarrierDb, row: CarrierRow, raw: string, hmac: string | undefined): Promise<CarrierRow> {
+  const stored = Boolean(row.webhookSecret);
+  const opened = await openCarrierRow(db, credentialSecret, row);
+  if (isLiveAggregator(row.provider, row.mode) && stored) {
+    if (!opened.webhookSecret || !(await verifyTrackerHmac(opened.webhookSecret, raw, hmac))) {
+      unauthorized("Invalid tracker HMAC");
+    }
+  }
+  return opened;
+}
+
+async function recordTrackerUpdate(
+  db: CarrierDb,
+  input: {
+    payload: unknown;
+    parsed: NonNullable<ReturnType<typeof parseTrackerWebhook>>;
+    packageHits: { id: string; orderId: string }[];
+    orderHits: { id: string }[];
+    returnHits: { id: string; rmaId: string }[];
+    orgIds: string[];
+    connectionId: string | null;
+  },
+): Promise<
+  | { duplicate: true }
+  | {
+      ok: true;
+      trackerStatus: string;
+      matches: { orderId: string; packageId: string | null; trackerStatus: string }[];
+      returnLabels: { returnLabelId: string; rmaId: string; trackerStatus: string }[];
+    }
+> {
+  const { parsed, payload, packageHits, orderHits, returnHits, orgIds, connectionId } = input;
   const now = Date.now();
   const status = normalizeTrackerStatus(parsed.status) ?? parsed.status.toLowerCase();
   const updatedOrders = new Set<string>();
@@ -530,9 +529,7 @@ carriersPublicRoute.post("/carriers/trackers/webhooks", async (c) => {
           and(eq(schema.trackerWebhookReceipts.organizationId, orgId), eq(schema.trackerWebhookReceipts.eventId, eventId)),
         )
         .limit(1);
-      if (existing) {
-        return c.json({ ok: true, duplicate: true });
-      }
+      if (existing) return { duplicate: true };
     }
     await db.insert(schema.trackerWebhookReceipts).values({
       id: newId(),
@@ -581,9 +578,8 @@ carriersPublicRoute.post("/carriers/trackers/webhooks", async (c) => {
       .set({ trackerStatus: status, trackerUpdatedAt: now })
       .where(eq(schema.returnLabels.id, label.id));
   }
-  const returnMatches = returnHits.map((row) => ({ returnLabelId: row.id, rmaId: row.rmaId, trackerStatus: status }));
+  const returnLabels = returnHits.map((row) => ({ returnLabelId: row.id, rmaId: row.rmaId, trackerStatus: status }));
 
-  const connectionId = connections[0]?.id ?? null;
   for (const orgId of orgIds) {
     await recordCarrierEvent(db, {
       organizationId: orgId,
@@ -592,11 +588,142 @@ carriersPublicRoute.post("/carriers/trackers/webhooks", async (c) => {
       kind: "tracker",
       status: "ok",
       request: { trackingNumber: parsed.trackingNumber, provider: parsed.provider, eventId: parsed.eventId },
-      response: { trackerStatus: status, matches: results, returnLabels: returnMatches },
+      response: { trackerStatus: status, matches: results, returnLabels },
       now,
     });
   }
 
-  return c.json({ ok: true, trackerStatus: status, matches: results, returnLabels: returnMatches });
+  return { ok: true, trackerStatus: status, matches: results, returnLabels };
+}
+
+export const carriersPublicRoute = new Hono<AppEnv>();
+
+carriersPublicRoute.post("/carriers/trackers/webhooks", async (c) => {
+  const db = c.get("db");
+  const raw = await c.req.text();
+  let payload: unknown = {};
+  if (raw) {
+    try {
+      payload = JSON.parse(raw) as unknown;
+    } catch {
+      badRequest("Invalid JSON");
+    }
+  }
+  const parsed = parseTrackerWebhook(payload);
+  if (!parsed) badRequest("Tracker payload needs a tracking number and status");
+  const hmac = trackerHmacHeader(c.req);
+
+  const packageHits = await db
+    .select()
+    .from(schema.orderPackages)
+    .where(eq(schema.orderPackages.trackingNumber, parsed.trackingNumber));
+  const orderHits = await db
+    .select()
+    .from(schema.orders)
+    .where(eq(schema.orders.trackingNumber, parsed.trackingNumber));
+  const returnHits = await db
+    .select({ id: schema.returnLabels.id, organizationId: schema.returnLabels.organizationId, rmaId: schema.returnLabels.rmaId })
+    .from(schema.returnLabels)
+    .where(eq(schema.returnLabels.trackingNumber, parsed.trackingNumber));
+  if (packageHits.length === 0 && orderHits.length === 0 && returnHits.length === 0) {
+    return c.json({ ignored: true, reason: "unknown_tracking" });
+  }
+
+  const orgIds = [
+    ...new Set([
+      ...packageHits.map((row) => row.organizationId),
+      ...orderHits.map((row) => row.organizationId),
+      ...returnHits.map((row) => row.organizationId),
+    ]),
+  ];
+  const candidates = await db
+    .select({
+      id: schema.carrierConnections.id,
+      provider: schema.carrierConnections.provider,
+      mode: schema.carrierConnections.mode,
+      webhookSecretFp: schema.carrierConnections.webhookSecretFp,
+    })
+    .from(schema.carrierConnections)
+    .where(
+      and(
+        inArray(schema.carrierConnections.organizationId, orgIds),
+        or(eq(schema.carrierConnections.provider, "easypost"), eq(schema.carrierConnections.provider, "shipengine")),
+        isNotNull(schema.carrierConnections.webhookSecret),
+      ),
+    );
+  const choice = chooseTrackerConnection(
+    candidates.map((row) => ({ ...row, hasSecret: true })),
+    parsed.provider,
+  );
+  if (choice.kind === "ambiguous") unauthorized("Use the connection webhook URL for this carrier account");
+  let connectionId: string | null = null;
+  if (choice.kind === "one") {
+    const [row] = await db.select().from(schema.carrierConnections).where(eq(schema.carrierConnections.id, choice.id)).limit(1);
+    if (!row) unauthorized("Invalid tracker HMAC");
+    await verifyTrackerConnection(db, row, raw, hmac);
+    connectionId = row.id;
+  }
+
+  const recorded = await recordTrackerUpdate(db, {
+    payload,
+    parsed,
+    packageHits,
+    orderHits,
+    returnHits,
+    orgIds,
+    connectionId,
+  });
+  if ("duplicate" in recorded) return c.json({ ok: true, duplicate: true });
+  return c.json(recorded);
+});
+
+/** Per-connection URL. Looks up one account by id and opens only that webhook secret. */
+carriersPublicRoute.post("/carriers/trackers/webhooks/:connectionId", async (c) => {
+  const db = c.get("db");
+  const raw = await c.req.text();
+  let payload: unknown = {};
+  if (raw) {
+    try {
+      payload = JSON.parse(raw) as unknown;
+    } catch {
+      badRequest("Invalid JSON");
+    }
+  }
+  const parsed = parseTrackerWebhook(payload);
+  if (!parsed) badRequest("Tracker payload needs a tracking number and status");
+  const [row] = await db
+    .select()
+    .from(schema.carrierConnections)
+    .where(eq(schema.carrierConnections.id, c.req.param("connectionId")))
+    .limit(1);
+  if (!row) notFound("Carrier account not found");
+  await verifyTrackerConnection(db, row, raw, trackerHmacHeader(c.req));
+
+  const packageHits = await db
+    .select()
+    .from(schema.orderPackages)
+    .where(and(eq(schema.orderPackages.trackingNumber, parsed.trackingNumber), eq(schema.orderPackages.organizationId, row.organizationId)));
+  const orderHits = await db
+    .select()
+    .from(schema.orders)
+    .where(and(eq(schema.orders.trackingNumber, parsed.trackingNumber), eq(schema.orders.organizationId, row.organizationId)));
+  const returnHits = await db
+    .select({ id: schema.returnLabels.id, organizationId: schema.returnLabels.organizationId, rmaId: schema.returnLabels.rmaId })
+    .from(schema.returnLabels)
+    .where(and(eq(schema.returnLabels.trackingNumber, parsed.trackingNumber), eq(schema.returnLabels.organizationId, row.organizationId)));
+  if (packageHits.length === 0 && orderHits.length === 0 && returnHits.length === 0) {
+    return c.json({ ignored: true, reason: "unknown_tracking" });
+  }
+  const recorded = await recordTrackerUpdate(db, {
+    payload,
+    parsed,
+    packageHits,
+    orderHits,
+    returnHits,
+    orgIds: [row.organizationId],
+    connectionId: row.id,
+  });
+  if ("duplicate" in recorded) return c.json({ ok: true, duplicate: true });
+  return c.json(recorded);
 });
 

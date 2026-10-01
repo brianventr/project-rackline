@@ -544,6 +544,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     long: "A duplicate reads as CONFLICT and a record still in use as IN_USE, with no reference, because nothing crashed.",
   },
   {
+    id: "tracker-webhook",
+    term: "Tracker webhook",
+    aliases: ["carrier webhook", "tracking webhook", "easypost webhook"],
+    short: "The URL a carrier calls when a parcel moves. Each EasyPost or ShipEngine account has its own, and the secret on it is sealed.",
+    long: "The older shared URL still works when the tracking number belongs to one live account. A secret saved before sealing still verifies, and is sealed the next time it is used.",
+    path: "/setup/carriers",
+  },
+  {
     id: "cutoff",
     term: "Carrier cutoff",
     aliases: ["cutoff", "pickup", "carrier pickup", "last pickup"],
