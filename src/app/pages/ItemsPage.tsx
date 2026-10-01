@@ -850,7 +850,8 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Shipping</p>
                   <p className="text-xs text-muted-foreground">
-                    One packed unit. Ship weight adds up on every label; size is used when this is the only thing in the box.
+                    One packed unit. Ship weight adds up on every label. Quick-ship uses the size to pick the smallest box that
+                    fits, and it is the parcel size when this is the only thing in the box.
                   </p>
                   <div className="grid items-start gap-3 sm:grid-cols-4">
                     <NumberField form={form} name="shipWeightOz" label="Ship weight (oz)" min={0} placeholder="—" />
