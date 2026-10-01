@@ -1,5 +1,5 @@
-import { parseAddressText, type AddressParts } from "./geo";
 import type { CarrierProviderId, CarrierRateQuote, EnabledCarrierService } from "./carriers";
+import { postalRequired, regionRequired, shipAddressParts } from "./ship-address";
 
 export const DEFAULT_PARCEL = {
   weightOz: 16,
@@ -75,9 +75,7 @@ export function resolveParcel(input?: Partial<ParcelDims> | null): ParcelDims {
   return { weightOz, lengthIn, widthIn, heightIn };
 }
 
-const STREET_CITY_ST_ZIP =
-  /^(.+),\s*([^,]+),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)(?:\s*,?\s*([A-Za-z]{2}))?$/;
-
+/** Region and postal code are only required where the country uses them, so international addresses pass. */
 export function liveShipAddress(input: {
   name: string;
   text?: string | null;
@@ -85,32 +83,24 @@ export function liveShipAddress(input: {
   region?: string | null;
   country?: string | null;
 }): LiveShipAddress | { error: string } {
-  const text = input.text?.trim() || "";
-  const oneLine = text.split(/\n+/).length === 1 ? text.match(STREET_CITY_ST_ZIP) : null;
-  const parsed: AddressParts = oneLine
-    ? {
-        street: oneLine[1]!.trim(),
-        city: oneLine[2]!.trim(),
-        region: oneLine[3]!.toUpperCase(),
-        postal: oneLine[4]!,
-        country: oneLine[5]?.toUpperCase() || "US",
-      }
-    : parseAddressText(text);
-  const city = parsed.city || input.city?.trim() || "";
-  const state = parsed.region || input.region?.trim() || "";
-  const zip = parsed.postal?.trim() || "";
-  const country = (parsed.country || input.country?.trim() || "US").toUpperCase();
-  const street1 = parsed.street?.trim() || "";
-  if (!street1 || !city || !state || !zip) {
+  const parts = shipAddressParts(input);
+  const country = parts.country || "US";
+  if (
+    !parts.street1 ||
+    !parts.city ||
+    (regionRequired(country) && !parts.region) ||
+    (postalRequired(country) && !parts.postal)
+  ) {
     return { error: "Live postage needs a street, city, region, and postal code on ship-from and ship-to." };
   }
   return {
     name: input.name.trim() || "Warehouse",
-    street1,
-    city,
-    state,
-    zip,
-    country: country.length === 2 ? country : "US",
+    street1: parts.street1,
+    ...(parts.street2 ? { street2: parts.street2 } : {}),
+    city: parts.city,
+    state: parts.region,
+    zip: parts.postal,
+    country,
   };
 }
 
