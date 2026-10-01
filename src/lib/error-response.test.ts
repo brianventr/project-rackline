@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { mapDomainError } from "./error-response";
-import { conflict, forbidden, HttpError } from "./http";
+import { DrizzleQueryError } from "drizzle-orm";
+import { errorRef, mapConstraintError, mapDomainError, respondToError } from "./error-response";
+import { badRequest, conflict, forbidden, HttpError } from "./http";
+import { WorkflowPolicyError } from "../domain/workflow-policy";
 import { requireOwner } from "./org";
 import { HeldStockError } from "../domain/holds";
 import { InsufficientAtpError } from "../domain/allocations";
@@ -161,5 +163,108 @@ describe("route guards", () => {
     const own = await app.request("http://localhost/pick?itemOrg=org-a", { method: "POST" });
     expect(own.status).toBe(409);
     expect(await own.json()).toMatchObject({ code: "INSUFFICIENT_ATP", sku: "LED-BULB" });
+  });
+});
+
+const UNIQUE_SKU = "D1_ERROR: UNIQUE constraint failed: items.organization_id, items.sku: SQLITE_CONSTRAINT";
+const UNIQUE_RECEIPT = "D1_ERROR: UNIQUE constraint failed: tracker_webhook_receipts.organization_id, tracker_webhook_receipts.event_id";
+const FOREIGN_KEY = "D1_ERROR: FOREIGN KEY constraint failed: SQLITE_CONSTRAINT";
+
+function failedQuery(query: string, cause: string) {
+  return new DrizzleQueryError(query, ["org-1", "LAMP", "sk_live_secret"], new Error(cause));
+}
+
+describe("database errors", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("maps a unique failure to CONFLICT, naming only a known field", () => {
+    expect(mapConstraintError(failedQuery('insert into "items" ("sku") values (?)', UNIQUE_SKU))).toEqual({
+      status: 409,
+      body: { error: "That SKU is already taken.", code: "CONFLICT", field: "SKU" },
+    });
+    expect(mapConstraintError(failedQuery("insert into tracker_webhook_receipts", UNIQUE_RECEIPT))).toEqual({
+      status: 409,
+      body: { error: "That already exists.", code: "CONFLICT" },
+    });
+  });
+
+  it("maps a foreign key failure to IN_USE on delete and BAD_REFERENCE otherwise", () => {
+    expect(mapConstraintError(failedQuery('delete from "locations" where "id" = ?', FOREIGN_KEY))).toEqual({
+      status: 409,
+      body: { error: "That is still in use, so it cannot be removed.", code: "IN_USE" },
+    });
+    expect(mapConstraintError(failedQuery('insert into "movements" ("location_id") values (?)', FOREIGN_KEY))).toMatchObject({
+      status: 400,
+      body: { code: "BAD_REFERENCE" },
+    });
+    expect(mapConstraintError(new Error(FOREIGN_KEY))).toMatchObject({ status: 400, body: { code: "BAD_REFERENCE" } });
+  });
+
+  it("turns anything else into INTERNAL with a reference, logged beside the full error", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const err = failedQuery('update "orders" set "status" = ?', "D1_ERROR: NOT NULL constraint failed: orders.status");
+    const out = respondToError(err, "POST /api/orders", "7KQ2M9XA");
+    expect(out).toEqual({ status: 500, body: { error: "Something went wrong on our side.", code: "INTERNAL", ref: "7KQ2M9XA" } });
+    expect(log).toHaveBeenCalledWith("Error 7KQ2M9XA on POST /api/orders", err, err.cause);
+  });
+
+  it("keeps typed errors and their codes as they were", () => {
+    expect(respondToError(new WorkflowPolicyError("Scan the bay first.", "SCAN_REQUIRED"), "POST /x")).toEqual({
+      status: 409,
+      body: { error: "Scan the bay first.", code: "SCAN_REQUIRED" },
+    });
+    expect(respondToError(new HttpError(409, "Set mail first", "MAIL_UNAVAILABLE"), "POST /x").body).toEqual({
+      error: "Set mail first",
+      code: "MAIL_UNAVAILABLE",
+    });
+  });
+
+  it("does not pass D1 text through an HttpError a route built from it", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let thrown: unknown;
+    try {
+      badRequest(UNIQUE_SKU);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(respondToError(thrown, "POST /x")).toEqual({
+      status: 409,
+      body: { error: "That SKU is already taken.", code: "CONFLICT", field: "SKU" },
+    });
+  });
+
+  it("makes short references from an unambiguous alphabet", () => {
+    const refs = new Set(Array.from({ length: 50 }, () => errorRef()));
+    for (const ref of refs) expect(ref).toMatch(/^[2-9A-HJ-NP-Z]{8}$/);
+    expect(refs.size).toBeGreaterThan(45);
+  });
+
+  it("never sends SQL, table names, or bound values to the client", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const app = new Hono();
+    app.onError((err, c) => {
+      const { status, body } = respondToError(err, `${c.req.method} ${new URL(c.req.url).pathname}`);
+      return c.json(body, status);
+    });
+    app.post("/items", () => {
+      throw failedQuery('insert into "items" ("id", "organization_id", "sku") values (?, ?, ?)', UNIQUE_SKU);
+    });
+    app.post("/crash", () => {
+      throw failedQuery('select "api_key" from "carrier_connections"', "D1_ERROR: no such column: api_key: SQLITE_ERROR");
+    });
+
+    const duplicate = await app.request("http://localhost/items", { method: "POST" });
+    expect(duplicate.status).toBe(409);
+    const duplicateText = await duplicate.text();
+    expect(JSON.parse(duplicateText)).toEqual({ error: "That SKU is already taken.", code: "CONFLICT", field: "SKU" });
+
+    const crash = await app.request("http://localhost/crash", { method: "POST" });
+    expect(crash.status).toBe(500);
+    const crashText = await crash.text();
+    expect(JSON.parse(crashText)).toMatchObject({ code: "INTERNAL", error: "Something went wrong on our side." });
+    for (const text of [duplicateText, crashText]) {
+      expect(text).not.toMatch(/insert|select|items\.|carrier_connections|D1_ERROR|SQLITE|sk_live_secret|org-1/i);
+    }
   });
 });

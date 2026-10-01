@@ -7,6 +7,7 @@ import { badRequest, conflict, notFound, optionalInt, optionalString } from "../
 import { requireOwner } from "../lib/org";
 import { newId } from "../lib/ids";
 import { internalApi, type InternalResult } from "../lib/internal-api";
+import { publicErrorText } from "../lib/db-errors";
 import { loadAtpBaysByItem, loadOpenAllocations } from "../db/allocations";
 import { loadCarrierConnections, recordCarrierEvent } from "./carriers";
 import { ordersRoute } from "./orders";
@@ -1014,7 +1015,7 @@ async function undoQuickShip(
     await restoreQuickShip(db, { organizationId, userId: c.get("user")!.id, orderId, snapshot, plan, labelVoided });
   } catch (err) {
     console.error(err);
-    restoreError = err instanceof Error ? err.message : "Restore failed";
+    restoreError = publicErrorText(err, "Restore failed");
   }
   return { shipped: false, voidedLabel: labelVoided, voidError, restoreError };
 }
@@ -1068,7 +1069,8 @@ shipRoute.post("/ship/quick-ship", async (c) => {
     try {
       outcomes.push(await quickShipOne(c, call, id, body, { ctx }));
     } catch (err) {
-      outcomes.push({ orderId: id, ok: false, status: 500, error: err instanceof Error ? err.message : "Ship failed" });
+      console.error(`quick-ship ${id} failed`, err);
+      outcomes.push({ orderId: id, ok: false, status: 500, error: publicErrorText(err, "Ship failed") });
     }
   }
   return c.json({ ...summarizeQuickShip(outcomes), outcomes });

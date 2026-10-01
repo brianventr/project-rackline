@@ -12,6 +12,7 @@ import {
 import { loadPackagesForOrders, type OrderPackageRow } from "../db/packages";
 import { openShopifyRow } from "../db/credentials";
 import { credentialSecret } from "../lib/credential-secret";
+import { publicErrorText } from "../lib/db-errors";
 import {
   ShopifyApiError,
   createShopifyGraphqlClient,
@@ -80,7 +81,7 @@ async function resolveFulfillmentOrder(
       const open = nodes.find((node) => node.status !== "closed" && node.status !== "cancelled") ?? nodes[0];
       if (open) fulfillmentOrderId = open.id;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not load fulfillment orders";
+      const message = publicErrorText(err, "Could not load fulfillment orders");
       await db
         .update(schema.orders)
         .set({ shopifySyncStatus: "failed", shopifySyncError: message })
@@ -191,7 +192,7 @@ async function postFulfillmentCreate(
     });
     return { status: "synced", fulfillmentId: created.id };
   } catch (err) {
-    const message = err instanceof ShopifyApiError ? err.message : err instanceof Error ? err.message : "Fulfillment failed";
+    const message = publicErrorText(err, "Fulfillment failed");
     await db
       .update(schema.orders)
       .set({ shopifySyncStatus: "failed", shopifySyncError: message })

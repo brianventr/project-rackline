@@ -8,6 +8,7 @@ import { resolveAuthSecret } from "../lib/auth";
 import { badRequest, conflict, requireString, unauthorized } from "../lib/http";
 import { requireOwner } from "../lib/org";
 import { newId } from "../lib/ids";
+import { publicErrorText } from "../lib/db-errors";
 import {
   REQUIRED_SCOPES,
   SHOPIFY_API_VERSION,
@@ -484,7 +485,7 @@ shopifyRoute.get("/shopify/locations", async (c) => {
   try {
     return c.json(await listShopifyLocationsForOrg(db, organizationId));
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Could not list Shopify locations";
+    const message = publicErrorText(err, "Could not list Shopify locations");
     conflict(message, "SHOPIFY_API");
   }
 });

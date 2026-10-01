@@ -338,6 +338,10 @@ A 409 means Rackline refused the post to protect the ledger. Nothing was half wr
 - **`MISSING_APP`.** The Shopify OAuth install needs `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET`.
 - **`MISSING_LOCATION`.** Pick a Shopify location before pushing live sellable qty.
 - **`SHOPIFY_TOKEN`.** Rackline cannot read the Shopify access token, usually because `BETTER_AUTH_SECRET` changed. Paste the token again on Settings → Shopify, or reinstall the app. Fulfillment post-back fails with the same message, and **Retry Shopify** works once the token is back.
+- **`CONFLICT`.** Something with that code, SKU, barcode, or name already exists, often because the same save went through twice. The message names the field when it can. Refresh to see the one already saved.
+- **`IN_USE`.** The record you tried to delete is still used elsewhere. Remove or move what uses it first.
+
+Two related codes are not 409s. A 400 `BAD_REFERENCE` means the post pointed at something that no longer exists, usually deleted in another tab, so refresh and choose it again. A 500 `INTERNAL` says "Something went wrong on our side" with an 8-character reference. Quote it: the Worker log has the full error under that reference. No error ever shows database text.
 
 ### Questions that come up
 

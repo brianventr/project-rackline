@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import { createDb } from "./db/client";
 import { createAuth } from "./lib/auth";
 import { getMembership } from "./lib/org";
-import { mapDomainError } from "./lib/error-response";
+import { respondToError } from "./lib/error-response";
 import { originFrom, type AppEnv } from "./lib/types";
 import { newId } from "./lib/ids";
 import * as schema from "./db/schema";
@@ -68,10 +68,8 @@ import { injectMarketingMeta, robotsTxt, sitemapXml } from "./domain/marketing-s
 const app = new Hono<AppEnv>();
 
 app.onError((err, c) => {
-  const mapped = mapDomainError(err);
-  if (mapped) return c.json(mapped.body, mapped.status);
-  console.error(err);
-  return c.json({ error: err instanceof Error ? err.message : "Internal error" }, 500);
+  const { status, body } = respondToError(err, `${c.req.method} ${new URL(c.req.url).pathname}`);
+  return c.json(body, status);
 });
 
 /** Crawlable sitemap / robots (Worker-first; not SPA). */

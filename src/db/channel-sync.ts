@@ -3,6 +3,7 @@ import * as schema from "./schema";
 import type { AppDb } from "./stock";
 import type { Bindings } from "../lib/types";
 import { channelSecret, openSecret, sealSecret } from "../lib/secret-box";
+import { publicErrorText } from "../lib/db-errors";
 import {
   etsyOpenReceipts,
   etsyPostTracking,
@@ -116,7 +117,7 @@ export async function syncChannel(db: AppDb, env: Bindings, conn: ChannelConnect
       .where(eq(schema.channelConnections.id, conn.id));
     return summary;
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Sync failed";
+    const message = publicErrorText(err, "Sync failed");
     await db
       .update(schema.channelConnections)
       .set({ lastSyncError: message })
@@ -226,6 +227,6 @@ export async function fulfillChannelOrder(
     }
     return record({ status: "fulfilled" });
   } catch (err) {
-    return record({ status: "failed", error: err instanceof Error ? err.message : "Tracking post-back failed" });
+    return record({ status: "failed", error: publicErrorText(err, "Tracking post-back failed") });
   }
 }

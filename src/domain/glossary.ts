@@ -490,6 +490,13 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/exceptions",
   },
   {
+    id: "error-reference",
+    term: "Error reference",
+    aliases: ["error ref", "reference code", "something went wrong", "internal error"],
+    short: "The 8-character code after “Something went wrong on our side.” Quote it, and the full error can be found in the Worker logs.",
+    long: "A duplicate reads as CONFLICT and a record still in use as IN_USE, with no reference, because nothing crashed.",
+  },
+  {
     id: "cutoff",
     term: "Carrier cutoff",
     aliases: ["cutoff", "pickup", "carrier pickup", "last pickup"],

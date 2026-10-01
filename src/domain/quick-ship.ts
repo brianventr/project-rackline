@@ -1,5 +1,6 @@
 import { suggestPickBay, type StockedBay } from "./partial-pick";
 import { normalizeOrderStatus } from "./status";
+import { publicErrorText } from "../lib/db-errors";
 
 export type QuickShipLine = {
   id: string;
@@ -175,14 +176,14 @@ export async function runQuickShip(steps: QuickShipStep[], undo: () => Promise<Q
     try {
       failure = await step.run();
     } catch (err) {
-      failure = { status: 500, error: err instanceof Error ? err.message : `The ${step.id} step failed` };
+      failure = { status: 500, error: publicErrorText(err, `The ${step.id} step failed`) };
     }
     if (!failure) continue;
     let undone: QuickShipUndone;
     try {
       undone = await undo();
     } catch (err) {
-      undone = { shipped: false, voidedLabel: false, restoreError: err instanceof Error ? err.message : "Undo failed" };
+      undone = { shipped: false, voidedLabel: false, restoreError: publicErrorText(err, "Undo failed") };
     }
     if (undone.shipped) return { ok: true };
     return { ok: false, step: step.id, failure: { ...failure, error: `${asSentence(failure.error)} ${quickShipUndoNote(undone)}` } };

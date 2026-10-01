@@ -63,6 +63,10 @@ export const ERROR_CODES = [
   "NOT_CONNECTED",
   "NOTHING_TO_BILL",
   "SAMPLE_EXISTS",
+  "CONFLICT",
+  "IN_USE",
+  "BAD_REFERENCE",
+  "INTERNAL",
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
@@ -472,6 +476,26 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
     message: "This workspace already has SKUs or bays.",
     hint: "Sample data only loads into an empty workspace.",
   }),
+  CONFLICT: ({ body }) => {
+    const field = str(body, "field");
+    if (!field) return { message: "That already exists.", hint: "Refresh to see the one already saved, or use a different name or code." };
+    return { message: `That ${field} is already taken.`, hint: `Use a different ${field}, or refresh to find the one already saved.` };
+  },
+  IN_USE: () => ({
+    message: "That is still in use, so it cannot be removed.",
+    hint: "Remove or move what uses it first.",
+  }),
+  BAD_REFERENCE: () => ({
+    message: "Something this refers to no longer exists.",
+    hint: "Refresh, choose it again, and retry.",
+  }),
+  INTERNAL: ({ body }) => {
+    const ref = str(body, "ref");
+    return {
+      message: "Something went wrong on our side.",
+      hint: ref ? `Try again in a moment. If it keeps happening, quote reference ${ref}.` : "Try again in a moment.",
+    };
+  },
 };
 
 function needPackageCopy(text: string): Copy {

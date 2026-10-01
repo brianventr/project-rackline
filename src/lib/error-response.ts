@@ -22,9 +22,75 @@ import { BomStepError } from "../domain/bom-steps";
 import { WorkflowPolicyError } from "../domain/workflow-policy";
 import { CapacityInputError, LocationFullError } from "../domain/capacity";
 import { PlateInputError, PlateOverLooseError, PlateShortError, PlateStateError } from "../domain/license-plates";
+import { causeChain, constraintFailure, isDatabaseError } from "./db-errors";
 
-export type ErrorStatus = 400 | 401 | 403 | 404 | 409;
+export type ErrorStatus = 400 | 401 | 403 | 404 | 409 | 500;
 export type MappedError = { status: ErrorStatus; body: Record<string, unknown> };
+
+/** Columns whose UNIQUE failure can name the field in plain words. Anything else just "already exists". */
+const UNIQUE_FIELD_LABELS: Record<string, string> = {
+  sku: "SKU",
+  barcode: "barcode",
+  code: "code",
+  name: "name",
+  number: "number",
+  email: "email",
+  serial_code: "serial",
+  lot_code: "lot code",
+  shop_domain: "store",
+  tracking_number: "tracking number",
+};
+
+const REF_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+
+/** A short id to quote to support; the server log carries the full error under it. */
+export function errorRef(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  return Array.from(bytes, (byte) => REF_ALPHABET[byte % REF_ALPHABET.length]).join("");
+}
+
+function uniqueField(columns: string[]): string | null {
+  const named = columns.filter((column) => column !== "id" && !column.endsWith("_id"));
+  return named.length === 1 ? (UNIQUE_FIELD_LABELS[named[0]!] ?? null) : null;
+}
+
+/** A unique or foreign key failure from D1, in plain words. Never the D1 text, which carries SQL. */
+export function mapConstraintError(err: unknown): MappedError | null {
+  const failure = constraintFailure(err);
+  if (!failure) return null;
+  if (failure.kind === "unique") {
+    const field = uniqueField(failure.columns);
+    return {
+      status: 409,
+      body: field ? { error: `That ${field} is already taken.`, code: "CONFLICT", field } : { error: "That already exists.", code: "CONFLICT" },
+    };
+  }
+  if (failure.verb === "delete") {
+    return { status: 409, body: { error: "That is still in use, so it cannot be removed.", code: "IN_USE" } };
+  }
+  return { status: 400, body: { error: "Something this refers to no longer exists.", code: "BAD_REFERENCE" } };
+}
+
+export function internalError(ref: string): MappedError {
+  return { status: 500, body: { error: "Something went wrong on our side.", code: "INTERNAL", ref } };
+}
+
+/**
+ * The response for any thrown error. Typed errors keep their status and code; D1 constraint
+ * failures read as CONFLICT, IN_USE, or BAD_REFERENCE; everything else is a 500 whose reference
+ * is logged beside the full error. No body ever carries D1 or SQL text.
+ */
+export function respondToError(err: unknown, where: string, ref = errorRef()): MappedError {
+  const mapped = mapDomainError(err);
+  if (mapped && !isDatabaseError(err)) return mapped;
+  const constraint = mapConstraintError(err);
+  if (constraint) {
+    console.warn(`${constraint.body.code} on ${where}`, ...causeChain(err));
+    return constraint;
+  }
+  console.error(`Error ${ref} on ${where}`, ...causeChain(err));
+  return internalError(ref);
+}
 
 export function mapDomainError(err: unknown): MappedError | null {
   if (err instanceof InsufficientStockError) {

@@ -119,6 +119,10 @@ const SAMPLE: Record<ErrorCode, { status: number; body: Record<string, unknown> 
   NOT_CONNECTED: { status: 400, body: { error: "Shopify is not connected" } },
   NOTHING_TO_BILL: { status: 409, body: { error: "No client activity to bill for this period" } },
   SAMPLE_EXISTS: { status: 409, body: { error: "Sample data only loads into an empty org" } },
+  CONFLICT: { status: 409, body: { error: "That SKU is already taken.", field: "SKU" } },
+  IN_USE: { status: 409, body: { error: "That is still in use, so it cannot be removed." } },
+  BAD_REFERENCE: { status: 400, body: { error: "Something this refers to no longer exists." } },
+  INTERNAL: { status: 500, body: { error: "Something went wrong on our side.", ref: "7KQ2M9XA" } },
 };
 
 function explain(code: ErrorCode, extra: Record<string, unknown> = {}) {
@@ -375,6 +379,22 @@ describe("explainError — every code", () => {
       message: "This workspace already has SKUs or bays.",
       hint: "Sample data only loads into an empty workspace.",
     });
+  });
+
+  it("database conflicts and crashes read plainly, with a reference for a crash", () => {
+    expect(explain("CONFLICT")).toMatchObject({
+      message: "That SKU is already taken.",
+      hint: "Use a different SKU, or refresh to find the one already saved.",
+    });
+    expect(explainError(409, { error: "That already exists.", code: "CONFLICT" }, "x").message).toBe("That already exists.");
+    expect(explain("IN_USE").hint).toBe("Remove or move what uses it first.");
+    expect(explain("BAD_REFERENCE").message).toBe("Something this refers to no longer exists.");
+    expect(explain("INTERNAL")).toEqual({
+      code: "INTERNAL",
+      message: "Something went wrong on our side.",
+      hint: "Try again in a moment. If it keeps happening, quote reference 7KQ2M9XA.",
+    });
+    expect(explainError(500, { code: "INTERNAL" }, "x").hint).toBe("Try again in a moment.");
   });
 
   it("reads well when the body has no sku", () => {

@@ -18,6 +18,7 @@ import {
 import { loadOpenHolds, loadHeldLotQuantities } from "./holds";
 import { openShopifyRow } from "./credentials";
 import { credentialSecret } from "../lib/credential-secret";
+import { publicErrorText } from "../lib/db-errors";
 import {
   ShopifyApiError,
   createShopifyGraphqlClient,
@@ -290,7 +291,7 @@ export async function syncShopifySellable(
     });
     return { status: "synced", locationGid, rows: quantities, skipped };
   } catch (err) {
-    const message = err instanceof ShopifyApiError ? err.message : err instanceof Error ? err.message : "Inventory sync failed";
+    const message = publicErrorText(err, "Inventory sync failed");
     await recordOutbound(db, {
       organizationId,
       kind: "inventorySetQuantities",
