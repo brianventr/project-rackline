@@ -165,6 +165,14 @@ describe("searchGlossary", () => {
       ["tariff code", "hs-code"],
       ["CN22", "customs-form"],
       ["commercial invoice", "customs-form"],
+      ["address check", "address-check"],
+      ["suggested address", "address-check"],
+      ["ship anyway to this address", "address-check"],
+      ["tracking page", "tracking-page"],
+      ["copy tracking link", "tracking-page"],
+      ["brand colour", "tracking-page"],
+      ["return label", "return-label"],
+      ["copy customer link", "return-label"],
     ];
     for (const [query, id] of expected) expect(top(query), query).toBe(id);
   });

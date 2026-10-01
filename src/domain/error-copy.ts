@@ -40,6 +40,7 @@ export const ERROR_CODES = [
   "RETURN_LABEL_UNSUPPORTED",
   "CUSTOMS_REQUIRED",
   "CUSTOMS_UNSUPPORTED",
+  "ADDRESS_INVALID",
   "NEED_PACKAGE",
   "SHIPPED",
   "CANCELLED",
@@ -370,6 +371,12 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
     const copy = splitSentences(text || "This carrier account cannot buy this international label in Rackline yet");
     return { message: copy.message, hint: copy.hint ?? "Choose a service on EasyPost or ShipEngine, or buy this label on the carrier's site." };
   },
+  ADDRESS_INVALID: ({ body, text }) => ({
+    message: text ? asSentence(text) : "The ship-to address needs a look before a label.",
+    hint: str(body, "suggestion")
+      ? "Use the suggested address, edit it, or accept it as it is from the ship queue or the order page."
+      : "Edit the address, or accept it as it is from the ship queue or the order page.",
+  }),
   NEED_PACKAGE: ({ text }) => needPackageCopy(text),
   SHIPPED: ({ text }) => {
     if (/short-ship/i.test(text)) return splitSentences(text);

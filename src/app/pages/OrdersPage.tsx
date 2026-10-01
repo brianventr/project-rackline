@@ -84,6 +84,7 @@ import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-f
 import { PickMap } from "../components/PickMap";
 import { ScaleWeight } from "../scale/ScaleWeight";
 import { copyTrackingLink } from "../tracking-link";
+import { AddressCheckCard } from "./AddressCheck";
 
 export function OrdersPage() {
   const { id } = useParams();
@@ -977,6 +978,7 @@ function OrderDetail({ id }: { id: string }) {
                 <p className="text-sm text-muted-foreground">{manualPostBackNote(order.source ?? "")}</p>
               ) : null}
             </Card>
+            <AddressCheckCard order={order} onChange={() => void run("Reload", load)} />
           </DocumentRail>
         }
       >

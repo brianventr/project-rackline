@@ -834,6 +834,19 @@ export type OrderCustoms = {
   gaps: CustomsGap[];
 };
 
+/** `GET /api/orders/:id/address`: the check a label purchase and quick-ship run on the ship-to address. */
+export type OrderAddressCheck = {
+  orderId: string;
+  /** False once the order has a label, has shipped, or is cancelled. */
+  editable: boolean;
+  blocked: boolean;
+  /** Someone chose to ship to this exact address as it is. */
+  overridden: boolean;
+  message: string | null;
+  /** The carrier's corrected address on one line. */
+  suggestion: string | null;
+};
+
 export type TrackingLink = { token: string; path: string; url: string };
 
 export type PublicTrackingEvent = {
@@ -1835,8 +1848,11 @@ export type ShipQueueOrder = {
   /** Written when quick-ship bought the label: `Mailer (Auto) · UPS Ground (Cheapest)`. */
   shipReason: string | null;
   ready: boolean;
-  /** `itemId` is set when the fix is on an item, as for `CUSTOMS_REQUIRED`. */
-  blocker: { code: string; error: string; sku: string | null; itemId?: string | null } | null;
+  /**
+   * `itemId` is set when the fix is on an item, as for `CUSTOMS_REQUIRED`. `suggestion` is the carrier's corrected
+   * address on one line, for `ADDRESS_INVALID`.
+   */
+  blocker: { code: string; error: string; sku: string | null; itemId?: string | null; suggestion?: string | null } | null;
 };
 
 /** `POST /api/ship/decide`: one order's box, service, and quote at a given weight, and what would stop quick-ship. */

@@ -25,6 +25,8 @@ import { isLivePostage, postagePurchaseMessage, requireLiveShipAddress, resolveP
 import { asCarrierLiveError } from "../lib/carrier-client";
 import { buyLivePostage, shopLiveRates, voidLivePostage } from "../lib/live-postage";
 import { customsForOrderLabel } from "../db/customs";
+import { orderAddressVerdict } from "../db/address-checks";
+import { AddressInvalidError } from "../domain/address-check";
 import { loadCarrierConnections, recordCarrierEvent } from "./carriers";
 import { scheduleShopifySellableSync } from "../db/shopify-sellable";
 import { parseSerialList } from "../domain/lots";
@@ -1400,6 +1402,16 @@ async function purchaseOrderLabel(
     isLivePostage(connection.provider, connection.mode);
   const existingTracking = options?.forceNewTracking ? null : pkg ? pkg.trackingNumber : order.trackingNumber;
   const minting = !explicitTracking && (live || !existingTracking);
+  if (minting) {
+    const address = await orderAddressVerdict(db, organizationId, {
+      order,
+      shipToAddress,
+      buildingCountry: warehouse?.country,
+      connections,
+      verify: true,
+    });
+    if (address.blocked) throw new AddressInvalidError(address);
+  }
   const customs = minting
     ? await customsForOrderLabel(db, organizationId, {
         order,

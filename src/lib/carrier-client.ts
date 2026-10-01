@@ -10,6 +10,15 @@ import {
 import type { CarrierProviderId, CarrierRateQuote, EnabledCarrierService } from "../domain/carriers";
 import type { CustomsDeclaration } from "../domain/customs";
 import {
+  easyPostVerification,
+  easyPostVerifyBody,
+  shipEngineVerification,
+  shipEngineVerifyBody,
+  type AddressProvider,
+  type AddressVerification,
+} from "../domain/address-check";
+import type { ShipAddressParts } from "../domain/ship-address";
+import {
   easyPostCustomsFormUrl,
   easyPostLabelUrl,
   easyPostShipmentBody,
@@ -310,6 +319,25 @@ export async function voidAggregatorLabel(input: {
     return;
   }
   throw new CarrierLiveError("Live postage is only implemented for EasyPost and ShipEngine.");
+}
+
+export async function verifyAggregatorAddress(input: {
+  provider: AddressProvider;
+  apiKey: string;
+  parts: ShipAddressParts;
+  name: string;
+}): Promise<AddressVerification> {
+  if (input.provider === "easypost") {
+    const payload = await easyPost<unknown>(input.apiKey, "/addresses", easyPostVerifyBody(input.parts, input.name));
+    return easyPostVerification(payload, input.parts);
+  }
+  const payload = await shipEngine<unknown>(
+    input.apiKey,
+    "POST",
+    "/v1/addresses/validate",
+    shipEngineVerifyBody(input.parts, input.name),
+  );
+  return shipEngineVerification(payload, input.parts);
 }
 
 export function asCarrierLiveError(err: unknown): CarrierLiveError {

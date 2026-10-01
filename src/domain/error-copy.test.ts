@@ -80,6 +80,10 @@ const SAMPLE: Record<ErrorCode, { status: number; body: Record<string, unknown> 
       error: "A direct USPS account cannot buy international labels in Rackline yet. Choose a USPS service on EasyPost or ShipEngine.",
     },
   },
+  ADDRESS_INVALID: {
+    status: 409,
+    body: { error: "The ship-to address has no ZIP code. ZZ is not a US state.", suggestion: null },
+  },
   NEED_PACKAGE: { status: 409, body: { error: "Buy a label for every carton before shipping" } },
   SHIPPED: { status: 409, body: { error: "Carton is already shipped" } },
   CANCELLED: { status: 409, body: { error: "Cancelled orders cannot drop a carton" } },
@@ -279,6 +283,20 @@ describe("explainError — every code", () => {
       "x",
     );
     expect(itn.hint).toBe("Buy this label on the carrier's site.");
+  });
+
+  it("an address hold keeps every problem in the message and offers the suggestion when there is one", () => {
+    expect(explain("ADDRESS_INVALID")).toMatchObject({
+      message: "The ship-to address has no ZIP code. ZZ is not a US state.",
+      hint: "Edit the address, or accept it as it is from the ship queue or the order page.",
+    });
+    expect(
+      explain("ADDRESS_INVALID", {
+        error: "EasyPost knows this address as 14 DOCK ST, PORTLAND, OR 97210-4321, US.",
+        suggestion: "14 DOCK ST, PORTLAND, OR 97210-4321, US",
+      }).hint,
+    ).toBe("Use the suggested address, edit it, or accept it as it is from the ship queue or the order page.");
+    expect(explainError(409, { code: "ADDRESS_INVALID" }, "").message).toBe("The ship-to address needs a look before a label.");
   });
 
   it("NEED_PACKAGE picks the right carton step", () => {

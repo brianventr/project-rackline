@@ -3,6 +3,8 @@ import { Hono } from "hono";
 import { mapDomainError } from "./error-response";
 import { conflict, forbidden, HttpError } from "./http";
 import { requireOwner } from "./org";
+import { AddressInvalidError } from "../domain/address-check";
+import { CustomsRequiredError } from "../domain/customs";
 import { HeldStockError } from "../domain/holds";
 import { InsufficientAtpError } from "../domain/allocations";
 import { InsufficientStockError } from "../domain/inventory";
@@ -75,6 +77,19 @@ describe("409 contract", () => {
     } catch (err) {
       expect(mapDomainError(err)).toEqual({ status: 403, body: { error: "Owner role required" } });
     }
+  });
+
+  it("maps the holds on a label: customs gaps by item, and the ship-to address with the carrier's suggestion", () => {
+    const gaps = [{ sku: "SHADE", itemId: "item-1", missing: ["hsCode" as const] }];
+    expect(mapDomainError(new CustomsRequiredError(gaps))).toMatchObject({
+      status: 409,
+      body: { code: "CUSTOMS_REQUIRED", sku: "SHADE", items: gaps },
+    });
+    const suggestion = { street1: "14 DOCK ST", street2: "", city: "PORTLAND", region: "OR", postal: "97209-1234", country: "US" };
+    expect(mapDomainError(new AddressInvalidError({ message: "The ship-to address has no ZIP code.", suggestion }))).toEqual({
+      status: 409,
+      body: { error: "The ship-to address has no ZIP code.", code: "ADDRESS_INVALID", suggestion: "14 DOCK ST, PORTLAND, OR 97209-1234, US" },
+    });
   });
 });
 
