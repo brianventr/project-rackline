@@ -27,10 +27,12 @@ function eventError(row: CarrierEventRow): string | null {
   return typeof error === "string" && error.trim() ? asSentence(error) : null;
 }
 
-function eventRequest(row: CarrierEventRow): { packageId: string | null; replaced: boolean } {
+function eventRequest(row: CarrierEventRow): { packageId: string | null; replaced: boolean; returnLabel: boolean; rmaId: string | null } {
   const request = parseJsonObject(row.requestJson);
   const packageId = typeof request?.packageId === "string" && request.packageId ? request.packageId : null;
-  return { packageId, replaced: request?.relabel === true };
+  const rmaId = typeof request?.rmaId === "string" && request.rmaId ? request.rmaId : null;
+  const returnLabel = request?.returnLabel === true || (typeof request?.returnLabelId === "string" && request.returnLabelId.length > 0);
+  return { packageId, replaced: request?.relabel === true, returnLabel, rmaId };
 }
 
 /**
@@ -63,9 +65,12 @@ export function carrierProblems(events: readonly CarrierEventRow[]): ExceptionIt
   const items: ExceptionItem[] = [];
   for (const [key, run] of runs) {
     const order = run.latest;
-    if (order.orderStatus === "shipped") continue;
+    const meta = eventRequest(order);
+    // A return label is bought on an order that has already shipped. Those failures used to
+    // disappear here, because the inbox treats a shipped order's label buy as finished.
+    if (order.orderStatus === "shipped" && !meta.returnLabel) continue;
     if (key.startsWith("buy.")) {
-      if (order.orderStatus === "cancelled") continue;
+      if (order.orderStatus === "cancelled" && !meta.returnLabel) continue;
       items.push(buyItem(key, run));
     } else {
       items.push(voidItem(key, run));
@@ -90,6 +95,20 @@ function base(row: CarrierEventRow) {
 
 function buyItem(key: string, run: Run): ExceptionItem {
   const row = run.latest;
+  const meta = eventRequest(row);
+  if (meta.returnLabel) {
+    return exceptionItem({
+      ...base(row),
+      link: meta.rmaId ? `/outbound/returns/${meta.rmaId}` : `/outbound/orders/${row.orderId}`,
+      key,
+      kind: "return_label_buy_failed",
+      kindLabel: "Return label buy failed",
+      severity: "warning",
+      title: `The carrier would not sell a return label for order ${row.orderNumber}`,
+      detail: `${eventError(row) ?? "The carrier refused the return label."}${tries(run)} Fix what it says on the return, then buy the label again.`,
+      createdAt: run.first.createdAt,
+    });
+  }
   return exceptionItem({
     ...base(row),
     key,
@@ -104,6 +123,20 @@ function buyItem(key: string, run: Run): ExceptionItem {
 
 function voidItem(key: string, run: Run): ExceptionItem {
   const row = run.latest;
+  const meta = eventRequest(row);
+  if (meta.returnLabel) {
+    return exceptionItem({
+      ...base(row),
+      link: meta.rmaId ? `/outbound/returns/${meta.rmaId}` : `/outbound/orders/${row.orderId}`,
+      key,
+      kind: "return_label_void_failed",
+      kindLabel: "Return label void failed",
+      severity: "warning",
+      title: `A return label on order ${row.orderNumber} did not void`,
+      detail: `${eventError(row) ?? "The carrier refused the void."}${tries(run)} Void it again from the return, or in your carrier account, so the postage comes back.`,
+      createdAt: run.first.createdAt,
+    });
+  }
   return exceptionItem({
     ...base(row),
     key,
