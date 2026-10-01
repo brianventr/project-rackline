@@ -6,6 +6,7 @@ import { loadHeldLotQuantities, loadOpenHolds } from "./holds";
 import { withOpenQc } from "./qc-samples";
 import { isOpenPickStatus, remainingToPickQty } from "../domain/shopify-sellable";
 import { majorityVendor } from "../domain/reorder";
+import { defaultTransitDays, freightEta, isTransitMode } from "../domain/restock";
 import {
   DEFAULT_LEAD_MS,
   DAY_MS,
@@ -183,9 +184,16 @@ export async function loadRunway(
       expectedAt: schema.asns.expectedAt,
       eta: schema.asns.eta,
       createdAt: schema.asns.createdAt,
+      departedAt: schema.asns.departedAt,
+      orderedAt: schema.purchases.orderedAt,
+      transitMode: schema.vendors.transitMode,
+      transitDays: schema.vendors.transitDays,
+      makeDays: schema.vendors.makeDays,
     })
     .from(schema.asnLines)
     .innerJoin(schema.asns, eq(schema.asns.id, schema.asnLines.asnId))
+    .leftJoin(schema.purchases, eq(schema.purchases.id, schema.asns.purchaseId))
+    .leftJoin(schema.vendors, eq(schema.vendors.id, schema.asns.vendorId))
     .where(
       and(
         eq(schema.asns.organizationId, organizationId),
@@ -199,7 +207,18 @@ export async function loadRunway(
     const remaining = Math.max(0, row.qtyExpected - row.qtyReceived);
     if (remaining <= 0) continue;
     asnRemainingByItem.set(row.itemId, (asnRemainingByItem.get(row.itemId) ?? 0) + remaining);
-    const at = row.expectedAt ?? row.eta ?? row.createdAt;
+    const mode = isTransitMode(row.transitMode) ? row.transitMode : null;
+    const at = mode
+      ? freightEta({
+          expectedAt: row.expectedAt,
+          eta: row.eta,
+          departedAt: row.departedAt,
+          orderedAt: row.orderedAt,
+          makeDays: row.makeDays ?? 0,
+          transitDays: row.transitDays ?? defaultTransitDays(mode),
+          fallbackAt: row.createdAt,
+        }).at
+      : (row.expectedAt ?? row.eta ?? row.createdAt);
     const list = asnInboundByItem.get(row.itemId) ?? [];
     list.push({ at, qty: remaining });
     asnInboundByItem.set(row.itemId, list);

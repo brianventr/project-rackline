@@ -455,6 +455,13 @@ function AsnDetail({ id }: { id: string }) {
                   <RelativeTime at={asn.eta} />
                 </DocumentFact>
               ) : null}
+              {asn.containerNumber ? <DocumentFact label="Container">{asn.containerNumber}</DocumentFact> : null}
+              {asn.milestone ? <DocumentFact label="Freight">{asn.milestone.replaceAll("_", " ")}</DocumentFact> : null}
+              {asn.departedAt ? (
+                <DocumentFact label="Departed">
+                  <RelativeTime at={asn.departedAt} />
+                </DocumentFact>
+              ) : null}
               {asn.expectedAt ? (
                 <DocumentFact label="Expected">
                   <RelativeTime at={asn.expectedAt} />

@@ -669,6 +669,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/analytics/runway",
   },
   {
+    id: "restock-forecast",
+    term: "Restock forecast",
+    aliases: ["reorder forecast", "make days", "ocean freight", "transit days", "order-by date"],
+    short: "When to order a SKU so it arrives before the shelf runs out, counting make time and the shipment.",
+    long: "House stock and each 3PL client's stock are forecast apart. A vendor lane is make days plus ocean, air, or ground. After a few containers arrive, the transit days become that vendor's own median. Alert lists it in Exceptions. Draft opens a purchase and does not send it.",
+    path: "/analytics/runway",
+  },
+  {
     id: "reorder-point",
     term: "Reorder point",
     aliases: ["rop", "reorder", "low stock", "reorder queue"],

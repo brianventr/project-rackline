@@ -122,6 +122,7 @@ export type Me = {
     operatingMode?: "garage" | "warehouse";
     brandColor?: string | null;
     logoUrl?: string | null;
+    restockPolicy?: "off" | "alert" | "draft";
   };
   role: "owner" | "operator";
   floorVerbs?: string[];
@@ -180,6 +181,7 @@ export type Item = {
   customsValueCents?: number | null;
   /** Null means incoming QC is off. */
   qcSamplePercent?: number | null;
+  makeDays?: number | null;
   onHand?: {
     locationId: string;
     locationCode: string;
@@ -566,6 +568,7 @@ export type ReceiptLine = {
   catchWeight?: boolean;
   trackExpiry?: boolean;
   qcSamplePercent?: number | null;
+  makeDays?: number | null;
 };
 
 export type ReceiptQcSample = {
@@ -1723,6 +1726,9 @@ export type Asn = {
   eta?: number | null;
   expectedAt?: number | null;
   receivedAt?: number | null;
+  containerNumber?: string | null;
+  departedAt?: number | null;
+  milestone?: string | null;
   lines?: AsnLine[];
   packages?: AsnPackage[];
 };
@@ -2042,6 +2048,10 @@ export type Vendor = {
   address: string | null;
   paymentTerms: string | null;
   leadTimeDays: number | null;
+  makeDays: number | null;
+  transitMode: string | null;
+  transitDays: number | null;
+  bufferDays: number | null;
   currency: string;
   notes: string | null;
   createdAt: number;

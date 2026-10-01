@@ -616,6 +616,7 @@ catalogRoute.patch("/items/:id", async (c) => {
     shipWidthIn?: number | null;
     shipHeightIn?: number | null;
     qcSamplePercent?: number | null;
+    makeDays?: number | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -639,6 +640,7 @@ catalogRoute.patch("/items/:id", async (c) => {
     shipWidthIn?: number | null;
     shipHeightIn?: number | null;
     qcSamplePercent?: number | null;
+    makeDays?: number | null;
   } = {};
   for (const key of ["shipWeightOz", "shipLengthIn", "shipWidthIn", "shipHeightIn"] as const) {
     if (body[key] === undefined) continue;
@@ -690,6 +692,14 @@ catalogRoute.patch("/items/:id", async (c) => {
     } catch (err) {
       if (err instanceof QcSampleError) badRequest(err.message);
       throw err;
+    }
+  }
+  if ("makeDays" in body) {
+    if (body.makeDays == null) patch.makeDays = null;
+    else {
+      const makeDays = requireInt(body.makeDays, "makeDays");
+      if (makeDays < 0 || makeDays > 365) badRequest("Make days must be whole days, 0 to 365");
+      patch.makeDays = makeDays;
     }
   }
   if (Object.keys(patch).length === 0) badRequest("Nothing to update");
