@@ -207,6 +207,7 @@ Settings → Integrations changes with the mode:
 | Vendor and customer records | Parts → Vendors, Ship → Customers | Inbound → Vendors, Outbound → Customers |
 | Pack sizes (inner, case, pallet) | Yes: a case scan counts its eaches | Yes, and one case scan proves every unit in it |
 | Bin capacity (max units, weight, volume) | Hidden, but a limit set in Manufacturer still holds | Set per bay; fill % on Locations and the map; putaway skips full bays |
+| License plates (tote, pallet, carton) | Hidden; a plate made in Manufacturer stays in step when Garage ships from its bay | `LP-` codes on Stock → Plates and Floor → Plates: build in a bay, move in one scan, receive onto, pick off |
 | Menu | Short bench menu | Full office menu plus Settings |
 
 ## 6. Switching modes
@@ -338,3 +339,30 @@ A bay can have a limit on how many units it holds, how much they weigh, and how 
 - **Putaway.** Suggestions skip full bays, prefer a bay with room for the whole qty, and never suggest more than a bay has room for.
 
 Manufacturer shows a **Fill** column on Locations, the Capacity card on each bay, and fill % on the floor-plan map. The meter turns amber at 85% and red once the bay is full. Garage hides capacity, but a limit set in Manufacturer still holds, and the bay's page still shows it.
+
+## 11. License plates
+
+Manufacturer can group stock in a bay on a **license plate**: a tote, pallet, or carton with its own code, such as `LP-000123`. The list is under **Stock → Plates**, and plates are built on **Floor → Plates**. Garage hides them.
+
+**A plate is a share of its bay.** The bay's balance stays the ledger. A plate's lines say which of those units are on it, and for each item and each lot they never add up to more than the bay holds. Building or breaking a plate changes neither on hand nor available, so ATP, pick plans, quick-ship, and waves work as before. Stock in a bay that is on no plate is **loose**.
+
+On Floor → Plates:
+
+- **Start.** Scan a bay, choose tote, pallet, or carton, and start the plate. Rackline gives it the next code.
+- **Build.** With the plate open, scan stock that is in the same bay: a SKU, a case label, or a serial. A SKU scan puts **Qty per scan** units on the plate, 1 unless you change it, and a case label puts on that many cases' eaches. A serial puts on its one unit. **Add all** puts every loose unit of an item on at once. Lots go first-expiring first, skipping expired lots, unless you type one. Building posts no ledger movement, because nothing moved.
+- **Move.** Scan another bay. Each line on the plate posts a normal ledger move, so holds, ATP, and bin capacity apply, and an owner can fill a full bay past its limit. Lots and serials go with the plate.
+- **Close, reopen, break.** A closed plate takes no more stock, but it can still move and be picked from. Breaking a plate leaves its stock loose in the bay, and the plate open and empty.
+
+**Receiving onto a plate.** On Floor Receive, scan an open plate after the receipt or PO, and the received units go on it. An empty plate moves to the receiving bay with them. A plate with stock on it can only be received into its own bay, so scanning one switches the bay to it.
+
+**Picking.** A pick takes loose stock first and leaves plates alone. To pick off a plate, scan the plate instead of its bay: the plate proves the bay, and the pick comes off it. A closed plate that a pick empties is marked shipped. Waves pick loose stock only.
+
+**When stock leaves a bay another way**, such as a move of loose stock, an adjustment, a count, or a Garage quick-ship, Rackline takes it from loose stock first. Any shortfall comes off open plates before closed ones, newest first. A serial on a plate comes off it when the serial leaves the bay. A plate never claims more than the bay holds.
+
+Plates add three refusals:
+
+- **`PLATE_OVER_LOOSE`.** The build asks for more than is loose in the bay. The rest is already on plates.
+- **`PLATE_STATUS`.** The plate is closed or shipped, so it cannot do that. Reopen a closed plate to add stock.
+- **`PLATE_SHORT`.** The scanned plate does not hold what the pick needs. Pick the rest loose, or from another plate.
+
+Plates show on the bay's page under Locations, with an **On plates** column, on the map's bay panel, and on Floor Lookup, which opens a plate by its code.
