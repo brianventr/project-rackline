@@ -160,7 +160,7 @@ The queue prices the 25 oldest orders that are ready to ship and shows the chose
 
 ### Automatic box
 
-When the building has more than one saved box, quick-ship packs each order in the smallest box it fits, and the queue shows **Auto** next to the box. For that to work:
+When you have more than one saved box, quick-ship packs each order in the smallest box it fits, and the queue shows **Auto** next to the box. For that to work:
 
 - Give each SKU a ship size (length, width, and height) on Items.
 - Give each box its inside size and a max weight in the **Boxes** sheet. A box with no inside size is measured by its outside size, and one with no max weight takes any weight.
