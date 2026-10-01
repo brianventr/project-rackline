@@ -21,6 +21,9 @@ export type BomStepView = {
   componentSku: string | null;
   componentName: string | null;
   componentImageUrl: string | null;
+  workCenterId: string | null;
+  workCenterCode: string | null;
+  workCenterName: string | null;
 };
 
 export async function loadBomSteps(db: AppDb, bomId: string): Promise<BomStepView[]> {
@@ -35,9 +38,13 @@ export async function loadBomSteps(db: AppDb, bomId: string): Promise<BomStepVie
       componentSku: schema.items.sku,
       componentName: schema.items.name,
       componentImageUrl: schema.items.imageUrl,
+      workCenterId: schema.bomSteps.workCenterId,
+      workCenterCode: schema.workCenters.code,
+      workCenterName: schema.workCenters.name,
     })
     .from(schema.bomSteps)
     .leftJoin(schema.items, eq(schema.items.id, schema.bomSteps.componentItemId))
+    .leftJoin(schema.workCenters, eq(schema.workCenters.id, schema.bomSteps.workCenterId))
     .where(eq(schema.bomSteps.bomId, bomId))
     .orderBy(schema.bomSteps.seq);
 }

@@ -515,6 +515,21 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/make/recipes",
   },
   {
+    id: "nested-recipe",
+    term: "Nested recipe",
+    aliases: ["nested bom", "child work order", "build short sub-assemblies"],
+    short: "A component with its own recipe. Build short sub-assemblies opens a child work order for the qty that is short.",
+    long: "The parent still consumes that component, so completing it returns COMPONENT_SHORT and names the child until the component is on hand. Completing the child does not complete the parent. Only the direct components are opened, not every level. A cycle is refused, and a recipe stops at five levels.",
+    path: "/make/recipes",
+  },
+  {
+    id: "work-center",
+    term: "Work center",
+    aliases: ["work centers", "work centre", "bench routing"],
+    short: "Where a recipe step is done. Stock stays on one ledger. The center is only a name on the step.",
+    path: "/setup/warehouse",
+  },
+  {
     id: "work-order",
     term: "Work order",
     aliases: ["wo", "build", "builds", "assemble", "production order"],

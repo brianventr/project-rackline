@@ -47,6 +47,7 @@ export function KitRecipeCard({
                 <div className="min-w-0">
                   <p className="text-sm font-medium">
                     {step.seq}. {step.title || step.body}
+                    {step.workCenterName ? <span className="font-normal text-muted-foreground"> · {step.workCenterName}</span> : null}
                   </p>
                   {step.title && step.body ? <p className="text-sm text-muted-foreground">{step.body}</p> : null}
                   {step.componentSku ? (

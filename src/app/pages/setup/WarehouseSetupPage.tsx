@@ -1,9 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Factory, Plus, Wrench, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
-import { api, errorText, type CarrierHub, type CarrierServiceOption, type WarehouseMapInfo } from "../../api";
+import { api, errorText, type CarrierHub, type CarrierServiceOption, type WarehouseMapInfo, type WorkCenter } from "../../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, ToneBadge, onSubmit } from "../../components/ui";
 import {
   NumberField,
@@ -17,6 +17,7 @@ import { Term } from "../../components/term";
 import { useWarehouse } from "../../warehouse";
 import { useOperatingMode } from "../../use-operating-mode";
 import { useWrite } from "../../use-write";
+import { useApiQuery } from "../../query";
 import { cn } from "@/lib/utils";
 import { optionalText, wholeNumber } from "@/domain/form-schemas";
 import {
@@ -250,6 +251,7 @@ export function WarehouseSetupPage() {
         </div>
       </Card>
 
+      {garage ? null : <WorkCentersCard owner={operating.owner} />}
       <TrackingPageCard disabled={!operating.owner} />
       <CustomerNotificationsCard disabled={!operating.owner} />
 
@@ -421,6 +423,87 @@ export function WarehouseSetupPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+function WorkCentersCard({ owner }: { owner: boolean }) {
+  const centers = useApiQuery<WorkCenter[]>("/api/work-centers");
+  const write = useWrite();
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const rows = centers.data ?? [];
+
+  async function add(event: FormEvent) {
+    event.preventDefault();
+    const created = await write.run(
+      "Add work center",
+      () =>
+        api<WorkCenter>("/api/work-centers", {
+          method: "POST",
+          body: JSON.stringify({ code, name }),
+        }),
+      (row) => `Added ${row.code}.`,
+    );
+    if (!created) return;
+    setCode("");
+    setName("");
+    void centers.refetch();
+  }
+
+  async function remove(center: WorkCenter) {
+    const ok = await write.run(
+      "Delete work center",
+      () => api(`/api/work-centers/${center.id}`, { method: "DELETE" }),
+      `Removed ${center.code}. Steps that used it no longer name a center.`,
+    );
+    if (ok) void centers.refetch();
+  }
+
+  return (
+    <Card>
+      <div className="space-y-3">
+        <SectionHeading
+          title="Work centers"
+          description={
+            <>
+              A <Term id="work-center">work center</Term> is where a recipe step is done. Stock stays on the one ledger.
+            </>
+          }
+        />
+        {rows.length === 0 ? <p className="text-sm text-muted-foreground">No work centers yet.</p> : null}
+        {rows.length > 0 ? (
+          <ul className="space-y-2">
+            {rows.map((center) => (
+              <li key={center.id} className="flex items-center justify-between gap-3 text-sm">
+                <span>
+                  <span className="font-mono">{center.code}</span> {center.name}
+                </span>
+                {owner ? (
+                  <Button size="sm" variant="ghost" disabled={write.busy} onClick={() => void remove(center)}>
+                    Remove
+                  </Button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {owner ? (
+          <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => void add(event)}>
+            <Field label="Code">
+              <Input value={code} onChange={(event) => setCode(event.target.value)} placeholder="BENCH" />
+            </Field>
+            <Field label="Name">
+              <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Assembly bench" />
+            </Field>
+            <Button type="submit" size="sm" disabled={write.busy || !code.trim() || !name.trim()}>
+              <Plus className="size-4" />
+              Add center
+            </Button>
+          </form>
+        ) : null}
+        <ErrorBanner error={write.error} />
+      </div>
+    </Card>
   );
 }
 

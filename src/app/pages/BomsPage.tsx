@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ImagePlus, ListTree, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
-import { api, errorText, uploadFile, type Bom, type BomStep, type Item, type Me } from "../api";
+import { api, errorText, uploadFile, type Bom, type BomStep, type Item, type Me, type WorkCenter } from "../api";
 import { Button, EmptyState, Input, PageHeader, Select, Table, summarizeLines } from "../components/ui";
 import { SkuThumb } from "../components/sku-thumb";
 import { KitRecipeCard } from "../components/kit-recipe";
@@ -50,17 +50,19 @@ type StepDraft = {
   title: string;
   body: string;
   componentItemId: string;
+  workCenterId: string;
   imageUrl?: string | null;
   file?: File | null;
 };
 
 function draftsFrom(steps: BomStep[] | undefined): StepDraft[] {
-  if (!steps?.length) return [{ title: "", body: "", componentItemId: "" }];
+  if (!steps?.length) return [{ title: "", body: "", componentItemId: "", workCenterId: "" }];
   return steps.map((step) => ({
     id: step.id,
     title: step.title,
     body: step.body,
     componentItemId: step.componentItemId ?? "",
+    workCenterId: step.workCenterId ?? "",
     imageUrl: step.imageUrl,
   }));
 }
@@ -202,6 +204,7 @@ export function BomsPage({ me }: { me: Me }) {
         <RecipeSheet
           key={openBom.id}
           bom={openBom}
+          recipes={rows}
           canDelete={me.role === "owner"}
           onClose={closeRecipe}
           onSaved={async () => {
@@ -296,15 +299,18 @@ function NewRecipeSheet({
 
 function RecipeSheet({
   bom,
+  recipes,
   canDelete,
   onClose,
   onSaved,
 }: {
   bom: Bom;
+  recipes: Bom[];
   canDelete: boolean;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const centers = useApiQuery<WorkCenter[]>("/api/work-centers");
   const [steps, setSteps] = useState<StepDraft[]>(() => draftsFrom(bom.steps));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -331,6 +337,7 @@ function RecipeSheet({
           title: step.title,
           body: step.body,
           componentItemId: step.componentItemId || null,
+          workCenterId: step.workCenterId || null,
           imageUrl: step.imageUrl ?? null,
         }));
       const saved = await api<Bom>(`/api/boms/${bom.id}/steps`, {
@@ -407,14 +414,23 @@ function RecipeSheet({
       <div className="space-y-1.5">
         <p className="text-sm font-medium">Components</p>
         <Table columns={["Component", "Qty each"]}>
-          {bom.lines.map((line) => (
-            <tr key={line.id}>
-              <td>
-                <SkuCell sku={line.sku} name={line.itemName} imageUrl={line.imageUrl} />
-              </td>
-              <td className="font-mono tabular-nums">{line.qty}</td>
-            </tr>
-          ))}
+          {bom.lines.map((line) => {
+            const nested = recipes.find((recipe) => recipe.itemId === line.itemId);
+            return (
+              <tr key={line.id}>
+                <td>
+                  {nested ? (
+                    <Link className="underline" to={`/make/recipes?recipe=${nested.id}`}>
+                      <SkuCell sku={line.sku} name={line.itemName} imageUrl={line.imageUrl} />
+                    </Link>
+                  ) : (
+                    <SkuCell sku={line.sku} name={line.itemName} imageUrl={line.imageUrl} />
+                  )}
+                </td>
+                <td className="font-mono tabular-nums">{line.qty}</td>
+              </tr>
+            );
+          })}
         </Table>
       </div>
 
@@ -468,6 +484,20 @@ function RecipeSheet({
                     ))}
                   </Select>
                 </div>
+                <div className="pl-8">
+                  <Select
+                    aria-label={`Step ${index + 1} work center`}
+                    value={step.workCenterId}
+                    onChange={(e) => patchStep(index, { workCenterId: e.target.value })}
+                  >
+                    <option value="">Work center</option>
+                    {(centers.data ?? []).map((center) => (
+                      <option key={center.id} value={center.id}>
+                        {center.code} — {center.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
                 <div className="flex items-center gap-2 pl-8">
                   <SkuThumb sku={partSku} imageUrl={step.imageUrl} size="sm" />
                   <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
@@ -492,7 +522,7 @@ function RecipeSheet({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setSteps((current) => [...current, { title: "", body: "", componentItemId: "" }])}
+          onClick={() => setSteps((current) => [...current, { title: "", body: "", componentItemId: "", workCenterId: "" }])}
         >
           <Plus className="size-4" />
           Add step

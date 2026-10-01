@@ -673,3 +673,11 @@ Manufacturer ranks each SKU by picks and shipments over the last 30 days, the sa
 **Plan slotting** on Stock → Locations (owners) opens a normal transfer from the bulk bay that holds the SKU. The destination is an empty pick face, or a pick face whose current SKU is slower. It does not post the transfer and does not move stock. A SKU that is already on a pick face is skipped. A slower SKU never displaces a faster one. Qty is what is available in bulk, capped by the pick face's max qty when that bay has one.
 
 The page lists those proposals before you create them, and links each transfer after. Running it again does not open a second transfer for the same SKU and destination. Garage does not offer it.
+
+## 25. Nested recipes and work centers
+
+A component can be a made item with its own recipe. The recipe page links one level of those nested components. Walking a recipe follows made components up to five levels and refuses a cycle instead of looping.
+
+**Work centers** on Settings → Warehouse (Manufacturer) are a code and a name. A recipe step can name one. The step list on the floor shows that name. Stock is still one ledger. A center is only where the step is done.
+
+**Build short sub-assemblies** on a work order opens a child work order for each direct component that has its own recipe and is short on the source bay. The child is linked by `parent_work_order_id`, and its output bay is the parent's source bay so the component lands where the parent consumes it. It does not open grandchildren. Completing the parent still consumes that component, so it returns 409 `COMPONENT_SHORT` and names the child until the component is on hand. Completing the child does not complete the parent.

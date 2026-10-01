@@ -814,6 +814,12 @@ export type ShopifyInventorySync = {
   code?: string | null;
 };
 
+export type WorkCenter = {
+  id: string;
+  code: string;
+  name: string;
+};
+
 export type BomStep = {
   id: string;
   seq: number;
@@ -824,6 +830,9 @@ export type BomStep = {
   componentSku?: string | null;
   componentName?: string | null;
   componentImageUrl?: string | null;
+  workCenterId?: string | null;
+  workCenterCode?: string | null;
+  workCenterName?: string | null;
 };
 
 export type BomLine = {
@@ -860,6 +869,9 @@ export type WorkOrder = {
   outputLocationId: string;
   createdAt: number;
   warehouseId?: string;
+  parentWorkOrderId?: string | null;
+  parentNumber?: string | null;
+  children?: { id: string; number: string; itemId: string; sku: string; itemName: string; qty: number; qtyCompleted?: number; status: string }[];
   asBuilt?: AsBuiltLink[];
   components?: { id?: string; itemId: string; qty: number; sku: string; itemName: string; imageUrl?: string | null }[];
   steps?: BomStep[];
