@@ -12,7 +12,10 @@ export const orderAddressRoute = new Hono<AppEnv>();
 
 type Db = AppEnv["Variables"]["db"];
 
-/** The ship-to address can change until a label is bought to it; `locked` says why it no longer can. */
+/**
+ * The ship-to address can change until a label is bought to it; `locked` says why it no longer can. The check
+ * still matters while a box waits for its label (`checking`), so the address can be accepted then, but not edited.
+ */
 async function loadAddressOrder(db: Db, organizationId: string, orderId: string) {
   const [order] = await db
     .select()
@@ -20,32 +23,33 @@ async function loadAddressOrder(db: Db, organizationId: string, orderId: string)
     .where(and(eq(schema.orders.id, orderId), eq(schema.orders.organizationId, organizationId)))
     .limit(1);
   if (!order) notFound("Order not found");
-  const [carton] = await db
-    .select({ id: schema.orderPackages.id })
+  const cartons = await db
+    .select({ labelStatus: schema.orderPackages.labelStatus })
     .from(schema.orderPackages)
-    .where(and(eq(schema.orderPackages.orderId, order.id), eq(schema.orderPackages.labelStatus, "purchased")))
-    .limit(1);
+    .where(eq(schema.orderPackages.orderId, order.id));
   const [warehouse] = await db
     .select({ country: schema.warehouses.country })
     .from(schema.warehouses)
     .where(eq(schema.warehouses.id, order.warehouseId))
     .limit(1);
-  const locked =
-    order.status === "shipped" || order.status === "cancelled"
-      ? `This order is ${order.status}, so its address stays as it is`
-      : order.labelStatus === "purchased" || carton
-        ? "This order has a label. Void it before changing the address"
-        : null;
-  return { order, buildingCountry: warehouse?.country ?? null, locked };
+  const closed = order.status === "shipped" || order.status === "cancelled";
+  const labeled = order.labelStatus === "purchased" || cartons.some((row) => row.labelStatus === "purchased");
+  const locked = closed
+    ? `This order is ${order.status}, so its address stays as it is`
+    : labeled
+      ? "This order has a label. Void it before changing the address"
+      : null;
+  const waiting = cartons.length > 0 ? cartons.some((row) => row.labelStatus !== "purchased") : order.labelStatus !== "purchased";
+  return { order, buildingCountry: warehouse?.country ?? null, locked, checking: !closed && waiting };
 }
 
 /** The check a label purchase and quick-ship run on the order's ship-to address, for the order page. */
 orderAddressRoute.get("/orders/:id/address", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const { order, buildingCountry, locked } = await loadAddressOrder(db, organizationId, c.req.param("id"));
+  const { order, buildingCountry, locked, checking } = await loadAddressOrder(db, organizationId, c.req.param("id"));
   const base = { orderId: order.id, editable: !locked, blocked: false, overridden: false, message: null, suggestion: null };
-  if (locked) return c.json(base);
+  if (!checking) return c.json(base);
   const verdict = await orderAddressVerdict(db, organizationId, {
     order,
     buildingCountry,
@@ -87,8 +91,8 @@ orderAddressRoute.post("/orders/:id/address/use-suggestion", async (c) => {
 orderAddressRoute.post("/orders/:id/address/accept", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
-  const { order, buildingCountry, locked } = await loadAddressOrder(db, organizationId, c.req.param("id"));
-  if (locked) conflict(locked);
+  const { order, buildingCountry, locked, checking } = await loadAddressOrder(db, organizationId, c.req.param("id"));
+  if (!checking) conflict(locked ?? "This order has every label it needs");
   await acceptOrderAddress(db, organizationId, { order, buildingCountry, userId: c.get("user")!.id });
-  return c.json({ orderId: order.id, editable: true, blocked: false, overridden: true, message: null, suggestion: null });
+  return c.json({ orderId: order.id, editable: !locked, blocked: false, overridden: true, message: null, suggestion: null });
 });

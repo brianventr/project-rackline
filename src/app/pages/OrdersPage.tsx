@@ -26,6 +26,7 @@ import {
 import { toast } from "sonner";
 import {
   api,
+  ApiError,
   errorText,
   type CarrierHub,
   type CarrierRate,
@@ -518,6 +519,7 @@ function OrderDetail({ id }: { id: string }) {
       if (success) toast.success(success(next ?? null));
     } catch (err) {
       setError(errorText(err, `${label} failed. Try again.`));
+      if (err instanceof ApiError && err.code === "ADDRESS_INVALID") void refreshApi(`/api/orders/${id}/address`);
     }
   }
 

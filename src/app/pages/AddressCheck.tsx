@@ -102,11 +102,11 @@ export function AddressCheckCard({ order, onChange }: { order: Order; onChange: 
   const confirm = useConfirm();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const open = order.status !== "shipped" && order.status !== "cancelled" && order.labelStatus !== "purchased";
+  const open = order.status !== "shipped" && order.status !== "cancelled";
   const check = useApiQuery<OrderAddressCheck>(open ? `/api/orders/${encodeURIComponent(order.id)}/address` : null);
   const data = check.data;
   if (!data?.blocked) return null;
-  const extra = extraSuggestion(data.message, data.suggestion);
+  const extra = data.editable ? extraSuggestion(data.message, data.suggestion) : null;
 
   async function takeSuggestion() {
     setBusy(true);
@@ -150,15 +150,20 @@ export function AddressCheckCard({ order, onChange }: { order: Order; onChange: 
       </p>
       <p className="text-sm">{data.message}</p>
       {extra ? <p className="text-xs text-muted-foreground">Suggested: {extra}</p> : null}
+      {!data.editable ? (
+        <p className="text-xs text-muted-foreground">This order already has a label to this address, so the address stays as it is.</p>
+      ) : null}
       <div className="flex flex-wrap gap-1.5">
-        {data.suggestion ? (
+        {data.suggestion && data.editable ? (
           <Button size="xs" variant="outline" disabled={busy} onClick={() => void takeSuggestion()}>
             Use suggested address
           </Button>
         ) : null}
-        <Button size="xs" variant="outline" onClick={() => setEditing(true)}>
-          Edit address
-        </Button>
+        {data.editable ? (
+          <Button size="xs" variant="outline" onClick={() => setEditing(true)}>
+            Edit address
+          </Button>
+        ) : null}
         <Button size="xs" variant="outline" disabled={busy} onClick={() => void accept()}>
           Accept this address
         </Button>

@@ -1470,7 +1470,8 @@ async function purchaseOrderLabel(
     isLivePostage(connection.provider, connection.mode);
   const existingTracking = options?.forceNewTracking ? null : pkg ? pkg.trackingNumber : order.trackingNumber;
   const minting = !explicitTracking && (live || !existingTracking);
-  if (minting) {
+  // A replacement for a parcel the carrier flagged goes where the first label went; that address can no longer change or be accepted.
+  if (minting && !options?.forceNewTracking) {
     const address = await orderAddressVerdict(db, organizationId, {
       order,
       shipToAddress,
