@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Check, CheckCircle2, ListChecks, Loader2, MapPin, Minus, MoreHorizontal, Plus, Printer, SkipForward, Undo2, XCircle } from "lucide-react";
 import { scanIntoLine } from "@/domain/pack-sizes";
-import { api, errorText, type Location, type Order, type OrderLine, type ScanHit } from "../../api";
+import { ApiError, api, errorText, type Location, type Order, type OrderLine, type ScanHit } from "../../api";
+import { isOfflineQueued, offlineQueuedMessage, postOrQueue, queueFloorPost } from "../../offline-queue";
 import { Button, Card, Field, Input, Select, StatusBadge } from "../../components/ui";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
@@ -358,8 +359,12 @@ export function FloorPickPage() {
     setError(null);
     try {
       if (canStartPick(active.status)) {
-        const started = await api<Order>(`/api/orders/${active.id}/start`, { method: "POST" });
-        applyOrder(started, locations);
+        try {
+          const started = await api<Order>(`/api/orders/${active.id}/start`, { method: "POST" });
+          applyOrder(started, locations);
+        } catch (err) {
+          if (!(err instanceof ApiError) || err.status !== 0) throw err;
+        }
       }
       const lines = (active.lines ?? [])
         .map((line) => ({
@@ -370,21 +375,42 @@ export function FloorPickPage() {
           weightGrams: parseWeightGrams(weights[line.id]),
         }))
         .filter((line) => line.qty > 0);
-      const sessionId = needScan ? await scanRecorder.current.flush() : null;
-      const picked = await api<Order>(`/api/orders/${active.id}/pick`, {
-        method: "POST",
-        body: JSON.stringify({
-          locationId,
-          lines,
-          scan: scanEvidence(scanLog, locationId),
-          plateCode: scannedPlate(scanLog, locationId) ?? undefined,
-          sessionId,
-        }),
+      const body = {
+        locationId,
+        lines,
+        scan: scanEvidence(scanLog, locationId),
+        plateCode: scannedPlate(scanLog, locationId) ?? undefined,
+      };
+      let sessionId: string | null = null;
+      if (needScan) {
+        try {
+          sessionId = await scanRecorder.current.flush();
+        } catch (err) {
+          if (!isOfflineQueued(err)) throw err;
+          await queueFloorPost({
+            kind: "pick",
+            path: `/api/orders/${active.id}/pick`,
+            groupId: active.id,
+            body: { ...body, sessionId: err.sessionId },
+          });
+          setError(offlineQueuedMessage("pick"));
+          return;
+        }
+      }
+      const picked = await postOrQueue<Order>({
+        kind: "pick",
+        path: `/api/orders/${active.id}/pick`,
+        groupId: active.id,
+        body: { ...body, sessionId },
       });
       setScanLog(afterPost);
       applyOrder(picked, locations);
       await load();
     } catch (err) {
+      if (isOfflineQueued(err)) {
+        setError(err.message);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Pick failed");
     }
   }
@@ -406,8 +432,12 @@ export function FloorPickPage() {
     setBusy(true);
     try {
       if (canStartPick(active.status)) {
-        const started = await api<Order>(`/api/orders/${active.id}/start`, { method: "POST" });
-        applyOrder(started, locations);
+        try {
+          const started = await api<Order>(`/api/orders/${active.id}/start`, { method: "POST" });
+          applyOrder(started, locations);
+        } catch (err) {
+          if (!(err instanceof ApiError) || err.status !== 0) throw err;
+        }
       }
       const body = stopPickBody({
         locationId: bayId,
@@ -417,10 +447,28 @@ export function FloorPickPage() {
         serials: serials[stop.lineId],
         weightGrams: parseWeightGrams(weights[stop.lineId]),
       });
-      const sessionId = needScan ? await scanRecorder.current.flush() : null;
-      const picked = await api<Order>(`/api/orders/${active.id}/pick`, {
-        method: "POST",
-        body: JSON.stringify({ ...body, scan: scanEvidence(scanLog, bayId), plateCode: plateCode ?? undefined, sessionId }),
+      const posted = { ...body, scan: scanEvidence(scanLog, bayId), plateCode: plateCode ?? undefined };
+      let sessionId: string | null = null;
+      if (needScan) {
+        try {
+          sessionId = await scanRecorder.current.flush();
+        } catch (err) {
+          if (!isOfflineQueued(err)) throw err;
+          await queueFloorPost({
+            kind: "pick",
+            path: `/api/orders/${active.id}/pick`,
+            groupId: active.id,
+            body: { ...posted, sessionId: err.sessionId },
+          });
+          setError(offlineQueuedMessage("pick"));
+          return;
+        }
+      }
+      const picked = await postOrQueue<Order>({
+        kind: "pick",
+        path: `/api/orders/${active.id}/pick`,
+        groupId: active.id,
+        body: { ...posted, sessionId },
       });
       setScanLog(afterPost);
       counted.current.delete(key);
@@ -434,6 +482,10 @@ export function FloorPickPage() {
       applyOrder(picked, locations);
       await load();
     } catch (err) {
+      if (isOfflineQueued(err)) {
+        setError(err.message);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Pick failed");
     } finally {
       setBusy(false);
