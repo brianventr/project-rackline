@@ -25,6 +25,7 @@ import {
   Map,
   MapPin,
   Package,
+  Package2,
   Plug,
   Printer,
   Radar,
@@ -149,6 +150,7 @@ export const OFFICE_NAV: NavGroup[] = [
       { title: "On hand", url: "/stock", icon: Boxes, keywords: "inventory atp" },
       { title: "Items", url: "/stock/items", icon: Package, keywords: "sku catalog products" },
       { title: "Locations", url: "/stock/locations", icon: MapPin, keywords: "bays bins" },
+      { title: "Plates", url: "/stock/plates", icon: Package2, keywords: "license plate lpn tote pallet carton" },
       { title: "Counts", url: "/stock/counts", icon: Calculator, keywords: "cycle count", count: (d) => n(d.openCycleCounts) },
       { title: "Holds", url: "/stock/holds", icon: Lock, keywords: "qc quarantine lock", count: (d) => n(d.openHolds, "warning") },
       {

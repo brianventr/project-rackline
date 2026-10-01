@@ -52,6 +52,8 @@ describe("operating mode", () => {
     expect(garageAllowsPath("/stock/counts")).toBe(false);
     expect(garageAllowsPath("/stock/holds/h1")).toBe(false);
     expect(garageAllowsPath("/stock/replenish")).toBe(false);
+    expect(garageAllowsPath("/stock/plates")).toBe(false);
+    expect(garageAllowsPath("/floor/plates?code=LP-000001")).toBe(false);
     expect(garageAllowsPath("/equipment")).toBe(false);
     expect(garageAllowsPath("/analytics/traffic")).toBe(false);
     expect(garageAllowsPath("/setup/clients")).toBe(false);

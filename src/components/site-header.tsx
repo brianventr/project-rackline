@@ -139,7 +139,7 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
       </div>
       <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} onShowShortcuts={() => setShortcutsOpen(true)} />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} garage={garage} owner={me.role === "owner"} />
-      <ScanNavigate enabled={!onFloor} />
+      <ScanNavigate enabled={!onFloor} garage={garage} />
     </header>
   );
 }
@@ -328,7 +328,7 @@ function GarageModeSwitch() {
   );
 }
 
-function ScanNavigate({ enabled }: { enabled: boolean }) {
+function ScanNavigate({ enabled, garage }: { enabled: boolean; garage: boolean }) {
   const scanner = useScanner();
   const navigate = useNavigate();
   const handledAt = useMemo(() => ({ current: 0 }), []);
@@ -340,19 +340,22 @@ function ScanNavigate({ enabled }: { enabled: boolean }) {
     handledAt.current = scan.at;
     api<ScanHit>(`/api/scan?code=${encodeURIComponent(scan.raw)}`)
       .then((hit) => {
-        const path = pathForScan(hit);
+        const path = pathForScan(hit, garage);
         if (path) navigate(path);
       })
       .catch(() => {
         /* Search can still open the record. */
       });
-  }, [enabled, scanner.lastScan, handledAt, navigate]);
+  }, [enabled, garage, scanner.lastScan, handledAt, navigate]);
 
   return null;
 }
 
-function pathForScan(hit: ScanHit): string | null {
+function pathForScan(hit: ScanHit, garage: boolean): string | null {
   switch (hit.kind) {
+    case "plate":
+      if (!garage) return `/stock/plates/${hit.plate.code}`;
+      return hit.plate.locationId ? `/stock/locations/${hit.plate.locationId}` : null;
     case "location":
       return `/stock/locations/${hit.location.id}`;
     case "item":

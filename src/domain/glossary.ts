@@ -187,6 +187,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/stock/locations",
   },
   {
+    id: "license-plate",
+    term: "License plate",
+    aliases: ["plate", "plates", "lpn", "license plate number", "lp code", "tote", "pallet", "pallet id"],
+    short: "A tote, pallet, or carton with an LP- code that groups stock in one bay. Scan it to move everything on it at once, or to pick from it.",
+    long: "A plate's lines are a share of its bay's balance, never more, so building or breaking one changes neither on hand nor available. Moving a plate posts normal ledger moves, so holds and bin capacity apply. Picks take loose stock first unless a plate is scanned.",
+    path: "/stock/plates",
+  },
+  {
     id: "pick-min",
     term: "Pick min",
     aliases: ["pick minimum", "min qty"],

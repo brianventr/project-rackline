@@ -21,6 +21,7 @@ import { ShopifyPage } from "./pages/ShopifyPage";
 import { TransfersPage } from "./pages/TransfersPage";
 import { CycleCountsPage } from "./pages/CycleCountsPage";
 import { HoldsPage } from "./pages/HoldsPage";
+import { PlatesPage } from "./pages/PlatesPage";
 import { LedgerPage } from "./pages/LedgerPage";
 import { MapPage } from "./pages/MapPage";
 import { FloorPutawayPage } from "./pages/floor/FloorPutawayPage";
@@ -38,6 +39,7 @@ import { FloorPackPage } from "./pages/floor/FloorPackPage";
 import { FloorShipPage } from "./pages/floor/FloorShipPage";
 import { FloorCountPage } from "./pages/floor/FloorCountPage";
 import { FloorHoldPage } from "./pages/floor/FloorHoldPage";
+import { FloorPlatesPage } from "./pages/floor/FloorPlatesPage";
 import { FloorAssemblePage } from "./pages/floor/FloorAssemblePage";
 import { FloorReturnPage } from "./pages/floor/FloorReturnPage";
 import { FloorRtvPage } from "./pages/floor/FloorRtvPage";
@@ -181,6 +183,7 @@ export function App() {
         <Route path="/floor/ship" element={<FloorShipPage />} />
         <Route path="/floor/count" element={<FloorCountPage />} />
         <Route path="/floor/hold" element={<FloorHoldPage />} />
+        <Route path="/floor/plates" element={<FloorPlatesPage />} />
         <Route path="/floor/assemble" element={<FloorAssemblePage />} />
         <Route path="/floor/kit" element={<FloorKitPage />} />
         <Route path="/floor/replenish" element={<FloorReplenishPage />} />
@@ -221,6 +224,8 @@ export function App() {
         <Route path="/stock/counts/:id" element={<CycleCountsPage />} />
         <Route path="/stock/holds" element={<HoldsPage />} />
         <Route path="/stock/holds/:id" element={<HoldsPage />} />
+        <Route path="/stock/plates" element={<PlatesPage />} />
+        <Route path="/stock/plates/:ref" element={<PlatesPage />} />
         <Route path="/stock/replenish" element={<ReplenishmentsPage />} />
         <Route path="/stock/replenish/:id" element={<ReplenishmentsPage />} />
         <Route path="/stock/ledger" element={<LedgerPage />} />

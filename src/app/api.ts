@@ -1,5 +1,6 @@
 import { createAuthClient } from "better-auth/react";
 import { composeErrorText, explainError, type ExplainedError } from "@/domain/error-copy";
+import type { PlateStatus, PlateType } from "@/domain/license-plates";
 
 export const authClient = createAuthClient({
   basePath: "/api/auth",
@@ -235,12 +236,61 @@ export type MapContent = {
   availableQty?: number;
   allocated?: number;
   suggestedLocation?: SuggestedLocation | null;
+  /** Of `qty`, the units on license plates and the units loose in the bay. */
+  onPlates?: number;
+  loose?: number;
 };
+
+export type PlateLine = {
+  id: string;
+  itemId: string;
+  sku: string;
+  itemName: string;
+  imageUrl: string | null;
+  qty: number;
+  lotCode: string | null;
+  serial: string | null;
+};
+
+/** A tote, pallet, or carton with an LP- code. Its lines are a share of its bay's stock. */
+export type Plate = {
+  id: string;
+  code: string;
+  type: PlateType;
+  status: PlateStatus;
+  /** Null once the plate has shipped. */
+  locationId: string | null;
+  locationCode: string | null;
+  locationName: string | null;
+  warehouseId: string;
+  units: number;
+  lines: PlateLine[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type PlateDetail = Plate & {
+  /** What the plate's bay holds of each item, and how much of it no plate holds yet. */
+  bayStock: {
+    itemId: string;
+    sku: string;
+    itemName: string;
+    imageUrl: string | null;
+    trackLot: boolean;
+    trackSerial: boolean;
+    qty: number;
+    onPlates: number;
+    loose: number;
+  }[];
+};
+
+export type PlateSummary = Pick<Plate, "id" | "code" | "type" | "status" | "units">;
 
 export type MapLocation = Location & {
   unitsOnHand: number;
   skuCount: number;
   contents: MapContent[];
+  plates?: PlateSummary[];
 };
 
 export type WarehouseMapInfo = {
@@ -341,7 +391,10 @@ export type ScanLocationHit = {
   location: Location;
   contents: MapContent[];
   holds?: Hold[];
+  plates?: Plate[];
 };
+
+export type ScanPlateHit = { kind: "plate"; plate: Plate };
 
 export type ScanItemHit = {
   kind: "item";
@@ -432,7 +485,8 @@ export type ScanHit =
   | ScanYardHit
   | ScanEquipmentHit
   | ScanSerialHit
-  | ScanLotHit;
+  | ScanLotHit
+  | ScanPlateHit;
 
 export type MoveResult = {
   ok: true;

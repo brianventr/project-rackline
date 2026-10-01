@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { canPostTransfer } from "@/domain/status";
 import { hasUnmoved } from "@/domain/partial-transfer";
 import { putawayQty } from "@/domain/directed-putaway";
+import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 import { ClaimList, FloorFrame, openFloorRow, useScanFlash } from "./floor/floor-ui";
 import { useSession } from "../session";
 import { jobForRef, useOpenJobs } from "../jobs";
@@ -34,6 +35,9 @@ type Slot = {
 
 export function MovePage() {
   const [params] = useSearchParams();
+  const me = useSession();
+  const navigate = useNavigate();
+  const plates = !isGarageMode(me.organization.operatingMode) || garageAllowsPath("/floor/plates");
   const scanner = useScanner();
   const { flash, report } = useScanFlash();
   const [from, setFrom] = useState<Slot>({ barcode: params.get("from") ?? "", hit: null });
@@ -86,6 +90,16 @@ export function MovePage() {
       const hit = await api<ScanHit>(`/api/scan?code=${encodeURIComponent(raw)}`);
       if (hit.kind === "asn") {
         finish(await resolveAsnHit(hit));
+        return;
+      }
+      if (hit.kind === "plate" && plates) {
+        if (which === "from") {
+          navigate(`/floor/plates?code=${encodeURIComponent(hit.plate.code)}`);
+          finish(true);
+          return;
+        }
+        setError(`${hit.plate.code} is a plate, not a bay. Scan ${hit.plate.locationCode ?? "a bay"} instead.`);
+        finish(false);
         return;
       }
       if (hit.kind !== "location") {

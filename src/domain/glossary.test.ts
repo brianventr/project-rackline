@@ -35,6 +35,7 @@ const ROUTES = new Set([
   "/stock/locations",
   "/stock/counts",
   "/stock/holds",
+  "/stock/plates",
   "/stock/replenish",
   "/stock/ledger",
   "/make/recipes",
@@ -151,6 +152,10 @@ describe("searchGlossary", () => {
       ["carton", "carton"],
       ["BOX-n", "carton"],
       ["unpick", "unpick"],
+      ["license plate", "license-plate"],
+      ["LPN", "license-plate"],
+      ["tote", "license-plate"],
+      ["pallet qty", "pack-size"],
     ];
     for (const [query, id] of expected) expect(top(query), query).toBe(id);
   });
