@@ -653,3 +653,15 @@ Manufacturer classifies each SKU from picks and shipments over the last 30 days.
 **Plan cycle counts** on Stock → Cycle counts (owners) opens a normal bay count for each due SKU, at its pick face when it has one. Garage does not show the planner. The 15-minute schedule runs the same planner for Manufacturer buildings.
 
 Running it again does not open a second count for a SKU that already has an open count, and it does not recreate a count that was posted inside that SKU's cadence. Posting still uses the existing count screen.
+
+## 23. Offline queue
+
+Floor → Receive and Floor → Pick save a post on the device when the network drops, and the floor shows how many are waiting. This is the same in Garage and Manufacturer. When the connection returns, Rackline sends them in the order they were made. A scan for a pick is sent before that pick.
+
+Each receive and each pick carries an idempotency key. The server stores the key with the outcome. Sending the same key again returns that outcome and does not receive or pick a second time. A different key posts again while the document still has quantity left. When nothing is left, the usual refusal still happens.
+
+A refusal from the server stays on the queue as a failure and is not sent again. Dismiss it to let the posts behind it go out. A dropped connection is retried. A post that is still running under the same key is retried too.
+
+Manufacturer pick and pack still need a server scan session. If opening that session or recording a scan cannot reach the server, it is queued ahead of the pick. Garage still sends its scan list on the pick and does not open a session.
+
+The installed app caches the floor shell, so Receive and Pick still open after a refresh while offline. Calls to `/api` are not cached. The dev server does not register the shell.

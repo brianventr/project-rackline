@@ -1,0 +1,10 @@
+{
+  "name": "Rackline",
+  "short_name": "Rackline",
+  "description": "Warehouse software for makers who grow into manufacturers",
+  "start_url": "/floor",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#111111"
+}
