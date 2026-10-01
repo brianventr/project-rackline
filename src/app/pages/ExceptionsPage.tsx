@@ -74,11 +74,11 @@ function doneText(row: ExceptionView, verb: ExceptionVerb, input: ExceptionChang
     case "snooze":
       return `Snoozed for ${snoozeLabel(input.hours ?? 1)}.`;
     case "resolve":
-      return "Resolved. It leaves the inbox once its source clears.";
+      return "Resolved. It stays under Resolved until its source clears.";
     case "reopen":
       return "Back in the open list.";
     case "action":
-      return result.cleared ? `${row.action?.label ?? "Done"}: that cleared it.` : `${row.action?.label ?? "Done"} ran, but the problem is still there.`;
+      return result.cleared ? `${row.action?.label ?? "That"} cleared the problem.` : `${row.action?.label ?? "That"} ran, but the problem is still there.`;
   }
 }
 
