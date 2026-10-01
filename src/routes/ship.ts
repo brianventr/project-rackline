@@ -3,24 +3,48 @@ import type { Context } from "hono";
 import { and, eq, inArray, notInArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
-import { badRequest, conflict, notFound } from "../lib/http";
+import { badRequest, conflict, notFound, optionalInt, optionalString } from "../lib/http";
 import { requireOwner } from "../lib/org";
 import { newId } from "../lib/ids";
 import { internalApi, type InternalResult } from "../lib/internal-api";
 import { loadAtpBaysByItem, loadOpenAllocations } from "../db/allocations";
-import { loadCarrierConnections } from "./carriers";
+import { loadCarrierConnections, recordCarrierEvent } from "./carriers";
 import { ordersRoute } from "./orders";
-import { enabledServicesFromConnections, resolveLabelPurchase } from "../domain/carriers";
-import { isLivePostage, liveShipAddress } from "../domain/carrier-live";
 import {
-  buildingDefaultService,
-  defaultShipConnection,
-  defaultShipService,
-  orderParcel,
-  parsePresetInput,
-  pickPreset,
-  type PackagePreset,
-} from "../domain/ship-defaults";
+  enabledServicesFromConnections,
+  quoteRates,
+  resolveLabelPurchase,
+  resolveService,
+  type CarrierRateQuote,
+} from "../domain/carriers";
+import { isLivePostage, liveShipAddress, resolveParcel, type ParcelDims } from "../domain/carrier-live";
+import { shopLiveRates } from "../lib/live-postage";
+import { asCarrierLiveError } from "../lib/carrier-client";
+import { buildingDefaultService, orderParcel, parsePresetInput, pickPreset, type PackagePreset } from "../domain/ship-defaults";
+import { isRateStrategy, parseShipRuleInput, reorderShipRules, type ShipRule, type ShipRuleInput } from "../domain/ship-rules";
+import {
+  arrivalYmd,
+  chooseRate,
+  expiringCache,
+  mapWithLimit,
+  promiseYmd,
+  rateQuoteKey,
+  withTimeout,
+  RATE_QUOTE_TTL_MS,
+  RATE_SHOP_CONCURRENCY,
+  RATE_SHOP_TIMEOUT_MS,
+} from "../domain/rate-choice";
+import { formatShipDay } from "../domain/promise";
+import { parseCarrierCutoffs } from "../domain/wave-plan";
+import {
+  holdMessage,
+  planShipment,
+  shipBoxReason,
+  shipReasonSummary,
+  shipServiceReason,
+  type ShipPlan,
+} from "../domain/ship-decision";
+import { loadShipRules } from "../db/ship-rules";
 import {
   planQuickShip,
   quickShipLabelBlocker,
@@ -55,6 +79,8 @@ type QuickShipBody = {
 };
 
 const MAX_BULK = 50;
+/** Shippable queue rows, oldest first, that may ask live carrier accounts per load; the rest are quoted when shipped. */
+const QUEUE_LIVE_QUOTES = 25;
 
 async function loadPresets(db: Db, organizationId: string): Promise<PackagePreset[]> {
   return db
@@ -66,6 +92,10 @@ async function loadPresets(db: Db, organizationId: string): Promise<PackagePrese
       heightIn: schema.packagePresets.heightIn,
       tareOz: schema.packagePresets.tareOz,
       isDefault: schema.packagePresets.isDefault,
+      innerLengthIn: schema.packagePresets.innerLengthIn,
+      innerWidthIn: schema.packagePresets.innerWidthIn,
+      innerHeightIn: schema.packagePresets.innerHeightIn,
+      maxWeightOz: schema.packagePresets.maxWeightOz,
     })
     .from(schema.packagePresets)
     .where(eq(schema.packagePresets.organizationId, organizationId));
@@ -98,13 +128,269 @@ async function loadShipLines(db: Db, orderIds: string[]) {
     .where(inArray(schema.orderLines.orderId, orderIds));
 }
 
-function chooseService(
-  services: ReturnType<typeof enabledServicesFromConnections>,
-  input: { requested?: string | null; orderService?: string | null; warehouseDefault?: string | null },
-) {
-  const picked = defaultShipService(input);
-  if (picked) return picked;
-  return (services.find((row) => row.provider !== "rackline") ?? services[0])?.id ?? null;
+type OrderRow = typeof schema.orders.$inferSelect;
+type WarehouseRow = typeof schema.warehouses.$inferSelect;
+type ShipLine = Awaited<ReturnType<typeof loadShipLines>>[number];
+
+/** What every order in one queue load or one bulk ship is decided against. */
+type ShipContext = {
+  rules: ShipRule[];
+  presets: PackagePreset[];
+  connections: Awaited<ReturnType<typeof loadCarrierConnections>>;
+  services: ReturnType<typeof enabledServicesFromConnections>;
+  /** Live accounts that failed or timed out during this request, with why; they are not asked again. */
+  rateFailures: Map<string, string>;
+};
+
+async function loadShipContext(db: Db, organizationId: string): Promise<ShipContext> {
+  const [rules, presets, connections] = await Promise.all([
+    loadShipRules(db, organizationId),
+    loadPresets(db, organizationId),
+    loadCarrierConnections(db, organizationId),
+  ]);
+  return { rules, presets, connections, services: enabledServicesFromConnections(connections), rateFailures: new Map() };
+}
+
+/** Per isolate, so a queue load and the quick-ship right after it usually see the same live quotes. */
+const liveQuotes = expiringCache<CarrierRateQuote[]>(RATE_QUOTE_TTL_MS, 500);
+
+/**
+ * Quotes for one order from every connected account. Demo accounts answer from `quoteRates` at once. Live accounts
+ * answer from the cache, or are shopped when `shopLive` is set; `unpriced` says one of them was neither.
+ */
+async function shopOrderRates(
+  db: Db,
+  ctx: ShipContext,
+  warehouse: WarehouseRow | null | undefined,
+  order: OrderRow,
+  parcel: Partial<ParcelDims>,
+  shopLive: boolean,
+): Promise<{ quotes: CarrierRateQuote[]; errors: string[]; unpriced: boolean }> {
+  const live = ctx.connections.filter(
+    (row) => isLivePostage(row.provider, row.mode) && row.apiKey && ctx.services.some((service) => service.connectionId === row.id),
+  );
+  const liveIds = new Set(live.map((row) => row.id));
+  const quotes = quoteRates({
+    services: ctx.services.filter((row) => !row.connectionId || !liveIds.has(row.connectionId)),
+    shipFrom: warehouse?.shipFromAddress ?? null,
+    shipTo: order.shipToAddress,
+  });
+  const errors: string[] = [];
+  let unpriced = false;
+  if (!live.length) return { quotes, errors, unpriced };
+  const shipFrom = liveShipAddress({
+    name: warehouse?.name || "Warehouse",
+    text: warehouse?.shipFromAddress,
+    city: warehouse?.city,
+    region: warehouse?.region,
+    country: warehouse?.country,
+  });
+  const shipTo = liveShipAddress({
+    name: order.customerName,
+    text: order.shipToAddress,
+    city: order.shipToCity,
+    region: order.shipToRegion,
+    country: order.shipToCountry,
+  });
+  if ("error" in shipFrom) return { quotes, errors: [shipFrom.error], unpriced };
+  if ("error" in shipTo) return { quotes, errors: [shipTo.error], unpriced };
+  const dims = resolveParcel(parcel);
+  for (const connection of live) {
+    const account = connection.nickname || connection.provider;
+    const failed = ctx.rateFailures.get(connection.id);
+    if (failed) {
+      errors.push(failed);
+      continue;
+    }
+    const services = ctx.services.filter((row) => row.connectionId === connection.id);
+    const key = rateQuoteKey({
+      organizationId: order.organizationId,
+      orderId: order.id,
+      connectionId: connection.id,
+      parcel: dims,
+      shipFrom: JSON.stringify(shipFrom),
+      shipTo: JSON.stringify(shipTo),
+      serviceIds: services.map((row) => row.id),
+    });
+    const cached = liveQuotes.get(key, Date.now());
+    if (cached) {
+      quotes.push(...cached);
+      continue;
+    }
+    if (!shopLive) {
+      unpriced = true;
+      continue;
+    }
+    const request = { orderId: order.id, parcel: dims, mode: "live", for: "rate choice" };
+    try {
+      const shopped = await withTimeout(
+        shopLiveRates({ connection, services, shipFrom, shipTo, parcel: dims }),
+        RATE_SHOP_TIMEOUT_MS,
+        `${account} did not answer with rates in time`,
+      );
+      liveQuotes.set(key, shopped.rates, Date.now());
+      quotes.push(...shopped.rates);
+      await recordCarrierEvent(db, {
+        organizationId: order.organizationId,
+        connectionId: connection.id,
+        orderId: order.id,
+        kind: "rates",
+        status: "ok",
+        request,
+        response: { rates: shopped.rates, shipmentId: shopped.shipmentId ?? null },
+      });
+    } catch (err) {
+      const error = `${account}: ${asCarrierLiveError(err).message}`;
+      ctx.rateFailures.set(connection.id, error);
+      errors.push(error);
+      await recordCarrierEvent(db, {
+        organizationId: order.organizationId,
+        connectionId: connection.id,
+        orderId: order.id,
+        kind: "rates",
+        status: "failed",
+        request,
+        response: { error },
+      });
+    }
+  }
+  return { quotes, errors, unpriced };
+}
+
+type ShipDecision = {
+  plan: ShipPlan;
+  parcel: ReturnType<typeof orderParcel>;
+  serviceId: string | null;
+  connectionId: string | null;
+  serviceName: string | null;
+  live: boolean;
+  /** The chosen service's quote, when there is one: always for demo accounts, for live ones once shopped. */
+  quote: { amountCents: number; arrivesOn: string; late: boolean } | null;
+  /** A rate choice waits for a live account that was not asked this time; quick-ship asks it. */
+  quotePending: boolean;
+  /** The rate choice had nothing to pick from. */
+  rateError: string | null;
+  boxReason: string | null;
+  serviceReason: string | null;
+  summary: string | null;
+};
+
+type DecideInput = {
+  warehouse: WarehouseRow | null | undefined;
+  order: OrderRow;
+  lines: ShipLine[];
+  /** Picked at the bench for this ship. */
+  picked?: QuickShipBody;
+  /** Ask live carrier accounts that have no cached quote. Defaults to yes. */
+  shopLive?: boolean;
+};
+
+/** The box, service, and parcel quick-ship would use, and why. The queue, the scan station, and quick-ship all ask here. */
+async function decideShip(db: Db, ctx: ShipContext, input: DecideInput): Promise<ShipDecision> {
+  const { warehouse, order, lines, picked = {} } = input;
+  const typed = picked.weightOz
+    ? { packageWeightOz: picked.weightOz, packageLengthIn: picked.lengthIn, packageWidthIn: picked.widthIn, packageHeightIn: picked.heightIn }
+    : order;
+  const plan = planShipment({
+    order: { ...order, lines, weightOz: typed.packageWeightOz },
+    rules: ctx.rules,
+    presets: ctx.presets,
+    connections: ctx.connections,
+    buildingDefault: buildingDefaultService(ctx.connections, warehouse),
+    buildingStrategy: warehouse && isRateStrategy(warehouse.rateStrategy) ? warehouse.rateStrategy : "default",
+    picked,
+  });
+  const parcel = orderParcel({ lines, preset: plan.box.preset, order: typed });
+  const strategy = plan.service.kind === "strategy" ? plan.service.strategy : null;
+  const rates = await shopOrderRates(db, ctx, warehouse, order, parcel.parcel, strategy !== null && input.shopLive !== false);
+  const timeZone = warehouse?.timeZone || "UTC";
+  const timing = { now: Date.now(), timeZone, cutoffs: parseCarrierCutoffs(warehouse?.carrierCutoffsJson) };
+  const promise = promiseYmd(order.createdAt, timeZone, warehouse?.deliveryDays);
+  const accountConnected = ctx.services.some((row) => row.provider !== "rackline");
+  const priced = strategy !== null && !rates.unpriced;
+  const choice = priced ? chooseRate(rates.quotes, strategy, { timing, promise, accountConnected }) : null;
+  const serviceId = plan.service.kind === "service" ? plan.service.serviceId : (choice?.quote.id ?? null);
+  const connectionId = plan.service.kind === "service" ? plan.service.connectionId : (choice?.quote.connectionId ?? null);
+  const quote =
+    choice?.quote ??
+    rates.quotes.find((row) => row.id === serviceId && (!connectionId || row.connectionId === connectionId)) ??
+    null;
+  const arrival = choice?.arrival ?? (quote ? arrivalYmd(quote, timing) : null);
+  const service = resolveService(serviceId);
+  const connection = ctx.connections.find((row) => row.id === connectionId);
+  const serviceName = service ? `${service.company} ${service.service}` : null;
+  const boxReason = shipBoxReason(plan);
+  const serviceReason = shipServiceReason(plan, choice?.reason);
+  return {
+    plan,
+    parcel,
+    serviceId,
+    connectionId,
+    serviceName,
+    live: connection ? isLivePostage(connection.provider, connection.mode) : false,
+    quote:
+      quote && arrival != null
+        ? { amountCents: quote.amountCents, arrivesOn: formatShipDay(arrival), late: promise != null && arrival > promise }
+        : null,
+    quotePending: strategy !== null && rates.unpriced,
+    rateError: priced && !choice ? (rates.errors[0] ?? "No connected carrier account quoted this order") : null,
+    boxReason,
+    serviceReason,
+    summary: shipReasonSummary({ boxName: plan.box.preset?.name ?? null, boxReason, serviceName, serviceReason }),
+  };
+}
+
+type ShipBlocker = { code: string; error: string; sku: string | null };
+
+/** The box, service, and quote the queue and the scan station show for one decision. */
+function decisionView(decision: ShipDecision) {
+  const box = decision.plan.box;
+  return {
+    parcel: decision.parcel.parcel,
+    missingWeight: decision.parcel.missingWeight,
+    box: box.preset
+      ? {
+          presetId: box.preset.id,
+          name: box.preset.name,
+          source: box.source,
+          reason: decision.boxReason,
+          note: box.note,
+          tooBig: box.tooBig,
+        }
+      : null,
+    serviceId: decision.serviceId,
+    serviceName: decision.serviceName,
+    serviceReason: decision.serviceReason,
+    serviceLive: decision.live,
+    quote: decision.quote,
+    quotePending: decision.quotePending,
+    rule: decision.plan.rule,
+  };
+}
+
+/** Why quick-ship would stop, in the order it checks: the order itself first, then the rule, the rate, the hold. */
+function shipBlocker(plan: ReturnType<typeof planQuickShip> | null, decision: ShipDecision | null): ShipBlocker | null {
+  if (plan && !plan.ok) return { code: plan.code, error: plan.error, sku: plan.sku ?? null };
+  if (!decision) return null;
+  if (decision.plan.problem) return { code: "SHIP_RULE_SERVICE", error: decision.plan.problem, sku: null };
+  if (decision.rateError) return { code: "NO_RATE", error: decision.rateError, sku: null };
+  if (decision.plan.hold) return { code: "SHIP_RULE_HOLD", error: holdMessage(decision.plan), sku: null };
+  return null;
+}
+
+async function loadQuickShipPlan(db: Db, organizationId: string, order: OrderRow, lines: ShipLine[]) {
+  const packages = await db
+    .select({ id: schema.orderPackages.id })
+    .from(schema.orderPackages)
+    .where(eq(schema.orderPackages.orderId, order.id));
+  const bays = await loadAtpBaysByItem(
+    db,
+    organizationId,
+    [...new Set(lines.map((line) => line.itemId))],
+    order.id,
+    order.warehouseId,
+  );
+  return planQuickShip({ status: order.status, packageCount: packages.length, lines }, bays);
 }
 
 shipRoute.get("/ship/queue", async (c) => {
@@ -120,10 +406,9 @@ shipRoute.get("/ship/queue", async (c) => {
   if (!warehouse) notFound("Warehouse not found");
 
   const policy = await loadWorkflowPolicy(db, organizationId);
-  const presets = await loadPresets(db, organizationId);
-  const connections = await loadCarrierConnections(db, organizationId);
-  const services = enabledServicesFromConnections(connections);
-  const fallback = buildingDefaultService(connections, warehouse);
+  const ctx = await loadShipContext(db, organizationId);
+  const { presets, services } = ctx;
+  const fallback = buildingDefaultService(ctx.connections, warehouse);
   const signals = await loadSetupSignals(db, organizationId);
 
   const orders = await db
@@ -163,24 +448,54 @@ shipRoute.get("/ship/queue", async (c) => {
   const reservations = await loadOpenAllocations(db, organizationId, { warehouseId });
   const defaultPreset = pickPreset(presets);
 
-  const rows = visible.map((order) => {
-    const orderLines = lines.filter((line) => line.orderId === order.id);
+  const linesFor = (orderId: string) => lines.filter((line) => line.orderId === orderId);
+  const open = visible.filter((order) => order.status !== "shipped");
+  const shipPlans = new Map(
+    open.map((order) => [
+      order.id,
+      planQuickShip(
+        { status: order.status, packageCount: packageCount.get(order.id) ?? 0, lines: linesFor(order.id) },
+        withOwnReservations(
+          bays,
+          reservations.filter((row) => row.orderId === order.id),
+        ),
+      ),
+    ]),
+  );
+  const shopLive = new Set(
+    open
+      .filter((order) => shipPlans.get(order.id)?.ok)
+      .slice(0, QUEUE_LIVE_QUOTES)
+      .map((order) => order.id),
+  );
+  const decisions = new Map(
+    await mapWithLimit(open, RATE_SHOP_CONCURRENCY, async (order) => {
+      const decision = await decideShip(db, ctx, { warehouse, order, lines: linesFor(order.id), shopLive: shopLive.has(order.id) });
+      return [order.id, decision] as const;
+    }),
+  );
+
+  const shippedView = (order: OrderRow, orderLines: ShipLine[]) => {
     const parcel = orderParcel({ lines: orderLines, preset: defaultPreset, order });
-    const serviceId = chooseService(services, {
-      orderService: order.carrierService,
-      warehouseDefault: fallback?.serviceId,
-    });
-    const service = services.find((row) => row.id === serviceId) ?? null;
-    const plan =
-      order.status === "shipped"
-        ? null
-        : planQuickShip(
-            { status: order.status, packageCount: packageCount.get(order.id) ?? 0, lines: orderLines },
-            withOwnReservations(
-              bays,
-              reservations.filter((row) => row.orderId === order.id),
-            ),
-          );
+    return {
+      parcel: parcel.parcel,
+      missingWeight: parcel.missingWeight,
+      box: null,
+      serviceId: order.carrierService,
+      serviceName: null,
+      serviceReason: null,
+      serviceLive: false,
+      quote: null,
+      quotePending: false,
+      rule: null,
+    };
+  };
+
+  const rows = visible.map((order) => {
+    const orderLines = linesFor(order.id);
+    const decision = decisions.get(order.id) ?? null;
+    const plan = shipPlans.get(order.id) ?? null;
+    const blocker = shipBlocker(plan, decision);
     return {
       id: order.id,
       number: order.number,
@@ -204,18 +519,10 @@ shipRoute.get("/ship/queue", async (c) => {
         qty: line.qty,
         shipWeightOz: line.shipWeightOz,
       })),
-      parcel: parcel.parcel,
-      missingWeight: parcel.missingWeight,
-      serviceId,
-      serviceName: service ? `${service.company} ${service.service}` : null,
-      serviceLive: service?.connectionId
-        ? isLivePostage(
-            service.provider,
-            connections.find((row) => row.id === service.connectionId)?.mode ?? "demo",
-          )
-        : false,
-      ready: plan ? plan.ok : false,
-      blocker: plan && !plan.ok ? { code: plan.code, error: plan.error, sku: plan.sku ?? null } : null,
+      ...(decision ? decisionView(decision) : shippedView(order, orderLines)),
+      shipReason: order.shipReason,
+      ready: Boolean(plan?.ok) && !blocker,
+      blocker,
     };
   });
 
@@ -233,6 +540,8 @@ shipRoute.get("/ship/queue", async (c) => {
       presetId: defaultPreset?.id ?? null,
       carrierService: fallback?.serviceId ?? null,
       carrierConnectionId: fallback?.connectionId ?? null,
+      rateStrategy: isRateStrategy(warehouse.rateStrategy) ? warehouse.rateStrategy : "default",
+      deliveryDays: warehouse.deliveryDays,
     },
     setup: shipSetupSteps({
       storeConnected: signals.stores > 0,
@@ -242,6 +551,43 @@ shipRoute.get("/ship/queue", async (c) => {
     }),
     orders: rows,
   });
+});
+
+/** One order's decision at a given weight: the scan station asks again as the scale settles. */
+shipRoute.post("/ship/decide", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const body = await c.req.json<QuickShipBody & { orderId?: unknown }>().catch(() => ({}) as QuickShipBody & { orderId?: unknown });
+  if (typeof body.orderId !== "string" || !body.orderId) badRequest("orderId is required");
+  const orderId = body.orderId;
+  const weightOz = optionalInt(body.weightOz, "weightOz");
+  if (weightOz !== undefined && weightOz <= 0) badRequest("weightOz must be above 0");
+  const [order] = await db
+    .select()
+    .from(schema.orders)
+    .where(and(eq(schema.orders.id, orderId), eq(schema.orders.organizationId, organizationId)))
+    .limit(1);
+  if (!order) notFound("Order not found");
+  const [warehouse] = await db
+    .select()
+    .from(schema.warehouses)
+    .where(eq(schema.warehouses.id, order.warehouseId))
+    .limit(1);
+  const lines = await loadShipLines(db, [order.id]);
+  const plan = await loadQuickShipPlan(db, organizationId, order, lines);
+  const decision = await decideShip(db, await loadShipContext(db, organizationId), {
+    warehouse,
+    order,
+    lines,
+    picked: {
+      presetId: optionalString(body.presetId),
+      carrierService: optionalString(body.carrierService),
+      carrierConnectionId: optionalString(body.carrierConnectionId),
+      weightOz,
+    },
+  });
+  const blocker = shipBlocker(plan, decision);
+  return c.json({ orderId: order.id, ...decisionView(decision), ready: plan.ok && !blocker, blocker });
 });
 
 shipRoute.get("/ship/presets", async (c) => {
@@ -315,10 +661,171 @@ shipRoute.delete("/ship/presets/:id", async (c) => {
   requireOwner(c.get("role"));
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  const id = c.req.param("id");
+  const usedBy = (await loadShipRules(db, organizationId)).find((rule) => rule.presetId === id);
+  if (usedBy) conflict(`Rule “${usedBy.name}” packs in this box. Change the rule first.`);
   await db
     .delete(schema.packagePresets)
-    .where(and(eq(schema.packagePresets.id, c.req.param("id")), eq(schema.packagePresets.organizationId, organizationId)));
+    .where(and(eq(schema.packagePresets.id, id), eq(schema.packagePresets.organizationId, organizationId)));
   return c.json(await loadPresets(db, organizationId));
+});
+
+async function rulesPayload(db: Db, organizationId: string) {
+  const ctx = await loadShipContext(db, organizationId);
+  const buildings = await db
+    .select({ id: schema.warehouses.id, name: schema.warehouses.name })
+    .from(schema.warehouses)
+    .where(eq(schema.warehouses.organizationId, organizationId));
+  const rules = await loadShipRules(db, organizationId);
+  return {
+    rules: rules.map((rule) => {
+      const purchase = rule.carrierService
+        ? resolveLabelPurchase({ connections: ctx.connections, serviceId: rule.carrierService, connectionId: rule.carrierConnectionId })
+        : null;
+      return {
+        ...rule,
+        problem: purchase && !purchase.ok ? "No connected carrier account offers this service" : null,
+      };
+    }),
+    presets: ctx.presets,
+    services: ctx.services.map((row) => ({
+      id: row.id,
+      name: `${row.company} ${row.service}`,
+      company: row.company,
+      connectionId: row.connectionId,
+      provider: row.provider,
+    })),
+    warehouses: buildings,
+  };
+}
+
+/**
+ * Checks the rule's building, box, and service belong to this org, and pins the service to the account that offers it.
+ * An edit only rechecks what it changed, so a rule whose service went away can still be turned off or renamed.
+ */
+async function resolveRuleRefs(db: Db, organizationId: string, input: ShipRuleInput, current?: ShipRule): Promise<ShipRuleInput> {
+  if (input.warehouseId && input.warehouseId !== current?.warehouseId) {
+    const [building] = await db
+      .select({ id: schema.warehouses.id })
+      .from(schema.warehouses)
+      .where(and(eq(schema.warehouses.id, input.warehouseId), eq(schema.warehouses.organizationId, organizationId)))
+      .limit(1);
+    if (!building) badRequest("Building not found");
+  }
+  if (
+    input.presetId &&
+    input.presetId !== current?.presetId &&
+    !(await loadPresets(db, organizationId)).some((row) => row.id === input.presetId)
+  ) {
+    badRequest("Box not found");
+  }
+  if (!input.carrierService) return input;
+  if (current && input.carrierService === current.carrierService && input.carrierConnectionId === current.carrierConnectionId) {
+    return input;
+  }
+  const purchase = resolveLabelPurchase({
+    connections: await loadCarrierConnections(db, organizationId),
+    serviceId: input.carrierService,
+    connectionId: input.carrierConnectionId,
+  });
+  if (!purchase.ok) badRequest(purchase.error);
+  return { ...input, carrierService: purchase.service.id, carrierConnectionId: purchase.connectionId };
+}
+
+function ruleColumns(input: ShipRuleInput) {
+  return {
+    name: input.name,
+    enabled: input.enabled,
+    warehouseId: input.warehouseId,
+    conditionsJson: JSON.stringify(input.conditions),
+    presetId: input.presetId,
+    carrierService: input.carrierService,
+    carrierConnectionId: input.carrierConnectionId,
+    rateStrategy: input.rateStrategy,
+    hold: input.hold,
+  };
+}
+
+function parseRule(body: Record<string, unknown>): ShipRuleInput {
+  try {
+    return parseShipRuleInput(body);
+  } catch (err) {
+    badRequest(err instanceof Error ? err.message : "Invalid rule");
+  }
+}
+
+shipRoute.get("/ship/rules", async (c) => {
+  return c.json(await rulesPayload(c.get("db"), c.get("organizationId")!));
+});
+
+shipRoute.post("/ship/rules", async (c) => {
+  requireOwner(c.get("role"));
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  const input = await resolveRuleRefs(db, organizationId, parseRule(body));
+  const existing = await loadShipRules(db, organizationId);
+  const now = Date.now();
+  await db.insert(schema.shipRules).values({
+    id: newId(),
+    organizationId,
+    position: existing.reduce((max, rule) => Math.max(max, rule.position), 0) + 1,
+    ...ruleColumns(input),
+    createdAt: now,
+    updatedAt: now,
+  });
+  return c.json(await rulesPayload(db, organizationId), 201);
+});
+
+shipRoute.post("/ship/rules/reorder", async (c) => {
+  requireOwner(c.get("role"));
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const body = await c.req.json<{ ids?: unknown }>().catch(() => ({}) as { ids?: unknown });
+  if (!Array.isArray(body.ids)) badRequest("ids must list the rules in their new order");
+  const ids = body.ids.filter((id): id is string => typeof id === "string");
+  const rules = await loadShipRules(db, organizationId);
+  const current = new Map(rules.map((rule) => [rule.id, rule.position]));
+  const moves = reorderShipRules(rules, ids).filter((row) => current.get(row.id) !== row.position);
+  const now = Date.now();
+  if (moves.length) {
+    const [first, ...rest] = moves.map((row) =>
+      db
+        .update(schema.shipRules)
+        .set({ position: row.position, updatedAt: now })
+        .where(and(eq(schema.shipRules.id, row.id), eq(schema.shipRules.organizationId, organizationId))),
+    );
+    await db.batch([first!, ...rest]);
+  }
+  return c.json(await rulesPayload(db, organizationId));
+});
+
+shipRoute.patch("/ship/rules/:id", async (c) => {
+  requireOwner(c.get("role"));
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const id = c.req.param("id");
+  const current = (await loadShipRules(db, organizationId)).find((rule) => rule.id === id);
+  if (!current) notFound("Rule not found");
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  const merged: Record<string, unknown> = { ...current, ...body };
+  if ("carrierService" in body && !("carrierConnectionId" in body)) merged.carrierConnectionId = null;
+  const input = await resolveRuleRefs(db, organizationId, parseRule(merged), current);
+  await db
+    .update(schema.shipRules)
+    .set({ ...ruleColumns(input), updatedAt: Date.now() })
+    .where(and(eq(schema.shipRules.id, id), eq(schema.shipRules.organizationId, organizationId)));
+  return c.json(await rulesPayload(db, organizationId));
+});
+
+shipRoute.delete("/ship/rules/:id", async (c) => {
+  requireOwner(c.get("role"));
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  await db
+    .delete(schema.shipRules)
+    .where(and(eq(schema.shipRules.id, c.req.param("id")), eq(schema.shipRules.organizationId, organizationId)));
+  return c.json(await rulesPayload(db, organizationId));
 });
 
 type ShipOrderRow = {
@@ -341,6 +848,7 @@ async function quickShipOne(
   call: ReturnType<typeof internalApi>,
   orderId: string,
   body: QuickShipBody,
+  options: { ctx?: ShipContext; releaseHold?: boolean } = {},
 ): Promise<QuickShipOutcome> {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -360,18 +868,7 @@ async function quickShipOne(
   });
 
   const lines = await loadShipLines(db, [order.id]);
-  const packages = await db
-    .select({ id: schema.orderPackages.id })
-    .from(schema.orderPackages)
-    .where(eq(schema.orderPackages.orderId, order.id));
-  const bays = await loadAtpBaysByItem(
-    db,
-    organizationId,
-    [...new Set(lines.map((line) => line.itemId))],
-    order.id,
-    order.warehouseId,
-  );
-  const plan = planQuickShip({ status: order.status, packageCount: packages.length, lines }, bays);
+  const plan = await loadQuickShipPlan(db, organizationId, order, lines);
   if (!plan.ok) return fail(409, plan.error, plan.code);
 
   const [warehouse] = await db
@@ -379,32 +876,21 @@ async function quickShipOne(
     .from(schema.warehouses)
     .where(eq(schema.warehouses.id, order.warehouseId))
     .limit(1);
-  const connections = await loadCarrierConnections(db, organizationId);
-  const services = enabledServicesFromConnections(connections);
-  const fallback = buildingDefaultService(connections, warehouse);
-  const carrierService = chooseService(services, {
-    requested: body.carrierService,
-    orderService: order.carrierService,
-    warehouseDefault: fallback?.serviceId,
-  });
-  const carrierConnectionId =
-    defaultShipConnection({
-      requested: body.carrierConnectionId,
-      orderConnection: carrierService === order.carrierService ? order.carrierConnectionId : null,
-      warehouseDefault: carrierService && carrierService === fallback?.serviceId ? fallback.connectionId : null,
-    }) ?? services.find((row) => row.id === carrierService)?.connectionId ?? null;
+  const ctx = options.ctx ?? (await loadShipContext(db, organizationId));
+  const { connections } = ctx;
+  const decision = await decideShip(db, ctx, { warehouse, order, lines, picked: body });
+  const current = order as ShipOrderRow;
+  const hasLabel = Boolean(current.trackingNumber) && current.labelStatus === "purchased";
+  if (decision.plan.hold && !options.releaseHold) return fail(409, holdMessage(decision.plan), "SHIP_RULE_HOLD");
+  if (decision.plan.problem && !hasLabel) return fail(409, decision.plan.problem, "SHIP_RULE_SERVICE");
+  if (decision.rateError && !hasLabel) return fail(409, decision.rateError, "NO_RATE");
+  const { parcel, serviceId: carrierService, connectionId: carrierConnectionId } = decision;
   const connection = connections.find((row) => row.id === carrierConnectionId) ?? null;
   const live = Boolean(connection && isLivePostage(connection.provider, connection.mode));
-
-  const presets = await loadPresets(db, organizationId);
-  const typed = body.weightOz ? { packageWeightOz: body.weightOz, packageLengthIn: body.lengthIn, packageWidthIn: body.widthIn, packageHeightIn: body.heightIn } : order;
-  const parcel = orderParcel({ lines, preset: pickPreset(presets, body.presetId), order: typed });
   if (live && parcel.missingWeight.length) {
     return fail(409, `Add a ship weight for ${parcel.missingWeight.join(", ")} before buying live postage`, "NEED_WEIGHT");
   }
 
-  const current = order as ShipOrderRow;
-  const hasLabel = Boolean(current.trackingNumber) && current.labelStatus === "purchased";
   if (!hasLabel) {
     const purchase = resolveLabelPurchase({ connections, serviceId: carrierService, connectionId: carrierConnectionId });
     const blocked = quickShipLabelBlocker({
@@ -458,6 +944,7 @@ async function quickShipOne(
           await call("POST", `/orders/${order.id}/label`, {
             carrierService,
             carrierConnectionId: carrierConnectionId ?? undefined,
+            quotedCents: decision.quote?.amountCents,
             ...parcel.parcel,
           }),
         ),
@@ -488,6 +975,9 @@ async function quickShipOne(
   const snapshot = await snapshotQuickShip(db, organizationId, order.id);
   const run = await runQuickShip(steps, () => undoQuickShip(c, call, order.id, snapshot));
   if (!run.ok) return fail(run.failure.status, run.failure.error, run.failure.code);
+  if (!hasLabel && decision.summary) {
+    await db.update(schema.orders).set({ shipReason: decision.summary }).where(eq(schema.orders.id, order.id));
+  }
   const [shipped] = await db
     .select({ trackingNumber: schema.orders.trackingNumber, channelSyncStatus: schema.orders.channelSyncStatus })
     .from(schema.orders)
@@ -529,13 +1019,35 @@ async function undoQuickShip(
   return { shipped: false, voidedLabel: labelVoided, voidError, restoreError };
 }
 
+/** Shops live rates for the whole batch a few orders at a time, so the one-by-one ship loop finds them cached. */
+async function warmLiveRates(db: Db, ctx: ShipContext, organizationId: string, ids: string[], body: QuickShipBody) {
+  if (!ctx.connections.some((row) => isLivePostage(row.provider, row.mode) && row.apiKey)) return;
+  const orders = await db
+    .select()
+    .from(schema.orders)
+    .where(and(eq(schema.orders.organizationId, organizationId), inArray(schema.orders.id, ids)));
+  const lines = await loadShipLines(
+    db,
+    orders.map((row) => row.id),
+  );
+  const buildings = await db.select().from(schema.warehouses).where(eq(schema.warehouses.organizationId, organizationId));
+  await mapWithLimit(orders, RATE_SHOP_CONCURRENCY, (order) =>
+    decideShip(db, ctx, {
+      warehouse: buildings.find((row) => row.id === order.warehouseId),
+      order,
+      lines: lines.filter((line) => line.orderId === order.id),
+      picked: body,
+    }),
+  );
+}
+
 shipRoute.post("/orders/:id/quick-ship", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   assertQuickShip(await loadWorkflowPolicy(db, organizationId));
-  const body = await c.req.json<QuickShipBody>().catch(() => ({}) as QuickShipBody);
+  const body = await c.req.json<QuickShipBody & { releaseHold?: boolean }>().catch(() => ({}) as QuickShipBody & { releaseHold?: boolean });
   const call = internalApi(c, [ordersRoute]);
-  const outcome = await quickShipOne(c, call, c.req.param("id"), body);
+  const outcome = await quickShipOne(c, call, c.req.param("id"), body, { releaseHold: body.releaseHold === true });
   if (!outcome.ok) return c.json({ error: outcome.error, code: outcome.code, orderId: outcome.orderId }, outcome.status as 400 | 404 | 409);
   return c.json(outcome);
 });
@@ -549,10 +1061,12 @@ shipRoute.post("/ship/quick-ship", async (c) => {
   if (ids.length === 0) badRequest("Pick at least one order to ship");
   if (ids.length > MAX_BULK) badRequest(`Ship at most ${MAX_BULK} orders at a time`);
   const call = internalApi(c, [ordersRoute]);
+  const ctx = await loadShipContext(db, organizationId);
+  await warmLiveRates(db, ctx, organizationId, ids, body);
   const outcomes: QuickShipOutcome[] = [];
   for (const id of ids) {
     try {
-      outcomes.push(await quickShipOne(c, call, id, body));
+      outcomes.push(await quickShipOne(c, call, id, body, { ctx }));
     } catch (err) {
       outcomes.push({ orderId: id, ok: false, status: 500, error: err instanceof Error ? err.message : "Ship failed" });
     }

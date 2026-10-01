@@ -50,6 +50,7 @@ import { TeamPage } from "./pages/setup/TeamPage";
 import { AuditPage } from "./pages/setup/AuditPage";
 import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
 import { CarriersPage } from "./pages/setup/CarriersPage";
+import { ShippingRulesPage } from "./pages/setup/ShippingRulesPage";
 import { IntegrationsPage } from "./pages/setup/IntegrationsPage";
 import { ClientsPage } from "./pages/setup/ClientsPage";
 import { ZonesPage } from "./pages/setup/ZonesPage";
@@ -82,6 +83,7 @@ import { PackSlipPage } from "./pages/PackSlipPage";
 import { OrderPickListPage, WavePickListPage } from "./pages/PickListPage";
 import { ScannerProvider } from "./scanner/ScannerProvider";
 import { PrintProvider } from "./print/PrintProvider";
+import { ScaleProvider } from "./scale/ScaleProvider";
 import { homePath, OwnerOnly } from "./warehouse";
 
 function Guard({ me }: { me: Me | null }) {
@@ -89,7 +91,9 @@ function Guard({ me }: { me: Me | null }) {
   return (
     <ScannerProvider>
       <PrintProvider>
-        <AppShell me={me} />
+        <ScaleProvider>
+          <AppShell me={me} />
+        </ScaleProvider>
       </PrintProvider>
     </ScannerProvider>
   );
@@ -265,6 +269,7 @@ export function App() {
           <Route path="imports" element={<ImportsPage />} />
           <Route path="accounting" element={<AccountingPage />} />
           <Route path="carriers" element={<CarriersPage />} />
+          <Route path="shipping-rules" element={<ShippingRulesPage />} />
           <Route path="warehouse" element={<WarehouseSetupPage />} />
           <Route path="clients" element={<ClientsPage />} />
           <Route path="zones" element={<ZonesPage />} />

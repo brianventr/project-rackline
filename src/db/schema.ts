@@ -97,6 +97,10 @@ export const warehouses = sqliteTable("warehouses", {
   defaultCarrierService: text("default_carrier_service"),
   /** Carrier company → pickup cutoff (minutes from local midnight); see `domain/wave-plan.ts`. */
   carrierCutoffsJson: text("carrier_cutoffs_json"),
+  /** How quick-ship picks a service when neither a rule nor the order names one: `RateStrategy`. */
+  rateStrategy: text("rate_strategy").notNull().default("default"),
+  /** Working days from order to doorstep the shop promises; the on-time rate choice aims for it. */
+  deliveryDays: integer("delivery_days"),
 });
 
 export const locations = sqliteTable(
@@ -394,6 +398,8 @@ export const orders = sqliteTable(
     channelSyncError: text("channel_sync_error"),
     channelFulfilledAt: integer("channel_fulfilled_at"),
     customerId: text("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    /** Why quick-ship picked the box and service it did, e.g. `Mailer (Rule: Small parcels) · UPS Ground (Cheapest)`. */
+    shipReason: text("ship_reason"),
   },
   (t) => [
     uniqueIndex("shopify_orders_org_order").on(t.organizationId, t.shopifyOrderId),
@@ -1444,8 +1450,39 @@ export const packagePresets = sqliteTable(
     tareOz: integer("tare_oz").notNull().default(0),
     isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at").notNull(),
+    /** Inside size for picking a box that fits; the outside size stands in when unset. */
+    innerLengthIn: real("inner_length_in"),
+    innerWidthIn: real("inner_width_in"),
+    innerHeightIn: real("inner_height_in"),
+    /** Heaviest parcel the box should carry, box included. */
+    maxWeightOz: integer("max_weight_oz"),
   },
   (t) => [uniqueIndex("package_presets_org_name").on(t.organizationId, t.name)],
+);
+
+export const shipRules = sqliteTable(
+  "ship_rules",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Null runs the rule in every building. */
+    warehouseId: text("warehouse_id").references(() => warehouses.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    /** `ShipRuleConditions` from `domain/ship-rules.ts`. */
+    conditionsJson: text("conditions_json").notNull().default("{}"),
+    presetId: text("preset_id").references(() => packagePresets.id, { onDelete: "set null" }),
+    carrierService: text("carrier_service"),
+    carrierConnectionId: text("carrier_connection_id"),
+    rateStrategy: text("rate_strategy"),
+    hold: integer("hold", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("ship_rules_org_position").on(t.organizationId, t.position)],
 );
 
 export const printers = sqliteTable(

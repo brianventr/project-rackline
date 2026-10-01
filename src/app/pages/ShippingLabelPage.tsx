@@ -102,20 +102,7 @@ export function ShippingLabelPage() {
             <Button
               onClick={() => {
                 void printer
-                  .print({
-                    kind: "shipping-label",
-                    title: label.orderNumber,
-                    data: {
-                      orderNumber: label.orderNumber,
-                      customerName: label.customerName,
-                      shipToAddress: label.shipToAddress,
-                      carrierCompany: label.carrierCompany,
-                      carrierService: label.carrierService,
-                      trackingNumber: label.trackingNumber,
-                    },
-                    refType: "order",
-                    refId: label.orderId,
-                  })
+                  .print(shippingLabelJob(label))
                   .then((result) => {
                     setMessage(result.message);
                     if (!result.ok) setError(result.message);
@@ -132,6 +119,24 @@ export function ShippingLabelPage() {
       <ShippingLabelCard label={label} />
     </div>
   );
+}
+
+/** One label's print job: ZPL on a thermal printer, or the page's label card through the browser. */
+export function shippingLabelJob(label: ShippingLabel) {
+  return {
+    kind: "shipping-label" as const,
+    title: label.orderNumber,
+    data: {
+      orderNumber: label.orderNumber,
+      customerName: label.customerName,
+      shipToAddress: label.shipToAddress,
+      carrierCompany: label.carrierCompany,
+      carrierService: label.carrierService,
+      trackingNumber: label.trackingNumber,
+    },
+    refType: "order",
+    refId: label.orderId,
+  };
 }
 
 export function ShippingLabelCard({ label, className }: { label: ShippingLabel; className?: string }) {

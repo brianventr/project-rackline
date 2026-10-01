@@ -5,7 +5,7 @@ import { api, errorText, type ShippingLabel } from "../api";
 import { Button, EmptyState, ErrorBanner, PageHeader } from "../components/ui";
 import { usePrint } from "../print/PrintProvider";
 import { resolvePrinterForKind } from "@/domain/print-station";
-import { ShippingLabelCard } from "./ShippingLabelPage";
+import { ShippingLabelCard, shippingLabelJob } from "./ShippingLabelPage";
 
 /** Every label from one ship run on one page: a single browser print, or one job per label on a thermal printer. */
 export function ShipLabelsPage() {
@@ -41,20 +41,7 @@ export function ShipLabelsPage() {
     }
     let sent = 0;
     for (const label of labels) {
-      const result = await printer.print({
-        kind: "shipping-label",
-        title: label.orderNumber,
-        data: {
-          orderNumber: label.orderNumber,
-          customerName: label.customerName,
-          shipToAddress: label.shipToAddress,
-          carrierCompany: label.carrierCompany,
-          carrierService: label.carrierService,
-          trackingNumber: label.trackingNumber,
-        },
-        refType: "order",
-        refId: label.orderId,
-      });
+      const result = await printer.print(shippingLabelJob(label));
       if (!result.ok) {
         setMessage(`${label.orderNumber}: ${result.message}`);
         return;

@@ -1,16 +1,45 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
+import { flushSync } from "react-dom";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Circle, Package, PackageCheck, Printer, Scale, Store, Truck, Warehouse } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  Package,
+  PackageCheck,
+  Printer,
+  Scale,
+  ScanLine,
+  Split,
+  Store,
+  Truck,
+  Warehouse,
+} from "lucide-react";
 import { toast } from "sonner";
-import { errorText, type PackagePreset, type QuickShipBatch, type ShipQueue, type ShipQueueOrder } from "../api";
+import {
+  errorText,
+  type PackagePreset,
+  type QuickShipBatch,
+  type QuickShipOutcome,
+  type ShippingLabel,
+  type ShipQueue,
+  type ShipQueueOrder,
+} from "../api";
 import { Button, Card, EmptyState, Field, Input, PageHeader, Select, ToneBadge } from "../components/ui";
 import { DataTable, type BulkAction, type DataColumn, type TabDef } from "../components/data-table/DataTable";
 import { DocLink, LineChips, Muted, RelativeTime } from "../components/cells";
 import { FormSheet } from "../components/form-sheet";
+import { useConfirm } from "../components/confirm";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
+import { usePrint } from "../print/PrintProvider";
+import { ShipStation } from "./ShipStation";
+import { ShippingLabelCard, shippingLabelJob } from "./ShippingLabelPage";
 import { markShippedReminder } from "@/domain/channels/adapter";
+import { shortDay } from "@/domain/rate-choice";
+import { formatOz } from "@/domain/ship-defaults";
+import { cn } from "@/lib/utils";
 
 const TABS: TabDef<ShipQueueOrder>[] = [
   { id: "ready", label: "Ready to ship", match: (row) => row.status !== "shipped" && row.ready },
@@ -40,6 +69,7 @@ function labelsHref(ids: string[]): string {
 export function ShipQueuePage() {
   const me = useSession();
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const [params, setParams] = useSearchParams();
   const { warehouseId } = useWarehouse();
   const owner = me.role === "owner";
@@ -48,10 +78,14 @@ export function ShipQueuePage() {
   const [serviceId, setServiceId] = useState<string>("");
   const [shipping, setShipping] = useState<string | null>(null);
   const [savingDefault, setSavingDefault] = useState(false);
+  const [printing, setPrinting] = useState<ShippingLabel | null>(null);
+  const printer = usePrint();
   const boxOpen = params.get("setup") === "box";
+  const stationOpen = params.get("station") === "1";
 
   const data = queue.data;
-  const effectivePreset = presetId || data?.defaults.presetId || "";
+  const pickedPreset = data?.presets.find((preset) => preset.id === presetId) ?? null;
+  const pickedService = data?.services.find((service) => service.id === serviceId) ?? null;
   const setupLeft = (data?.setup ?? []).filter((step) => !step.done);
   const storeConnected = !!data?.setup.some((step) => step.id === "store" && step.done);
   const defaultServiceId = data?.defaults.carrierService ?? null;
@@ -76,17 +110,20 @@ export function ShipQueuePage() {
     }
   }
 
-  async function ship(rows: ShipQueueOrder[]) {
+  async function post(ids: string[], releaseHold: boolean): Promise<QuickShipBatch> {
+    const picked = { presetId: presetId || undefined, carrierService: serviceId || undefined };
+    if (!releaseHold) return apiMutate<QuickShipBatch>("/api/ship/quick-ship", { body: JSON.stringify({ ids, ...picked }) });
+    const outcome = await apiMutate<QuickShipOutcome>(`/api/orders/${encodeURIComponent(ids[0]!)}/quick-ship`, {
+      body: JSON.stringify({ ...picked, releaseHold: true }),
+    });
+    return { shipped: 1, failed: 0, total: 1, outcomes: [outcome] };
+  }
+
+  async function ship(rows: ShipQueueOrder[], releaseHold = false) {
     const ids = rows.map((row) => row.id);
     setShipping(ids.length === 1 ? ids[0]! : "bulk");
     try {
-      const result = await apiMutate<QuickShipBatch>("/api/ship/quick-ship", {
-        body: JSON.stringify({
-          ids,
-          presetId: effectivePreset || undefined,
-          carrierService: serviceId || undefined,
-        }),
-      });
+      const result = await post(ids, releaseHold);
       const shippedIds = result.outcomes.filter((row) => row.ok).map((row) => row.orderId);
       const failed = result.outcomes.filter((row) => !row.ok);
       if (failed.length) {
@@ -114,6 +151,28 @@ export function ShipQueuePage() {
       setShipping(null);
       void refreshApi("/api/ship");
     }
+  }
+
+  /** The station's label goes out alone: a thermal printer gets ZPL, and browser print sees only this card. */
+  async function printStationLabel(label: ShippingLabel) {
+    flushSync(() => setPrinting(label));
+    try {
+      return await printer.print(shippingLabelJob(label));
+    } finally {
+      setPrinting(null);
+    }
+  }
+
+  async function shipAnyway(row: ShipQueueOrder) {
+    const box = pickedPreset?.name ?? row.box?.name;
+    const service = pickedService?.name ?? row.serviceName;
+    const ok = await confirm({
+      title: `Ship ${row.number} anyway?`,
+      body: `Rule ${row.rule?.name ?? ""} holds orders like this for a look.${box || service ? ` It ships${box ? ` in ${box}` : ""}${service ? ` with ${service}` : ""}.` : ""}`,
+      confirmLabel: "Ship anyway",
+      cancelLabel: "Keep holding",
+    });
+    if (ok) await ship([row], true);
   }
 
   const columns: DataColumn<ShipQueueOrder>[] = [
@@ -172,23 +231,61 @@ export function ShipQueuePage() {
         ),
     },
     {
+      id: "box",
+      header: "Box",
+      sortValue: (row) => row.box?.name ?? "",
+      csv: (row) => (row.status === "shipped" ? "" : (pickedPreset?.name ?? row.box?.name ?? "")),
+      cell: (row) => {
+        if (row.status === "shipped") return <Muted>—</Muted>;
+        if (pickedPreset) return <Reasoned text={pickedPreset.name} reason="Picked" />;
+        const box = row.box;
+        if (!box) return <Muted>—</Muted>;
+        const auto = box.source === "auto";
+        return (
+          <Reasoned
+            text={box.name}
+            badge={auto ? "auto" : null}
+            reason={auto ? null : box.reason}
+            detail={box.note ? { text: box.note, warn: box.tooBig } : null}
+          />
+        );
+      },
+    },
+    {
       id: "service",
       header: "Service",
       sortValue: (row) => row.serviceName ?? "",
       cell: (row) =>
         row.status === "shipped" ? (
-          row.trackingUrl ? (
-            <a href={row.trackingUrl} target="_blank" rel="noreferrer" className="font-mono text-xs hover:underline">
-              {row.trackingNumber}
-            </a>
-          ) : (
-            <span className="font-mono text-xs">{row.trackingNumber ?? "—"}</span>
-          )
-        ) : (
-          <span className="flex flex-col text-sm">
-            {serviceId ? (data?.services.find((service) => service.id === serviceId)?.name ?? serviceId) : (row.serviceName ?? <Muted>—</Muted>)}
-            {row.serviceLive ? <span className="text-[11px] text-muted-foreground">Live postage</span> : null}
+          <span className="flex flex-col">
+            {row.trackingUrl ? (
+              <a href={row.trackingUrl} target="_blank" rel="noreferrer" className="font-mono text-xs hover:underline">
+                {row.trackingNumber}
+              </a>
+            ) : (
+              <span className="font-mono text-xs">{row.trackingNumber ?? "—"}</span>
+            )}
+            {row.postageCents || row.shipReason ? (
+              <span className="text-[11px] text-muted-foreground">
+                {[row.postageCents ? money(row.postageCents) : null, row.shipReason].filter(Boolean).join(" · ")}
+              </span>
+            ) : null}
           </span>
+        ) : pickedService || serviceId ? (
+          <Reasoned text={pickedService?.name ?? serviceId} reason="Picked" />
+        ) : (
+          <Reasoned
+            text={row.serviceName ?? (row.quotePending ? "Quoted when shipped" : null)}
+            reason={[row.serviceReason, row.serviceLive ? "Live postage" : null].filter(Boolean).join(" · ")}
+            detail={
+              row.quote
+                ? {
+                    text: `${money(row.quote.amountCents)} · ${row.quote.late ? "late, " : ""}arrives ${shortDay(Number(row.quote.arrivesOn.replaceAll("-", "")))}`,
+                    warn: row.quote.late,
+                  }
+                : null
+            }
+          />
         ),
     },
     {
@@ -222,14 +319,21 @@ export function ShipQueuePage() {
         }
         if (!row.ready && row.blocker) {
           return (
-            <span className="inline-flex max-w-64 items-start gap-1.5 text-left text-xs text-tone-warning">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-              <span>
-                {row.blocker.error}{" "}
-                <Link to={`/outbound/orders/${row.id}`} className="underline">
-                  Open
-                </Link>
+            <span className="inline-flex max-w-64 flex-col items-end gap-1.5">
+              <span className="inline-flex items-start gap-1.5 text-left text-xs text-tone-warning">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                <span>
+                  {row.blocker.error}{" "}
+                  <Link to={`/outbound/orders/${row.id}`} className="underline">
+                    Open
+                  </Link>
+                </span>
               </span>
+              {row.blocker.code === "SHIP_RULE_HOLD" ? (
+                <Button size="xs" variant="outline" disabled={shipping !== null} onClick={() => void shipAnyway(row)}>
+                  {shipping === row.id ? "Shipping…" : "Ship anyway"}
+                </Button>
+              ) : null}
             </span>
           );
         }
@@ -271,119 +375,147 @@ export function ShipQueuePage() {
   const readyCount = (data?.orders ?? []).filter((row) => row.status !== "shipped" && row.ready).length;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
-      <PageHeader
-        eyebrow="Garage"
-        title="Ship"
-        description="Store orders land here. Pick a box and service, then ship: Rackline picks from the suggested shelf, buys the label, and sends tracking back to the store."
-        actions={
-          owner ? (
-            <Button size="sm" variant="outline" onClick={() => setParams((prev) => withParam(prev, "setup", "box"))}>
-              <Package className="size-4" />
-              Boxes
-            </Button>
-          ) : null
-        }
-      />
-
-      {!quickShip ? (
-        <Card className="flex flex-col gap-3 p-(--density-gap) md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="font-medium">Manufacturer ships through the floor</p>
-            <p className="text-sm text-muted-foreground">
-              One-click ship is off. Plan waves by carrier cutoff, then pick, pack, and ship by scan on the floor.
-            </p>
-          </div>
-          <Button size="sm" asChild>
-            <Link to="/outbound/waves">Open Waves</Link>
-          </Button>
-        </Card>
-      ) : setupLeft.length && data ? (
-        <SetupChecklist steps={data.setup} onBox={() => setParams((prev) => withParam(prev, "setup", "box"))} />
-      ) : null}
-
-      <DataTable
-        id="ship-queue"
-        data={data?.orders}
-        loading={queue.isLoading}
-        error={queue.error?.message}
-        columns={columns}
-        getRowId={(row) => row.id}
-        tabs={TABS}
-        defaultTab="ready"
-        defaultSort={{ id: "age", desc: false }}
-        search={{
-          placeholder: "Search order, customer, SKU",
-          text: (row) => [row.number, row.customerName, row.shipToCity, ...row.lines.map((line) => line.sku)].filter(Boolean).join(" "),
-        }}
-        bulkActions={bulkActions}
-        exportName="ship-queue"
-        toolbar={
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              aria-label="Box"
-              className="h-8 w-40"
-              value={effectivePreset}
-              onChange={(event) => setPresetId(event.target.value)}
-            >
-              <option value="">No box preset</option>
-              {(data?.presets ?? []).map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.name} ({preset.lengthIn}×{preset.widthIn}×{preset.heightIn})
-                </option>
-              ))}
-            </Select>
-            <Select aria-label="Service" className="h-8 w-48" value={serviceId} onChange={(event) => setServiceId(event.target.value)}>
-              <option value="">Each order's default service</option>
-              {(data?.services ?? []).map((service) => (
-                <option key={`${service.connectionId ?? "rl"}-${service.id}`} value={service.id}>
-                  {service.id === defaultServiceId ? `${service.name} (default)` : service.name}
-                </option>
-              ))}
-            </Select>
-            {owner && serviceId && serviceId !== defaultServiceId ? (
-              <Button size="sm" variant="outline" disabled={savingDefault} onClick={() => void saveDefaultService()}>
-                {savingDefault ? "Saving…" : "Save as default"}
-              </Button>
-            ) : null}
-            <ToneBadge tone={readyCount ? "success" : "neutral"}>{readyCount} ready</ToneBadge>
-          </div>
-        }
-        empty={
-          <EmptyState
-            icon={PackageCheck}
-            title="Nothing to ship."
-            body={
-              storeConnected
-                ? "New store orders show up here, ready for a label. You can also add an order by hand."
-                : "Connect a store and new orders show up here, ready for a label. Or add an order by hand."
-            }
-            action={
-              <div className="flex flex-wrap justify-center gap-2">
-                {storeConnected ? null : (
-                  <Button size="sm" asChild>
-                    <Link to="/setup/integrations">Connect a store</Link>
-                  </Button>
-                )}
-                <Button size="sm" variant={storeConnected ? "primary" : "outline"} asChild>
-                  <Link to="/outbound/orders?new=1">New order</Link>
+    <>
+      <div className={cn("flex min-h-0 flex-1 flex-col gap-(--density-gap)", printing && "print:hidden")}>
+        <PageHeader
+          eyebrow="Garage"
+          title="Ship"
+          description="Store orders land here with a box and service chosen by your shipping rules and defaults. Ship, and Rackline picks from the suggested shelf, buys the label, and sends tracking back to the store."
+          actions={
+            <>
+              {quickShip ? (
+                <Button
+                  size="sm"
+                  variant={stationOpen ? "secondary" : "outline"}
+                  onClick={() => setParams((prev) => withParam(prev, "station", stationOpen ? null : "1"))}
+                >
+                  <ScanLine className="size-4" />
+                  Scan to ship
                 </Button>
-              </div>
-            }
-          />
-        }
-      />
-
-      {owner ? (
-        <BoxesSheet
-          open={boxOpen}
-          presets={data?.presets ?? []}
-          onOpenChange={(open) => {
-            if (!open) setParams((prev) => withParam(prev, "setup", null), { replace: true });
-          }}
+              ) : null}
+              {owner ? (
+                <>
+                  <Button size="sm" variant="outline" asChild>
+                    <Link to="/setup/shipping-rules">
+                      <Split className="size-4" />
+                      Rules
+                    </Link>
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setParams((prev) => withParam(prev, "setup", "box"))}>
+                    <Package className="size-4" />
+                    Boxes
+                  </Button>
+                </>
+              ) : null}
+            </>
+          }
         />
-      ) : null}
-    </div>
+
+        {quickShip && stationOpen ? (
+          <ShipStation
+            orders={data?.orders}
+            picked={{ presetId: presetId || undefined, carrierService: serviceId || undefined }}
+            owner={owner}
+            onClose={() => setParams((prev) => withParam(prev, "station", null))}
+            printLabel={printStationLabel}
+          />
+        ) : null}
+
+        {!quickShip ? (
+          <Card className="flex flex-col gap-3 p-(--density-gap) md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="font-medium">Manufacturer ships through the floor</p>
+              <p className="text-sm text-muted-foreground">
+                One-click ship is off. Plan waves by carrier cutoff, then pick, pack, and ship by scan on the floor.
+              </p>
+            </div>
+            <Button size="sm" asChild>
+              <Link to="/outbound/waves">Open Waves</Link>
+            </Button>
+          </Card>
+        ) : setupLeft.length && data ? (
+          <SetupChecklist steps={data.setup} owner={owner} onBox={() => setParams((prev) => withParam(prev, "setup", "box"))} />
+        ) : null}
+
+        <DataTable
+          id="ship-queue"
+          data={data?.orders}
+          loading={queue.isLoading}
+          error={queue.error?.message}
+          columns={columns}
+          getRowId={(row) => row.id}
+          tabs={TABS}
+          defaultTab="ready"
+          defaultSort={{ id: "age", desc: false }}
+          search={{
+            placeholder: "Search order, customer, SKU",
+            text: (row) => [row.number, row.customerName, row.shipToCity, ...row.lines.map((line) => line.sku)].filter(Boolean).join(" "),
+          }}
+          bulkActions={bulkActions}
+          exportName="ship-queue"
+          toolbar={
+            <div className="flex flex-wrap items-center gap-2">
+              <Select aria-label="Box" className="h-8 w-40" value={presetId} onChange={(event) => setPresetId(event.target.value)}>
+                <option value="">Each order's box</option>
+                {(data?.presets ?? []).map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name} ({preset.lengthIn}×{preset.widthIn}×{preset.heightIn})
+                  </option>
+                ))}
+              </Select>
+              <Select aria-label="Service" className="h-8 w-48" value={serviceId} onChange={(event) => setServiceId(event.target.value)}>
+                <option value="">Each order's service</option>
+                {(data?.services ?? []).map((service) => (
+                  <option key={`${service.connectionId ?? "rl"}-${service.id}`} value={service.id}>
+                    {service.id === defaultServiceId ? `${service.name} (default)` : service.name}
+                  </option>
+                ))}
+              </Select>
+              {owner && serviceId && serviceId !== defaultServiceId ? (
+                <Button size="sm" variant="outline" disabled={savingDefault} onClick={() => void saveDefaultService()}>
+                  {savingDefault ? "Saving…" : "Save as default"}
+                </Button>
+              ) : null}
+              <ToneBadge tone={readyCount ? "success" : "neutral"}>{readyCount} ready</ToneBadge>
+            </div>
+          }
+          empty={
+            <EmptyState
+              icon={PackageCheck}
+              title="Nothing to ship."
+              body={
+                storeConnected
+                  ? "New store orders show up here, ready for a label. You can also add an order by hand."
+                  : "Connect a store and new orders show up here, ready for a label. Or add an order by hand."
+              }
+              action={
+                <div className="flex flex-wrap justify-center gap-2">
+                  {storeConnected ? null : (
+                    <Button size="sm" asChild>
+                      <Link to="/setup/integrations">Connect a store</Link>
+                    </Button>
+                  )}
+                  <Button size="sm" variant={storeConnected ? "primary" : "outline"} asChild>
+                    <Link to="/outbound/orders?new=1">New order</Link>
+                  </Button>
+                </div>
+              }
+            />
+          }
+        />
+
+        {owner ? (
+          <BoxesSheet
+            open={boxOpen}
+            presets={data?.presets ?? []}
+            onOpenChange={(open) => {
+              if (!open) setParams((prev) => withParam(prev, "setup", null), { replace: true });
+            }}
+          />
+        ) : null}
+      </div>
+      {printing ? <ShippingLabelCard label={printing} className="hidden print:block print:rounded-none print:border-0" /> : null}
+    </>
   );
 }
 
@@ -394,7 +526,42 @@ function withParam(previous: URLSearchParams, key: string, value: string | null)
   return next;
 }
 
-function SetupChecklist({ steps, onBox }: { steps: ShipQueue["setup"]; onBox: () => void }) {
+function money(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+/** A value with the small grey line that says why it was chosen. */
+function Reasoned({
+  text,
+  badge,
+  reason,
+  detail,
+}: {
+  text: string | null | undefined;
+  badge?: string | null;
+  reason?: string | null;
+  detail?: { text: string; warn?: boolean } | null;
+}) {
+  if (!text) return <Muted>—</Muted>;
+  return (
+    <span className="flex flex-col text-sm">
+      <span className="flex items-center gap-1.5">
+        {text}
+        {badge ? (
+          <ToneBadge tone="info" dot={false}>
+            {badge}
+          </ToneBadge>
+        ) : null}
+      </span>
+      {reason ? <span className="text-[11px] text-muted-foreground">{reason}</span> : null}
+      {detail ? (
+        <span className={detail.warn ? "text-[11px] text-tone-warning" : "text-[11px] text-muted-foreground"}>{detail.text}</span>
+      ) : null}
+    </span>
+  );
+}
+
+function SetupChecklist({ steps, owner, onBox }: { steps: ShipQueue["setup"]; owner: boolean; onBox: () => void }) {
   const done = steps.filter((step) => step.done).length;
   return (
     <Card className="flex flex-col gap-3 p-(--density-gap) md:flex-row md:items-center md:justify-between">
@@ -429,9 +596,56 @@ function SetupChecklist({ steps, onBox }: { steps: ShipQueue["setup"]; onBox: ()
             </li>
           );
         })}
+        {owner ? (
+          <li>
+            <Link
+              to="/setup/shipping-rules"
+              className="inline-flex items-center gap-1.5 rounded-md border border-dashed px-2.5 py-1 text-sm text-muted-foreground hover:bg-muted"
+            >
+              <Split className="size-4" />
+              Shipping rules (optional)
+            </Link>
+          </li>
+        ) : null}
       </ol>
     </Card>
   );
+}
+
+const EMPTY_BOX = {
+  name: "",
+  lengthIn: "",
+  widthIn: "",
+  heightIn: "",
+  tareOz: "",
+  innerLengthIn: "",
+  innerWidthIn: "",
+  innerHeightIn: "",
+  maxWeightOz: "",
+};
+
+function boxForm(preset: PackagePreset): typeof EMPTY_BOX {
+  const text = (value: number | null) => (value == null ? "" : String(value));
+  return {
+    name: preset.name,
+    lengthIn: String(preset.lengthIn),
+    widthIn: String(preset.widthIn),
+    heightIn: String(preset.heightIn),
+    tareOz: String(preset.tareOz),
+    innerLengthIn: text(preset.innerLengthIn),
+    innerWidthIn: text(preset.innerWidthIn),
+    innerHeightIn: text(preset.innerHeightIn),
+    maxWeightOz: text(preset.maxWeightOz),
+  };
+}
+
+function boxSummary(preset: PackagePreset): string {
+  const parts = [`${preset.lengthIn}×${preset.widthIn}×${preset.heightIn} in`, `${preset.tareOz} oz`];
+  if (preset.innerLengthIn && preset.innerWidthIn && preset.innerHeightIn) {
+    parts.push(`inside ${preset.innerLengthIn}×${preset.innerWidthIn}×${preset.innerHeightIn}`);
+  }
+  if (preset.maxWeightOz) parts.push(`holds ${formatOz(preset.maxWeightOz)}`);
+  return parts.join(" · ");
 }
 
 function BoxesSheet({
@@ -443,27 +657,43 @@ function BoxesSheet({
   onOpenChange: (open: boolean) => void;
   presets: PackagePreset[];
 }) {
-  const [form, setForm] = useState({ name: "", lengthIn: "", widthIn: "", heightIn: "", tareOz: "" });
+  const [form, setForm] = useState(EMPTY_BOX);
+  const [editing, setEditing] = useState<PackagePreset | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const sorted = useMemo(() => [...presets].sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name)), [presets]);
+  const field = (name: keyof typeof EMPTY_BOX) => ({
+    value: form[name],
+    onChange: (event: ChangeEvent<HTMLInputElement>) => setForm({ ...form, [name]: event.target.value }),
+  });
 
-  async function add() {
+  function edit(preset: PackagePreset | null) {
+    setError(null);
+    setEditing(preset);
+    setForm(preset ? boxForm(preset) : EMPTY_BOX);
+  }
+
+  async function save() {
     setError(null);
     setBusy(true);
     try {
-      await apiMutate("/api/ship/presets", {
+      await apiMutate(editing ? `/api/ship/presets/${editing.id}` : "/api/ship/presets", {
+        method: editing ? "PATCH" : "POST",
         body: JSON.stringify({
           name: form.name,
           lengthIn: Number(form.lengthIn),
           widthIn: Number(form.widthIn),
           heightIn: Number(form.heightIn),
           tareOz: form.tareOz ? Number(form.tareOz) : 0,
+          innerLengthIn: form.innerLengthIn.trim(),
+          innerWidthIn: form.innerWidthIn.trim(),
+          innerHeightIn: form.innerHeightIn.trim(),
+          maxWeightOz: form.maxWeightOz.trim(),
         }),
         refresh: "/api/ship",
       });
       toast.success(`Saved ${form.name}.`);
-      setForm({ name: "", lengthIn: "", widthIn: "", heightIn: "", tareOz: "" });
+      edit(null);
     } catch (err) {
       setError(errorText(err, "Could not save the box."));
     } finally {
@@ -486,11 +716,14 @@ function BoxesSheet({
   return (
     <FormSheet
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(next) => {
+        if (!next) edit(null);
+        onOpenChange(next);
+      }}
       title="Boxes"
-      description="Your usual boxes. The default box's size and weight go on every label unless you pick another."
-      submitLabel="Add box"
-      onSubmit={add}
+      description="Your usual boxes. Quick-ship packs each order in the smallest box its items fit, from their ship sizes; orders without sizes get the default box. A shipping rule or a box you pick comes first."
+      submitLabel={editing ? "Save box" : "Add box"}
+      onSubmit={save}
       busy={busy}
       error={error}
     >
@@ -500,9 +733,7 @@ function BoxesSheet({
             <li key={preset.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
               <span>
                 <span className="font-medium">{preset.name}</span>{" "}
-                <span className="text-muted-foreground">
-                  {preset.lengthIn}×{preset.widthIn}×{preset.heightIn} in · {preset.tareOz} oz
-                </span>
+                <span className="text-muted-foreground">{boxSummary(preset)}</span>
               </span>
               <span className="flex items-center gap-1">
                 {preset.isDefault ? (
@@ -512,6 +743,9 @@ function BoxesSheet({
                     Make default
                   </Button>
                 )}
+                <Button type="button" size="sm" variant="ghost" onClick={() => edit(preset)}>
+                  Edit
+                </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => void update(preset, "DELETE")}>
                   Remove
                 </Button>
@@ -522,23 +756,53 @@ function BoxesSheet({
       ) : (
         <p className="text-sm text-muted-foreground">No boxes yet. Add the one you use most; it becomes the default.</p>
       )}
+      {editing ? (
+        <p className="flex items-center justify-between text-sm">
+          <span>
+            Editing <span className="font-medium">{editing.name}</span>
+          </span>
+          <Button type="button" size="sm" variant="ghost" onClick={() => edit(null)}>
+            Add a new box instead
+          </Button>
+        </p>
+      ) : null}
       <Field label="Name">
-        <Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="10×8 mailer" required />
+        <Input {...field("name")} placeholder="10×8 mailer" required />
       </Field>
+      <p className="text-xs text-muted-foreground">Outside size, for the label.</p>
       <div className="grid grid-cols-3 gap-2">
         <Field label="Length (in)">
-          <Input inputMode="numeric" value={form.lengthIn} onChange={(event) => setForm({ ...form, lengthIn: event.target.value })} required />
+          <Input inputMode="numeric" {...field("lengthIn")} required />
         </Field>
         <Field label="Width (in)">
-          <Input inputMode="numeric" value={form.widthIn} onChange={(event) => setForm({ ...form, widthIn: event.target.value })} required />
+          <Input inputMode="numeric" {...field("widthIn")} required />
         </Field>
         <Field label="Height (in)">
-          <Input inputMode="numeric" value={form.heightIn} onChange={(event) => setForm({ ...form, heightIn: event.target.value })} required />
+          <Input inputMode="numeric" {...field("heightIn")} required />
         </Field>
       </div>
-      <Field label="Empty box weight (oz)">
-        <Input inputMode="numeric" value={form.tareOz} onChange={(event) => setForm({ ...form, tareOz: event.target.value })} placeholder="0" />
-      </Field>
+      <p className="text-xs text-muted-foreground">
+        Inside size, optional. Used to check what fits; blank uses the outside size.
+      </p>
+      <div className="grid grid-cols-3 gap-2">
+        <Field label="Inside length">
+          <Input inputMode="decimal" {...field("innerLengthIn")} placeholder="—" />
+        </Field>
+        <Field label="Inside width">
+          <Input inputMode="decimal" {...field("innerWidthIn")} placeholder="—" />
+        </Field>
+        <Field label="Inside height">
+          <Input inputMode="decimal" {...field("innerHeightIn")} placeholder="—" />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Empty box weight (oz)">
+          <Input inputMode="numeric" {...field("tareOz")} placeholder="0" />
+        </Field>
+        <Field label="Max weight (oz)">
+          <Input inputMode="numeric" {...field("maxWeightOz")} placeholder="No limit" />
+        </Field>
+      </div>
     </FormSheet>
   );
 }

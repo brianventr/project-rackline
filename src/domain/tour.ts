@@ -56,7 +56,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       "Each document tracks done against expected, so a partial post is normal and posting more than is left is refused. Today lists what is open in each lane, and the floor ranks it into a next job.",
     ],
     garageBody: [
-      "Buy parts on a purchase order, receive the box onto the dock, and put it on a shelf. Recipes turn those parts into finished goods through builds and kits. Orders are picked from the shelf, packed, and shipped with a label.",
+      "Buy parts on a purchase order, receive the box onto the dock, and put it on a shelf. Recipes turn those parts into finished goods through builds and kits. Orders are picked from the shelf, packed, and shipped with a label. Rackline picks each order's box and service from your shipping rules and saved boxes, so at the pack bench you scan the slip, check the weight, and press Enter.",
       "Each document tracks done against expected, so a partial post is normal and posting more than is left is refused. Today lists what is open in each lane, and the floor ranks it into a next job.",
     ],
     audience: "owner",
@@ -215,7 +215,11 @@ export const FLOW_STAGES: readonly FlowStage[] = [
       { verb: "Order", doc: "ORD-", note: "Typed in, or landed from Shopify as a pick ticket." },
       { verb: "Pick", note: "Starting a pick reserves the qty. Pick from the suggested bay." },
       { verb: "Pack", doc: "BOX-n", note: "Packed units go into cartons with weight and size." },
-      { verb: "Ship", note: "Buy a label, close the order, and Shopify hears back." },
+      {
+        verb: "Ship",
+        note: "Buy a label, close the order, and Shopify hears back.",
+        garageNote: "Scan the slip: Rackline picks the box and service, prints the label, and Shopify hears back.",
+      },
     ],
   },
 ];
