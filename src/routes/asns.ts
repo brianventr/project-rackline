@@ -4,6 +4,8 @@ import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, optionalInt, requireInt, requireString } from "../lib/http";
 import { getOrgItem, getOrgLocation, getOrgLocationByScan, requireOwner } from "../lib/org";
+import { capacityOverride } from "../lib/capacity-override";
+import type { CapacityOverride } from "../db/capacity";
 import { docNumber, newId } from "../lib/ids";
 import { postReceiveLines, loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { applyPartialReceive, applyUnreceive, asnStatusAfterUnreceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError, OverUnreceiveError } from "../domain/partial-receive";
@@ -240,11 +242,13 @@ asnsRoute.post("/asns/:id/receive", async (c) => {
       weightGrams?: number;
       expiresOn?: unknown;
     }[];
+    overrideCapacity?: boolean;
   }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
+  const override = capacityOverride(c, body.overrideCapacity);
   let asn = await asnWithLines(db, organizationId, c.req.param("id"));
   if (!canReceiveAsn(asn.status)) conflict("ASN is already received");
   if (!hasRemaining(asn.lines.map(asExpected))) conflict("ASN has nothing remaining");
@@ -351,6 +355,7 @@ asnsRoute.post("/asns/:id/receive", async (c) => {
         })
         .where(eq(schema.asns.id, asn.id)),
     ],
+    capacityOverride: override,
   });
 
   await recordLaborEvent(db, {
@@ -500,15 +505,18 @@ async function addAsnCarton(
 }
 
 asnsRoute.post("/asns/:id/packages", async (c) => {
-  const body = await c.req.json<{
+  type Body = {
     sscc?: string;
     lines?: AsnCartonLineIncoming[];
     cartons?: AsnCartonIncoming[];
     receive?: boolean;
     locationId?: string;
-  }>().catch(() => ({} as { sscc?: string; lines?: AsnCartonLineIncoming[]; cartons?: AsnCartonIncoming[]; receive?: boolean; locationId?: string }));
+    overrideCapacity?: boolean;
+  };
+  const body = await c.req.json<Body>().catch(() => ({}) as Body);
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  const override = capacityOverride(c, body.overrideCapacity);
   let asn = await asnWithLines(db, organizationId, c.req.param("id"));
   if (!canReceiveAsn(asn.status)) conflict("ASN must be open for vendor cartons");
   const cartons = Array.isArray(body.cartons) && body.cartons.length > 0 ? body.cartons : [{ sscc: body.sscc, lines: body.lines }];
@@ -520,7 +528,7 @@ asnsRoute.post("/asns/:id/packages", async (c) => {
     const locationId = requireString(body.locationId, "locationId");
     const newest = asn.packages[asn.packages.length - 1];
     if (newest) {
-      await receiveAsnPackage(db, organizationId, c.get("user")!.id, asn, newest.id, { locationId });
+      await receiveAsnPackage(db, organizationId, c.get("user")!.id, asn, newest.id, { locationId, capacityOverride: override });
       asn = await asnWithLines(db, organizationId, asn.id);
     }
   }
@@ -534,6 +542,7 @@ asnsRoute.post("/asns/:id/packages/:pkgId/receive", async (c) => {
     serials?: Record<string, string | string[]>;
     weights?: Record<string, number>;
     expiries?: Record<string, unknown>;
+    overrideCapacity?: boolean;
   }>().catch(
     () =>
       ({}) as {
@@ -542,11 +551,13 @@ asnsRoute.post("/asns/:id/packages/:pkgId/receive", async (c) => {
         serials?: Record<string, string | string[]>;
         weights?: Record<string, number>;
         expiries?: Record<string, unknown>;
+        overrideCapacity?: boolean;
       },
   );
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  const override = capacityOverride(c, body.overrideCapacity);
   const asn = await asnWithLines(db, organizationId, c.req.param("id"));
   return c.json(await receiveAsnPackage(db, organizationId, c.get("user")!.id, asn, c.req.param("pkgId"), {
     locationId,
@@ -554,6 +565,7 @@ asnsRoute.post("/asns/:id/packages/:pkgId/receive", async (c) => {
     serials: body.serials,
     weights: body.weights,
     expiries: body.expiries,
+    capacityOverride: override,
   }));
 });
 
@@ -569,6 +581,7 @@ async function receiveAsnPackage(
     serials?: Record<string, string | string[]>;
     weights?: Record<string, number>;
     expiries?: Record<string, unknown>;
+    capacityOverride?: CapacityOverride;
   },
 ) {
   if (!canReceiveAsn(asn.status)) conflict("ASN is already received");
@@ -654,6 +667,7 @@ async function receiveAsnPackage(
         })
         .where(eq(schema.asns.id, asn.id)),
     ],
+    capacityOverride: input.capacityOverride,
   });
 
   await recordLaborEvent(db, {
@@ -769,14 +783,18 @@ async function unreceiveAsnPackage(
 }
 
 asnsRoute.post("/asns/:id/packages/:pkgId/putaway", async (c) => {
-  const body = await c.req
-    .json<{ toLocationId?: string; toBarcode?: string }>()
-    .catch(() => ({}) as { toLocationId?: string; toBarcode?: string });
+  type Body = { toLocationId?: string; toBarcode?: string; overrideCapacity?: boolean };
+  const body = await c.req.json<Body>().catch(() => ({}) as Body);
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
+  const override = capacityOverride(c, body.overrideCapacity);
   const asn = await asnWithLines(db, organizationId, c.req.param("id"));
   return c.json(
-    await putawayAsnPackage(db, organizationId, c.get("user")!.id, c.get("role")!, asn, c.req.param("pkgId"), body),
+    await putawayAsnPackage(db, organizationId, c.get("user")!.id, c.get("role")!, asn, c.req.param("pkgId"), {
+      toLocationId: body.toLocationId,
+      toBarcode: body.toBarcode,
+      capacityOverride: override,
+    }),
   );
 });
 
@@ -787,7 +805,7 @@ async function putawayAsnPackage(
   role: string,
   asn: Awaited<ReturnType<typeof asnWithLines>>,
   pkgId: string,
-  input: { toLocationId?: string; toBarcode?: string },
+  input: { toLocationId?: string; toBarcode?: string; capacityOverride?: CapacityOverride },
 ) {
   const pkg = asn.packages.find((row) => row.id === pkgId);
   if (!pkg) notFound("Carton not found");
@@ -826,7 +844,7 @@ async function putawayAsnPackage(
         toBarcode: override.barcode,
       };
     }
-    const suggested = suggestPutawayBay(baysByItem.get(line.itemId) ?? [], from.id);
+    const suggested = suggestPutawayBay(baysByItem.get(line.itemId) ?? [], from.id, line.qty);
     if (!suggested) badRequest(`No putaway bay for ${line.sku}`);
     return {
       itemId: line.itemId,
@@ -884,6 +902,7 @@ async function putawayAsnPackage(
     loaded,
     plan,
     extra: [db.update(schema.asnPackages).set({ putawayAt: now }).where(eq(schema.asnPackages.id, pkg.id))],
+    capacityOverride: input.capacityOverride,
   });
 
   for (const dest of dests) {

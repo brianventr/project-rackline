@@ -39,6 +39,17 @@ const SAMPLE: Record<ErrorCode, { status: number; body: Record<string, unknown> 
     status: 409,
     body: { error: "Client stock insufficient: have 2, need 5", clientId: "c1", itemId: "i1", onHand: 2, needed: 5 },
   },
+  LOCATION_FULL: {
+    status: 409,
+    body: {
+      error: "A-01-02 would hold 72 units, over its limit of 60 units. Put the rest in another bay, or an owner can override.",
+      locationCode: "A-01-02",
+      measure: "qty",
+      limit: 60,
+      before: 50,
+      wouldBe: 72,
+    },
+  },
   JOB_CLAIMED: { status: 409, body: { error: "This job is claimed by Sam", claimedById: "u2", claimedByName: "Sam" } },
   JOB_NOT_READY: { status: 409, body: { error: "This job is scheduled for later", notBefore: Date.UTC(2030, 0, 2, 15, 30) } },
   JOB_VERB_DENIED: { status: 403, body: { error: "You are not assigned the Pick verb", verb: "pick" } },
@@ -181,6 +192,18 @@ describe("explainError — every code", () => {
       hint: "The rest is on hold or promised to other orders. Lower the qty to 1, or receive more.",
     });
     expect(explain("INSUFFICIENT_ATP", { atp: 0, locationCode: undefined }).message).toBe("No LAMP is available.");
+  });
+
+  it("LOCATION_FULL names the bay, what it would hold, and its limit", () => {
+    expect(explain("LOCATION_FULL")).toEqual({
+      code: "LOCATION_FULL",
+      message: "A-01-02 would hold 72 units, over its limit of 60 units.",
+      hint: "Put the rest in another bay, or an owner can override the limit.",
+    });
+    expect(explain("LOCATION_FULL", { measure: "weight", limit: 4000, wouldBe: 4800 }).message).toBe(
+      "A-01-02 would weigh 300 lb, over its limit of 250 lb.",
+    );
+    expect(explain("LOCATION_FULL", { measure: undefined }).message).toBe("A-01-02 would hold 72 units, over its limit of 60 units.");
   });
 
   it("CLIENT_STOCK", () => {

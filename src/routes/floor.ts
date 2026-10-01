@@ -5,6 +5,8 @@ import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
 import { getOrgItem, getOrgLocation, getOrgLocationByScan } from "../lib/org";
+import { capacityOverride } from "../lib/capacity-override";
+import { loadBinFill } from "../db/capacity";
 import { loadPacksForItem, resolveItemScan } from "../db/item-packs";
 import { docNumber, newId } from "../lib/ids";
 import { countCatchWeight } from "../lib/catch-weight";
@@ -267,12 +269,12 @@ floorRoute.post("/transfers/:id/start", async (c) => {
 });
 
 floorRoute.post("/transfers/:id/post", async (c) => {
-  const body = await c.req
-    .json<{ lines?: { lineId?: string; itemId?: string; qty?: number }[] }>()
-    .catch(() => ({}) as { lines?: { lineId?: string; itemId?: string; qty?: number }[] });
+  type Body = { lines?: { lineId?: string; itemId?: string; qty?: number }[]; overrideCapacity?: boolean };
+  const body = await c.req.json<Body>().catch(() => ({}) as Body);
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
+  const override = capacityOverride(c, body.overrideCapacity);
   const transfer = await transferWithLines(db, organizationId, c.req.param("id"));
   if (!canPostTransfer(transfer.status)) conflict("Transfer already posted");
   const waiting = await loadUnputawayReceivedCartons(db, organizationId, { locationId: transfer.fromLocationId });
@@ -357,6 +359,7 @@ floorRoute.post("/transfers/:id/post", async (c) => {
           .where(eq(schema.transferLines.id, line.id)),
       ),
     ],
+    capacityOverride: override,
   });
 
   const posted = await transferWithLines(db, organizationId, transfer.id);
@@ -745,6 +748,7 @@ floorRoute.get("/map", async (c) => {
     .from(schema.zones)
     .where(and(eq(schema.zones.organizationId, organizationId), eq(schema.zones.warehouseId, warehouse.id)))
     .orderBy(schema.zones.code);
+  const fill = await loadBinFill(db, organizationId, locationRows);
 
   return c.json({
     warehouse: {
@@ -780,6 +784,7 @@ floorRoute.get("/map", async (c) => {
       const contents = byLocation.get(location.id) ?? [];
       return {
         ...location,
+        fillPercent: fill.get(location.id)?.fillPercent ?? null,
         unitsOnHand: contents.reduce((sum, row) => sum + row.qty, 0),
         skuCount: contents.length,
         contents: contents.map((row) => ({
@@ -872,6 +877,7 @@ floorRoute.get("/scan", async (c) => {
                 locationName: suggested.locationName,
                 barcode: suggested.barcode,
                 qty: suggested.qty,
+                room: suggested.room ?? null,
               }
             : null,
         };
@@ -1360,11 +1366,13 @@ floorRoute.post("/moves", async (c) => {
     fromBarcode?: string;
     toBarcode?: string;
     lines?: { itemId?: string; qty?: number }[];
+    overrideCapacity?: boolean;
   }>();
 
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
+  const override = capacityOverride(c, body.overrideCapacity);
 
   const from =
     (body.fromLocationId ? await getOrgLocation(db, organizationId, requireString(body.fromLocationId, "fromLocationId")) : null) ??
@@ -1488,6 +1496,7 @@ floorRoute.post("/moves", async (c) => {
     now: Date.now(),
     loaded,
     plan,
+    capacityOverride: override,
   });
 
   await completeMatchingSuggestionJobs(db, {

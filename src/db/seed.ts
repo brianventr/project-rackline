@@ -1346,6 +1346,8 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       notes: "Bulbs, shades, and cords. Ships Tuesdays and Fridays.",
     })
     .where(and(eq(schema.vendors.organizationId, organizationId), eq(schema.vendors.name, "Harbor Components")));
+  // Limits go on last so no seeded receive or move runs into them.
+  await db.update(schema.locations).set({ maxQty: 40 }).where(eq(schema.locations.id, locIds.a0102!));
 
   return { organizationId };
 }

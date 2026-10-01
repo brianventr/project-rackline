@@ -4,6 +4,7 @@ import { Truck } from "lucide-react";
 import { api, errorText, type Location, type Purchase, type Receipt, type ScanHit } from "../../api";
 import { Button, Card, DoneBanner, Field, Input, StatusBadge } from "../../components/ui";
 import { BayCombobox } from "../../components/BayCombobox";
+import { OverfillButton, useOverfill } from "../../components/bin-capacity";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { CatchWeightInput, parseWeightGrams } from "../../components/catch-weight-field";
 import { SkuThumb } from "../../components/sku-thumb";
@@ -37,6 +38,7 @@ export function FloorReceivePage() {
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const { overfill, offer } = useOverfill();
   const [loaded, setLoaded] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   // Scans resolve out of order, so each one reads the latest qtys through the ref. Items in
@@ -185,7 +187,13 @@ export function FloorReceivePage() {
       });
   }, [jobs, me.user.id, activeReceipt, activePurchase]);
 
-  async function receiveReceipt() {
+  function failed(err: unknown, retry: () => void) {
+    const text = errorText(err, "Could not post the receive.");
+    setError(text);
+    offer(err, text, retry);
+  }
+
+  async function receiveReceipt(overrideCapacity = false) {
     if (!activeReceipt) return;
     setError(null);
     try {
@@ -201,18 +209,18 @@ export function FloorReceivePage() {
         .filter((line) => line.qty > 0);
       const posted = await api<Receipt>(`/api/receipts/${activeReceipt.id}/receive`, {
         method: "POST",
-        body: JSON.stringify({ locationId, lines }),
+        body: JSON.stringify({ locationId, lines, ...(overrideCapacity ? { overrideCapacity } : {}) }),
       });
       setActiveReceipt(posted);
       prefill(posted.lines ?? []);
       setDone(`${posted.number} posted to the dock.`);
       await load();
     } catch (err) {
-      setError(errorText(err, "Could not post the receive."));
+      failed(err, () => void receiveReceipt(true));
     }
   }
 
-  async function receivePurchase() {
+  async function receivePurchase(overrideCapacity = false) {
     if (!activePurchase) return;
     setError(null);
     try {
@@ -228,14 +236,14 @@ export function FloorReceivePage() {
         .filter((line) => line.qty > 0);
       const posted = await api<Purchase>(`/api/purchases/${activePurchase.id}/receive`, {
         method: "POST",
-        body: JSON.stringify({ locationId, lines }),
+        body: JSON.stringify({ locationId, lines, ...(overrideCapacity ? { overrideCapacity } : {}) }),
       });
       setActivePurchase(posted);
       prefill(posted.lines ?? []);
       setDone(`${posted.number} posted to the dock.`);
       await load();
     } catch (err) {
-      setError(errorText(err, "Could not post the receive."));
+      failed(err, () => void receivePurchase(true));
     }
   }
 
@@ -251,6 +259,7 @@ export function FloorReceivePage() {
         onScan={onScan}
         ready={loaded}
       />
+      <OverfillButton overfill={overfill} error={error} />
       <DoneBanner>
         {done ? (
           <>

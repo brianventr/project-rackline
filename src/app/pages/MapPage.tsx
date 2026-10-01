@@ -7,7 +7,9 @@ import { WarehouseMap, type MapView } from "../components/WarehouseMap";
 import { Button, Card, EmptyState, ErrorBanner, PageHeader } from "../components/ui";
 import { useScanner } from "../scanner/ScannerProvider";
 import { useWarehouse } from "../warehouse";
+import { FillMeter } from "../components/bin-capacity";
 import { groupFloorObjects, objectForLocation } from "@/domain/rack-builder";
+import { isGarageMode } from "@/domain/operating-mode";
 
 const FloorBuilder = lazy(() =>
   import("../components/warehouse-scene/FloorBuilder").then((mod) => ({ default: mod.FloorBuilder })),
@@ -65,6 +67,7 @@ export function MapPage({ me }: { me: Me }) {
   }, [scanner.lastScan, handledAt]);
 
   const selected = data?.locations.find((row) => row.id === selectedId) ?? null;
+  const showFill = !isGarageMode(me.organization.operatingMode);
   const levels = useMemo(() => {
     const set = new Set(data?.locations.map((row) => row.level) ?? []);
     return [...set].sort((a, b) => a - b);
@@ -191,7 +194,7 @@ export function MapPage({ me }: { me: Me }) {
           />
           </Suspense>
           {data.locations.length ? (
-            <BayDetail location={selected} />
+            <BayDetail location={selected} showFill={showFill} />
           ) : (
             <NoBays owner={me.role === "owner"} onBuild={() => setView("build")} />
           )}
@@ -206,11 +209,12 @@ export function MapPage({ me }: { me: Me }) {
             view={view}
             levelFilter={levelFilter}
             canDrag={me.role === "owner"}
+            showFill={showFill}
             onSelect={(location) => setSelectedId(location.id)}
             onReposition={reposition}
           />
           {data.locations.length ? (
-            <BayDetail location={selected} />
+            <BayDetail location={selected} showFill={showFill} />
           ) : (
             <NoBays owner={me.role === "owner"} onBuild={() => setView("build")} />
           )}
@@ -245,7 +249,7 @@ function NoBays({ owner, onBuild }: { owner: boolean; onBuild: () => void }) {
   );
 }
 
-function BayDetail({ location }: { location: MapLocation | null }) {
+function BayDetail({ location, showFill }: { location: MapLocation | null; showFill: boolean }) {
   if (!location) {
     return (
       <Card>
@@ -283,6 +287,14 @@ function BayDetail({ location }: { location: MapLocation | null }) {
             {location.posX},{location.posY},{location.posZ}
           </dd>
         </div>
+        {showFill && location.fillPercent != null ? (
+          <div className="col-span-2">
+            <dt className="text-xs text-muted-foreground">Fill</dt>
+            <dd>
+              <FillMeter percent={location.fillPercent} className="justify-start" />
+            </dd>
+          </div>
+        ) : null}
       </dl>
       <div className="mt-4 rounded-lg border border-line bg-paper p-2">
         <BarcodeLabel value={location.barcode} className="mx-auto h-16" />

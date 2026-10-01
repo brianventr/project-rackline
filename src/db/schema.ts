@@ -126,6 +126,10 @@ export const locations = sqliteTable(
     sizeZ: integer("size_z").notNull().default(2),
     slotRole: text("slot_role").notNull().default("none"),
     zoneId: text("zone_id"),
+    /** Bin capacity. Null means no limit on that measure; receives and moves past a limit are refused. */
+    maxQty: integer("max_qty"),
+    maxWeightOz: integer("max_weight_oz"),
+    maxVolumeCuIn: integer("max_volume_cu_in"),
   },
   (t) => [
     uniqueIndex("locations_org_wh_code").on(t.organizationId, t.warehouseId, t.code),

@@ -4,6 +4,7 @@ import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
 import { getOrgItem, getOrgLocation } from "../lib/org";
+import { capacityOverride } from "../lib/capacity-override";
 import { docNumber, newId } from "../lib/ids";
 import { postReceiveLines } from "../db/stock";
 import { applyPartialReceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError } from "../domain/partial-receive";
@@ -412,11 +413,13 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
   const body = await c.req.json<{
     locationId?: string;
     lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number; expiresOn?: unknown }[];
+    overrideCapacity?: boolean;
   }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
+  const override = capacityOverride(c, body.overrideCapacity);
   let purchase = await purchaseWithLines(db, organizationId, c.req.param("id"));
   if (!canReceivePurchase(purchase.status)) conflict("Purchase is already received");
   await guardFloorJob(db, {
@@ -504,6 +507,7 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
         })
         .where(eq(schema.purchases.id, purchase.id)),
     ],
+    capacityOverride: override,
   });
 
   const received = await purchaseWithLines(db, organizationId, purchase.id);

@@ -214,6 +214,12 @@ export type Location = {
   zoneId?: string | null;
   warehouseId: string;
   warehouseName: string;
+  /** Bin capacity; null means no limit. Weight in oz, volume in cubic inches. */
+  maxQty?: number | null;
+  maxWeightOz?: number | null;
+  maxVolumeCuIn?: number | null;
+  /** Tightest limit as a whole percent (can pass 100); null when the bay has no limits. */
+  fillPercent?: number | null;
 };
 
 export type MapContent = {
@@ -486,6 +492,8 @@ export type SuggestedLocation = {
   locationName: string;
   barcode: string;
   qty: number;
+  /** Putaway only: eaches that still fit under the bay's capacity. Null means no limit. */
+  room?: number | null;
 };
 
 export type OrderAllocation = {

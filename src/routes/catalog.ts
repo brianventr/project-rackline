@@ -31,6 +31,8 @@ import { resolveLabelPurchase } from "../domain/carriers";
 import { loadCarrierConnections } from "./carriers";
 import { normalizePackSizes, PackSizeError } from "../domain/pack-sizes";
 import { assertNotPackBarcode, assertPackBarcodesFree, loadPacksForItem, replaceItemPacks } from "../db/item-packs";
+import { capacityPatch } from "../domain/capacity";
+import { loadBinFill } from "../db/capacity";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -206,12 +208,16 @@ catalogRoute.get("/locations", async (c) => {
       zoneId: schema.locations.zoneId,
       warehouseId: schema.locations.warehouseId,
       warehouseName: schema.warehouses.name,
+      maxQty: schema.locations.maxQty,
+      maxWeightOz: schema.locations.maxWeightOz,
+      maxVolumeCuIn: schema.locations.maxVolumeCuIn,
     })
     .from(schema.locations)
     .innerJoin(schema.warehouses, eq(schema.warehouses.id, schema.locations.warehouseId))
     .where(eq(schema.locations.organizationId, organizationId))
     .orderBy(schema.locations.code);
-  return c.json(rows);
+  const fill = await loadBinFill(db, organizationId, rows);
+  return c.json(rows.map((row) => ({ ...row, fillPercent: fill.get(row.id)?.fillPercent ?? null })));
 });
 
 catalogRoute.post("/locations", async (c) => {
@@ -233,6 +239,9 @@ catalogRoute.post("/locations", async (c) => {
     sizeY?: number;
     sizeZ?: number;
     slotRole?: string;
+    maxQty?: number | null;
+    maxWeightOz?: number | null;
+    maxVolumeCuIn?: number | null;
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
   const code = requireString(body.code, "code").toUpperCase();
@@ -242,6 +251,7 @@ catalogRoute.post("/locations", async (c) => {
   const slotRole = optionalString(body.slotRole) ?? "none";
   if (!isSlotRole(slotRole)) badRequest("Invalid slot role");
   const barcode = (optionalString(body.barcode) ?? code).toUpperCase();
+  const capacity = capacityPatch(body);
 
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -299,6 +309,7 @@ catalogRoute.post("/locations", async (c) => {
         sizeY: placement.sizeY,
         sizeZ: placement.sizeZ,
         slotRole,
+        ...capacity,
       })
       .returning();
     return c.json(row, 201);
@@ -324,12 +335,15 @@ catalogRoute.patch("/locations/:id", async (c) => {
     sizeY?: number;
     sizeZ?: number;
     slotRole?: string;
+    maxQty?: number | null;
+    maxWeightOz?: number | null;
+    maxVolumeCuIn?: number | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   await getOrgLocation(db, organizationId, c.req.param("id"));
 
-  const patch: Record<string, string | number | null> = {};
+  const patch: Record<string, string | number | null> = { ...capacityPatch(body) };
   const name = optionalString(body.name);
   if (name) patch.name = name;
   const barcode = optionalString(body.barcode);
@@ -489,7 +503,15 @@ catalogRoute.get("/locations/:id", async (c) => {
         eq(schema.inventoryBalances.locationId, location.id),
       ),
     );
-  return c.json({ ...location, contents });
+  const fill = (await loadBinFill(db, organizationId, [location])).get(location.id);
+  const skuById = new Map(contents.map((row) => [row.itemId, row.sku]));
+  return c.json({
+    ...location,
+    contents,
+    fillPercent: fill?.fillPercent ?? null,
+    usage: fill?.usage ?? null,
+    unmeasuredSkus: (fill?.unmeasured ?? []).map((itemId) => skuById.get(itemId) ?? itemId),
+  });
 });
 
 catalogRoute.post("/items", async (c) => {
@@ -1283,7 +1305,7 @@ catalogRoute.get("/dashboard", async (c) => {
     for (const pkg of unputawayCartons) {
       const baysByItem = baysByWarehouse.get(pkg.warehouseId) ?? new Map();
       const lines = pkg.lines.map((line) => {
-        const suggested = suggestPutawayBay(baysByItem.get(line.itemId) ?? [], pkg.locationId);
+        const suggested = suggestPutawayBay(baysByItem.get(line.itemId) ?? [], pkg.locationId, line.qty);
         return {
           itemId: line.itemId,
           sku: line.sku,

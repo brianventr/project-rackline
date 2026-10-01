@@ -5,6 +5,7 @@ import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
 import { getOrgItem, getOrgLocation } from "../lib/org";
+import { capacityOverride } from "../lib/capacity-override";
 import { docNumber, newId } from "../lib/ids";
 import { planMove } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
@@ -259,12 +260,12 @@ replenishmentsRoute.post("/replenishments/:id/start", async (c) => {
 });
 
 replenishmentsRoute.post("/replenishments/:id/post", async (c) => {
-  const body = await c.req
-    .json<{ qty?: number; lotCode?: string; serials?: string | string[] }>()
-    .catch(() => ({}) as { qty?: number; lotCode?: string; serials?: string | string[] });
+  type Body = { qty?: number; lotCode?: string; serials?: string | string[]; overrideCapacity?: boolean };
+  const body = await c.req.json<Body>().catch(() => ({}) as Body);
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const user = c.get("user")!;
+  const override = capacityOverride(c, body.overrideCapacity);
   const doc = await replenishmentWithItem(db, organizationId, c.req.param("id"));
   if (!canPostReplenishment(doc.status)) conflict("Replenishment already posted");
   await guardFloorJob(db, {
@@ -328,6 +329,7 @@ replenishmentsRoute.post("/replenishments/:id/post", async (c) => {
         })
         .where(eq(schema.replenishments.id, doc.id)),
     ],
+    capacityOverride: override,
   });
   const posted = await replenishmentWithItem(db, organizationId, doc.id);
   await syncDocumentJob(db, {

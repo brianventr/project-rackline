@@ -206,6 +206,7 @@ Settings → Integrations changes with the mode:
 | 3PL clients, billing, EDI, webhooks | Hidden | Yes |
 | Vendor and customer records | Parts → Vendors, Ship → Customers | Inbound → Vendors, Outbound → Customers |
 | Pack sizes (inner, case, pallet) | Yes: a case scan counts its eaches | Yes, and one case scan proves every unit in it |
+| Bin capacity (max units, weight, volume) | Hidden, but a limit set in Manufacturer still holds | Set per bay; fill % on Locations and the map; putaway skips full bays |
 | Menu | Short bench menu | Full office menu plus Settings |
 
 ## 6. Switching modes

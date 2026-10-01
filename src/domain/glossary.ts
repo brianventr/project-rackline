@@ -179,6 +179,14 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
     path: "/stock/locations",
   },
   {
+    id: "bin-capacity",
+    term: "Bin capacity",
+    aliases: ["capacity", "max qty", "max weight", "max volume", "fill percent", "bay limit", "location full"],
+    short: "An optional limit on a bay's units, weight, or volume. A receive or move that would pass it is refused unless an owner overrides.",
+    long: "Fill is the bay's stock times each item's weight and size, taken from the item or its pack sizes; an item with neither counts only toward units. Putaway skips full bays and prefers ones with room, and every override is written to the audit log.",
+    path: "/stock/locations",
+  },
+  {
     id: "pick-min",
     term: "Pick min",
     aliases: ["pick minimum", "min qty"],

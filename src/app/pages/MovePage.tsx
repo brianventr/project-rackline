@@ -13,6 +13,7 @@ import {
   type WarehouseMapData,
 } from "../api";
 import { BarcodeLabel } from "../components/BarcodeLabel";
+import { OverfillButton, useOverfill } from "../components/bin-capacity";
 import { WarehouseMap } from "../components/WarehouseMap";
 import { Button, Card, DoneBanner, ErrorBanner, StatusBadge } from "../components/ui";
 import { Term } from "../components/term";
@@ -21,6 +22,7 @@ import { useScanner } from "../scanner/ScannerProvider";
 import { cn } from "@/lib/utils";
 import { canPostTransfer } from "@/domain/status";
 import { hasUnmoved } from "@/domain/partial-transfer";
+import { putawayQty } from "@/domain/directed-putaway";
 import { ClaimList, FloorFrame, openFloorRow, useScanFlash } from "./floor/floor-ui";
 import { useSession } from "../session";
 import { jobForRef, useOpenJobs } from "../jobs";
@@ -39,6 +41,7 @@ export function MovePage() {
   const [step, setStep] = useState<"from" | "to">(params.get("from") ? "to" : "from");
   const [map, setMap] = useState<WarehouseMapData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { overfill, offer } = useOverfill();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [cartons, setCartons] = useState<Array<AsnPackage & { asnId: string; asnNumber: string }>>([]);
@@ -150,7 +153,13 @@ export function MovePage() {
     return putawayCarton(hit.asn, pkg, toRef.current.hit);
   }
 
-  async function putawayCarton(asn: Asn, pkg: AsnPackage, toHit?: ScanLocationHit | null) {
+  function failed(err: unknown, fallback: string, retry: () => void) {
+    const text = errorText(err, fallback);
+    setError(text);
+    offer(err, text, retry);
+  }
+
+  async function putawayCarton(asn: Asn, pkg: AsnPackage, toHit?: ScanLocationHit | null, overrideCapacity = false) {
     setBusy(true);
     setError(null);
     try {
@@ -158,7 +167,10 @@ export function MovePage() {
         putaway?: { from: { code: string }; moved: { sku: string; qty: number; toCode: string }[] };
       }>(`/api/asns/${asn.id}/packages/${pkg.id}/putaway`, {
         method: "POST",
-        body: JSON.stringify(toHit ? { toBarcode: toHit.location.barcode } : {}),
+        body: JSON.stringify({
+          ...(toHit ? { toBarcode: toHit.location.barcode } : {}),
+          ...(overrideCapacity ? { overrideCapacity } : {}),
+        }),
       });
       const moved = posted.putaway?.moved ?? [];
       const summary = moved.map((row) => `${row.qty} ${row.sku} → ${row.toCode}`).join(", ");
@@ -171,7 +183,7 @@ export function MovePage() {
       setStep("from");
       return true;
     } catch (err) {
-      setError(errorText(err, "Could not put the carton away."));
+      failed(err, "Could not put the carton away.", () => void putawayCarton(asn, pkg, toHit, true));
       return false;
     } finally {
       setBusy(false);
@@ -192,7 +204,7 @@ export function MovePage() {
     }
   }
 
-  async function commit(fromHit: ScanLocationHit | null, toHit: ScanLocationHit) {
+  async function commit(fromHit: ScanLocationHit | null, toHit: ScanLocationHit, overrideCapacity = false) {
     if (!fromHit) {
       setError("Scan the previous location first.");
       setStep("from");
@@ -206,6 +218,7 @@ export function MovePage() {
         body: JSON.stringify({
           fromBarcode: fromHit.location.barcode,
           toBarcode: toHit.location.barcode,
+          ...(overrideCapacity ? { overrideCapacity } : {}),
         }),
       });
       const summary = moved.moved.map((row) => `${row.qty} ${row.sku}`).join(", ");
@@ -217,7 +230,7 @@ export function MovePage() {
       setStep("from");
       return true;
     } catch (err) {
-      setError(errorText(err, "Could not post the move."));
+      failed(err, "Could not post the move.", () => void commit(fromHit, toHit, true));
       return false;
     } finally {
       setBusy(false);
@@ -233,7 +246,7 @@ export function MovePage() {
     await loadCartonsAt(hit.location.id);
   }
 
-  async function putawayLine(fromHit: ScanLocationHit, row: MapContent) {
+  async function putawayLine(fromHit: ScanLocationHit, row: MapContent, overrideCapacity = false) {
     const suggested = row.suggestedLocation;
     if (!suggested) return;
     setBusy(true);
@@ -244,7 +257,8 @@ export function MovePage() {
         body: JSON.stringify({
           fromBarcode: fromHit.location.barcode,
           toBarcode: suggested.barcode,
-          lines: [{ itemId: row.itemId, qty: row.qty }],
+          lines: [{ itemId: row.itemId, qty: putawayQty(row.qty, suggested) }],
+          ...(overrideCapacity ? { overrideCapacity } : {}),
         }),
       });
       const summary = moved.moved.map((line) => `${line.qty} ${line.sku}`).join(", ");
@@ -253,7 +267,7 @@ export function MovePage() {
       setMap(nextMap);
       await refreshFrom(fromHit.location.barcode);
     } catch (err) {
-      setError(errorText(err, "Could not post the move."));
+      failed(err, "Could not post the move.", () => void putawayLine(fromHit, row, true));
     } finally {
       setBusy(false);
     }
@@ -274,6 +288,7 @@ export function MovePage() {
     >
       <OpenTransferTickets />
       <DoneBanner>{result}</DoneBanner>
+      <OverfillButton overfill={overfill} error={error} busy={busy} />
       <div className="grid gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <div className="space-y-4">
           <Card className={step === "from" ? "ring-2 ring-amber" : ""}>
@@ -488,30 +503,30 @@ function SlotCard({
       </div>
       <ul className="mt-3 space-y-2 text-sm">
         {contents.length ? (
-          contents.map((row) => (
-            <li key={row.itemId} className="flex items-start justify-between gap-3">
-              <span>
-                <span className="font-mono">{row.sku}</span>
-                <span className="font-mono tabular"> × {row.qty}</span>
-                {row.suggestedLocation ? (
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    Suggested {row.suggestedLocation.locationCode}
-                    {row.suggestedLocation.qty > 0 ? ` · ${row.suggestedLocation.qty} already there` : ""}
-                  </span>
+          contents.map((row) => {
+            const suggested = row.suggestedLocation;
+            const qty = putawayQty(row.qty, suggested);
+            return (
+              <li key={row.itemId} className="flex items-start justify-between gap-3">
+                <span>
+                  <span className="font-mono">{row.sku}</span>
+                  <span className="font-mono tabular"> × {row.qty}</span>
+                  {suggested ? (
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      Suggested {suggested.locationCode}
+                      {suggested.qty > 0 ? ` · ${suggested.qty} already there` : ""}
+                      {suggested.room != null ? ` · room for ${suggested.room}` : ""}
+                    </span>
+                  ) : null}
+                </span>
+                {suggested && onPutawayLine ? (
+                  <Button variant="secondary" disabled={busy} onClick={() => onPutawayLine(row)} className="h-11 shrink-0 px-3">
+                    {qty < row.qty ? `Put ${qty} on ${suggested.locationCode}` : `Put on ${suggested.locationCode}`}
+                  </Button>
                 ) : null}
-              </span>
-              {row.suggestedLocation && onPutawayLine ? (
-                <Button
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() => onPutawayLine(row)}
-                  className="h-11 shrink-0 px-3"
-                >
-                  Put on {row.suggestedLocation.locationCode}
-                </Button>
-              ) : null}
-            </li>
-          ))
+              </li>
+            );
+          })
         ) : (
           <li className="text-muted-foreground">Empty</li>
         )}

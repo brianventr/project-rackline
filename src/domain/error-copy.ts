@@ -1,3 +1,4 @@
+import { isCapacityMeasure, locationFullSentence } from "./capacity";
 import { equipmentClassLabel } from "./equipment";
 import { formatExpiresOn } from "./expiry";
 import { isFloorVerb, VERB_LABELS } from "./jobs";
@@ -25,6 +26,7 @@ export const ERROR_CODES = [
   "EXPIRED_LOT",
   "INSUFFICIENT_ATP",
   "CLIENT_STOCK",
+  "LOCATION_FULL",
   "JOB_CLAIMED",
   "JOB_NOT_READY",
   "JOB_VERB_DENIED",
@@ -277,6 +279,17 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
       message: `This 3PL client only has ${onHand} of this SKU at this bay${need}.`,
       hint: `Lower the qty to ${onHand} or less, or receive more for this client.`,
     };
+  },
+  LOCATION_FULL: ({ body, text }) => {
+    const bay = str(body, "locationCode");
+    const measure = str(body, "measure");
+    const limit = num(body, "limit");
+    const after = num(body, "wouldBe");
+    const hint = "Put the rest in another bay, or an owner can override the limit.";
+    if (!bay || !isCapacityMeasure(measure) || limit == null || after == null) {
+      return { message: text ? splitSentences(text).message : "That bay is full.", hint };
+    }
+    return { message: locationFullSentence(bay, { measure, limit, after }), hint };
   },
   JOB_CLAIMED: ({ body }) => {
     const name = str(body, "claimedByName");

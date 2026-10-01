@@ -49,6 +49,16 @@ describe("receiveTargets", () => {
     expect(plan.unlocated).toEqual([]);
   });
 
+  it("points past a bay that is full", () => {
+    const full = locations.map((row) => (row.id === "a0101l2" ? { ...row, fillPercent: 100 } : row));
+    const plan = receiveTargets({ dockId: "recv", lines: [{ itemId: "cord", sku: "CORD", qty: 15 }], locations: full });
+    expect(plan.targets[1]?.locationId).not.toBe("a0101l2");
+    const roomy = locations.map((row) => (row.id === "a0101l2" ? { ...row, fillPercent: 99 } : row));
+    expect(receiveTargets({ dockId: "recv", lines: [{ itemId: "cord", sku: "CORD", qty: 15 }], locations: roomy }).targets[1]?.locationId).toBe(
+      "a0101l2",
+    );
+  });
+
   it("falls back to the first receiving bay when the document names none", () => {
     const plan = receiveTargets({ dockId: null, lines: [{ itemId: "cord", sku: "CORD", qty: 1 }], locations });
     expect(plan.targets[0]?.locationId).toBe("recv");

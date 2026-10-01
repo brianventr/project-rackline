@@ -25,7 +25,10 @@ import { toast } from "sonner";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { usePrint } from "../print/PrintProvider";
 import { openTour } from "../tour";
+import { BinCapacityCard, FillMeter, type CapacityDetail } from "../components/bin-capacity";
 import { FORM_LOCATION_TYPES, locationFormSchema, wholeNumber } from "@/domain/form-schemas";
+import { hasCapacity } from "@/domain/capacity";
+import { isGarageMode } from "@/domain/operating-mode";
 
 const types = ["receiving", "storage", "production", "shipping"];
 
@@ -38,7 +41,7 @@ type LocationContents = {
   qty: number;
 }[];
 
-type LocationDetailRow = Location & { contents?: LocationContents };
+type LocationDetailRow = CapacityDetail & { contents?: LocationContents };
 
 type LocationRow = Location & { units: number; skus: number };
 
@@ -154,6 +157,17 @@ const LOCATION_COLUMNS: DataColumn<LocationRow>[] = [
       row.barcode !== row.code ? <span className="font-mono text-xs">{row.barcode}</span> : <Muted>Same as code</Muted>,
   },
 ];
+
+const FILL_COLUMN: DataColumn<LocationRow> = {
+  id: "fill",
+  header: "Fill",
+  align: "right",
+  sortValue: (row) => row.fillPercent ?? -1,
+  csv: (row) => row.fillPercent ?? "",
+  cell: (row) => (row.fillPercent != null ? <FillMeter percent={row.fillPercent} /> : <Muted>No limit</Muted>),
+};
+
+const MANUFACTURER_COLUMNS = LOCATION_COLUMNS.flatMap((column) => (column.id === "units" ? [column, FILL_COLUMN] : [column]));
 
 function deleteConfirmBody(rows: { code: string; units: number }[]) {
   const stocked = rows.filter((row) => row.units > 0).map((row) => row.code);
@@ -316,7 +330,7 @@ function LocationList({ me }: { me: Me }) {
         data={rows}
         loading={locations.isLoading || inventory.isLoading}
         error={locations.error?.message ?? inventory.error?.message}
-        columns={LOCATION_COLUMNS}
+        columns={isGarageMode(me.organization.operatingMode) ? LOCATION_COLUMNS : MANUFACTURER_COLUMNS}
         getRowId={(row) => row.id}
         rowHref={(row) => `/stock/locations/${row.id}`}
         tabs={LOCATION_TABS}
@@ -516,6 +530,8 @@ function LocationDetail({ me, id }: { me: Me; id: string }) {
   const contents = location.contents ?? [];
   const units = contents.reduce((sum, row) => sum + row.qty, 0);
   const role = slotRoleOf(location);
+  // Limits are enforced in both modes, so Garage still shows a bay's capacity once one is set.
+  const showCapacity = !isGarageMode(me.organization.operatingMode) || hasCapacity(location);
 
   async function remove() {
     const done = await run(
@@ -599,6 +615,7 @@ function LocationDetail({ me, id }: { me: Me; id: string }) {
                 ) : null}
               </div>
             </Card>
+            {showCapacity ? <BinCapacityCard key={location.id} location={location} canEdit={me.role === "owner"} /> : null}
             <Card>
               <div className="space-y-2">
                 <p className="text-sm font-medium">Barcode</p>

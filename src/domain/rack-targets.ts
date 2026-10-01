@@ -33,6 +33,7 @@ export type TargetLocation = {
   level: number;
   unitsOnHand?: number;
   contents?: { itemId: string; sku: string; qty: number }[];
+  fillPercent?: number | null;
 };
 
 export type TargetLine = { itemId: string; sku: string; qty: number };
@@ -46,6 +47,7 @@ export function defaultDock(locations: TargetLocation[]): TargetLocation | null 
   return locations.find((row) => row.type === "receiving") ?? null;
 }
 
+/** The map knows each bay's fill, not each SKU's room, so only bays at 100% or more are skipped. */
 function putawayBays(locations: TargetLocation[], itemId: string) {
   const bays = locations.map((row) => ({
     locationId: row.id,
@@ -55,6 +57,7 @@ function putawayBays(locations: TargetLocation[], itemId: string) {
     type: row.type,
     slotRole: row.slotRole ?? "none",
     aisle: row.aisle,
+    room: row.fillPercent != null && row.fillPercent >= 100 ? 0 : null,
   }));
   const onHand = locations.flatMap((row) =>
     (row.contents ?? []).map((content) => ({ locationId: row.id, itemId: content.itemId, qty: content.qty })),

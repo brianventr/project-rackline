@@ -7,6 +7,7 @@ import { HeldStockError } from "../domain/holds";
 import { InsufficientAtpError } from "../domain/allocations";
 import { InsufficientStockError } from "../domain/inventory";
 import { JobVerbDeniedError } from "../domain/jobs";
+import { CapacityInputError, LocationFullError } from "../domain/capacity";
 
 type Env = { Variables: { role?: "owner" | "operator"; organizationId?: string } };
 
@@ -53,6 +54,25 @@ describe("409 contract", () => {
       code: "INSUFFICIENT_STOCK",
       onHand: 0,
       needed: 3,
+    });
+  });
+
+  it("maps a full bay with its limit, and bad capacity input as a 400", () => {
+    expect(mapDomainError(new LocationFullError("A-01-02", { measure: "qty", limit: 60, before: 50, after: 72 }))).toEqual({
+      status: 409,
+      body: {
+        error: "A-01-02 would hold 72 units, over its limit of 60 units. Put the rest in another bay, or an owner can override.",
+        code: "LOCATION_FULL",
+        locationCode: "A-01-02",
+        measure: "qty",
+        limit: 60,
+        before: 50,
+        wouldBe: 72,
+      },
+    });
+    expect(mapDomainError(new CapacityInputError("Max units must be a whole number, 0 or more"))).toEqual({
+      status: 400,
+      body: { error: "Max units must be a whole number, 0 or more" },
     });
   });
 

@@ -4,6 +4,7 @@ import { Repeat } from "lucide-react";
 import { api, errorText, type ScanHit, type Transfer } from "../../api";
 import { Button, Card, Field, Input, StatusBadge } from "../../components/ui";
 import { Term } from "../../components/term";
+import { OverfillButton, useOverfill } from "../../components/bin-capacity";
 import { ClaimList, FloorFrame, FloorScanBox, openFloorRow, type ScanReport } from "./floor-ui";
 import { canPostTransfer } from "@/domain/status";
 import { hasUnmoved } from "@/domain/partial-transfer";
@@ -19,6 +20,7 @@ export function FloorTransferPage() {
   const [active, setActive] = useState<Transfer | null>(null);
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const { overfill, offer } = useOverfill();
   const [loaded, setLoaded] = useState(false);
   // Pack scans add to the latest qty, read through the ref; `counted` lines were scanned or typed.
   const qtysRef = useRef(qtys);
@@ -112,7 +114,7 @@ export function FloorTransferPage() {
     [active, jobs, me.user.id],
   );
 
-  async function post() {
+  async function post(overrideCapacity = false) {
     if (!active) return;
     setError(null);
     try {
@@ -128,12 +130,14 @@ export function FloorTransferPage() {
         .filter((line) => line.qty > 0);
       const posted = await api<Transfer>(`/api/transfers/${active.id}/post`, {
         method: "POST",
-        body: JSON.stringify({ lines }),
+        body: JSON.stringify({ lines, ...(overrideCapacity ? { overrideCapacity } : {}) }),
       });
       applyTicket(posted);
       await load();
     } catch (err) {
-      setError(errorText(err, "Could not post the putaway."));
+      const text = errorText(err, "Could not post the putaway.");
+      setError(text);
+      offer(err, text, () => void post(true));
     }
   }
 
@@ -156,6 +160,7 @@ export function FloorTransferPage() {
       error={error}
     >
       <FloorScanBox label="Scan putaway ticket or SKU" placeholder="XFR-DEMO1 or SHADE" onScan={onScan} ready={loaded} />
+      <OverfillButton overfill={overfill} error={error} />
       {!active ? (
         <ClaimList
           loading={!loaded}
