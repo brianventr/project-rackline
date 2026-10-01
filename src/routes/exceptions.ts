@@ -28,6 +28,7 @@ import { internalApi } from "../lib/internal-api";
 import { requireOwner } from "../lib/org";
 import type { AppEnv } from "../lib/types";
 import { channelsRoute } from "./channels";
+import { customerMailRoute } from "./customer-mail";
 import { holdsRoute } from "./holds";
 import { ordersRoute } from "./orders";
 import { shipRoute } from "./ship";
@@ -40,7 +41,7 @@ type ExceptionBody = { warehouseId?: unknown; takeOver?: unknown; hours?: unknow
 const VERBS = new Set<string>(["claim", "unclaim", "snooze", "resolve", "reopen", "action"]);
 
 /** Where inline actions run, mounted in the same order as the app so the same handler answers. */
-const ACTION_ROUTES = [shipRoute, ordersRoute, shopifyRoute, holdsRoute, channelsRoute];
+const ACTION_ROUTES = [shipRoute, ordersRoute, shopifyRoute, holdsRoute, channelsRoute, customerMailRoute];
 
 async function sourceContext(c: Context<AppEnv>, warehouseId: unknown): Promise<ExceptionSourceContext> {
   const db = c.get("db");

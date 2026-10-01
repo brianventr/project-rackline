@@ -261,6 +261,28 @@ describe("carrierProblems", () => {
   it("ignores rate and tracker events", () => {
     expect(carrierProblems([event({ kind: "rates" }), event({ kind: "tracker" })])).toEqual([]);
   });
+
+  it("keeps a return-label buy or void that was logged on an already shipped order", () => {
+    const buy = event({
+      orderStatus: "shipped",
+      requestJson: '{"returnLabel":true,"rmaId":"rma1"}',
+      responseJson: '{"error":"address not found"}',
+    });
+    const [item] = carrierProblems([buy]);
+    expect(item).toMatchObject({
+      kind: "return_label_buy_failed",
+      link: "/outbound/returns/rma1",
+      title: "The carrier would not sell a return label for order SO-1",
+    });
+    const voided = event({
+      kind: "void",
+      orderStatus: "shipped",
+      requestJson: '{"returnLabel":true,"rmaId":"rma1","returnLabelId":"lbl1"}',
+      responseJson: '{"error":"already scanned"}',
+    });
+    expect(carrierProblems([voided])[0]).toMatchObject({ kind: "return_label_void_failed", link: "/outbound/returns/rma1" });
+    expect(carrierProblems([event({ orderStatus: "shipped" })])).toEqual([]);
+  });
 });
 
 describe("tracker problems", () => {

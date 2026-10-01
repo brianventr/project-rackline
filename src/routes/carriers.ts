@@ -24,6 +24,8 @@ import { pingDirect } from "../lib/direct-carrier";
 import { isLiveAggregator, isLiveDirect } from "../domain/carrier-live";
 import { isDirectProvider } from "../domain/direct-carrier";
 import { chooseTrackerConnection, normalizeTrackerStatus, parseTrackerWebhook, verifyTrackerHmac } from "../domain/tracker";
+import { customerMailEventForTracker } from "../domain/customer-mail";
+import { scheduleCustomerEmails } from "../db/customer-mail";
 import { loadPackagesForOrders, orderPatchFromPackages } from "../db/packages";
 import { buildingDefaultService } from "../domain/ship-defaults";
 import { CARRIER_SECRET_FIELDS, openCarrierRow, sealWebhookSecret, type CarrierSecretField } from "../db/credentials";
@@ -687,6 +689,10 @@ carriersPublicRoute.post("/carriers/trackers/webhooks", async (c) => {
     connectionId,
   });
   if ("duplicate" in recorded) return c.json({ ok: true, duplicate: true });
+  const mailEvent = customerMailEventForTracker(parsed.status);
+  if (mailEvent) {
+    scheduleCustomerEmails(c, { event: mailEvent, orderIds: [...new Set(recorded.matches.map((row) => row.orderId))] });
+  }
   return c.json(recorded);
 });
 
@@ -737,6 +743,10 @@ carriersPublicRoute.post("/carriers/trackers/webhooks/:connectionId", async (c) 
     connectionId: row.id,
   });
   if ("duplicate" in recorded) return c.json({ ok: true, duplicate: true });
+  const mailEvent = customerMailEventForTracker(parsed.status);
+  if (mailEvent) {
+    scheduleCustomerEmails(c, { event: mailEvent, orderIds: [...new Set(recorded.matches.map((row) => row.orderId))] });
+  }
   return c.json(recorded);
 });
 

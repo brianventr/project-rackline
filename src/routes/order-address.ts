@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound } from "../lib/http";
+import { requireOwner } from "../lib/org";
 import { acceptOrderAddress, applySuggestedAddress, orderAddressVerdict } from "../db/address-checks";
 import { loadCarrierConnections } from "./carriers";
 import { AddressInvalidError } from "../domain/address-check";
@@ -89,6 +90,7 @@ orderAddressRoute.post("/orders/:id/address/use-suggestion", async (c) => {
 
 /** "Ship anyway to this address" outside quick-ship: labels for this order may be bought to the address as it is. */
 orderAddressRoute.post("/orders/:id/address/accept", async (c) => {
+  requireOwner(c.get("role"));
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const { order, buildingCountry, locked, checking } = await loadAddressOrder(db, organizationId, c.req.param("id"));

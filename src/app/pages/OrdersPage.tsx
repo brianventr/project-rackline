@@ -89,6 +89,7 @@ import { PickMap } from "../components/PickMap";
 import { ScaleWeight } from "../scale/ScaleWeight";
 import { copyTrackingLink } from "../tracking-link";
 import { AddressCheckCard } from "./AddressCheck";
+import { CustomerEmailsCard } from "./CustomerEmailsCard";
 
 export function OrdersPage() {
   const { id } = useParams();
@@ -996,6 +997,7 @@ function OrderDetail({ id }: { id: string }) {
               ) : null}
             </Card>
             <AddressCheckCard order={order} onChange={() => void run("Reload", load)} />
+            <CustomerEmailsCard orderId={order.id} owner={me.role === "owner"} />
           </DocumentRail>
         }
       >

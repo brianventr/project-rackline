@@ -58,6 +58,14 @@ export const organizations = sqliteTable("organizations", {
   /** Tracking page accent, `#RRGGBB`; see `domain/branding.ts`. */
   brandColor: text("brand_color"),
   logoUrl: text("logo_url"),
+  /** `store` | `always` | `never`. `store` sends only when the store does not notify. */
+  notifyShipped: text("notify_shipped").notNull().default("store"),
+  notifyOutForDelivery: text("notify_out_for_delivery").notNull().default("store"),
+  notifyDelivered: text("notify_delivered").notNull().default("store"),
+  notifyDeliveryException: text("notify_delivery_exception").notNull().default("store"),
+  notifyReturnLabel: text("notify_return_label").notNull().default("store"),
+  mailReplyTo: text("mail_reply_to"),
+  mailSenderName: text("mail_sender_name"),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -912,6 +920,37 @@ export const rmaLines = sqliteTable(
     disposition: text("disposition").notNull().default("restock"),
   },
   (t) => [uniqueIndex("rma_lines_rma_item").on(t.rmaId, t.itemId)],
+);
+
+/**
+ * One customer email per order (or return) and event. The unique indexes are the idempotency
+ * key: a repeat ship or tracker webhook finds the row and does not send again.
+ */
+export const customerEmails = sqliteTable(
+  "customer_emails",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
+    rmaId: text("rma_id").references(() => rmas.id, { onDelete: "cascade" }),
+    event: text("event").notNull(),
+    recipient: text("recipient"),
+    status: text("status").notNull(),
+    reason: text("reason"),
+    providerId: text("provider_id"),
+    subject: text("subject"),
+    textBody: text("text_body"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    sentAt: integer("sent_at"),
+  },
+  (t) => [
+    uniqueIndex("customer_emails_order_event").on(t.orderId, t.event).where(sql`${t.orderId} IS NOT NULL`),
+    uniqueIndex("customer_emails_rma_event").on(t.rmaId, t.event).where(sql`${t.rmaId} IS NOT NULL`),
+    index("customer_emails_org_status").on(t.organizationId, t.status, t.updatedAt),
+  ],
 );
 
 export const vendorReturns = sqliteTable(

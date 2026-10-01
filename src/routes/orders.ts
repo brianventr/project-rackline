@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { and, desc, eq, inArray, like } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
@@ -36,6 +36,7 @@ import { lineCatchWeight } from "../lib/catch-weight";
 import { splitCatchWeight } from "../domain/catch-weight";
 import { canRelabelException } from "../domain/tracker";
 import { newPublicToken } from "../domain/public-token";
+import { scheduleCustomerEmails } from "../db/customer-mail";
 import {
   applyPartialPick,
   hasUnpicked,
@@ -1089,7 +1090,9 @@ ordersRoute.post("/orders/:id/packages/:pkgId/ship", async (c) => {
       createdAt: order.createdAt,
     });
   }
-  return c.json(await shipOrderCartons(db, c.env, organizationId, user.id, order, [pkg]));
+  const shippedCarton = await shipOrderCartons(db, c.env, organizationId, user.id, order, [pkg]);
+  scheduleShippedEmail(c, shippedCarton);
+  return c.json(shippedCarton);
 });
 
 ordersRoute.get("/orders/:id/packages/:pkgId/label", async (c) => {
@@ -1960,6 +1963,12 @@ async function loadPickWeightsByItem(
   return weightByItem;
 }
 
+/** After the order is shipped. `waitUntil` keeps the mail off this request. */
+function scheduleShippedEmail(c: Context<AppEnv>, order: { id: string; status: string }) {
+  if (order.status !== "shipped") return;
+  scheduleCustomerEmails(c, { event: "shipped", orderIds: [order.id] });
+}
+
 async function shipOrderCartons(
   db: AppEnv["Variables"]["db"],
   env: AppEnv["Bindings"],
@@ -2109,7 +2118,9 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
   if (!shipGate.ok) conflict(shipGate.error, shipGate.code);
 
   if (order.packages.length > 0) {
-    return c.json(await shipOrderCartons(db, c.env, organizationId, user.id, order, order.packages));
+    const shippedCartons = await shipOrderCartons(db, c.env, organizationId, user.id, order, order.packages);
+    scheduleShippedEmail(c, shippedCartons);
+    return c.json(shippedCartons);
   }
 
   const locationId = order.pickLocationId;
@@ -2175,6 +2186,7 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
     : undefined;
   const shipped = await orderWithLines(db, organizationId, order.id);
   await syncDocumentJob(db, orderJobInput(shipped));
+  scheduleShippedEmail(c, shipped);
   return c.json({ ...shipped, shopify, channel });
 });
 
@@ -2416,6 +2428,7 @@ ordersRoute.post("/orders/:id/short-ship", async (c) => {
     organizationId,
     order.lines.map((line) => line.itemId),
   );
+  scheduleShippedEmail(c, shipped);
   return c.json(shipped);
 });
 

@@ -522,7 +522,7 @@ Each order can have a tracking page for its customer, at `/t/…`, in both modes
 - **What it never shows.** Prices, the customer's name or email, the street, the postcode, Rackline ids, or any other order. A link that matches no order is not found.
 - **Branding.** Settings → Warehouse → **Tracking page** sets a **Brand colour**, a hex colour such as `#1f6feb`, and a **Logo URL**, which has to start with `https://`. The return label page uses them too. With neither set, the page shows the shop's name in plain colours.
 
-Rackline does not email the link yet. Paste it into your own message to the customer.
+Rackline emails that link when the customer-email settings say to. See [Customer emails](#17-customer-emails). You can still copy it and paste it into your own message.
 
 ## 14. Return labels
 
@@ -582,3 +582,28 @@ When the carrier finds the address, that clears the parts that look wrong, but n
 An accepted address holds only for that exact address. Edit it, and the check runs again. The address can be edited until the order has a label, ships, or is cancelled. Once one box has a label, the others can still be accepted, but not edited.
 
 The check covers every label Rackline buys for an order: quick-ship, Scan to ship, the order page, boxes, and Floor → Ship. It applies to Rackline Ground and demo labels too, with only the checks Rackline makes itself. Pasting a tracking number skips it, because no label is bought. So does a replacement label for a parcel the carrier flagged on Today, because that parcel's address can no longer change.
+
+## 17. Customer emails
+
+Rackline can email the customer when an order ships, is out for delivery, is delivered, hits a delivery problem, or when a return label is ready. The message uses the shop name, brand colour, and logo from the tracking page. It names the carrier, the service, and the tracking number, links to the customer's page (`/t/…` for a shipment, `/r/…` for a return label), lists the items, and includes an estimated delivery when the carrier has sent one. It never includes a price or a Rackline id.
+
+**Who gets it.** The address is the customer's email on the customer record for the order. A missing address is skipped and the reason is kept on the order. Shipping does not wait on the email and does not fail if mail fails.
+
+**When it sends.** Each event is one of three choices, set in Settings → Warehouse next to the tracking page:
+
+- **Only when the store doesn't notify.** The default. A live Shopify, WooCommerce, or Etsy post-back counts as the store notifying, so Rackline stays quiet. Manual orders, CSV, Faire, and a manual post-back do not, so Rackline sends.
+- **Always.**
+- **Never.**
+
+The From address stays `MAIL_FROM`. You can set a sender name and a reply-to address. The same page previews a message and can send a test to you. If `MAIL_API_KEY` is not set, the page says so, and the message is logged instead of sent.
+
+**Once each.** One row is kept per order (or return) and event. Shipping the order again, or a repeat tracker update, does not send a second copy. The order page lists what was sent, skipped, or failed, and an owner can resend. On a return, **Email the label to the customer** sends the return-label message, and the policy sends it on its own when it says to.
+
+**When it fails.** A failed customer email shows in Exceptions. **Resend** tries that same row again.
+
+**A few related fixes.**
+
+- **Create return label** and **Accept this address** (including **Ship anyway to this address**) are owner-only. An operator who tries them gets 403.
+- The ZIP check compares the ZIP's 3-digit prefix with the ranges that belong to that state. "Seattle, OR 98101" fails, because 981 is Washington and Oregon is 970–979. The first digit alone is not enough, since both start with 9.
+- A return label the carrier would not sell or void shows in Exceptions, even though the original order has already shipped.
+- An order with no ship weight, on a service that buys live postage, waits under **Needs attention** (`NEED_WEIGHT`).

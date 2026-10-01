@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, max, notInArray, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, max, notInArray, or, sql } from "drizzle-orm";
 import { CARRIER_SOURCE, CARRIER_WINDOW_MS, carrierProblems, type CarrierEventRow } from "../../domain/exceptions/carrier";
 import * as schema from "../schema";
 import type { ExceptionSource } from "./source";
@@ -26,7 +26,12 @@ export const carrierSource: ExceptionSource = {
           eq(e.status, "failed"),
           inArray(e.kind, KINDS),
           gte(e.createdAt, since),
-          or(eq(e.kind, "void"), notInArray(o.status, ["shipped", "cancelled"])),
+          or(
+            eq(e.kind, "void"),
+            notInArray(o.status, ["shipped", "cancelled"]),
+            sql`json_extract(${e.requestJson}, '$.returnLabel') = 1`,
+            sql`json_extract(${e.requestJson}, '$.returnLabelId') is not null`,
+          ),
         ),
       )
       .groupBy(o.id)
