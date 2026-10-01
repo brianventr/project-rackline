@@ -164,7 +164,7 @@ const FILL_COLUMN: DataColumn<LocationRow> = {
   align: "right",
   sortValue: (row) => row.fillPercent ?? -1,
   csv: (row) => row.fillPercent ?? "",
-  cell: (row) => (row.fillPercent != null ? <FillMeter percent={row.fillPercent} /> : <Muted>No limit</Muted>),
+  cell: (row) => (row.fillPercent != null ? <FillMeter percent={row.fillPercent} /> : <Muted>—</Muted>),
 };
 
 const MANUFACTURER_COLUMNS = LOCATION_COLUMNS.flatMap((column) => (column.id === "units" ? [column, FILL_COLUMN] : [column]));
