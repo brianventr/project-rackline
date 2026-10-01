@@ -91,6 +91,11 @@ async function bayStock(db: AppDb, organizationId: string, locationId: string) {
   return withPlateShare(rows, await loadPlates(db, organizationId, { locationIds: [locationId] }), locationId);
 }
 
+async function detailOf(db: AppDb, organizationId: string, plateId: string) {
+  const view = await viewOf(db, organizationId, plateId);
+  return { ...view, bayStock: view.locationId ? await bayStock(db, organizationId, view.locationId) : [] };
+}
+
 platesRoute.get("/plates", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -133,15 +138,14 @@ platesRoute.post("/plates", async (c) => {
     createdBy: user.id,
     now: Date.now(),
   });
-  return c.json(await viewOf(db, organizationId, id), 201);
+  return c.json(await detailOf(db, organizationId, id), 201);
 });
 
 platesRoute.get("/plates/:ref", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const plate = await plateByRef(db, organizationId, c.req.param("ref"));
-  const view = await viewOf(db, organizationId, plate.id);
-  return c.json({ ...view, bayStock: plate.locationId ? await bayStock(db, organizationId, plate.locationId) : [] });
+  return c.json(await detailOf(db, organizationId, plate.id));
 });
 
 type BuildBody = {
@@ -273,7 +277,7 @@ platesRoute.post("/plates/:ref/lines", async (c) => {
   }
 
   await savePlateOps(db, { organizationId, now: Date.now(), ops });
-  return c.json(await viewOf(db, organizationId, plate.id));
+  return c.json(await detailOf(db, organizationId, plate.id));
 });
 
 /** Move: every line goes through a normal ledger move, so holds, ATP, and bin capacity all apply. */
@@ -293,7 +297,7 @@ platesRoute.post("/plates/:ref/move", async (c) => {
   const moves = plateMoveLines(plate.lines);
   if (moves.length === 0) {
     await savePlateOps(db, { organizationId, now, ops: [relocate] });
-    return c.json(await viewOf(db, organizationId, plate.id));
+    return c.json(await detailOf(db, organizationId, plate.id));
   }
 
   const itemIds = [...new Set(moves.map((line) => line.itemId))];
@@ -354,7 +358,7 @@ platesRoute.post("/plates/:ref/move", async (c) => {
     toLocationId: to.id,
     itemIds,
   });
-  return c.json(await viewOf(db, organizationId, plate.id));
+  return c.json(await detailOf(db, organizationId, plate.id));
 });
 
 /** Break: everything on the plate becomes loose stock in its bay, and the plate is open and empty. */
@@ -366,7 +370,7 @@ platesRoute.post("/plates/:ref/break", async (c) => {
   const ops: PlateOp[] = [{ kind: "empty", plateId: plate.id }];
   if (plate.status !== "open") ops.push({ kind: "status", plateId: plate.id, status: "open" });
   await savePlateOps(db, { organizationId, now: Date.now(), ops });
-  return c.json(await viewOf(db, organizationId, plate.id));
+  return c.json(await detailOf(db, organizationId, plate.id));
 });
 
 platesRoute.post("/plates/:ref/close", async (c) => {
@@ -376,7 +380,7 @@ platesRoute.post("/plates/:ref/close", async (c) => {
   assertPlateCan(plate, "close");
   if (plate.lines.length === 0) badRequest(`${plate.code} is empty. Put stock on it before closing it.`);
   await savePlateOps(db, { organizationId, now: Date.now(), ops: [{ kind: "status", plateId: plate.id, status: "closed" }] });
-  return c.json(await viewOf(db, organizationId, plate.id));
+  return c.json(await detailOf(db, organizationId, plate.id));
 });
 
 platesRoute.post("/plates/:ref/reopen", async (c) => {
@@ -385,5 +389,5 @@ platesRoute.post("/plates/:ref/reopen", async (c) => {
   const plate = await plateByRef(db, organizationId, c.req.param("ref"));
   assertPlateCan(plate, "reopen");
   await savePlateOps(db, { organizationId, now: Date.now(), ops: [{ kind: "status", plateId: plate.id, status: "open" }] });
-  return c.json(await viewOf(db, organizationId, plate.id));
+  return c.json(await detailOf(db, organizationId, plate.id));
 });
