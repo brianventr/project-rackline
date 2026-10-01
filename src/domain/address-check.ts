@@ -8,6 +8,7 @@ import {
   type ShipAddressInput,
   type ShipAddressParts,
 } from "./ship-address";
+import { usZipPrefixInState } from "./zip-prefixes";
 
 export type AddressField = "street" | "city" | "region" | "postal";
 
@@ -16,20 +17,6 @@ export type AddressProblem = { field: AddressField; kind: "missing" | "invalid";
 
 /** Territories, freely associated states, and military post codes, which the gazetteer's state list leaves out. */
 const US_EXTRA_REGIONS = new Set(["PR", "VI", "GU", "AS", "MP", "FM", "MH", "PW", "AA", "AE", "AP"]);
-
-/** The states with ZIP codes starting with each digit, so a typo that moves a ZIP across the country shows. */
-const ZIP_FIRST_DIGIT: Record<string, string> = {
-  "0": "CT MA ME NH NJ NY PR RI VT VI AE",
-  "1": "DE NY PA",
-  "2": "DC MD NC SC VA WV",
-  "3": "AL FL GA MS TN AA",
-  "4": "IN KY MI OH",
-  "5": "DC IA MN MT ND SD WI",
-  "6": "IL KS MO NE",
-  "7": "AR LA OK TX",
-  "8": "AZ CO ID NM NV TX UT WY",
-  "9": "AK CA HI OR WA AS GU MP PW FM MH AP",
-};
 
 /** A Canadian postal code's first letter names its province. */
 const CA_POSTAL_FIRST_LETTER: Record<string, string> = {
@@ -96,7 +83,7 @@ function postalProblem(country: string, region: string, postal: string, regionOk
   }
   if (!regionOk || !region) return null;
   const code = regionCode(country, region);
-  if (country === "US" && !ZIP_FIRST_DIGIT[shown[0]!]?.split(" ").includes(code)) {
+  if (country === "US" && !usZipPrefixInState(shown, code)) {
     return `ZIP code ${shown} is not in ${regionName("US", code)}.`;
   }
   if (country === "CA" && !CA_POSTAL_FIRST_LETTER[shown[0]!]?.split(" ").includes(code)) {
