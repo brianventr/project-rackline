@@ -44,6 +44,7 @@ import { jobForRef, jobForSuggestion } from "../jobs";
 import { cn } from "@/lib/utils";
 import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 import { formatPickupLabel, type PromiseBoard } from "@/domain/promise";
+import { orderChannelName } from "@/domain/order-channel";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1381,7 +1382,7 @@ function buildRows(data: Dashboard | null, jobs: FloorJob[]): WorkRow[] {
       queue: "Order",
       to: `/outbound/orders/${row.id}`,
       title: `${row.number} · ${row.customerName}`,
-      meta: row.source === "shopify" ? "Shopify" : "Floor order",
+      meta: `${orderChannelName(row.source)} order`,
       status: row.status,
       createdAt: ageOf(row),
       actionTo: floorActionForOrder(row.status, row.id),

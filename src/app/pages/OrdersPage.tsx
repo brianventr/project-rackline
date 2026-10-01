@@ -80,6 +80,7 @@ import { planShortShip } from "@/domain/short-ship";
 import { workflowPolicy } from "@/domain/workflow-policy";
 import { startingShipService } from "@/domain/ship-service";
 import { canRetryPostBack, manualPostBackNote, markShippedIn } from "@/domain/channels/adapter";
+import { orderChannelName } from "@/domain/order-channel";
 import { useWarehouse, inWarehouse } from "../warehouse";
 import { useSession } from "../session";
 import { CatchWeightInput, parseWeightGrams } from "../components/catch-weight-field";
@@ -108,13 +109,9 @@ const ORDER_TABS: TabDef<Order>[] = [
 ];
 
 const ORDER_FACETS: FacetDef<Order>[] = [
-  { id: "channel", label: "Channel", value: (order) => (order.source === "shopify" ? "shopify" : "floor"), format: channelLabel },
+  { id: "channel", label: "Channel", value: (order) => orderChannelName(order.source) },
   { id: "status", label: "Status", value: (order) => order.status, format: statusLabel },
 ];
-
-function channelLabel(source: string | null | undefined): string {
-  return source === "shopify" ? "Shopify" : "Floor";
-}
 
 function orderUnits(order: Order) {
   const lines = order.lines ?? [];
@@ -161,7 +158,7 @@ const ORDER_COLUMNS: DataColumn<Order>[] = [
   {
     id: "channel",
     header: "Channel",
-    sortValue: (order) => channelLabel(order.source),
+    sortValue: (order) => orderChannelName(order.source),
     cell: (order) =>
       order.source === "shopify" ? (
         <span className="inline-flex items-center gap-1.5 text-sm">
@@ -170,8 +167,8 @@ const ORDER_COLUMNS: DataColumn<Order>[] = [
         </span>
       ) : (
         <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Warehouse className="size-3.5" />
-          Floor
+          {(order.source ?? "manual") === "manual" ? <Warehouse className="size-3.5" /> : <Store className="size-3.5" />}
+          {orderChannelName(order.source)}
         </span>
       ),
   },
@@ -950,7 +947,7 @@ function OrderDetail({ id }: { id: string }) {
                     {channelName}
                   </Link>
                 ) : (
-                  "Floor"
+                  orderChannelName(order.source)
                 )}
               </DocumentFact>
               {CHANNEL_POSTS_BACK.has(order.source ?? "") ? (

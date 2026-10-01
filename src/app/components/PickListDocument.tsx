@@ -10,6 +10,7 @@ import {
   type PickListStop,
   type WavePickListDocument,
 } from "@/domain/pick-list";
+import { orderChannelName } from "@/domain/order-channel";
 
 function Check() {
   return <span className="pick-check" aria-hidden />;
@@ -245,7 +246,7 @@ export function OrderPickListSheet({
   orgName: string;
   backTo: string;
 }) {
-  const channel = doc.source === "shopify" ? "Shopify" : doc.source ? "Floor" : null;
+  const channel = doc.source ? orderChannelName(doc.source) : null;
   return (
     <PickListSheet
       ready

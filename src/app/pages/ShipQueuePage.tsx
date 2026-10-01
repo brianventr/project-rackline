@@ -39,6 +39,7 @@ import { ShipStation } from "./ShipStation";
 import { ShippingLabelCard, shippingLabelJob } from "./ShippingLabelPage";
 import { copyTrackingLink } from "../tracking-link";
 import { markShippedReminder } from "@/domain/channels/adapter";
+import { orderChannelName } from "@/domain/order-channel";
 import { shortDay } from "@/domain/rate-choice";
 import { formatOz } from "@/domain/ship-defaults";
 import { cn } from "@/lib/utils";
@@ -49,14 +50,6 @@ const TABS: TabDef<ShipQueueOrder>[] = [
   { id: "attention", label: "Needs attention", match: (row) => row.status !== "shipped" && !row.ready },
   { id: "shipped", label: "Shipped", match: (row) => row.status === "shipped" },
 ];
-
-function channelLabel(source: string): string {
-  if (source === "shopify") return "Shopify";
-  if (source === "etsy") return "Etsy";
-  if (source === "faire") return "Faire";
-  if (source === "woocommerce") return "WooCommerce";
-  return "Manual";
-}
 
 function weightText(parcel: ShipQueueOrder["parcel"]): string | null {
   if (!parcel.weightOz) return null;
@@ -215,11 +208,11 @@ export function ShipQueuePage() {
     {
       id: "channel",
       header: "Channel",
-      sortValue: (row) => channelLabel(row.source),
+      sortValue: (row) => orderChannelName(row.source),
       cell: (row) => (
         <span className="inline-flex items-center gap-1.5 text-sm">
           {row.source === "manual" ? <Warehouse className="size-3.5 text-muted-foreground" /> : <Store className="size-3.5 text-tone-success" />}
-          {channelLabel(row.source)}
+          {orderChannelName(row.source)}
         </span>
       ),
     },
