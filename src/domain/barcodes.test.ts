@@ -30,6 +30,15 @@ describe("barcodes", () => {
     expect(parseScan("A-02-01")).toEqual({ kind: "unknown", value: "A-02-01", raw: "A-02-01" });
   });
 
+  it("reads a license plate by its LP- code, bare or prefixed", () => {
+    expect(parseScan("LP-000123")).toEqual({ kind: "plate", value: "LP-000123", raw: "LP-000123" });
+    expect(parseScan(" lp-42")).toEqual({ kind: "plate", value: "LP-000042", raw: "LP-42" });
+    expect(parseScan("LP:42")).toEqual({ kind: "plate", value: "LP-000042", raw: "LP:42" });
+    expect(parseScan("LP:LP-000042")).toEqual({ kind: "plate", value: "LP-000042", raw: "LP:LP-000042" });
+    expect(parseScan("LP-SHADE").kind).toBe("unknown");
+    expect(itemScanValue(parseScan("LP-000123"))).toBeNull();
+  });
+
   it("parses GS1 AI payloads", () => {
     expect(parseGs1("(01)01234567890128(10)LOT42(21)SER99")).toEqual({
       gtin: "01234567890128",

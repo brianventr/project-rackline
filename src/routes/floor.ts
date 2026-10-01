@@ -37,6 +37,8 @@ import {
   loadAsBuiltForParentSerial,
 } from "../db/as-built";
 import { completeMatchingSuggestionJobs, guardFloorJob, guardMatchingSuggestionJobs, syncDocumentJob } from "../db/jobs";
+import { loadPlateByCode, loadPlates, plateViews } from "../db/license-plates";
+import { plateUnits, withPlateShare } from "../domain/license-plates";
 import { loadDocumentNumber, loadOpenAssignmentForEquipment } from "../db/equipment";
 import { loadPackagesForAsns, loadUnputawayReceivedCartons } from "../db/asn-packages";
 import { asnCartonPutawayGate } from "../domain/cartons";
@@ -749,6 +751,13 @@ floorRoute.get("/map", async (c) => {
     .where(and(eq(schema.zones.organizationId, organizationId), eq(schema.zones.warehouseId, warehouse.id)))
     .orderBy(schema.zones.code);
   const fill = await loadBinFill(db, organizationId, locationRows);
+  const plates = await loadPlates(db, organizationId, { locationIds: locationRows.map((row) => row.id) });
+  const platesAt = new Map<string, typeof plates>();
+  for (const plate of plates) {
+    const list = platesAt.get(plate.locationId!) ?? [];
+    list.push(plate);
+    platesAt.set(plate.locationId!, list);
+  }
 
   return c.json({
     warehouse: {
@@ -782,18 +791,30 @@ floorRoute.get("/map", async (c) => {
     })),
     locations: locationRows.map((location) => {
       const contents = byLocation.get(location.id) ?? [];
+      const here = platesAt.get(location.id) ?? [];
       return {
         ...location,
         fillPercent: fill.get(location.id)?.fillPercent ?? null,
         unitsOnHand: contents.reduce((sum, row) => sum + row.qty, 0),
         skuCount: contents.length,
-        contents: contents.map((row) => ({
-          itemId: row.itemId,
-          sku: row.sku,
-          itemName: row.itemName,
-          itemType: row.itemType,
-          imageUrl: row.imageUrl,
-          qty: row.qty,
+        contents: withPlateShare(
+          contents.map((row) => ({
+            itemId: row.itemId,
+            sku: row.sku,
+            itemName: row.itemName,
+            itemType: row.itemType,
+            imageUrl: row.imageUrl,
+            qty: row.qty,
+          })),
+          here,
+          location.id,
+        ),
+        plates: here.map((plate) => ({
+          id: plate.id,
+          code: plate.code,
+          type: plate.type,
+          status: plate.status,
+          units: plateUnits(plate),
         })),
       };
     }),
@@ -846,8 +867,9 @@ floorRoute.get("/scan", async (c) => {
       };
     });
     const locationHolds = holds.filter((hold) => hold.locationId === location.id);
+    const plates = await plateViews(db, organizationId, await loadPlates(db, organizationId, { locationIds: [location.id] }));
     if (!shouldSuggestPutaway(location.type) || contents.length === 0) {
-      return { kind: "location" as const, location, contents: annotated, holds: locationHolds };
+      return { kind: "location" as const, location, contents: annotated, holds: locationHolds, plates };
     }
     const movable = available.filter((row) => row.qty > 0);
     const baysByItem = await loadPutawayBaysByItem(
@@ -866,6 +888,7 @@ floorRoute.get("/scan", async (c) => {
       kind: "location" as const,
       location,
       holds: locationHolds,
+      plates,
       contents: annotated.map((row) => {
         const suggested = suggestedByItem.get(row.itemId);
         return {
@@ -938,6 +961,20 @@ floorRoute.get("/scan", async (c) => {
       const number = row.number.toUpperCase();
       return number === value.toUpperCase() || number === needle || number.endsWith(`-${needle}`) || number === `#${needle}`;
     });
+  }
+
+  if (parsed.kind === "plate") {
+    const plate = await loadPlateByCode(db, organizationId, parsed.value);
+    if (plate) {
+      const [view] = await plateViews(db, organizationId, [plate]);
+      return c.json({ kind: "plate" as const, plate: view! });
+    }
+    // A bare LP-123 may still be a bay code or SKU; only the LP: prefix is surely a plate.
+    if (!parsed.raw.startsWith("LP:")) {
+      const hit = (await locationHit(parsed.raw)) ?? (await itemHit(parsed.raw));
+      if (hit) return c.json(hit);
+    }
+    notFound("No plate matches that barcode");
   }
 
   if (parsed.kind === "location" || parsed.kind === "unknown") {

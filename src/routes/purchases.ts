@@ -17,6 +17,8 @@ import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
 import { guardFloorJob, syncDocumentJob, type DocumentJobInput } from "../db/jobs";
+import { plateForReceive } from "../db/license-plates";
+import { receiveOntoPlate } from "../domain/license-plates";
 import { loadReorderQueue } from "../db/reorder";
 import { loadRunway } from "../db/runway";
 import { majorityVendor } from "../domain/reorder";
@@ -414,6 +416,7 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
     locationId?: string;
     lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number; expiresOn?: unknown }[];
     overrideCapacity?: boolean;
+    plateCode?: string;
   }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
@@ -430,7 +433,8 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
     fromLocationId: locationId,
   });
   if (!hasRemaining(purchase.lines.map(asExpected))) conflict("Purchase has nothing remaining");
-  await getOrgLocation(db, organizationId, locationId);
+  const location = await getOrgLocation(db, organizationId, locationId);
+  const plate = await plateForReceive(db, organizationId, body.plateCode, location);
 
   if (purchase.status === "draft") {
     await deliverPurchase(c, purchase, {}, { requireEmail: false });
@@ -473,6 +477,16 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
   const now = Date.now();
   const nextStatus = isFullyReceived(applied.next) ? "received" : "receiving";
   const qtyByItem = new Map(applied.next.map((line) => [line.itemId, line.qtyReceived]));
+  const posted = applied.posted.map((line) => {
+    const extra = incoming.find((row) => row.itemId === line.itemId);
+    return {
+      ...line,
+      lotCode: extra?.lotCode,
+      serials: extra?.serials.length ? extra.serials : null,
+      weightGrams: extra?.weightGrams,
+      expiresOn: extra?.expiresOn,
+    };
+  });
 
   await postReceiveLines(db, {
     organizationId,
@@ -481,16 +495,8 @@ purchasesRoute.post("/purchases/:id/receive", async (c) => {
     locationId,
     refType: "purchase",
     refId: purchase.id,
-    lines: applied.posted.map((line) => {
-      const extra = incoming.find((row) => row.itemId === line.itemId);
-      return {
-        ...line,
-        lotCode: extra?.lotCode,
-        serials: extra?.serials.length ? extra.serials : null,
-        weightGrams: extra?.weightGrams,
-        expiresOn: extra?.expiresOn,
-      };
-    }),
+    lines: posted,
+    plateOps: plate ? receiveOntoPlate(plate, locationId, posted) : undefined,
     extra: [
       ...purchase.lines.map((line) =>
         db

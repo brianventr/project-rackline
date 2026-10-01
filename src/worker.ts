@@ -60,6 +60,7 @@ import { scheduleRoute } from "./routes/schedule";
 import { shipRoute } from "./routes/ship";
 import { vendorsRoute } from "./routes/vendors";
 import { customersRoute } from "./routes/customers";
+import { platesRoute } from "./routes/plates";
 import { marketingPageByPath } from "./domain/marketing-pages";
 import { injectMarketingMeta, robotsTxt, sitemapXml } from "./domain/marketing-seo";
 
@@ -246,6 +247,7 @@ app.route("/api", recallRoute);
 app.route("/api", scheduleRoute);
 app.route("/api", vendorsRoute);
 app.route("/api", customersRoute);
+app.route("/api", platesRoute);
 
 export default {
   fetch: app.fetch,

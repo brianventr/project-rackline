@@ -13,6 +13,8 @@ import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
 import { guardFloorJob, syncDocumentJob } from "../db/jobs";
+import { plateForReceive } from "../db/license-plates";
+import { receiveOntoPlate } from "../domain/license-plates";
 
 export const receiptsRoute = new Hono<AppEnv>();
 
@@ -202,6 +204,7 @@ receiptsRoute.post("/receipts/:id/receive", async (c) => {
     locationId?: string;
     lines?: { itemId?: string; qty?: number; lotCode?: string; serials?: string | string[]; weightGrams?: number; expiresOn?: unknown }[];
     overrideCapacity?: boolean;
+    plateCode?: string;
   }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
@@ -224,7 +227,8 @@ receiptsRoute.post("/receipts/:id/receive", async (c) => {
     createdAt: receipt.createdAt,
   });
   if (!hasRemaining(receipt.lines.map(asExpected))) conflict("Receipt has nothing remaining");
-  await getOrgLocation(db, organizationId, locationId);
+  const location = await getOrgLocation(db, organizationId, locationId);
+  const plate = await plateForReceive(db, organizationId, body.plateCode, location);
 
   if (receipt.status === "draft") {
     await db.update(schema.receipts).set({ status: "receiving" }).where(eq(schema.receipts.id, receipt.id));
@@ -267,6 +271,16 @@ receiptsRoute.post("/receipts/:id/receive", async (c) => {
   const now = Date.now();
   const nextStatus = isFullyReceived(applied.next) ? "received" : "receiving";
   const qtyByItem = new Map(applied.next.map((line) => [line.itemId, line.qtyReceived]));
+  const posted = applied.posted.map((line) => {
+    const extra = incoming.find((row) => row.itemId === line.itemId);
+    return {
+      ...line,
+      lotCode: extra?.lotCode,
+      serials: extra?.serials.length ? extra.serials : null,
+      weightGrams: extra?.weightGrams,
+      expiresOn: extra?.expiresOn,
+    };
+  });
 
   await postReceiveLines(db, {
     organizationId,
@@ -275,16 +289,8 @@ receiptsRoute.post("/receipts/:id/receive", async (c) => {
     locationId,
     refType: "receipt",
     refId: receipt.id,
-    lines: applied.posted.map((line) => {
-      const extra = incoming.find((row) => row.itemId === line.itemId);
-      return {
-        ...line,
-        lotCode: extra?.lotCode,
-        serials: extra?.serials.length ? extra.serials : null,
-        weightGrams: extra?.weightGrams,
-        expiresOn: extra?.expiresOn,
-      };
-    }),
+    lines: posted,
+    plateOps: plate ? receiveOntoPlate(plate, locationId, posted) : undefined,
     extra: [
       ...receipt.lines.map((line) =>
         db

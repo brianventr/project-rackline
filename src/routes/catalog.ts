@@ -33,6 +33,8 @@ import { normalizePackSizes, PackSizeError } from "../domain/pack-sizes";
 import { assertNotPackBarcode, assertPackBarcodesFree, loadPacksForItem, replaceItemPacks } from "../db/item-packs";
 import { capacityPatch } from "../domain/capacity";
 import { loadBinFill } from "../db/capacity";
+import { withPlateShare } from "../domain/license-plates";
+import { loadPlates, plateViews } from "../db/license-plates";
 
 export const catalogRoute = new Hono<AppEnv>();
 
@@ -505,12 +507,14 @@ catalogRoute.get("/locations/:id", async (c) => {
     );
   const fill = (await loadBinFill(db, organizationId, [location])).get(location.id);
   const skuById = new Map(contents.map((row) => [row.itemId, row.sku]));
+  const plates = await loadPlates(db, organizationId, { locationIds: [location.id] });
   return c.json({
     ...location,
-    contents,
+    contents: withPlateShare(contents, plates, location.id),
     fillPercent: fill?.fillPercent ?? null,
     usage: fill?.usage ?? null,
     unmeasuredSkus: (fill?.unmeasured ?? []).map((itemId) => skuById.get(itemId) ?? itemId),
+    plates: await plateViews(db, organizationId, plates),
   });
 });
 

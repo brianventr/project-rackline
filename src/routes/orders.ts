@@ -77,6 +77,8 @@ import {
 } from "../db/allocations";
 import type { OpenAllocation } from "../domain/allocations";
 import { cancelOrderDocument, loadNetPickSlices, persistUnpick, remainingToUnpick } from "../db/unpick";
+import { drawFromPlate, normalizePlateCode, type PlateOp } from "../domain/license-plates";
+import { plateForPick } from "../db/license-plates";
 import { OverUnpickError } from "../domain/partial-unpick";
 import { resolveLineStockQty, UomConversionError } from "../domain/uom";
 import { ensureCustomer } from "../db/parties";
@@ -578,6 +580,8 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
     locationId?: string;
     lines?: IncomingPick[];
     scan?: ScanEvidence;
+    /** The license plate scanned instead of the bay. The whole pick comes off it. */
+    plateCode?: string;
   }>();
   const locationId = requireString(body.locationId, "locationId");
   const db = c.get("db");
@@ -601,14 +605,17 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
   });
   if (!hasUnpicked(order.lines.map(asPickLine))) conflict("Order has nothing remaining to pick");
   const pickBay = await getOrgLocation(db, organizationId, locationId);
+  const plateCode = normalizePlateCode(body.plateCode) ?? normalizePlateCode(body.scan?.locationScan);
+  const plate = plateCode ? await plateForPick(db, organizationId, plateCode, pickBay) : null;
   const scanPolicy = await loadWorkflowPolicy(db, organizationId);
   if (requiresScan(scanPolicy, "pick")) {
     const scanned = resolveIncoming(order.lines, body.lines).filter((line) => line.qty > 0);
+    const evidence = plate ? { ...body.scan, locationScan: pickBay.barcode } : body.scan;
     assertScanned(
       scanPolicy,
       "pick",
       await scanCheckLines(db, organizationId, order.lines, scanned),
-      withSerialScans(order.lines, scanned, body.scan),
+      withSerialScans(order.lines, scanned, evidence),
       pickBay,
     );
   }
@@ -653,6 +660,36 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
       };
     });
 
+  const pieces = plate
+    ? drawFromPlate(
+        plate,
+        pickLines.map((line) => ({ itemId: line.itemId, sku: line.sku, qty: line.qty, lotCode: line.lotCode, serials: line.serials })),
+      )
+    : null;
+  const picks = pieces
+    ? pickLines.flatMap((line, index) => {
+        const mine = pieces.filter((piece) => piece.want === index);
+        const grams = splitCatchWeight(line.weightGrams, mine.map((piece) => piece.qty));
+        return mine.map((piece, at) => ({
+          ...line,
+          qty: piece.qty,
+          lotCode: piece.lotCode ?? line.lotCode,
+          serials: piece.serials ?? line.serials,
+          weightGrams: grams[at] ?? null,
+        }));
+      })
+    : pickLines;
+  const plateOps: PlateOp[] = plate
+    ? picks.map((line) => ({
+        kind: "take",
+        plateId: plate.id,
+        itemId: line.itemId,
+        qty: line.qty,
+        lotCode: line.lotCode,
+        serials: line.serials,
+      }))
+    : [];
+
   const loaded = await loadBalanceMap(
     db,
     organizationId,
@@ -660,7 +697,7 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
   );
   const plan = chainPlans(
     qtyMap(loaded),
-    pickLines.map(
+    picks.map(
       (line) => (balances) =>
         planPick({
           itemId: line.itemId,
@@ -707,6 +744,7 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
         .where(eq(schema.orders.id, order.id)),
       ...consumeExtras,
     ],
+    plateOps,
   });
 
   const picked = await orderWithLines(db, organizationId, order.id);
