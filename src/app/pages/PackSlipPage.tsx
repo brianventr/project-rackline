@@ -45,7 +45,7 @@ export function PackSlipPage() {
           ) : null}
         </div>
         <div className="text-right">
-          <BarcodeLabel value={order.number} className="h-12 w-48" />
+          <BarcodeLabel value={order.number} className="h-auto w-64 max-w-full" />
           <p className="mt-2 text-sm text-muted-foreground">Printed {printedAt}</p>
           <p className="text-sm capitalize">{order.status}</p>
         </div>

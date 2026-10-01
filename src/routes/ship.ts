@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import { and, eq, inArray, notInArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
-import { badRequest, conflict, notFound } from "../lib/http";
+import { badRequest, conflict, notFound, optionalInt, optionalString } from "../lib/http";
 import { requireOwner } from "../lib/org";
 import { newId } from "../lib/ids";
 import { internalApi, type InternalResult } from "../lib/internal-api";
@@ -340,6 +340,59 @@ async function decideShip(db: Db, ctx: ShipContext, input: DecideInput): Promise
   };
 }
 
+type ShipBlocker = { code: string; error: string; sku: string | null };
+
+/** The box, service, and quote the queue and the scan station show for one decision. */
+function decisionView(decision: ShipDecision) {
+  const box = decision.plan.box;
+  return {
+    parcel: decision.parcel.parcel,
+    missingWeight: decision.parcel.missingWeight,
+    box: box.preset
+      ? {
+          presetId: box.preset.id,
+          name: box.preset.name,
+          source: box.source,
+          reason: decision.boxReason,
+          note: box.note,
+          tooBig: box.tooBig,
+        }
+      : null,
+    serviceId: decision.serviceId,
+    serviceName: decision.serviceName,
+    serviceReason: decision.serviceReason,
+    serviceLive: decision.live,
+    quote: decision.quote,
+    quotePending: decision.quotePending,
+    rule: decision.plan.rule,
+  };
+}
+
+/** Why quick-ship would stop, in the order it checks: the order itself first, then the rule, the rate, the hold. */
+function shipBlocker(plan: ReturnType<typeof planQuickShip> | null, decision: ShipDecision | null): ShipBlocker | null {
+  if (plan && !plan.ok) return { code: plan.code, error: plan.error, sku: plan.sku ?? null };
+  if (!decision) return null;
+  if (decision.plan.problem) return { code: "SHIP_RULE_SERVICE", error: decision.plan.problem, sku: null };
+  if (decision.rateError) return { code: "NO_RATE", error: decision.rateError, sku: null };
+  if (decision.plan.hold) return { code: "SHIP_RULE_HOLD", error: holdMessage(decision.plan), sku: null };
+  return null;
+}
+
+async function loadQuickShipPlan(db: Db, organizationId: string, order: OrderRow, lines: ShipLine[]) {
+  const packages = await db
+    .select({ id: schema.orderPackages.id })
+    .from(schema.orderPackages)
+    .where(eq(schema.orderPackages.orderId, order.id));
+  const bays = await loadAtpBaysByItem(
+    db,
+    organizationId,
+    [...new Set(lines.map((line) => line.itemId))],
+    order.id,
+    order.warehouseId,
+  );
+  return planQuickShip({ status: order.status, packageCount: packages.length, lines }, bays);
+}
+
 shipRoute.get("/ship/queue", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -422,22 +475,27 @@ shipRoute.get("/ship/queue", async (c) => {
     }),
   );
 
+  const shippedView = (order: OrderRow, orderLines: ShipLine[]) => {
+    const parcel = orderParcel({ lines: orderLines, preset: defaultPreset, order });
+    return {
+      parcel: parcel.parcel,
+      missingWeight: parcel.missingWeight,
+      box: null,
+      serviceId: order.carrierService,
+      serviceName: null,
+      serviceReason: null,
+      serviceLive: false,
+      quote: null,
+      quotePending: false,
+      rule: null,
+    };
+  };
+
   const rows = visible.map((order) => {
     const orderLines = linesFor(order.id);
     const decision = decisions.get(order.id) ?? null;
-    const parcel = decision?.parcel ?? orderParcel({ lines: orderLines, preset: defaultPreset, order });
     const plan = shipPlans.get(order.id) ?? null;
-    const blocker =
-      plan && !plan.ok
-        ? { code: plan.code, error: plan.error, sku: plan.sku ?? null }
-        : decision?.plan.problem
-          ? { code: "SHIP_RULE_SERVICE", error: decision.plan.problem, sku: null }
-          : decision?.rateError
-            ? { code: "NO_RATE", error: decision.rateError, sku: null }
-            : decision?.plan.hold
-              ? { code: "SHIP_RULE_HOLD", error: holdMessage(decision.plan), sku: null }
-              : null;
-    const box = decision?.plan.box;
+    const blocker = shipBlocker(plan, decision);
     return {
       id: order.id,
       number: order.number,
@@ -461,25 +519,7 @@ shipRoute.get("/ship/queue", async (c) => {
         qty: line.qty,
         shipWeightOz: line.shipWeightOz,
       })),
-      parcel: parcel.parcel,
-      missingWeight: parcel.missingWeight,
-      box: box?.preset
-        ? {
-            presetId: box.preset.id,
-            name: box.preset.name,
-            source: box.source,
-            reason: decision?.boxReason ?? null,
-            note: box.note,
-            tooBig: box.tooBig,
-          }
-        : null,
-      serviceId: decision ? decision.serviceId : order.carrierService,
-      serviceName: decision ? decision.serviceName : null,
-      serviceReason: decision?.serviceReason ?? null,
-      serviceLive: decision?.live ?? false,
-      quote: decision?.quote ?? null,
-      quotePending: decision?.quotePending ?? false,
-      rule: decision?.plan.rule ?? null,
+      ...(decision ? decisionView(decision) : shippedView(order, orderLines)),
       shipReason: order.shipReason,
       ready: Boolean(plan?.ok) && !blocker,
       blocker,
@@ -511,6 +551,43 @@ shipRoute.get("/ship/queue", async (c) => {
     }),
     orders: rows,
   });
+});
+
+/** One order's decision at a given weight: the scan station asks again as the scale settles. */
+shipRoute.post("/ship/decide", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const body = await c.req.json<QuickShipBody & { orderId?: unknown }>().catch(() => ({}) as QuickShipBody & { orderId?: unknown });
+  if (typeof body.orderId !== "string" || !body.orderId) badRequest("orderId is required");
+  const orderId = body.orderId;
+  const weightOz = optionalInt(body.weightOz, "weightOz");
+  if (weightOz !== undefined && weightOz <= 0) badRequest("weightOz must be above 0");
+  const [order] = await db
+    .select()
+    .from(schema.orders)
+    .where(and(eq(schema.orders.id, orderId), eq(schema.orders.organizationId, organizationId)))
+    .limit(1);
+  if (!order) notFound("Order not found");
+  const [warehouse] = await db
+    .select()
+    .from(schema.warehouses)
+    .where(eq(schema.warehouses.id, order.warehouseId))
+    .limit(1);
+  const lines = await loadShipLines(db, [order.id]);
+  const plan = await loadQuickShipPlan(db, organizationId, order, lines);
+  const decision = await decideShip(db, await loadShipContext(db, organizationId), {
+    warehouse,
+    order,
+    lines,
+    picked: {
+      presetId: optionalString(body.presetId),
+      carrierService: optionalString(body.carrierService),
+      carrierConnectionId: optionalString(body.carrierConnectionId),
+      weightOz,
+    },
+  });
+  const blocker = shipBlocker(plan, decision);
+  return c.json({ orderId: order.id, ...decisionView(decision), ready: plan.ok && !blocker, blocker });
 });
 
 shipRoute.get("/ship/presets", async (c) => {
@@ -791,18 +868,7 @@ async function quickShipOne(
   });
 
   const lines = await loadShipLines(db, [order.id]);
-  const packages = await db
-    .select({ id: schema.orderPackages.id })
-    .from(schema.orderPackages)
-    .where(eq(schema.orderPackages.orderId, order.id));
-  const bays = await loadAtpBaysByItem(
-    db,
-    organizationId,
-    [...new Set(lines.map((line) => line.itemId))],
-    order.id,
-    order.warehouseId,
-  );
-  const plan = planQuickShip({ status: order.status, packageCount: packages.length, lines }, bays);
+  const plan = await loadQuickShipPlan(db, organizationId, order, lines);
   if (!plan.ok) return fail(409, plan.error, plan.code);
 
   const [warehouse] = await db

@@ -1,12 +1,27 @@
 import { useMemo, useState, type ChangeEvent } from "react";
+import { flushSync } from "react-dom";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Circle, Package, PackageCheck, Printer, Scale, Split, Store, Truck, Warehouse } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  Package,
+  PackageCheck,
+  Printer,
+  Scale,
+  ScanLine,
+  Split,
+  Store,
+  Truck,
+  Warehouse,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   errorText,
   type PackagePreset,
   type QuickShipBatch,
   type QuickShipOutcome,
+  type ShippingLabel,
   type ShipQueue,
   type ShipQueueOrder,
 } from "../api";
@@ -18,9 +33,13 @@ import { useConfirm } from "../components/confirm";
 import { apiMutate, refreshApi, useApiQuery } from "../query";
 import { useWarehouse } from "../warehouse";
 import { useSession } from "../session";
+import { usePrint } from "../print/PrintProvider";
+import { ShipStation } from "./ShipStation";
+import { ShippingLabelCard, shippingLabelJob } from "./ShippingLabelPage";
 import { markShippedReminder } from "@/domain/channels/adapter";
 import { shortDay } from "@/domain/rate-choice";
 import { formatOz } from "@/domain/ship-defaults";
+import { cn } from "@/lib/utils";
 
 const TABS: TabDef<ShipQueueOrder>[] = [
   { id: "ready", label: "Ready to ship", match: (row) => row.status !== "shipped" && row.ready },
@@ -59,7 +78,10 @@ export function ShipQueuePage() {
   const [serviceId, setServiceId] = useState<string>("");
   const [shipping, setShipping] = useState<string | null>(null);
   const [savingDefault, setSavingDefault] = useState(false);
+  const [printing, setPrinting] = useState<ShippingLabel | null>(null);
+  const printer = usePrint();
   const boxOpen = params.get("setup") === "box";
+  const stationOpen = params.get("station") === "1";
 
   const data = queue.data;
   const pickedPreset = data?.presets.find((preset) => preset.id === presetId) ?? null;
@@ -128,6 +150,16 @@ export function ShipQueuePage() {
     } finally {
       setShipping(null);
       void refreshApi("/api/ship");
+    }
+  }
+
+  /** The station's label goes out alone: a thermal printer gets ZPL, and browser print sees only this card. */
+  async function printStationLabel(label: ShippingLabel) {
+    flushSync(() => setPrinting(label));
+    try {
+      return await printer.print(shippingLabelJob(label));
+    } finally {
+      setPrinting(null);
     }
   }
 
@@ -343,122 +375,147 @@ export function ShipQueuePage() {
   const readyCount = (data?.orders ?? []).filter((row) => row.status !== "shipped" && row.ready).length;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
-      <PageHeader
-        eyebrow="Garage"
-        title="Ship"
-        description="Store orders land here with a box and service chosen by your shipping rules and defaults. Ship, and Rackline picks from the suggested shelf, buys the label, and sends tracking back to the store."
-        actions={
-          owner ? (
+    <>
+      <div className={cn("flex min-h-0 flex-1 flex-col gap-(--density-gap)", printing && "print:hidden")}>
+        <PageHeader
+          eyebrow="Garage"
+          title="Ship"
+          description="Store orders land here with a box and service chosen by your shipping rules and defaults. Ship, and Rackline picks from the suggested shelf, buys the label, and sends tracking back to the store."
+          actions={
             <>
-              <Button size="sm" variant="outline" asChild>
-                <Link to="/setup/shipping-rules">
-                  <Split className="size-4" />
-                  Rules
-                </Link>
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setParams((prev) => withParam(prev, "setup", "box"))}>
-                <Package className="size-4" />
-                Boxes
-              </Button>
-            </>
-          ) : null
-        }
-      />
-
-      {!quickShip ? (
-        <Card className="flex flex-col gap-3 p-(--density-gap) md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="font-medium">Manufacturer ships through the floor</p>
-            <p className="text-sm text-muted-foreground">
-              One-click ship is off. Plan waves by carrier cutoff, then pick, pack, and ship by scan on the floor.
-            </p>
-          </div>
-          <Button size="sm" asChild>
-            <Link to="/outbound/waves">Open Waves</Link>
-          </Button>
-        </Card>
-      ) : setupLeft.length && data ? (
-        <SetupChecklist steps={data.setup} owner={owner} onBox={() => setParams((prev) => withParam(prev, "setup", "box"))} />
-      ) : null}
-
-      <DataTable
-        id="ship-queue"
-        data={data?.orders}
-        loading={queue.isLoading}
-        error={queue.error?.message}
-        columns={columns}
-        getRowId={(row) => row.id}
-        tabs={TABS}
-        defaultTab="ready"
-        defaultSort={{ id: "age", desc: false }}
-        search={{
-          placeholder: "Search order, customer, SKU",
-          text: (row) => [row.number, row.customerName, row.shipToCity, ...row.lines.map((line) => line.sku)].filter(Boolean).join(" "),
-        }}
-        bulkActions={bulkActions}
-        exportName="ship-queue"
-        toolbar={
-          <div className="flex flex-wrap items-center gap-2">
-            <Select aria-label="Box" className="h-8 w-40" value={presetId} onChange={(event) => setPresetId(event.target.value)}>
-              <option value="">Each order's box</option>
-              {(data?.presets ?? []).map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.name} ({preset.lengthIn}×{preset.widthIn}×{preset.heightIn})
-                </option>
-              ))}
-            </Select>
-            <Select aria-label="Service" className="h-8 w-48" value={serviceId} onChange={(event) => setServiceId(event.target.value)}>
-              <option value="">Each order's service</option>
-              {(data?.services ?? []).map((service) => (
-                <option key={`${service.connectionId ?? "rl"}-${service.id}`} value={service.id}>
-                  {service.id === defaultServiceId ? `${service.name} (default)` : service.name}
-                </option>
-              ))}
-            </Select>
-            {owner && serviceId && serviceId !== defaultServiceId ? (
-              <Button size="sm" variant="outline" disabled={savingDefault} onClick={() => void saveDefaultService()}>
-                {savingDefault ? "Saving…" : "Save as default"}
-              </Button>
-            ) : null}
-            <ToneBadge tone={readyCount ? "success" : "neutral"}>{readyCount} ready</ToneBadge>
-          </div>
-        }
-        empty={
-          <EmptyState
-            icon={PackageCheck}
-            title="Nothing to ship."
-            body={
-              storeConnected
-                ? "New store orders show up here, ready for a label. You can also add an order by hand."
-                : "Connect a store and new orders show up here, ready for a label. Or add an order by hand."
-            }
-            action={
-              <div className="flex flex-wrap justify-center gap-2">
-                {storeConnected ? null : (
-                  <Button size="sm" asChild>
-                    <Link to="/setup/integrations">Connect a store</Link>
-                  </Button>
-                )}
-                <Button size="sm" variant={storeConnected ? "primary" : "outline"} asChild>
-                  <Link to="/outbound/orders?new=1">New order</Link>
+              {quickShip ? (
+                <Button
+                  size="sm"
+                  variant={stationOpen ? "secondary" : "outline"}
+                  onClick={() => setParams((prev) => withParam(prev, "station", stationOpen ? null : "1"))}
+                >
+                  <ScanLine className="size-4" />
+                  Scan to ship
                 </Button>
-              </div>
-            }
-          />
-        }
-      />
-
-      {owner ? (
-        <BoxesSheet
-          open={boxOpen}
-          presets={data?.presets ?? []}
-          onOpenChange={(open) => {
-            if (!open) setParams((prev) => withParam(prev, "setup", null), { replace: true });
-          }}
+              ) : null}
+              {owner ? (
+                <>
+                  <Button size="sm" variant="outline" asChild>
+                    <Link to="/setup/shipping-rules">
+                      <Split className="size-4" />
+                      Rules
+                    </Link>
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setParams((prev) => withParam(prev, "setup", "box"))}>
+                    <Package className="size-4" />
+                    Boxes
+                  </Button>
+                </>
+              ) : null}
+            </>
+          }
         />
-      ) : null}
-    </div>
+
+        {quickShip && stationOpen ? (
+          <ShipStation
+            orders={data?.orders}
+            picked={{ presetId: presetId || undefined, carrierService: serviceId || undefined }}
+            owner={owner}
+            onClose={() => setParams((prev) => withParam(prev, "station", null))}
+            printLabel={printStationLabel}
+          />
+        ) : null}
+
+        {!quickShip ? (
+          <Card className="flex flex-col gap-3 p-(--density-gap) md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="font-medium">Manufacturer ships through the floor</p>
+              <p className="text-sm text-muted-foreground">
+                One-click ship is off. Plan waves by carrier cutoff, then pick, pack, and ship by scan on the floor.
+              </p>
+            </div>
+            <Button size="sm" asChild>
+              <Link to="/outbound/waves">Open Waves</Link>
+            </Button>
+          </Card>
+        ) : setupLeft.length && data ? (
+          <SetupChecklist steps={data.setup} owner={owner} onBox={() => setParams((prev) => withParam(prev, "setup", "box"))} />
+        ) : null}
+
+        <DataTable
+          id="ship-queue"
+          data={data?.orders}
+          loading={queue.isLoading}
+          error={queue.error?.message}
+          columns={columns}
+          getRowId={(row) => row.id}
+          tabs={TABS}
+          defaultTab="ready"
+          defaultSort={{ id: "age", desc: false }}
+          search={{
+            placeholder: "Search order, customer, SKU",
+            text: (row) => [row.number, row.customerName, row.shipToCity, ...row.lines.map((line) => line.sku)].filter(Boolean).join(" "),
+          }}
+          bulkActions={bulkActions}
+          exportName="ship-queue"
+          toolbar={
+            <div className="flex flex-wrap items-center gap-2">
+              <Select aria-label="Box" className="h-8 w-40" value={presetId} onChange={(event) => setPresetId(event.target.value)}>
+                <option value="">Each order's box</option>
+                {(data?.presets ?? []).map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name} ({preset.lengthIn}×{preset.widthIn}×{preset.heightIn})
+                  </option>
+                ))}
+              </Select>
+              <Select aria-label="Service" className="h-8 w-48" value={serviceId} onChange={(event) => setServiceId(event.target.value)}>
+                <option value="">Each order's service</option>
+                {(data?.services ?? []).map((service) => (
+                  <option key={`${service.connectionId ?? "rl"}-${service.id}`} value={service.id}>
+                    {service.id === defaultServiceId ? `${service.name} (default)` : service.name}
+                  </option>
+                ))}
+              </Select>
+              {owner && serviceId && serviceId !== defaultServiceId ? (
+                <Button size="sm" variant="outline" disabled={savingDefault} onClick={() => void saveDefaultService()}>
+                  {savingDefault ? "Saving…" : "Save as default"}
+                </Button>
+              ) : null}
+              <ToneBadge tone={readyCount ? "success" : "neutral"}>{readyCount} ready</ToneBadge>
+            </div>
+          }
+          empty={
+            <EmptyState
+              icon={PackageCheck}
+              title="Nothing to ship."
+              body={
+                storeConnected
+                  ? "New store orders show up here, ready for a label. You can also add an order by hand."
+                  : "Connect a store and new orders show up here, ready for a label. Or add an order by hand."
+              }
+              action={
+                <div className="flex flex-wrap justify-center gap-2">
+                  {storeConnected ? null : (
+                    <Button size="sm" asChild>
+                      <Link to="/setup/integrations">Connect a store</Link>
+                    </Button>
+                  )}
+                  <Button size="sm" variant={storeConnected ? "primary" : "outline"} asChild>
+                    <Link to="/outbound/orders?new=1">New order</Link>
+                  </Button>
+                </div>
+              }
+            />
+          }
+        />
+
+        {owner ? (
+          <BoxesSheet
+            open={boxOpen}
+            presets={data?.presets ?? []}
+            onOpenChange={(open) => {
+              if (!open) setParams((prev) => withParam(prev, "setup", null), { replace: true });
+            }}
+          />
+        ) : null}
+      </div>
+      {printing ? <ShippingLabelCard label={printing} className="hidden print:block print:rounded-none print:border-0" /> : null}
+    </>
   );
 }
 

@@ -1708,6 +1708,12 @@ export type ShipQueueOrder = {
   blocker: { code: string; error: string; sku: string | null } | null;
 };
 
+/** `POST /api/ship/decide`: one order's box, service, and quote at a given weight, and what would stop quick-ship. */
+export type ShipDecisionView = { orderId: string } & Pick<
+  ShipQueueOrder,
+  "parcel" | "missingWeight" | "box" | "serviceId" | "serviceName" | "serviceReason" | "serviceLive" | "quote" | "quotePending" | "rule" | "ready" | "blocker"
+>;
+
 export type ShipServiceChoice = { id: string; name: string; company: string; connectionId: string | null; provider: string };
 
 export type ShipQueue = {
