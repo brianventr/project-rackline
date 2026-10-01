@@ -100,6 +100,7 @@ describe("409 contract", () => {
         loose: 4,
         qty: 6,
         lotCode: null,
+        expired: 0,
       },
     });
     expect(mapDomainError(new PlateShortError("LP-000123", "SHADE", 3, 5))).toMatchObject({

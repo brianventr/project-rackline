@@ -250,6 +250,10 @@ describe("explainError — every code", () => {
       hint: "All of it is already on plates.",
     });
     expect(explain("PLATE_OVER_LOOSE", { onHand: 0, lotCode: "L2" }).message).toBe("A-01-01 holds no SHADE from lot L2.");
+    expect(explain("PLATE_OVER_LOOSE", { onHand: 6, loose: 0, qty: 1, expired: 6 })).toMatchObject({
+      message: "All the loose SHADE at A-01-01 is in expired lots.",
+      hint: "Type the lot to put it on the plate anyway.",
+    });
     expect(explain("PLATE_SHORT")).toEqual({
       code: "PLATE_SHORT",
       message: "LP-000123 holds 3 SHADE, and this needs 5.",

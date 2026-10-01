@@ -361,7 +361,7 @@ On Floor → Plates:
 
 Plates add three refusals:
 
-- **`PLATE_OVER_LOOSE`.** The build asks for more than is loose in the bay. The rest is already on plates.
+- **`PLATE_OVER_LOOSE`.** The build asks for more than is loose in the bay. The message says whether the rest is on plates or in expired lots. Expired stock goes on a plate only when you type its lot.
 - **`PLATE_STATUS`.** The plate is closed or shipped, so it cannot do that. Reopen a closed plate to add stock.
 - **`PLATE_SHORT`.** The scanned plate does not hold what the pick needs. Pick the rest loose, or from another plate.
 

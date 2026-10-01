@@ -223,7 +223,7 @@ export function FloorPlatesPage() {
           onQty={setQty}
           lot={lot}
           onLot={setLot}
-          onAdd={(row) => void build(plate, { itemId: row.itemId, qty: row.loose }, row.itemId, row.sku)}
+          onAdd={(row, units) => void build(plate, { itemId: row.itemId, qty: units }, row.itemId, row.sku)}
           onClose={() => void write(`Could not close ${plate.code}.`, post(plate, "close"), (saved) => `Closed ${saved.code}. Nothing more goes on it.`)}
           onReopen={() => void write(`Could not reopen ${plate.code}.`, post(plate, "reopen"), (saved) => `Reopened ${saved.code}.`)}
           onBreak={() => void breakPlate(plate)}
@@ -324,7 +324,7 @@ function PlateCard({
   onQty: (value: string) => void;
   lot: string;
   onLot: (value: string) => void;
-  onAdd: (row: BayRow) => void;
+  onAdd: (row: BayRow, units: number) => void;
   onClose: () => void;
   onReopen: () => void;
   onBreak: () => void;
@@ -387,7 +387,7 @@ function PlateCard({
           </Field>
           {lotTracked ? (
             <Field label="Lot (optional)">
-              <Input className="h-11 font-mono text-base" value={lot} onChange={(e) => onLot(e.target.value)} placeholder="Oldest first" />
+              <Input className="h-11 font-mono text-base" value={lot} onChange={(e) => onLot(e.target.value)} placeholder="First to expire" />
             </Field>
           ) : null}
         </div>
@@ -399,19 +399,29 @@ function PlateCard({
             <span>Not on a plate</span>
           </div>
           <ul className="mt-2 space-y-2 text-sm">
-            {loose.map((row) => (
-              <li key={row.itemId} className="flex items-center justify-between gap-2">
-                <span className="flex min-w-0 items-center gap-2">
-                  <SkuThumb sku={row.sku} name={row.itemName} imageUrl={row.imageUrl} size="sm" />
-                  <span className="min-w-0">
-                    <span className="font-mono">{row.sku}</span> {row.itemName}
+            {loose.map((row) => {
+              const ready = row.loose - row.expired;
+              return (
+                <li key={row.itemId} className="flex items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <SkuThumb sku={row.sku} name={row.itemName} imageUrl={row.imageUrl} size="sm" />
+                    <span className="min-w-0">
+                      <span className="font-mono">{row.sku}</span> {row.itemName}
+                      {row.expired ? (
+                        <span className="block text-xs text-muted-foreground">
+                          {row.expired} in expired lots. Type the lot to add {row.expired === 1 ? "it" : "them"}.
+                        </span>
+                      ) : null}
+                    </span>
                   </span>
-                </span>
-                <Button variant="secondary" className="h-11 shrink-0" disabled={busy} onClick={() => onAdd(row)}>
-                  Add all {row.loose}
-                </Button>
-              </li>
-            ))}
+                  {ready > 0 ? (
+                    <Button variant="secondary" className="h-11 shrink-0" disabled={busy} onClick={() => onAdd(row, ready)}>
+                      Add all {ready}
+                    </Button>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}

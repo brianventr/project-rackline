@@ -6,7 +6,7 @@
  */
 import { balanceKey, parseBalanceKey } from "./inventory";
 import { allocateFifoLots, allocateSerials, type LotRow } from "./lots";
-import { isExpiredLot } from "./expiry";
+import { isExpiredLot, utcYyyymmdd } from "./expiry";
 
 export const PLATE_TYPES = ["tote", "pallet", "carton"] as const;
 export type PlateType = (typeof PLATE_TYPES)[number];
@@ -64,7 +64,7 @@ export class PlateStateError extends Error {
   }
 }
 
-/** Building past the bay's loose stock: the rest of it is already on plates. */
+/** Building past the bay's loose stock: the rest of it is on plates, in expired lots, or not there. */
 export class PlateOverLooseError extends Error {
   constructor(
     public plateCode: string,
@@ -74,8 +74,9 @@ export class PlateOverLooseError extends Error {
     public loose: number,
     public qty: number,
     public lotCode: string | null = null,
+    public expired = 0,
   ) {
-    super(overLooseText(sku, locationCode, onHand, loose, qty, lotCode));
+    super(overLooseText(sku, locationCode, onHand, loose, qty, lotCode, expired));
     this.name = "PlateOverLooseError";
   }
 }
@@ -102,7 +103,10 @@ export function plateStateMessage(code: string, status: PlateStatus, action: Pla
   return `${code} is already open. Scan items onto it, or close it.`;
 }
 
-/** The sentence, then what is going on with the rest. */
+/**
+ * The sentence, then what is going on with the rest. `expired` is loose stock in expired lots,
+ * which a build takes only by its lot, so `loose` leaves it out.
+ */
 export function overLooseText(
   sku: string,
   locationCode: string,
@@ -110,11 +114,17 @@ export function overLooseText(
   loose: number,
   qty: number,
   lotCode: string | null = null,
+  expired = 0,
 ): string {
   const what = lotCode ? `${sku} from lot ${lotCode}` : sku;
   if (onHand <= 0) return `${locationCode} holds no ${what}. Build the plate where the stock is.`;
-  if (loose <= 0) return `No ${what} at ${locationCode} is loose. All of it is already on plates.`;
   const are = loose === 1 ? "is" : "are";
+  if (expired > 0) {
+    if (loose <= 0) return `All the loose ${what} at ${locationCode} is in expired lots. Type the lot to put it on the plate anyway.`;
+    return `Only ${loose} loose ${what} at ${locationCode} ${are} in date, and this needs ${qty}. Add ${loose} or fewer, or type the lot to add expired stock.`;
+  }
+  if (loose <= 0) return `No ${what} at ${locationCode} is loose. All of it is already on plates.`;
+  if (onHand <= loose) return `${locationCode} holds only ${loose} ${what}, and this needs ${qty}. Add ${loose} or fewer.`;
   return `Only ${loose} ${what} at ${locationCode} ${are} loose, and this needs ${qty}. The rest is already on plates, so add ${loose} or fewer.`;
 }
 
@@ -259,8 +269,20 @@ export function looseSerials(serials: string[], plates: Plate[], itemId: string)
   return serials.filter((serial) => !plated.has(serial.trim().toUpperCase()));
 }
 
+/** Units in lots still in date, and units in lots past their expiry. */
+export function lotUnitsByExpiry(lots: LotRow[], asOf = utcYyyymmdd()): { live: number; expired: number } {
+  let live = 0;
+  let expired = 0;
+  for (const row of lots) {
+    if (row.qty <= 0) continue;
+    if (isExpiredLot(row.expiresOn, asOf)) expired += row.qty;
+    else live += row.qty;
+  }
+  return { live, expired };
+}
+
 function liveUnits(lots: LotRow[]): number {
-  return lots.filter((row) => row.qty > 0 && !isExpiredLot(row.expiresOn)).reduce((sum, row) => sum + row.qty, 0);
+  return lotUnitsByExpiry(lots).live;
 }
 
 /**

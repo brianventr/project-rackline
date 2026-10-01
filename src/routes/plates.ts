@@ -8,12 +8,12 @@ import { capacityOverride } from "../lib/capacity-override";
 import { itemScanValue, parseScan } from "../domain/barcodes";
 import { chainPlans, planMove } from "../domain/inventory";
 import { allocateFifoLots, parseSerialList } from "../domain/lots";
-import { isExpiredLot } from "../domain/expiry";
 import {
   assertPlateCan,
   isPlateStatus,
   looseLots,
   looseSerials,
+  lotUnitsByExpiry,
   normalizePlateCode,
   parsePlateType,
   plateMoveLines,
@@ -88,7 +88,29 @@ async function bayStock(db: AppDb, organizationId: string, locationId: string) {
         gt(schema.inventoryBalances.qty, 0),
       ),
     );
-  return withPlateShare(rows, await loadPlates(db, organizationId, { locationIds: [locationId] }), locationId);
+  const plates = await loadPlates(db, organizationId, { locationIds: [locationId] });
+  const lots = rows.some((row) => row.trackLot)
+    ? await db
+        .select({
+          itemId: schema.lotBalances.itemId,
+          lotCode: schema.lotBalances.lotCode,
+          qty: schema.lotBalances.qty,
+          expiresOn: schema.lotBalances.expiresOn,
+        })
+        .from(schema.lotBalances)
+        .where(
+          and(
+            eq(schema.lotBalances.organizationId, organizationId),
+            eq(schema.lotBalances.locationId, locationId),
+            gt(schema.lotBalances.qty, 0),
+          ),
+        )
+    : [];
+  return withPlateShare(rows, plates, locationId).map((row) => {
+    if (!row.trackLot) return { ...row, expired: 0 };
+    const own = lots.filter((lot) => lot.itemId === row.itemId);
+    return { ...row, expired: Math.min(row.loose, lotUnitsByExpiry(looseLots(own, plates, locationId, row.itemId)).expired) };
+  });
 }
 
 async function detailOf(db: AppDb, organizationId: string, plateId: string) {
@@ -227,8 +249,8 @@ platesRoute.post("/plates/:ref/lines", async (c) => {
     )
     .limit(1);
   const onHand = balance?.qty ?? 0;
-  const tooFew = (loose: number) =>
-    new PlateOverLooseError(plate.code, item.sku, bay.code, onHand, loose, qty, lotCode);
+  const tooFew = (loose: number, expired = 0) =>
+    new PlateOverLooseError(plate.code, item.sku, bay.code, onHand, loose, qty, lotCode, expired);
 
   const ops: PlateOp[] = [];
   if (item.trackSerial) {
@@ -267,8 +289,8 @@ platesRoute.post("/plates/:ref/lines", async (c) => {
         ),
       );
     const loose = looseLots(lots, neighbours, bayId, item.id);
-    const live = loose.filter((row) => row.qty > 0 && !isExpiredLot(row.expiresOn)).reduce((sum, row) => sum + row.qty, 0);
-    if (live < qty) throw tooFew(live);
+    const { live, expired } = lotUnitsByExpiry(loose);
+    if (live < qty) throw tooFew(live, expired);
     for (const piece of allocateFifoLots(loose, qty, item.sku)) {
       ops.push({ kind: "add", plateId: plate.id, itemId: item.id, qty: piece.qty, lotCode: piece.lotCode });
     }

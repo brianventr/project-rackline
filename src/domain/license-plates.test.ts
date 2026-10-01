@@ -11,8 +11,10 @@ import {
   looseLots,
   looseQty,
   looseSerials,
+  lotUnitsByExpiry,
   nextPlateCode,
   normalizePlateCode,
+  overLooseText,
   parsePlateType,
   plateCode,
   PlateInputError,
@@ -167,6 +169,18 @@ describe("the invariant", () => {
     ]);
     expect(looseLots([{ lotCode: "L1", qty: 5 }], lotted, other, "bulb")).toEqual([{ lotCode: "L1", qty: 5 }]);
     expect(looseSerials(["S1", "s2"], lotted, "lamp")).toEqual(["s2"]);
+  });
+
+  it("counts loose lots in date apart from expired ones", () => {
+    const lotted = [plate("LP-000005", [line("bulb", 1, "OLD")])];
+    const lots = [
+      { lotCode: "OLD", qty: 3, expiresOn: 20260920 },
+      { lotCode: "NEW", qty: 4, expiresOn: 20261231 },
+      { lotCode: "UNDATED", qty: 2, expiresOn: null },
+      { lotCode: "EMPTY", qty: 0, expiresOn: 20260101 },
+    ];
+    expect(lotUnitsByExpiry(looseLots(lots, lotted, bay, "bulb"), 20260930)).toEqual({ live: 6, expired: 2 });
+    expect(lotUnitsByExpiry(lots, 20260920)).toEqual({ live: 9, expired: 0 });
   });
 
   it("splits a bay's balances into plated and loose", () => {
@@ -366,7 +380,7 @@ describe("settlePlates", () => {
     expect(built!.lines).toEqual([line("shade", 4)]);
   });
 
-  it("says when the bay holds none of the item, or none of the lot", () => {
+  it("says when the bay holds none or too little of the item or the lot", () => {
     const empty = plate("LP-000001", []);
     expect(() =>
       settlePlates([empty], [{ kind: "add", plateId: empty.id, itemId: "shade", qty: 1 }], { balances: new Map() }, names),
@@ -378,7 +392,7 @@ describe("settlePlates", () => {
         { balances: new Map([[`${bay}:bulb`, 10]]), lots: new Map([[`${bay}:bulb:L2`, 1]]) },
         names,
       ),
-    ).toThrow("Only 1 LED-BULB from lot L2 at A-01-01 is loose, and this needs 3.");
+    ).toThrow("A-01-01 holds only 1 LED-BULB from lot L2, and this needs 3. Add 1 or fewer.");
   });
 
   it("lets a receive fill a plate, since the bay gains what the plate gains", () => {
@@ -435,6 +449,25 @@ describe("settlePlates", () => {
       balances: new Map(),
     });
     expect(next).toMatchObject({ status: "closed", locationId: bay, lines: [] });
+  });
+});
+
+describe("overLooseText", () => {
+  it("blames plates only when plates hold the rest", () => {
+    expect(overLooseText("SHADE", "A-01-01", 20, 4, 6)).toBe(
+      "Only 4 SHADE at A-01-01 are loose, and this needs 6. The rest is already on plates, so add 4 or fewer.",
+    );
+    expect(overLooseText("SHADE", "A-01-01", 20, 0, 1)).toBe("No SHADE at A-01-01 is loose. All of it is already on plates.");
+    expect(overLooseText("SHADE", "A-01-01", 2, 2, 5)).toBe("A-01-01 holds only 2 SHADE, and this needs 5. Add 2 or fewer.");
+  });
+
+  it("points expired loose stock at its lot", () => {
+    expect(overLooseText("GLUE", "A-01-03", 2, 0, 1, null, 2)).toBe(
+      "All the loose GLUE at A-01-03 is in expired lots. Type the lot to put it on the plate anyway.",
+    );
+    expect(overLooseText("GLUE", "A-01-03", 9, 3, 5, null, 2)).toBe(
+      "Only 3 loose GLUE at A-01-03 are in date, and this needs 5. Add 3 or fewer, or type the lot to add expired stock.",
+    );
   });
 });
 

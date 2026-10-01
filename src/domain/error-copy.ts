@@ -309,7 +309,7 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
       const copy = splitSentences(text || "That bay does not have that much loose");
       return { message: copy.message, hint: copy.hint ?? "Lower the qty, or break one of the other plates first." };
     }
-    return splitSentences(overLooseText(sku, bay, onHand, loose, qty, str(body, "lotCode")));
+    return splitSentences(overLooseText(sku, bay, onHand, loose, qty, str(body, "lotCode"), num(body, "expired") ?? 0));
   },
   PLATE_SHORT: ({ body, text }) => {
     const plate = str(body, "plateCode");

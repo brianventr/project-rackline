@@ -281,6 +281,8 @@ export type PlateDetail = Plate & {
     qty: number;
     onPlates: number;
     loose: number;
+    /** Loose units in expired lots, which go on a plate only when their lot is typed. */
+    expired: number;
   }[];
 };
 

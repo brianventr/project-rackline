@@ -206,6 +206,7 @@ export function mapDomainError(err: unknown): MappedError | null {
         loose: err.loose,
         qty: err.qty,
         lotCode: err.lotCode,
+        expired: err.expired,
       },
     };
   }
