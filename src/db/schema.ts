@@ -64,6 +64,8 @@ export const organizations = sqliteTable("organizations", {
   notifyDelivered: text("notify_delivered").notNull().default("store"),
   notifyDeliveryException: text("notify_delivery_exception").notNull().default("store"),
   notifyReturnLabel: text("notify_return_label").notNull().default("store"),
+  /** `off` does nothing, `alert` lists a due restock, `draft` also opens a purchase. */
+  restockPolicy: text("restock_policy").notNull().default("alert"),
   mailReplyTo: text("mail_reply_to"),
   mailSenderName: text("mail_sender_name"),
   createdAt: integer("created_at").notNull(),
@@ -194,6 +196,8 @@ export const items = sqliteTable(
     abcClass: text("abc_class"),
     abcUnits: integer("abc_units").notNull().default(0),
     abcClassifiedAt: integer("abc_classified_at"),
+    /** Days to make this SKU. Overrides the vendor's make days when set. */
+    makeDays: integer("make_days"),
   },
   (t) => [
     uniqueIndex("items_org_sku").on(t.organizationId, t.sku),
@@ -243,6 +247,14 @@ export const vendors = sqliteTable(
     address: text("address"),
     paymentTerms: text("payment_terms"),
     leadTimeDays: integer("lead_time_days"),
+    /** Days to make the goods. Used when `transitMode` is set. */
+    makeDays: integer("make_days"),
+    /** `ocean`, `air`, or `ground`. Null keeps the runway's existing lead time. */
+    transitMode: text("transit_mode"),
+    /** Overrides the mode default (ocean 35, air 7, ground 5). */
+    transitDays: integer("transit_days"),
+    /** Extra cover past the lead time. Null means 14 days. */
+    bufferDays: integer("buffer_days"),
     currency: text("currency").notNull().default("USD"),
     notes: text("notes"),
     createdAt: integer("created_at").notNull(),
@@ -1514,6 +1526,10 @@ export const asns = sqliteTable(
     expectedAt: integer("expected_at"),
     receivedAt: integer("received_at"),
     vendorId: text("vendor_id").references(() => vendors.id, { onDelete: "set null" }),
+    containerNumber: text("container_number"),
+    departedAt: integer("departed_at"),
+    /** `booked`, `on_water`, `at_port`, `to_warehouse`, or `received`. */
+    milestone: text("milestone"),
   },
   (t) => [uniqueIndex("asns_org_number").on(t.organizationId, t.number), index("asns_vendor").on(t.vendorId)],
 );

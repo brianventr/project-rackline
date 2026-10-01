@@ -301,6 +301,10 @@ export const vendorFormSchema = z.object({
     const n = typeof value === "number" ? value : Number(value.trim());
     return Number.isInteger(n) && n >= 0 && n <= 365;
   }, "Lead time is whole days, 0 to 365."),
+  makeDays: numberInput.optional(),
+  transitMode: z.string().optional(),
+  transitDays: numberInput.optional(),
+  bufferDays: numberInput.optional(),
   currency: z.string().refine((value) => /^[A-Za-z]{3}$/.test(value.trim()), "Use a three-letter code, like USD."),
   notes: optionalText,
 });

@@ -66,6 +66,7 @@ import { accountingRoute } from "./routes/accounting";
 import { channelsPublicRoute, channelsRoute } from "./routes/channels";
 import { runChannelCron } from "./db/channel-sync";
 import { planAllCycleCounts } from "./db/cycle-plan";
+import { runRestockCron } from "./db/restock";
 import { recallRoute } from "./routes/recall";
 import { scheduleRoute } from "./routes/schedule";
 import { shipRoute } from "./routes/ship";
@@ -73,6 +74,7 @@ import { vendorsRoute } from "./routes/vendors";
 import { customersRoute } from "./routes/customers";
 import { platesRoute } from "./routes/plates";
 import { exceptionsRoute } from "./routes/exceptions";
+import { restockRoute } from "./routes/restock";
 import { marketingPageByPath } from "./domain/marketing-pages";
 import { injectMarketingMeta, robotsTxt, sitemapXml } from "./domain/marketing-seo";
 
@@ -288,6 +290,7 @@ app.route("/api", vendorsRoute);
 app.route("/api", customersRoute);
 app.route("/api", platesRoute);
 app.route("/api", exceptionsRoute);
+app.route("/api", restockRoute);
 app.route("/api", integrationsRoute);
 
 export default {
@@ -309,6 +312,11 @@ export default {
             console.error("channel cron failed", err);
           }
           await planAllCycleCounts(db);
+          try {
+            await runRestockCron(db);
+          } catch (err) {
+            console.error("restock cron failed", err);
+          }
         },
       ),
     );

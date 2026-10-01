@@ -9,6 +9,7 @@ import type { CapacityOverride } from "../db/capacity";
 import { docNumber, newId } from "../lib/ids";
 import { postReceiveLines, loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { applyPartialReceive, applyUnreceive, asnStatusAfterUnreceive, hasRemaining, isFullyReceived, remainingOnLine, OverReceiveError, OverUnreceiveError } from "../domain/partial-receive";
+import { isAsnMilestone } from "../domain/restock";
 import { canExpectAsn, canReceiveAsn } from "../domain/status";
 import { parseSerialList } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
@@ -218,6 +219,38 @@ asnsRoute.post("/asns", async (c) => {
   return c.json(await asnWithLines(db, organizationId, id), 201);
 });
 
+asnsRoute.patch("/asns/:id", async (c) => {
+  const body = await c.req.json<{
+    containerNumber?: string | null;
+    departedAt?: number | null;
+    milestone?: string | null;
+    eta?: number | null;
+  }>();
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const asn = await asnWithLines(db, organizationId, c.req.param("id"));
+  const patch: Partial<typeof schema.asns.$inferInsert> = {};
+  if ("containerNumber" in body) patch.containerNumber = body.containerNumber?.trim() || null;
+  if ("departedAt" in body) {
+    if (body.departedAt == null) patch.departedAt = null;
+    else if (typeof body.departedAt !== "number" || !Number.isFinite(body.departedAt)) badRequest("Departure must be a time");
+    else patch.departedAt = body.departedAt;
+  }
+  if ("eta" in body) {
+    if (body.eta == null) patch.eta = null;
+    else if (typeof body.eta !== "number" || !Number.isFinite(body.eta)) badRequest("ETA must be a time");
+    else patch.eta = body.eta;
+  }
+  if ("milestone" in body) {
+    if (body.milestone == null || body.milestone === "") patch.milestone = null;
+    else if (!isAsnMilestone(body.milestone)) badRequest("Milestone must be booked, on the water, at the port, to the warehouse, or received");
+    else patch.milestone = body.milestone;
+  }
+  if (Object.keys(patch).length === 0) badRequest("No freight fields to update");
+  await db.update(schema.asns).set(patch).where(eq(schema.asns.id, asn.id));
+  return c.json(await asnWithLines(db, organizationId, asn.id));
+});
+
 asnsRoute.post("/asns/:id/expect", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -352,6 +385,7 @@ asnsRoute.post("/asns/:id/receive", async (c) => {
           status: fully ? "received" : "receiving",
           locationId,
           receivedAt: fully ? now : asn.receivedAt,
+          ...(fully ? { milestone: "received" as const } : {}),
         })
         .where(eq(schema.asns.id, asn.id)),
     ],
@@ -664,6 +698,7 @@ async function receiveAsnPackage(
           status: fully ? "received" : "receiving",
           locationId: input.locationId,
           receivedAt: fully ? now : asn.receivedAt,
+          ...(fully ? { milestone: "received" as const } : {}),
         })
         .where(eq(schema.asns.id, asn.id)),
     ],

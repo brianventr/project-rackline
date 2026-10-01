@@ -137,6 +137,10 @@ function vendorDefaults(vendor?: Vendor | null) {
     address: vendor?.address ?? "",
     paymentTerms: vendor?.paymentTerms ?? "",
     leadTimeDays: vendor?.leadTimeDays == null ? "" : String(vendor.leadTimeDays),
+    makeDays: vendor?.makeDays == null ? "" : String(vendor.makeDays),
+    transitMode: vendor?.transitMode ?? "",
+    transitDays: vendor?.transitDays == null ? "" : String(vendor.transitDays),
+    bufferDays: vendor?.bufferDays == null ? "" : String(vendor.bufferDays),
     currency: vendor?.currency ?? "USD",
     notes: vendor?.notes ?? "",
   };
@@ -168,7 +172,14 @@ function VendorSheet({
     try {
       const saved = await apiMutate<Vendor>(vendor ? `/api/vendors/${vendor.id}` : "/api/vendors", {
         method: vendor ? "PATCH" : "POST",
-        body: JSON.stringify({ ...values, leadTimeDays: values.leadTimeDays === "" ? null : values.leadTimeDays }),
+        body: JSON.stringify({
+          ...values,
+          leadTimeDays: values.leadTimeDays === "" ? null : values.leadTimeDays,
+          makeDays: values.makeDays ? values.makeDays : null,
+          transitDays: values.transitDays ? values.transitDays : null,
+          bufferDays: values.bufferDays ? values.bufferDays : null,
+          transitMode: values.transitMode?.trim() || null,
+        }),
         refresh: "/api/vendors",
       });
       toast.success(vendor ? `${saved.name} saved.` : `${saved.name} added.`);
@@ -208,6 +219,10 @@ function VendorSheet({
       <div className="grid grid-cols-3 gap-3">
         <TextField form={form} name="paymentTerms" label="Terms" placeholder="Net 30" />
         <TextField form={form} name="leadTimeDays" label="Lead time (days)" placeholder="7" />
+        <TextField form={form} name="makeDays" label="Make days" placeholder="30" />
+        <TextField form={form} name="transitMode" label="Transit (ocean, air, or ground)" placeholder="ocean" />
+        <TextField form={form} name="transitDays" label="Transit days" placeholder="35" />
+        <TextField form={form} name="bufferDays" label="Buffer days" placeholder="14" />
         <TextField form={form} name="currency" label="Currency" placeholder="USD" />
       </div>
       <TextareaField form={form} name="notes" label="Notes" rows={2} />

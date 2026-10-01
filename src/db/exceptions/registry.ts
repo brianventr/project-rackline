@@ -10,6 +10,7 @@ import { postBackSource } from "./post-back";
 import { shipRuleSource } from "./ship-rule";
 import { shopifySource } from "./shopify";
 import type { ExceptionSource } from "./source";
+import { restockSource } from "./restock";
 import { trackerSource } from "./tracker";
 import { webhookSource } from "./webhooks";
 
@@ -28,6 +29,7 @@ export const EXCEPTION_SOURCES: readonly ExceptionSource[] = [
   ediSource,
   customerMailSource,
   webhookSource,
+  restockSource,
 ];
 
 export function exceptionSource(id: string): ExceptionSource | null {

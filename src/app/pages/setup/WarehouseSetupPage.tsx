@@ -16,6 +16,7 @@ import {
 import { Term } from "../../components/term";
 import { useWarehouse } from "../../warehouse";
 import { useOperatingMode } from "../../use-operating-mode";
+import { useSession } from "../../session";
 import { useWrite } from "../../use-write";
 import { useApiQuery } from "../../query";
 import { cn } from "@/lib/utils";
@@ -34,6 +35,62 @@ import { describeNorth, NORTH_PRESETS, normalizeHeading } from "@/domain/compass
 import { CompassRose } from "../../components/CompassRose";
 import { TrackingPageCard } from "./TrackingPageCard";
 import { CustomerNotificationsCard } from "./CustomerNotificationsCard";
+
+function RestockPolicyCard({ owner }: { owner: boolean }) {
+  const me = useSession();
+  const write = useWrite();
+  const current = me.organization.restockPolicy ?? "alert";
+  const [policy, setPolicy] = useState(current);
+
+  useEffect(() => {
+    setPolicy(current);
+  }, [current]);
+
+  return (
+    <Card>
+      <form
+        className="space-y-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void write.run(
+            "Save restock",
+            () =>
+              api("/api/organization", {
+                method: "PATCH",
+                body: JSON.stringify({ restockPolicy: policy }),
+              }),
+            policy === "draft"
+              ? "Due restocks open a draft purchase. Nothing is sent to the vendor."
+              : policy === "off"
+                ? "Restock alerts are off."
+                : "Due restocks show in Exceptions.",
+          );
+        }}
+      >
+        <SectionHeading
+          title="Restock"
+          description="When a SKU will run out before it can be made and shipped here, Rackline can alert you or open a draft purchase. The draft is not sent."
+        />
+        <Field label="When it is time to order">
+          <select
+            className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+            value={policy}
+            disabled={!owner || write.busy}
+            onChange={(event) => setPolicy(event.target.value as "off" | "alert" | "draft")}
+          >
+            <option value="off">Off</option>
+            <option value="alert">Alert in Exceptions</option>
+            <option value="draft">Alert and draft a purchase</option>
+          </select>
+        </Field>
+        <Button type="submit" disabled={!owner || write.busy}>
+          Save restock
+        </Button>
+        <ErrorBanner error={write.error} />
+      </form>
+    </Card>
+  );
+}
 
 function mapSize(label: string) {
   return wholeNumber(1, {
@@ -251,6 +308,7 @@ export function WarehouseSetupPage() {
         </div>
       </Card>
 
+      <RestockPolicyCard owner={operating.owner} />
       {garage ? null : <WorkCentersCard owner={operating.owner} />}
       <TrackingPageCard disabled={!operating.owner} />
       <CustomerNotificationsCard disabled={!operating.owner} />

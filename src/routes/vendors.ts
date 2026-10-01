@@ -6,6 +6,7 @@ import { badRequest, conflict, notFound, requireString } from "../lib/http";
 import { newId } from "../lib/ids";
 import { isEmailAddress } from "../domain/purchase-mail";
 import { lastCostByItem, parseCurrency, parseLeadTimeDays } from "../domain/parties";
+import { isTransitMode, parseOptionalDays } from "../domain/restock";
 import { isOpenPurchase } from "../domain/status";
 
 export const vendorsRoute = new Hono<AppEnv>();
@@ -18,6 +19,10 @@ type VendorBody = {
   address?: string | null;
   paymentTerms?: string | null;
   leadTimeDays?: number | string | null;
+  makeDays?: number | string | null;
+  transitMode?: string | null;
+  transitDays?: number | string | null;
+  bufferDays?: number | string | null;
   currency?: string | null;
   notes?: string | null;
 };
@@ -45,6 +50,32 @@ function vendorPatch(body: VendorBody): VendorPatch {
     const days = parseLeadTimeDays(body.leadTimeDays);
     if (days === "invalid") badRequest("Lead time must be whole days, 0 to 365");
     patch.leadTimeDays = days;
+  }
+  if (body.makeDays !== undefined) {
+    try {
+      patch.makeDays = parseOptionalDays(body.makeDays, "Make days");
+    } catch (err) {
+      badRequest(err instanceof Error ? err.message : "Make days are invalid");
+    }
+  }
+  if (body.transitDays !== undefined) {
+    try {
+      patch.transitDays = parseOptionalDays(body.transitDays, "Transit days");
+    } catch (err) {
+      badRequest(err instanceof Error ? err.message : "Transit days are invalid");
+    }
+  }
+  if (body.bufferDays !== undefined) {
+    try {
+      patch.bufferDays = parseOptionalDays(body.bufferDays, "Buffer days");
+    } catch (err) {
+      badRequest(err instanceof Error ? err.message : "Buffer days are invalid");
+    }
+  }
+  if (body.transitMode !== undefined) {
+    if (body.transitMode == null || body.transitMode === "") patch.transitMode = null;
+    else if (!isTransitMode(body.transitMode)) badRequest("Transit mode must be ocean, air, or ground");
+    else patch.transitMode = body.transitMode;
   }
   if (body.currency !== undefined) {
     const currency = parseCurrency(body.currency);

@@ -6,17 +6,19 @@ import { badRequest } from "../lib/http";
 import { requireOwner } from "../lib/org";
 import { parseOperatingMode } from "../domain/operating-mode";
 import { parseBrandColor, parseLogoUrl } from "../domain/branding";
+import { parseRestockPolicy } from "../domain/restock";
 
 export const organizationRoute = new Hono<AppEnv>();
 
 organizationRoute.patch("/organization", async (c) => {
   requireOwner(c.get("role"));
-  const body = await c.req.json<{ operatingMode?: unknown; brandColor?: unknown; logoUrl?: unknown }>();
+  const body = await c.req.json<{ operatingMode?: unknown; brandColor?: unknown; logoUrl?: unknown; restockPolicy?: unknown }>();
   const patch: Partial<typeof schema.organizations.$inferInsert> = {};
   try {
     if ("operatingMode" in body) patch.operatingMode = parseOperatingMode(body.operatingMode);
     if ("brandColor" in body) patch.brandColor = parseBrandColor(body.brandColor);
     if ("logoUrl" in body) patch.logoUrl = parseLogoUrl(body.logoUrl);
+    if ("restockPolicy" in body) patch.restockPolicy = parseRestockPolicy(body.restockPolicy);
   } catch (err) {
     badRequest(err instanceof Error ? err.message : "Invalid organization settings");
   }
