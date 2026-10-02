@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { suggestReplenishments } from "./replenishment";
+import { starvedPickFaces, suggestReplenishments } from "./replenishment";
 
 describe("replenishment suggestions", () => {
   it("moves bulk into a pick face below pick min", () => {
@@ -64,5 +64,29 @@ describe("replenishment suggestions", () => {
         onHand: [{ locationId: "pick", itemId: "bulb", qty: 6 }],
       }),
     ).toEqual([]);
+  });
+
+  it("names a pick face below minimum when bulk has nothing to move", () => {
+    expect(
+      starvedPickFaces({
+        items: [{ id: "bulb", sku: "LED-BULB", name: "LED bulb", pickMin: 20 }],
+        locations: [
+          { id: "pick", code: "A-01-02", warehouseId: "wh", slotRole: "pick", aisle: "A", rack: "01" },
+          { id: "bulk", code: "A-01-01", warehouseId: "wh", slotRole: "bulk", aisle: "A", rack: "01" },
+        ],
+        onHand: [{ locationId: "pick", itemId: "bulb", qty: 4 }],
+      }),
+    ).toEqual([
+      {
+        itemId: "bulb",
+        sku: "LED-BULB",
+        itemName: "LED bulb",
+        pickMin: 20,
+        pickQty: 4,
+        toLocationId: "pick",
+        toCode: "A-01-02",
+        warehouseId: "wh",
+      },
+    ]);
   });
 });

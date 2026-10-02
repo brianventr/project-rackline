@@ -19,6 +19,7 @@ import { registerRoute } from "./routes/register";
 import { demoRoute } from "./routes/demo";
 import { meRoute } from "./routes/me";
 import { organizationRoute } from "./routes/organization";
+import { automationRoute } from "./routes/automation";
 import { catalogRoute } from "./routes/catalog";
 import { receiptsRoute } from "./routes/receipts";
 import { purchasesRoute } from "./routes/purchases";
@@ -67,6 +68,7 @@ import { channelsPublicRoute, channelsRoute } from "./routes/channels";
 import { runChannelCron } from "./db/channel-sync";
 import { planAllCycleCounts } from "./db/cycle-plan";
 import { runRestockCron } from "./db/restock";
+import { runReplenishCron } from "./db/replenish-automation";
 import { recallRoute } from "./routes/recall";
 import { scheduleRoute } from "./routes/schedule";
 import { shipRoute } from "./routes/ship";
@@ -241,6 +243,7 @@ app.use("/api/*", async (c, next) => {
 
 app.route("/api", meRoute);
 app.route("/api", organizationRoute);
+app.route("/api", automationRoute);
 app.route("/api", mediaRoute);
 app.route("/api", catalogRoute);
 app.route("/api", receiptsRoute);
@@ -316,6 +319,11 @@ export default {
             await runRestockCron(db);
           } catch (err) {
             console.error("restock cron failed", err);
+          }
+          try {
+            await runReplenishCron(db);
+          } catch (err) {
+            console.error("replenish cron failed", err);
           }
         },
       ),

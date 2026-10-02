@@ -55,11 +55,11 @@ export function CompassRose({
               />
             );
           })}
-          {/* Needle: a filled north half in the selection orange, a hollow south half. */}
-          <polygon points="50,14 57,50 43,50" fill="#e05d38" />
+          {/* Needle: a filled north half in the selection indigo, a hollow south half. */}
+          <polygon points="50,14 57,50 43,50" fill="#6366f1" />
           <polygon points="50,86 57,50 43,50" fill="none" stroke="currentColor" strokeOpacity="0.55" strokeWidth="2" />
           <circle cx="50" cy="50" r="3.5" fill="currentColor" />
-          <text x="50" y="12" textAnchor="middle" fontSize="15" fontWeight="700" fill="#e05d38" fontFamily="ui-monospace, monospace">
+          <text x="50" y="12" textAnchor="middle" fontSize="15" fontWeight="700" fill="#6366f1" fontFamily="ui-monospace, monospace">
             N
           </text>
           <text x="90" y="55" textAnchor="middle" fontSize="12" fill="currentColor" fillOpacity="0.8" fontFamily="ui-monospace, monospace">

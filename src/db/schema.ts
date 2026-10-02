@@ -66,6 +66,8 @@ export const organizations = sqliteTable("organizations", {
   notifyReturnLabel: text("notify_return_label").notNull().default("store"),
   /** `off` does nothing, `alert` lists a due restock, `draft` also opens a purchase. */
   restockPolicy: text("restock_policy").notNull().default("alert"),
+  /** Replenish, reorder-alert, and reminder choices. Null keeps the defaults in `domain/automation.ts`. */
+  automationPolicy: text("automation_policy"),
   mailReplyTo: text("mail_reply_to"),
   mailSenderName: text("mail_sender_name"),
   createdAt: integer("created_at").notNull(),

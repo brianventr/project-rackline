@@ -34,6 +34,18 @@ export type ReplenishSuggestion = {
   warehouseId: string;
 };
 
+/** A pick face below its minimum that bulk cannot cover. */
+export type StarvedPickFace = {
+  itemId: string;
+  sku: string;
+  itemName: string;
+  pickMin: number;
+  pickQty: number;
+  toLocationId: string;
+  toCode: string;
+  warehouseId: string;
+};
+
 function qtyAt(onHand: ReplenishOnHand[], locationId: string, itemId: string): number {
   let total = 0;
   for (const row of onHand) {
@@ -67,12 +79,13 @@ function bulkScore(pick: SlotLocation, bulk: SlotLocation, qty: number): number 
   return score;
 }
 
-export function suggestReplenishments(input: {
+export function planPickReplenishment(input: {
   locations: SlotLocation[];
   onHand: ReplenishOnHand[];
   items: ReplenishItem[];
-}): ReplenishSuggestion[] {
+}): { suggestions: ReplenishSuggestion[]; starved: StarvedPickFace[] } {
   const suggestions: ReplenishSuggestion[] = [];
+  const starved: StarvedPickFace[] = [];
   const warehouses = [...new Set(input.locations.map((row) => row.warehouseId))];
 
   for (const item of input.items) {
@@ -84,7 +97,7 @@ export function suggestReplenishments(input: {
       const bulkLocs = input.locations.filter(
         (row) => row.warehouseId === warehouseId && row.slotRole === "bulk",
       );
-      if (pickLocs.length === 0 || bulkLocs.length === 0) continue;
+      if (pickLocs.length === 0) continue;
 
       const occupiedPick = pickLocs.filter((pick) => qtyAt(input.onHand, pick.id, item.id) > 0);
       const targets =
@@ -101,9 +114,19 @@ export function suggestReplenishments(input: {
           .filter((row) => row.qty > 0 && row.bulk.id !== pick.id)
           .sort((a, b) => bulkScore(pick, b.bulk, b.qty) - bulkScore(pick, a.bulk, a.qty));
         const source = ranked[0];
-        if (!source) continue;
-        const qty = Math.min(needed, source.qty);
-        if (qty <= 0) continue;
+        if (!source || Math.min(needed, source.qty) <= 0) {
+          starved.push({
+            itemId: item.id,
+            sku: item.sku,
+            itemName: item.name,
+            pickMin: item.pickMin,
+            pickQty,
+            toLocationId: pick.id,
+            toCode: pick.code,
+            warehouseId,
+          });
+          continue;
+        }
         suggestions.push({
           itemId: item.id,
           sku: item.sku,
@@ -114,12 +137,30 @@ export function suggestReplenishments(input: {
           fromCode: source.bulk.code,
           toLocationId: pick.id,
           toCode: pick.code,
-          qty,
+          qty: Math.min(needed, source.qty),
           warehouseId,
         });
       }
     }
   }
 
-  return suggestions.sort((a, b) => a.sku.localeCompare(b.sku) || a.toCode.localeCompare(b.toCode));
+  const byPlace = (a: { sku: string; toCode: string }, b: { sku: string; toCode: string }) =>
+    a.sku.localeCompare(b.sku) || a.toCode.localeCompare(b.toCode);
+  return { suggestions: suggestions.sort(byPlace), starved: starved.sort(byPlace) };
+}
+
+export function suggestReplenishments(input: {
+  locations: SlotLocation[];
+  onHand: ReplenishOnHand[];
+  items: ReplenishItem[];
+}): ReplenishSuggestion[] {
+  return planPickReplenishment(input).suggestions;
+}
+
+export function starvedPickFaces(input: {
+  locations: SlotLocation[];
+  onHand: ReplenishOnHand[];
+  items: ReplenishItem[];
+}): StarvedPickFace[] {
+  return planPickReplenishment(input).starved;
 }

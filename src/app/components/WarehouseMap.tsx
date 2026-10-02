@@ -90,7 +90,7 @@ function locationFill(
 ) {
   if (from) return "#2d6a4f";
   if (to) return "#e2b146";
-  if (selected) return "#df6035";
+  if (selected) return "#6366f1";
   if (pick) return "#3d8b6e";
   if (location.unitsOnHand > 0) return "#e16f41";
   if (location.type === "receiving") return "#d6e4f0";
@@ -248,7 +248,7 @@ export function WarehouseMap({
           textAnchor={anchor}
           fontSize="0.85"
           fontWeight={walls[edge] === "N" ? 700 : 500}
-          fill={walls[edge] === "N" ? "#df6035" : "#5c4a32"}
+          fill={walls[edge] === "N" ? "#6366f1" : "#5c4a32"}
           fontFamily="ui-monospace, monospace"
           pointerEvents="none"
         >
