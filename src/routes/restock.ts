@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import * as schema from "../db/schema";
-import { draftRestockPurchases, loadRestockNeeds } from "../db/restock";
+import { draftRestockPurchases, loadRestockBoard } from "../db/restock";
 import type { AppEnv } from "../lib/types";
 import { requireString } from "../lib/http";
 import { requireOwner } from "../lib/org";
@@ -9,7 +9,7 @@ import { poolKey, poolLabel } from "../domain/restock";
 
 export const restockRoute = new Hono<AppEnv>();
 
-function present(need: Awaited<ReturnType<typeof loadRestockNeeds>>[number]) {
+function present(need: Awaited<ReturnType<typeof loadRestockBoard>>[number]) {
   return {
     itemId: need.itemId,
     sku: need.sku,
@@ -24,9 +24,18 @@ function present(need: Awaited<ReturnType<typeof loadRestockNeeds>>[number]) {
     transitDays: need.transitDays,
     leadDays: need.leadDays,
     learned: need.learned,
+    rate: need.rate,
+    daysOfCover: need.daysOfCover,
     suggestedQty: need.suggestedQty,
     orderByAt: need.orderByAt,
+    due: need.due,
     gap: need.gap,
+    purchaseId: need.purchaseId,
+    purchaseNumber: need.purchaseNumber,
+    asnId: need.asnId,
+    asnNumber: need.asnNumber,
+    asnMilestone: need.asnMilestone,
+    freightAt: need.freightAt,
   };
 }
 
@@ -39,8 +48,8 @@ restockRoute.get("/restock", async (c) => {
     .from(schema.organizations)
     .where(eq(schema.organizations.id, organizationId))
     .limit(1);
-  const needs = org?.restockPolicy === "off" ? [] : await loadRestockNeeds(db, organizationId, warehouseId);
-  return c.json({ policy: org?.restockPolicy ?? "alert", needs: needs.map(present) });
+  const rows = await loadRestockBoard(db, organizationId, warehouseId);
+  return c.json({ policy: org?.restockPolicy ?? "alert", rows: rows.map(present) });
 });
 
 /** Opens draft purchases for due restocks. Does not send them. */

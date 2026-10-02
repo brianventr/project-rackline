@@ -27,6 +27,7 @@ import {
   MapPin,
   Package,
   Package2,
+  PackagePlus,
   Plug,
   Printer,
   Radar,
@@ -135,6 +136,7 @@ export const OFFICE_NAV: NavGroup[] = [
     items: [
       { title: "Traffic", url: "/analytics/traffic", icon: Radar, keywords: "shipments map tracker" },
       { title: "Runway", url: "/analytics/runway", icon: Hourglass, keywords: "stockout days of cover" },
+      { title: "Restock", url: "/analytics/restock", icon: PackagePlus, keywords: "reorder forecast make transit ocean order by" },
       { title: "Promise", url: "/analytics/promise", icon: Clock, keywords: "leave by pickup cutoff quote ship date" },
       { title: "Recall", url: "/analytics/recall", icon: Shield, keywords: "lot serial genealogy food beauty" },
     ],

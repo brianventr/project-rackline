@@ -132,6 +132,7 @@ export type RestockDecision = {
   suggestedQty: number;
   /** Order-by is today or past, and no open PO covers this pool. */
   due: boolean;
+  daysOfCover: number | null;
 };
 
 export function decideRestock(input: {
@@ -163,7 +164,7 @@ export function decideRestock(input: {
     inbound: inboundQty,
   });
   const due = !input.covered && suggestedQty > 0 && orderByAt != null && orderByAt <= input.asOf && rate > 0;
-  return { stockoutAt: projection.stockoutAt, orderByAt, suggestedQty, due };
+  return { stockoutAt: projection.stockoutAt, orderByAt, suggestedQty, due, daysOfCover: projection.daysOfCover };
 }
 
 export function restockGap(makeDays: number, transitDays: number): "make" | "transit" {

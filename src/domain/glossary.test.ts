@@ -24,6 +24,7 @@ const ROUTES = new Set([
   "/map",
   "/analytics/traffic",
   "/analytics/runway",
+  "/analytics/restock",
   "/analytics/promise",
   "/inbound/receipts",
   "/inbound/asns",

@@ -322,6 +322,9 @@ export function RunwayPage() {
               <ToggleGroupItem value="1.5">1.5×</ToggleGroupItem>
               <ToggleGroupItem value="2">2×</ToggleGroupItem>
             </ToggleGroup>
+            <Button size="sm" variant="outline" asChild>
+              <Link to="/analytics/restock">Restock</Link>
+            </Button>
             <Button
               size="sm"
               disabled={draft.busy || !board?.draftLines.length}

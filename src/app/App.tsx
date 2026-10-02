@@ -71,6 +71,7 @@ import { YardPage } from "./pages/YardPage";
 import { LaborPage } from "./pages/LaborPage";
 import { TrafficPage } from "./pages/TrafficPage";
 import { RunwayPage } from "./pages/RunwayPage";
+import { RestockPage } from "./pages/RestockPage";
 import { PromisePage } from "./pages/PromisePage";
 import { RecallPage } from "./pages/RecallPage";
 import { FloorWavePage } from "./pages/floor/FloorWavePage";
@@ -178,6 +179,7 @@ export function App() {
         <Route path="/setup/labor" element={<Navigate to="/labor" replace />} />
         <Route path="/analytics/traffic" element={<TrafficPage />} />
         <Route path="/analytics/runway" element={<RunwayPage />} />
+        <Route path="/analytics/restock" element={<RestockPage />} />
         <Route path="/analytics/promise" element={<PromisePage />} />
         <Route path="/analytics/recall" element={<RecallPage />} />
         <Route path="/dashboard" element={<Navigate to="/today" replace />} />
