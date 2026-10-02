@@ -32,7 +32,7 @@ export function restockProblems(rows: readonly RestockExceptionRow[]): Exception
       warehouseId: row.warehouseId,
       itemId: row.itemId,
       createdAt: row.orderByAt,
-      link: "/analytics/runway",
+      link: "/analytics/restock",
       lane: "office",
       ownerOnly: true,
     });

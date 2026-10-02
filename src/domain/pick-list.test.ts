@@ -120,7 +120,7 @@ describe("buildOrderPickList", () => {
     const lots = pickLotsAtBay(
       [
         { locationId: "a0101", sku: "GLUE", lotCode: "LOT-DEAD", qty: 9, expiresOn: 20260101 },
-        { locationId: "a0101", sku: "GLUE", lotCode: "LOT-OLD", qty: 2, expiresOn: 20261001 },
+        { locationId: "a0101", sku: "GLUE", lotCode: "LOT-OLD", qty: 2, expiresOn: 20261115 },
         { locationId: "a0101", sku: "GLUE", lotCode: "LOT-NEW", qty: 8, expiresOn: 20270301 },
       ],
       "a0101",
@@ -128,7 +128,7 @@ describe("buildOrderPickList", () => {
       3,
     );
     expect(lots.map((row) => `${row.lotCode}×${row.qty}`)).toEqual(["LOT-OLD×2", "LOT-NEW×1"]);
-    expect(lots[0]?.expiresOnLabel).toBe("2026-10-01");
+    expect(lots[0]?.expiresOnLabel).toBe("2026-11-15");
 
     const doc = buildOrderPickList({
       order: {
@@ -151,7 +151,7 @@ describe("buildOrderPickList", () => {
       },
       locations: [a0101],
       lots: [
-        { locationId: "a0101", sku: "GLUE", lotCode: "LOT-OLD", qty: 2, expiresOn: 20261001 },
+        { locationId: "a0101", sku: "GLUE", lotCode: "LOT-OLD", qty: 2, expiresOn: 20261115 },
         { locationId: "a0101", sku: "GLUE", lotCode: "LOT-NEW", qty: 8, expiresOn: 20270301 },
       ],
     });

@@ -84,6 +84,7 @@ describe("operating mode", () => {
       "/stock",
       "/stock/items",
       "/analytics/runway",
+      "/analytics/restock",
       "/analytics/promise",
       "/setup/shopify",
       "/setup/channels",

@@ -39,7 +39,15 @@ export type RestockNeed = {
   suggestedQty: number;
   orderByAt: number | null;
   stockoutAt: number | null;
+  daysOfCover: number | null;
+  due: boolean;
   gap: "make" | "transit";
+  purchaseId: string | null;
+  purchaseNumber: string | null;
+  asnId: string | null;
+  asnNumber: string | null;
+  asnMilestone: string | null;
+  freightAt: number | null;
 };
 
 type VendorLane = {
@@ -51,11 +59,30 @@ type VendorLane = {
   bufferDays: number | null;
 };
 
+export async function loadRestockBoard(
+  db: AppDb,
+  organizationId: string,
+  warehouseId: string,
+  now = Date.now(),
+): Promise<RestockNeed[]> {
+  return loadRestockRows(db, organizationId, warehouseId, now, false);
+}
+
 export async function loadRestockNeeds(
   db: AppDb,
   organizationId: string,
   warehouseId: string,
   now = Date.now(),
+): Promise<RestockNeed[]> {
+  return loadRestockRows(db, organizationId, warehouseId, now, true);
+}
+
+async function loadRestockRows(
+  db: AppDb,
+  organizationId: string,
+  warehouseId: string,
+  now = Date.now(),
+  dueOnly = true,
 ): Promise<RestockNeed[]> {
   const lookback = now - RESTOCK_WINDOW_DAYS * DAY_MS;
   const runway = await loadRunway(db, organizationId, { warehouseId, window: "30d", multiplier: 1 });
@@ -113,6 +140,8 @@ export async function loadRestockNeeds(
         qtyReceived: schema.purchaseLines.qtyReceived,
         clientId: schema.purchases.clientId,
         vendorId: schema.purchases.vendorId,
+        purchaseId: schema.purchases.id,
+        purchaseNumber: schema.purchases.number,
       })
       .from(schema.purchaseLines)
       .innerJoin(schema.purchases, eq(schema.purchases.id, schema.purchaseLines.purchaseId))
@@ -135,6 +164,9 @@ export async function loadRestockNeeds(
         createdAt: schema.asns.createdAt,
         orderedAt: schema.purchases.orderedAt,
         vendorId: schema.asns.vendorId,
+        asnId: schema.asns.id,
+        asnNumber: schema.asns.number,
+        milestone: schema.asns.milestone,
       })
       .from(schema.asnLines)
       .innerJoin(schema.asns, eq(schema.asns.id, schema.asnLines.asnId))
@@ -195,6 +227,15 @@ export async function loadRestockNeeds(
       qty += Math.max(0, row.qtyOrdered - row.qtyReceived);
     }
     return qty;
+  };
+
+  const openPurchase = (clientId: string | null, itemId: string) => {
+    for (const row of covers) {
+      if (row.itemId !== itemId || (row.clientId ?? null) !== clientId) continue;
+      if (row.qtyOrdered - row.qtyReceived <= 0) continue;
+      return { id: row.purchaseId, number: row.purchaseNumber };
+    }
+    return null;
   };
 
   const learnedByVendor = new Map<string, number[]>();
@@ -298,7 +339,30 @@ export async function loadRestockNeeds(
       bufferDays: input.vendor?.bufferDays ?? undefined,
       covered: coveredQty > 0,
     });
-    if (!decision.due) return;
+    if (!decision.due && dueOnly) return;
+    if (!(input.rate > 0) && input.sellable <= 0) return;
+    const purchase = openPurchase(clientId, input.itemId);
+    let freight: { id: string; number: string; milestone: string | null; at: number } | null = null;
+    for (const row of inboundRows) {
+      if (row.itemId !== input.itemId || (row.clientId ?? null) !== clientId) continue;
+      if (row.qtyExpected - row.qtyReceived <= 0) continue;
+      const lane = row.vendorId ? vendorById.get(row.vendorId) : input.vendor;
+      const mode = lane?.transitMode ?? null;
+      const at = mode
+        ? freightEta({
+            expectedAt: row.expectedAt,
+            eta: row.eta,
+            departedAt: row.departedAt,
+            orderedAt: row.orderedAt,
+            makeDays: lane?.makeDays ?? 0,
+            transitDays: lane?.transitDays ?? defaultTransitDays(mode),
+            fallbackAt: row.createdAt,
+          }).at
+        : (row.expectedAt ?? row.eta ?? row.createdAt);
+      if (!freight || at < freight.at) {
+        freight = { id: row.asnId, number: row.asnNumber, milestone: row.milestone, at };
+      }
+    }
     needs.push({
       itemId: input.itemId,
       sku: input.sku,
@@ -316,7 +380,15 @@ export async function loadRestockNeeds(
       suggestedQty: decision.suggestedQty,
       orderByAt: decision.orderByAt,
       stockoutAt: decision.stockoutAt,
+      daysOfCover: decision.daysOfCover,
+      due: decision.due,
       gap: restockGap(lead.makeDays, lead.transitDays),
+      purchaseId: purchase?.id ?? null,
+      purchaseNumber: purchase?.number ?? null,
+      asnId: freight?.id ?? null,
+      asnNumber: freight?.number ?? null,
+      asnMilestone: freight?.milestone ?? null,
+      freightAt: freight?.at ?? null,
     });
   };
 
