@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, errorText } from "../../api";
 import { Button, Card, ErrorBanner, Field, Input, Select } from "../../components/ui";
 import { useApiQuery } from "../../query";
@@ -104,7 +105,11 @@ export function CustomerNotificationsCard({ disabled }: { disabled: boolean }) {
           <p className="text-sm text-muted-foreground">
             Shipped, out for delivery, delivered, a delivery problem, and a return label. The default sends only when the
             store does not already notify the customer. Live Shopify, WooCommerce, and Etsy post-backs count as the store
-            notifying. Manual, CSV, Faire, and a manual post-back do not.
+            notifying. Manual, CSV, Faire, and a manual post-back do not.{" "}
+            <Link to="/automation?step=reminders" className="font-medium text-primary underline-offset-4 hover:underline">
+              Open the automation map
+            </Link>
+            .
           </p>
         </div>
         <ErrorBanner error={write.error ?? settings.error?.message ?? previewError} />

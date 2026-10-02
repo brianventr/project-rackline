@@ -69,7 +69,7 @@ export function NavMain({
             type="button"
             onClick={toggle}
             aria-expanded={open}
-            className="group/label w-full cursor-pointer justify-between hover:text-sidebar-foreground"
+            className="group/label w-full cursor-pointer justify-between text-[11px] font-medium tracking-wide text-muted-foreground uppercase hover:text-sidebar-foreground"
           >
             <span>{label}</span>
             <span className="flex items-center gap-1">

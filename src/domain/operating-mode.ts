@@ -24,6 +24,7 @@ export function isGarageMode(mode: string | null | undefined): boolean {
 /** Office and floor routes a founder bench can open. Query strings are ignored. */
 const GARAGE_PATHS: { prefix: string; exact?: boolean }[] = [
   { prefix: "/today", exact: true },
+  { prefix: "/automation", exact: true },
   { prefix: "/exceptions", exact: true },
   { prefix: "/welcome", exact: true },
   { prefix: "/live", exact: true },
@@ -180,6 +181,7 @@ export const GARAGE_NAV: GarageNavGroup[] = [
     label: "Shop",
     ownerOnly: true,
     items: [
+      { title: "Automation", url: "/automation" },
       { title: "Shopify", url: "/setup/shopify" },
       { title: "Channels", url: "/setup/channels" },
       { title: "Imports", url: "/setup/imports" },

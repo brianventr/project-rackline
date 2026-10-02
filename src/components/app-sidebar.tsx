@@ -2,6 +2,7 @@
 
 import { useMemo, type ComponentProps } from "react";
 import { Link } from "react-router-dom";
+import { ScanLine, Workflow } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { NavMain } from "@/components/nav-main";
 import { NavUser } from "@/components/nav-user";
@@ -54,6 +55,25 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
+      <div className="px-3 pb-2">
+        {me.role === "owner" ? (
+          <Link
+            to="/automation"
+            className="flex h-10 items-center justify-center gap-2 rounded-full bg-primary text-sm font-medium text-primary-foreground shadow-xs hover:bg-primary/90"
+          >
+            <Workflow className="size-4" />
+            Automation
+          </Link>
+        ) : (
+          <Link
+            to="/floor"
+            className="flex h-10 items-center justify-center gap-2 rounded-full bg-primary text-sm font-medium text-primary-foreground shadow-xs hover:bg-primary/90"
+          >
+            <ScanLine className="size-4" />
+            Open floor
+          </Link>
+        )}
+      </div>
       <SidebarContent className="gap-0">
         {groups.map((group, index) => (
           <NavMain

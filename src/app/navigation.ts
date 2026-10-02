@@ -43,6 +43,7 @@ import {
   Undo2,
   Users,
   Waves,
+  Workflow,
   Puzzle,
   FileCode2,
   Warehouse,
@@ -110,6 +111,13 @@ export const OFFICE_NAV: NavGroup[] = [
     label: "Today",
     items: [
       { title: "Today", url: "/today", icon: LayoutDashboard, keywords: "home dashboard dispatch" },
+      {
+        title: "Automation",
+        url: "/automation",
+        icon: Workflow,
+        ownerOnly: true,
+        keywords: "replenish alert reminder flow workflow auto queue",
+      },
       {
         title: "Exceptions",
         url: "/exceptions",

@@ -86,6 +86,12 @@ function RestockPolicyCard({ owner }: { owner: boolean }) {
         <Button type="submit" disabled={!owner || write.busy}>
           Save restock
         </Button>
+        <p className="text-sm text-muted-foreground">
+          <Link to="/automation?step=alerts" className="font-medium text-primary underline-offset-4 hover:underline">
+            Open the automation map
+          </Link>{" "}
+          to edit restock next to reorder alerts.
+        </p>
         <ErrorBanner error={write.error} />
       </form>
     </Card>

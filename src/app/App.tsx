@@ -63,6 +63,7 @@ import { AccountingPage } from "./pages/setup/AccountingPage";
 import { ChannelsPage } from "./pages/setup/ChannelsPage";
 import { SettingsLayout } from "./pages/setup/SettingsLayout";
 import { ReplenishmentsPage } from "./pages/ReplenishmentsPage";
+import { AutomationPage } from "./pages/AutomationPage";
 import { KitsPage } from "./pages/KitsPage";
 import { SchedulePage } from "./pages/SchedulePage";
 import { WavesPage } from "./pages/WavesPage";
@@ -143,6 +144,14 @@ export function App() {
       <Route path="/compare/:slug" element={<ComparePage />} />
       <Route element={<Guard me={me} />}>
         <Route path="/today" element={<TodayPage />} />
+        <Route
+          path="/automation"
+          element={
+            <OwnerOnly>
+              <AutomationPage />
+            </OwnerOnly>
+          }
+        />
         <Route path="/exceptions" element={<ExceptionsPage />} />
         <Route
           path="/welcome"

@@ -92,7 +92,7 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
   return (
     <header
       data-slot="site-header"
-      className="sticky top-0 z-20 flex h-(--header-height) shrink-0 items-center gap-2 border-b bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70 print:hidden"
+      className="sticky top-0 z-20 flex h-(--header-height) shrink-0 items-center gap-2 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75 print:hidden"
     >
       <div className="flex w-full min-w-0 items-center gap-1.5 px-3">
         {onFloor ? (

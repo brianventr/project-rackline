@@ -10,6 +10,8 @@ import { applyStoredDensity } from "./density";
 import { watchOfflineQueue } from "./offline-queue";
 import { queryClient } from "./query";
 import { registerAppShell } from "./register-shell";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
 import "@/index.css";
 
 applyStoredDensity();
