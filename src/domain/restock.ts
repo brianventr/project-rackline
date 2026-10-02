@@ -170,3 +170,19 @@ export function decideRestock(input: {
 export function restockGap(makeDays: number, transitDays: number): "make" | "transit" {
   return makeDays >= transitDays ? "make" : "transit";
 }
+
+/** How far across the 120-day restock timeline a date sits. Past dates sit at the start. */
+export const RESTOCK_TIMELINE_DAYS = 120;
+
+export function timelineFraction(at: number | null, now: number, days = RESTOCK_TIMELINE_DAYS): number | null {
+  if (at == null || !Number.isFinite(at)) return null;
+  const start = now - (now % DAY_MS);
+  const span = days * DAY_MS;
+  if (!(span > 0)) return null;
+  return Math.min(1, Math.max(0, (at - start) / span));
+}
+
+/** The container arrives after the shelf is already empty. */
+export function freightIsLate(freightAt: number | null, stockoutAt: number | null): boolean {
+  return freightAt != null && stockoutAt != null && freightAt > stockoutAt;
+}

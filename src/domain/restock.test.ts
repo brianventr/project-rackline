@@ -4,9 +4,11 @@ import {
   decideRestock,
   defaultTransitDays,
   freightEta,
+  freightIsLate,
   learnedTransitDays,
   restockGap,
   restockLead,
+  timelineFraction,
   TRANSIT_LEARN_SAMPLES,
 } from "./restock";
 
@@ -151,5 +153,26 @@ describe("restockGap", () => {
   it("names the longer part of the wait", () => {
     expect(restockGap(40, 35)).toBe("make");
     expect(restockGap(10, 35)).toBe("transit");
+  });
+});
+
+describe("timelineFraction", () => {
+  const now = Date.UTC(2026, 0, 1);
+
+  it("puts today at the start and a date past 120 days at the end", () => {
+    expect(timelineFraction(now, now)).toBe(0);
+    expect(timelineFraction(now - DAY_MS, now)).toBe(0);
+    expect(timelineFraction(now + 120 * DAY_MS, now)).toBe(1);
+    expect(timelineFraction(now + 200 * DAY_MS, now)).toBe(1);
+    expect(timelineFraction(now + 60 * DAY_MS, now)).toBeCloseTo(0.5);
+    expect(timelineFraction(null, now)).toBeNull();
+  });
+});
+
+describe("freightIsLate", () => {
+  it("is late only when arrival is after the stockout", () => {
+    expect(freightIsLate(20, 10)).toBe(true);
+    expect(freightIsLate(10, 20)).toBe(false);
+    expect(freightIsLate(null, 10)).toBe(false);
   });
 });
