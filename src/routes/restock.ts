@@ -28,6 +28,7 @@ function present(need: Awaited<ReturnType<typeof loadRestockBoard>>[number]) {
     daysOfCover: need.daysOfCover,
     suggestedQty: need.suggestedQty,
     orderByAt: need.orderByAt,
+    stockoutAt: need.stockoutAt,
     due: need.due,
     gap: need.gap,
     purchaseId: need.purchaseId,
