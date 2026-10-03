@@ -14,6 +14,8 @@ export type Bindings = {
   ETSY_API_KEY?: string;
   ETSY_SHARED_SECRET?: string;
   MEDIA?: R2Bucket;
+  /** Optional: comma-separated organization ids allowed into the hidden CAD lab. Unset opens it to every org but the demo. */
+  LAB_ORG_IDS?: string;
   /** Cloudflare Workers static assets (Vite plugin). */
   ASSETS?: Fetcher;
 };

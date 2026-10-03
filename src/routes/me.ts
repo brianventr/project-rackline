@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { parseFloorVerbs } from "../domain/jobs";
+import { labAccessFor } from "../lib/lab-access";
 
 export const meRoute = new Hono<AppEnv>();
 
@@ -30,5 +31,7 @@ meRoute.get("/me", async (c) => {
     role: c.get("role"),
     floorVerbs: parseFloorVerbs(membership?.floorVerbs, c.get("role") || "operator"),
     warehouses,
+    // Whether the hidden lab (and its mystery button) is open to this organization.
+    lab: (await labAccessFor(db, c.env, organizationId)) === "open",
   });
 });

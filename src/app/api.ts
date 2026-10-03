@@ -127,6 +127,8 @@ export type Me = {
   role: "owner" | "operator";
   floorVerbs?: string[];
   warehouses: { id: string; name: string }[];
+  /** The hidden CAD lab is open to this organization (never the shared demo). */
+  lab?: boolean;
 };
 
 export type AsBuiltLink = {

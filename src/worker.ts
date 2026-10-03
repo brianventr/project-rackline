@@ -77,6 +77,7 @@ import { customersRoute } from "./routes/customers";
 import { platesRoute } from "./routes/plates";
 import { exceptionsRoute } from "./routes/exceptions";
 import { restockRoute } from "./routes/restock";
+import { labRoute } from "./routes/lab";
 import { marketingPageByPath } from "./domain/marketing-pages";
 import { injectMarketingMeta, robotsTxt, sitemapXml } from "./domain/marketing-seo";
 
@@ -295,6 +296,7 @@ app.route("/api", platesRoute);
 app.route("/api", exceptionsRoute);
 app.route("/api", restockRoute);
 app.route("/api", integrationsRoute);
+app.route("/api", labRoute);
 
 export default {
   fetch: app.fetch,

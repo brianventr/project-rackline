@@ -29,6 +29,9 @@ describe("operating mode", () => {
     expect(garageAllowsPath("/welcome")).toBe(true);
     expect(garageAllowsPath("/welcome?step=racks")).toBe(true);
     expect(garageAllowsPath("/live")).toBe(true);
+    expect(garageAllowsPath("/lab")).toBe(true);
+    expect(garageAllowsPath("/lab?model=ms-1000")).toBe(true);
+    expect(manufacturerRedirect("/lab")).toBeNull();
     expect(garageAllowsPath("/floor")).toBe(true);
     expect(garageAllowsPath("/floor/pick?id=o1")).toBe(true);
     expect(garageAllowsPath("/floor/kit")).toBe(true);

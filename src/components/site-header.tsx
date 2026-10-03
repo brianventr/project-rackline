@@ -36,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CommandPalette } from "@/components/command-palette";
+import { MysteryButton } from "@/components/mystery-button";
 import { ShortcutsDialog, useGlobalShortcuts } from "@/components/keyboard-shortcuts";
 import { useScanner } from "@/app/scanner/ScannerProvider";
 import { scanOwnedByPage } from "@/app/scanner/scan-capture";
@@ -136,6 +137,7 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
             </Button>
           ) : null}
           <DisplayMenu onFloor={onFloor} onShowShortcuts={() => setShortcutsOpen(true)} />
+          <MysteryButton />
         </div>
       </div>
       <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} onShowShortcuts={() => setShortcutsOpen(true)} />
