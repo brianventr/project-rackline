@@ -53,6 +53,11 @@ export function requireOwner(role: Role | undefined): void {
   if (role !== "owner") forbidden("Owner role required");
 }
 
+/** Owners and bookkeepers. Operators and pickers stay off the books. */
+export function requireBooks(role: Role | undefined): void {
+  if (role !== "owner" && role !== "bookkeeper") forbidden("Owner role required");
+}
+
 export async function getOrgWarehouse(db: AppDb, organizationId: string, warehouseId: string) {
   const [warehouse] = await db
     .select()

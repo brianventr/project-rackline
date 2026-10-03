@@ -124,7 +124,7 @@ export type Me = {
     logoUrl?: string | null;
     restockPolicy?: "off" | "alert" | "draft";
   };
-  role: "owner" | "operator";
+  role: "owner" | "operator" | "picker" | "bookkeeper";
   floorVerbs?: string[];
   warehouses: { id: string; name: string }[];
   /** The hidden CAD lab is open to this organization (never the shared demo). */
@@ -1462,6 +1462,8 @@ export type Purchase = {
   sends?: PurchaseSend[];
   mintedAsnId?: string | null;
   lines?: PurchaseLine[];
+  freightCents?: number;
+  qboBillId?: string | null;
 };
 
 export type PurchaseSend = {

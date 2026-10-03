@@ -21,7 +21,7 @@ export type TeamInviteBody = {
 export type ParsedTeamInvite = {
   name: string;
   email: string;
-  role: "owner" | "operator";
+  role: "owner" | "operator" | "picker" | "bookkeeper";
   password: string | null;
 };
 
@@ -48,7 +48,9 @@ export function parseTeamInvite(body: TeamInviteBody): ParsedTeamInvite {
   if (!name) throw new TeamInviteError("name is required");
   if (!email) throw new TeamInviteError("email is required");
   if (!isEmailAddress(email)) throw new TeamInviteError("email must be an email address");
-  if (role !== "owner" && role !== "operator") throw new TeamInviteError("Role must be owner or operator");
+  if (role !== "owner" && role !== "operator" && role !== "picker" && role !== "bookkeeper") {
+    throw new TeamInviteError("Role must be owner, operator, picker, or bookkeeper");
+  }
   if (password && password.length < 8) throw new TeamInviteError("Password must be at least 8 characters");
   return { name, email, role, password: password || null };
 }

@@ -10,6 +10,7 @@ import {
   parsePromiseQty,
   planPromises,
   quotePromise,
+  storefrontPromiseLine,
   type PromiseOrderInput,
   type PromiseStock,
 } from "./promise";
@@ -316,5 +317,12 @@ describe("planPromises", () => {
     });
     expect(plan.board.orders.map((row) => row.orderId)).toEqual(["short", "ready"]);
     expect(plan.board.orders[0]?.code).toBe("short");
+  });
+
+  it("says the leave-by in one storefront sentence", () => {
+    expect(storefrontPromiseLine({ code: "leaves_today", cutoffLabel: "3:00 PM", shipDay: null })).toBe(
+      "Orders placed before 3:00 PM ship today.",
+    );
+    expect(storefrontPromiseLine({ code: "short", cutoffLabel: "3:00 PM", shipDay: null })).toMatch(/confirm a ship date/);
   });
 });

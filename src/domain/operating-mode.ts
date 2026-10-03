@@ -127,6 +127,21 @@ export type GarageNavItem = { title: string; url: string };
 
 export type GarageNavGroup = { label: string; ownerOnly?: boolean; items: GarageNavItem[] };
 
+/**
+ * Until Getting started is done, the wall is the four steps: ship, the catalog, receive, and settings.
+ * The rest of the bench stays in the command palette.
+ */
+export const GARAGE_FIRST_HOUR_NAV: GarageNavGroup[] = [
+  {
+    label: "Bench",
+    items: [
+      { title: "Ship", url: "/ship" },
+      { title: "Items", url: "/stock/items" },
+      { title: "Receive", url: "/inbound/receipts" },
+    ],
+  },
+];
+
 /** Short maker menu. Ledger, office putaway, and audit stay open by direct link. */
 export const GARAGE_NAV: GarageNavGroup[] = [
   {
@@ -197,7 +212,15 @@ export const GARAGE_NAV: GarageNavGroup[] = [
   },
 ];
 
-export function garageNavForRole(role: string | null | undefined): GarageNavGroup[] {
+/**
+ * The sidebar for Garage. `setupComplete: false` is the first hour (Getting started still open).
+ * Omit it, or pass true, for the full bench. The command palette always asks for the full bench.
+ */
+export function garageNavForRole(
+  role: string | null | undefined,
+  options?: { setupComplete?: boolean },
+): GarageNavGroup[] {
   const owner = role === "owner";
-  return GARAGE_NAV.filter((group) => owner || !group.ownerOnly);
+  const source = options?.setupComplete === false ? GARAGE_FIRST_HOUR_NAV : GARAGE_NAV;
+  return source.filter((group) => owner || !group.ownerOnly);
 }

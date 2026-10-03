@@ -696,3 +696,13 @@ export function askPromise(
     notice: NOTICE,
   };
 }
+
+/** One sentence for a storefront. It quotes the same ask and does not reserve stock. */
+export function storefrontPromiseLine(input: { code: PromiseCode; cutoffLabel: string; shipDay: string | null }): string {
+  if (input.code === "leaves_today") return `Orders placed before ${input.cutoffLabel} ship today.`;
+  if (input.code === "next_pickup") return input.shipDay ? `Ships ${input.shipDay}.` : "Ships on the next pickup.";
+  if (input.code === "inbound") {
+    return input.shipDay ? `Ships ${input.shipDay}, when the next delivery is on the shelf.` : "Ships when the next delivery is on the shelf.";
+  }
+  return "We'll confirm a ship date before this leaves.";
+}

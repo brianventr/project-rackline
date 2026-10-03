@@ -3,6 +3,8 @@ import type { Context } from "hono";
 import { createDb } from "./db/client";
 import { createAuth } from "./lib/auth";
 import { getMembership } from "./lib/org";
+import { requestDenied } from "./domain/roles";
+import type { Role } from "./db/schema";
 import { respondToError } from "./lib/error-response";
 import { originFrom, type AppEnv } from "./lib/types";
 import { runInRequestScope } from "./lib/request-scope";
@@ -69,6 +71,8 @@ import { runChannelCron } from "./db/channel-sync";
 import { planAllCycleCounts } from "./db/cycle-plan";
 import { runRestockCron } from "./db/restock";
 import { runReplenishCron } from "./db/replenish-automation";
+import { runExceptionDigests } from "./db/exception-digest";
+import { promisePublicRoute } from "./routes/promise-public";
 import { recallRoute } from "./routes/recall";
 import { scheduleRoute } from "./routes/schedule";
 import { shipRoute } from "./routes/ship";
@@ -153,6 +157,7 @@ app.on(["GET", "POST"], "/api/auth/*", (c) => {
 app.route("/api", registerRoute);
 app.route("/api", demoRoute);
 app.route("/api", shopifyPublicRoute);
+app.route("/api", promisePublicRoute);
 app.route("/api", carriersPublicRoute);
 app.route("/api", billingPublicRoute);
 app.route("/api", portalPublicRoute);
@@ -168,6 +173,7 @@ app.use("/api/*", async (c, next) => {
     path === "/api/register" ||
     path === "/api/demo/seed" ||
     path === "/api/shopify/webhooks" ||
+    path === "/api/shopify/promise" ||
     path === "/api/shopify/fulfillment_order_notification" ||
     path === "/api/shopify/oauth/callback" ||
     path === "/api/carriers/trackers/webhooks" ||
@@ -197,7 +203,10 @@ app.use("/api/*", async (c, next) => {
     email: session.user.email,
   });
   c.set("organizationId", membership.organizationId);
-  c.set("role", membership.role as "owner" | "operator");
+  c.set("role", membership.role as Role);
+  if (requestDenied(membership.role, c.req.method, path)) {
+    return c.json({ error: "You don't have access to that." }, 403);
+  }
   await next();
 });
 
@@ -326,6 +335,11 @@ export default {
             await runReplenishCron(db);
           } catch (err) {
             console.error("replenish cron failed", err);
+          }
+          try {
+            await runExceptionDigests(db, env);
+          } catch (err) {
+            console.error("exception digest failed", err);
           }
         },
       ),

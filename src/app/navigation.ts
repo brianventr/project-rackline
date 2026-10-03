@@ -52,6 +52,7 @@ import {
 import type { Dashboard } from "./api";
 import type { ExceptionCounts } from "@/domain/exceptions/inbox";
 import { garageAllowsPath, garageNavForRole } from "@/domain/operating-mode";
+import { BOOKKEEPER_NAV, PICKER_NAV } from "@/domain/roles";
 
 export type NavCount = { value: number; tone?: "default" | "warning" };
 
@@ -222,10 +223,24 @@ const COUNT_BY_URL: Record<string, NavItem["count"]> = Object.fromEntries(
 );
 
 /** Sidebar groups for this person. Garage Mode keeps its shorter bench menu; Setup folds into one Settings entry. */
-export function navForSession(role: string, garage: boolean): NavGroup[] {
+function namedNav(groups: readonly { label: string; items: readonly { title: string; url: string }[] }[]): NavGroup[] {
+  return groups.map((group) => ({
+    label: group.label,
+    items: group.items.map((item) => ({
+      title: item.title,
+      url: item.url,
+      icon: ICON_BY_URL[item.url] ?? LayoutDashboard,
+      count: COUNT_BY_URL[item.url],
+    })),
+  }));
+}
+
+export function navForSession(role: string, garage: boolean, options?: { setupComplete?: boolean }): NavGroup[] {
+  if (role === "picker") return namedNav(PICKER_NAV);
+  if (role === "bookkeeper") return namedNav(BOOKKEEPER_NAV);
   const owner = role === "owner";
   if (garage) {
-    const groups = garageNavForRole(role)
+    const groups = garageNavForRole(role, options)
       .filter((group) => !group.ownerOnly)
       .map((group) => ({
         label: group.label,
@@ -247,14 +262,21 @@ export function navForSession(role: string, garage: boolean): NavGroup[] {
 
 /** Settings pages this person can open, in sub-nav order. */
 export function settingsForSession(role: string, garage: boolean): NavItem[] {
+  if (role === "bookkeeper") return SETTINGS_ITEMS.filter((item) => item.url === "/setup/accounting");
   if (role !== "owner") return [];
   return SETTINGS_ITEMS.filter((item) => !garage || garageAllowsPath(item.url));
 }
 
-/** Every destination for the command palette's Go to group. */
+/**
+ * Every destination for the command palette's Go to group.
+ * Garage's first hour shortens the sidebar only. Recipes, Restock, Promise, and shipping rules stay one search away.
+ */
 export function destinationsForSession(role: string, garage: boolean): NavItem[] {
-  const pages = navForSession(role, garage).flatMap((group) => group.items.filter((item) => item.url !== "/setup"));
-  return [...pages, ...settingsForSession(role, garage)];
+  const pages = navForSession(role, garage, { setupComplete: true }).flatMap((group) =>
+    group.items.filter((item) => item.url !== "/setup"),
+  );
+  const seen = new Set(pages.map((item) => item.url));
+  return [...pages, ...settingsForSession(role, garage).filter((item) => !seen.has(item.url))];
 }
 
 export function isNavActive(pathname: string, search: string, url: string): boolean {

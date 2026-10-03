@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useSession } from "./session";
 import { homePath } from "@/domain/home-path";
 
@@ -55,4 +55,13 @@ export function OwnerOnly({ children }: { children: ReactNode }) {
   const me = useSession();
   if (me.role !== "owner") return <Navigate to={homePath(me.role, me.organization.operatingMode)} replace />;
   return children;
+}
+
+/** Owners see every settings page. A bookkeeper can open Accounting and is sent home from the rest. */
+export function SetupAccess({ children }: { children: ReactNode }) {
+  const me = useSession();
+  const location = useLocation();
+  if (me.role === "owner") return children;
+  if (me.role === "bookkeeper" && location.pathname.startsWith("/setup/accounting")) return children;
+  return <Navigate to={homePath(me.role, me.organization.operatingMode)} replace />;
 }

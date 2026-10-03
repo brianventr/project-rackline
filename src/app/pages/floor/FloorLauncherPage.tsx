@@ -53,6 +53,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OfflineQueueNotice } from "../../offline-queue-banner";
+import { FloorScanBox, type ScanReport } from "./floor-ui";
 
 type Icon = ComponentType<{ className?: string }>;
 
@@ -177,6 +178,24 @@ export function FloorLauncherPage() {
     .filter((item): item is VerbTile => Boolean(item));
   const groups = groupFloorTiles(items);
 
+  const onLauncherScan = useCallback(
+    (raw: string, report?: ScanReport) => {
+      const needle = raw.trim().toLowerCase();
+      const job = openJobs.find((row) => {
+        const number = row.number?.toLowerCase();
+        return Boolean(number && (needle === number || needle.endsWith(number)));
+      });
+      report?.(Boolean(job) || needle.length > 0);
+      if (job) {
+        recordTap(job.floorPath);
+        navigate(job.floorPath);
+        return;
+      }
+      navigate("/floor/lookup");
+    },
+    [navigate, openJobs, recordTap],
+  );
+
   const loaded = !nextQ.isLoading && !openQ.isLoading;
   const error = claimError ?? nextQ.error?.message ?? openQ.error?.message ?? null;
   const recentScan = scanner.lastScan && scanner.lastScan.at >= mountedAt ? scanner.lastScan : null;
@@ -227,6 +246,7 @@ export function FloorLauncherPage() {
           <ChevronRight aria-hidden className="size-4 text-muted-foreground" />
         </Link>
       ) : null}
+      <FloorScanBox label="Scan" placeholder="Bay, SKU, or order" onScan={onLauncherScan} ready={loaded} />
       <MyDayCard />
       <OfflineQueueNotice />
       <ErrorBanner error={error} />
@@ -309,39 +329,73 @@ export function FloorLauncherPage() {
         )}
       </section>
 
+      <VerbManual usual={usual} groups={groups} tileCount={tileCount} onTap={recordTap} />
+    </div>
+  );
+}
+
+function VerbSections({
+  idPrefix,
+  usual,
+  groups,
+  tileCount,
+  onTap,
+}: {
+  idPrefix: string;
+  usual: VerbTile[];
+  groups: { id: string; label: string; tiles: VerbTile[] }[];
+  tileCount: (item: VerbTile) => number | undefined;
+  onTap: (path: string) => void;
+}) {
+  return (
+    <>
       {usual.length ? (
-        <section aria-labelledby="floor-usual-heading" className="space-y-1.5">
-          <SectionLabel id="floor-usual-heading">Your usual</SectionLabel>
+        <section aria-labelledby={`${idPrefix}-usual`} className="space-y-1.5">
+          <SectionLabel id={`${idPrefix}-usual`}>Your usual</SectionLabel>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {usual.map((item) => (
-              <VerbTileLink
-                key={item.to}
-                item={item}
-                count={tileCount(item)}
-                compact
-                onTap={recordTap}
-              />
+              <VerbTileLink key={item.to} item={item} count={tileCount(item)} compact onTap={onTap} />
             ))}
           </div>
         </section>
       ) : null}
-
       {groups.map((group) => (
-        <section key={group.id} aria-labelledby={`floor-group-${group.id}`} className="space-y-1.5">
-          <SectionLabel id={`floor-group-${group.id}`}>{group.label}</SectionLabel>
+        <section key={group.id} aria-labelledby={`${idPrefix}-${group.id}`} className="space-y-1.5">
+          <SectionLabel id={`${idPrefix}-${group.id}`}>{group.label}</SectionLabel>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {group.tiles.map((item) => (
-              <VerbTileLink
-                key={item.to}
-                item={item}
-                count={tileCount(item)}
-                onTap={recordTap}
-              />
+              <VerbTileLink key={item.to} item={item} count={tileCount(item)} onTap={onTap} />
             ))}
           </div>
         </section>
       ))}
-    </div>
+    </>
+  );
+}
+
+function VerbManual({
+  usual,
+  groups,
+  tileCount,
+  onTap,
+}: {
+  usual: VerbTile[];
+  groups: { id: string; label: string; tiles: VerbTile[] }[];
+  tileCount: (item: VerbTile) => number | undefined;
+  onTap: (path: string) => void;
+}) {
+  return (
+    <>
+      <div className="hidden space-y-4 md:block">
+        <VerbSections idPrefix="floor" usual={usual} groups={groups} tileCount={tileCount} onTap={onTap} />
+      </div>
+      <details className="rounded-lg border bg-card px-3 py-3 md:hidden">
+        <summary className="cursor-pointer text-sm font-medium">All verbs</summary>
+        <div className="mt-3 space-y-4">
+          <VerbSections idPrefix="floor-more" usual={usual} groups={groups} tileCount={tileCount} onTap={onTap} />
+        </div>
+      </details>
+    </>
   );
 }
 
@@ -409,7 +463,7 @@ function NextJobCard({
             ) : null}
             {job.qty != null ? (
               <p className="text-sm text-muted-foreground">
-                Qty <span className="font-mono text-base font-semibold text-foreground">{job.qty}</span>
+                Qty <span className="font-mono text-2xl font-semibold text-foreground">{job.qty}</span>
               </p>
             ) : null}
           </div>

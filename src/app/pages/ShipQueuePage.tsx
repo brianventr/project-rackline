@@ -526,7 +526,7 @@ export function ShipQueuePage() {
           exportName="ship-queue"
           toolbar={
             <div className="flex flex-wrap items-center gap-2">
-              <Select aria-label="Box" className="h-8 w-40" value={presetId} onChange={(event) => setPresetId(event.target.value)}>
+              <Select aria-label="Box" className="h-11 w-full sm:h-8 sm:w-40" value={presetId} onChange={(event) => setPresetId(event.target.value)}>
                 <option value="">Each order's box</option>
                 {(data?.presets ?? []).map((preset) => (
                   <option key={preset.id} value={preset.id}>
@@ -534,7 +534,7 @@ export function ShipQueuePage() {
                   </option>
                 ))}
               </Select>
-              <Select aria-label="Service" className="h-8 w-48" value={serviceId} onChange={(event) => setServiceId(event.target.value)}>
+              <Select aria-label="Service" className="h-11 w-full sm:h-8 sm:w-48" value={serviceId} onChange={(event) => setServiceId(event.target.value)}>
                 <option value="">Each order's service</option>
                 {(data?.services ?? []).map((service) => (
                   <option key={`${service.connectionId ?? "rl"}-${service.id}`} value={service.id}>
@@ -550,6 +550,29 @@ export function ShipQueuePage() {
               <ToneBadge tone={readyCount ? "success" : "neutral"}>{readyCount} ready</ToneBadge>
             </div>
           }
+          mobileCard={(row) => (
+            <article className="space-y-2 rounded-xl border bg-card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <DocLink to={`/outbound/orders/${row.id}`}>{row.number}</DocLink>
+                  <p className="truncate text-sm font-medium">{row.customerName}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {[row.shipToCity, row.shipToRegion].filter(Boolean).join(", ") || "No address"}
+                    {" · "}
+                    {orderChannelName(row.source)}
+                  </p>
+                </div>
+                <span className="shrink-0 font-mono text-sm">{weightText(row.parcel) ?? "—"}</span>
+              </div>
+              <LineChips lines={row.lines} />
+              {row.status !== "shipped" ? (
+                <p className="text-xs text-muted-foreground">
+                  {[row.box?.name, row.serviceName].filter(Boolean).join(" · ") || "Box and service chosen at ship"}
+                </p>
+              ) : null}
+              <div className="flex flex-col items-stretch gap-2 [&_button]:h-11 [&_a]:h-11">{columns.find((column) => column.id === "action")?.cell(row)}</div>
+            </article>
+          )}
           empty={
             <EmptyState
               icon={PackageCheck}

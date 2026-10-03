@@ -27,7 +27,9 @@ const certificationFormSchema = z.object({
 });
 
 const ROLE_OPTIONS = [
-  { value: "operator", label: "Operator — lands on the floor" },
+  { value: "operator", label: "Operator — floor and office" },
+  { value: "picker", label: "Picker — Next job only" },
+  { value: "bookkeeper", label: "Bookkeeper — cost and purchases" },
   { value: "owner", label: "Owner — sees setup" },
 ];
 
@@ -41,7 +43,11 @@ const CLASS_OPTIONS = EQUIPMENT_CLASSES.map((value) => ({ value, label: equipmen
 type TeamRow = TeamMember & { lastActiveAt: number | null; status: TeamMemberStatus };
 
 function roleLabel(role: string): string {
-  return role === "owner" ? "Owner" : role === "operator" ? "Operator" : role;
+  if (role === "owner") return "Owner";
+  if (role === "operator") return "Operator";
+  if (role === "picker") return "Picker";
+  if (role === "bookkeeper") return "Bookkeeper";
+  return role;
 }
 
 /** Anything short of recorded activity reads as invited. */
@@ -235,7 +241,7 @@ export function TeamPage() {
       <PageHeader
         eyebrow="Setup"
         title="Team"
-        description="Owners see setup. Operators land on the floor and only get the verbs you tick."
+        description="Owners see setup. Operators run the floor and the office. A picker stays on Next job. A bookkeeper sees cost and purchases."
       />
 
       <section className="space-y-2">

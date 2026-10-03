@@ -4,7 +4,7 @@ import { carrierNameForChannel, type ChannelOrder, type ChannelSkip } from "./ad
 export const ETSY_AUTHORIZE_URL = "https://www.etsy.com/oauth/connect";
 export const ETSY_TOKEN_URL = "https://api.etsy.com/v3/public/oauth/token";
 export const ETSY_API = "https://openapi.etsy.com/v3/application";
-export const ETSY_SCOPES = ["transactions_r", "transactions_w", "shops_r"];
+export const ETSY_SCOPES = ["transactions_r", "transactions_w", "shops_r", "listings_r", "listings_w"];
 
 export type EtsyReceipt = {
   receipt_id?: number | string | null;
@@ -93,6 +93,7 @@ export function mapEtsyReceipt(receipt: EtsyReceipt): ChannelOrder | ChannelSkip
       title: (tx.title || sku).trim(),
       qty,
       externalLineId: tx.transaction_id != null ? String(tx.transaction_id) : null,
+      listingId: tx.listing_id != null ? String(tx.listing_id) : null,
     });
   }
   if (lines.length === 0) return { skip: true, reason: "no_fulfillable_lines" };

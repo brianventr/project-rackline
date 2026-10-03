@@ -82,6 +82,7 @@ export async function persistChannelOrder(
   const orderId = newId();
   const missing = new Set<string>();
   const newItems: (typeof schema.items.$inferInsert)[] = [];
+  const listingUpdates: { itemId: string; listingId: string }[] = [];
   const lines: (typeof schema.orderLines.$inferInsert)[] = [];
   const reserveLines: { id: string; itemId: string; sku: string; qty: number }[] = [];
   for (const line of order.lines) {
@@ -89,8 +90,19 @@ export async function persistChannelOrder(
     let itemId = input.skus.get(key);
     if (!itemId && input.createMissingItems) {
       itemId = newId();
-      newItems.push({ id: itemId, organizationId, sku: line.sku.trim(), name: line.title, type: "finished", barcode: line.sku.trim(), createdAt: now });
+      newItems.push({
+        id: itemId,
+        organizationId,
+        sku: line.sku.trim(),
+        name: line.title,
+        type: "finished",
+        barcode: line.sku.trim(),
+        createdAt: now,
+        etsyListingId: line.listingId ?? null,
+      });
       input.skus.set(key, itemId);
+    } else if (itemId && line.listingId) {
+      listingUpdates.push({ itemId, listingId: line.listingId });
     }
     if (!itemId) {
       missing.add(line.sku);
@@ -129,6 +141,9 @@ export async function persistChannelOrder(
       ...newItems.map((item) => db.insert(schema.items).values(item)),
       ...lines.map((line) => db.insert(schema.orderLines).values(line)),
     ]);
+    for (const link of listingUpdates) {
+      await db.update(schema.items).set({ etsyListingId: link.listingId }).where(eq(schema.items.id, link.itemId));
+    }
   } catch (err) {
     const raced = await existingOrder(db, organizationId, channel, order.externalId);
     if (raced) return { orderId: raced.id, number: raced.number, created: false, missingSkus: [] };

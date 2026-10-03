@@ -4,55 +4,7 @@ import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-
-const plans = [
-  {
-    name: "Northwind demo",
-    desc: "A stocked shop you can walk in minutes",
-    price: 0,
-    isMostPop: false,
-    href: "/login" as const,
-    cta: "Load the demo",
-    features: [
-      "Seeded Northwind Makers warehouse",
-      "Desk Lamp BOM, dock, aisle A/B, shop, outbound",
-      "Sample picker and dock operator",
-    ],
-  },
-  {
-    name: "Shop",
-    desc: "One building, Shopify, and the floor",
-    price: 0,
-    isMostPop: true,
-    href: "/signup" as const,
-    cta: "Open a warehouse",
-    features: [
-      "Garage — the small shop",
-      "Recipes, builds, and kits",
-      "One inventory ledger",
-      "Shopify checkouts to pick tickets",
-      "Shelf map and scan-to-move",
-      "Receive, pick, pack, and ship",
-      "Promise — when the order actually leaves",
-    ],
-  },
-  {
-    name: "Manufacturer",
-    desc: "The full floor once the product takes off",
-    price: 0,
-    isMostPop: false,
-    href: "/signup" as const,
-    cta: "Open a warehouse",
-    features: [
-      "Everything in Shop",
-      "Yard, ASN, and waves",
-      "Equipment, labor, and traffic",
-      "Counts, holds, and replenishment",
-      "3PL clients, zones, EDI, and billing",
-      "More than one building",
-    ],
-  },
-];
+import { PLAN_NOTE, PLANS } from "@/domain/plans";
 
 export function LandingPricing() {
   return (
@@ -65,38 +17,36 @@ export function LandingPricing() {
         className="mb-12 flex flex-col gap-3 text-center sm:mb-16"
       >
         <h2 className="bg-linear-to-b from-foreground to-muted-foreground bg-clip-text text-xl font-semibold text-transparent sm:text-2xl">
-          Start on the floor. Stay when you grow.
+          Start on the bench. Stay when you grow.
         </h2>
         <p className="mx-auto max-w-xl text-center text-muted-foreground">
-          Self-serve today. Load the Northwind demo, or open your own warehouse — both sit on the
-          same Cloudflare-native ledger.
+          Garage is free while you ship the first orders. Shop is the floor. Manufacturer is the
+          warehouse. Same ledger the whole way.
         </p>
       </motion.div>
 
       <div className="mx-auto grid max-w-5xl gap-4 sm:gap-6 md:grid-cols-3 md:gap-8">
-        {plans.map((plan, index) => (
+        {PLANS.map((plan, index) => (
           <motion.div
-            key={plan.name}
+            key={plan.id}
             initial={{ y: 20, opacity: 0 }}
             whileInView={{ y: 0, opacity: 1 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: index * 0.1 }}
-            className={`relative ${plan.isMostPop ? "md:scale-[1.03]" : ""}`}
+            className={`relative ${plan.mostPopular ? "md:scale-[1.03]" : ""}`}
           >
             <Card
-              className={`relative h-full gap-0 py-0 rounded-2xl ${
-                plan.isMostPop
-                  ? "border-2 border-primary bg-primary/5 shadow-lg"
-                  : "border border-border"
+              className={`relative h-full gap-0 rounded-2xl py-0 ${
+                plan.mostPopular ? "border-2 border-primary bg-primary/5 shadow-lg" : "border border-border"
               }`}
             >
-              {plan.isMostPop && (
+              {plan.mostPopular ? (
                 <div className="absolute -top-4 left-1/2 -translate-x-1/2 transform">
                   <span className="rounded-full border-2 border-primary bg-card px-3 py-1 text-xs font-medium sm:px-4 sm:text-sm">
                     Most Popular
                   </span>
                 </div>
-              )}
+              ) : null}
 
               <CardContent className="p-4 pt-6 sm:p-6 sm:pt-8">
                 <div className="mb-5 text-center sm:mb-6">
@@ -106,6 +56,7 @@ export function LandingPricing() {
                     <span className="text-3xl font-bold sm:text-4xl">${plan.price}</span>
                     <span className="ml-1 text-sm text-muted-foreground sm:text-base">/month</span>
                   </div>
+                  {plan.cap ? <p className="mt-2 text-xs text-muted-foreground">{plan.cap}</p> : null}
                 </div>
 
                 <Separator className="my-4 sm:my-6" />
@@ -121,12 +72,7 @@ export function LandingPricing() {
               </CardContent>
 
               <CardFooter className="p-4 pt-0 sm:p-6 sm:pt-0">
-                <Button
-                  asChild
-                  className="w-full"
-                  variant={plan.isMostPop ? "default" : "outline"}
-                  size="lg"
-                >
+                <Button asChild className="w-full" variant={plan.mostPopular ? "default" : "outline"} size="lg">
                   <Link to={plan.href}>{plan.cta}</Link>
                 </Button>
               </CardFooter>
@@ -134,6 +80,14 @@ export function LandingPricing() {
           </motion.div>
         ))}
       </div>
+
+      <p className="mx-auto mt-8 max-w-xl text-center text-sm text-muted-foreground">
+        {PLAN_NOTE}{" "}
+        <Link to="/login" className="underline">
+          Or walk the Northwind demo
+        </Link>
+        .
+      </p>
     </section>
   );
 }

@@ -68,6 +68,12 @@ export const organizations = sqliteTable("organizations", {
   restockPolicy: text("restock_policy").notNull().default("alert"),
   /** Replenish, reorder-alert, and reminder choices. Null keeps the defaults in `domain/automation.ts`. */
   automationPolicy: text("automation_policy"),
+  /** Local calendar day (YYYYMMDD) the morning exception note was last sent. */
+  exceptionDigestYmd: integer("exception_digest_ymd"),
+  qboRealmId: text("qbo_realm_id"),
+  /** Sealed QuickBooks access token. */
+  qboAccessToken: text("qbo_access_token"),
+  qboExpenseAccountId: text("qbo_expense_account_id"),
   mailReplyTo: text("mail_reply_to"),
   mailSenderName: text("mail_sender_name"),
   createdAt: integer("created_at").notNull(),
@@ -181,6 +187,8 @@ export const items = sqliteTable(
     altUom: text("alt_uom"),
     altPerStock: integer("alt_per_stock"),
     shopifyInventoryItemGid: text("shopify_inventory_item_gid"),
+    /** Listing id from an Etsy order, so sellable qty can be pushed back. */
+    etsyListingId: text("etsy_listing_id"),
     imageUrl: text("image_url"),
     unitCostCents: integer("unit_cost_cents").notNull().default(0),
     shipWeightOz: integer("ship_weight_oz"),
@@ -944,6 +952,10 @@ export const purchases = sqliteTable(
     receivedAt: integer("received_at"),
     clientId: text("client_id"),
     vendorId: text("vendor_id").references(() => vendors.id, { onDelete: "set null" }),
+    /** Freight for the whole PO, in cents. Spread across lines when a receipt posts. */
+    freightCents: integer("freight_cents").notNull().default(0),
+    /** QuickBooks bill id once Send has posted this purchase. */
+    qboBillId: text("qbo_bill_id"),
   },
   (t) => [index("purchases_vendor").on(t.vendorId)],
 );
@@ -1346,7 +1358,7 @@ export const softAllocations = sqliteTable(
 export type ItemType = "raw" | "wip" | "finished" | "packaging";
 export type LocationType = "receiving" | "storage" | "production" | "shipping";
 export type SlotRole = "pick" | "bulk" | "none";
-export type Role = "owner" | "operator";
+export type Role = "owner" | "operator" | "picker" | "bookkeeper";
 export type ReceiptStatus = "draft" | "receiving" | "received";
 export type OrderStatus = "open" | "picking" | "picked" | "packing" | "packed" | "shipped" | "cancelled";
 export type OrderSource = "manual" | "shopify";

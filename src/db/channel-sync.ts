@@ -41,7 +41,7 @@ export async function wooCreds(env: Bindings, conn: ChannelConnectionRow): Promi
   return { storeUrl: conn.apiBase, consumerKey, consumerSecret };
 }
 
-async function etsyAccessToken(db: AppDb, env: Bindings, conn: ChannelConnectionRow): Promise<{ app: EtsyApp; token: string }> {
+export async function etsyAccessToken(db: AppDb, env: Bindings, conn: ChannelConnectionRow): Promise<{ app: EtsyApp; token: string }> {
   const app = etsyApp(env);
   if (!app) throw new ChannelSetupError("ETSY_API_KEY is not set on this deployment.");
   const secret = channelSecret(env);

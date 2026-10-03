@@ -314,6 +314,12 @@ export async function scheduleShopifySellableSync(
   } catch {
     // Stock posts must not fail because Shopify was unreachable.
   }
+  try {
+    const { syncChannelSellable } = await import("./channel-sellable");
+    await syncChannelSellable(db, organizationId, itemIds);
+  } catch {
+    // A second channel is the same promise: the ledger post already happened.
+  }
 }
 
 export async function listShopifyLocationsForOrg(db: AppDb, organizationId: string) {

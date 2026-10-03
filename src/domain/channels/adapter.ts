@@ -13,6 +13,8 @@ export type ChannelOrderLine = {
   title: string;
   qty: number;
   externalLineId: string | null;
+  /** Etsy listing id, kept so sellable qty can be pushed back to that listing. */
+  listingId?: string | null;
 };
 
 export type ChannelOrder = {
@@ -60,7 +62,7 @@ export const CHANNELS: Record<ChannelId, ChannelInfo> = {
     liveOrders: true,
     trackingPostBack: true,
     csvImport: false,
-    blurb: "Processing orders arrive by webhook; shipping marks them completed with tracking.",
+    blurb: "Processing orders arrive by webhook. Sellable qty is pushed back, and shipping marks them completed.",
   },
   etsy: {
     id: "etsy",
@@ -69,7 +71,7 @@ export const CHANNELS: Record<ChannelId, ChannelInfo> = {
     liveOrders: true,
     trackingPostBack: true,
     csvImport: true,
-    blurb: "Paid receipts are pulled every 15 minutes; tracking posts back when you ship.",
+    blurb: "Paid receipts are pulled every 15 minutes. Sellable qty pushes to listings Rackline has seen, and tracking posts back when you ship.",
   },
   faire: {
     id: "faire",

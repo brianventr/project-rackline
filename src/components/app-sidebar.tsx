@@ -20,6 +20,7 @@ import { homePath } from "@/app/warehouse";
 import { useDashboard } from "@/app/dashboard";
 import { useExceptionInbox } from "@/app/exceptions";
 import { navForSession, type NavCounts } from "@/app/navigation";
+import { useOnboarding } from "@/app/onboarding";
 import { isGarageMode } from "@/domain/operating-mode";
 import { OnboardingProgress } from "@/app/components/onboarding";
 
@@ -32,7 +33,10 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
     () => (dashboard.data ? { ...dashboard.data, exceptions: inbox.data?.counts } : null),
     [dashboard.data, inbox.data?.counts],
   );
-  const groups = navForSession(me.role, garage);
+  const onboarding = useOnboarding({ enabled: garage });
+  const setupComplete = !garage || !onboarding.incomplete;
+  const groups = navForSession(me.role, garage, { setupComplete });
+  const nextStep = onboarding.steps.find((step) => step.id === onboarding.next);
 
   return (
     <Sidebar {...props}>
@@ -56,7 +60,15 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <div className="px-3 pb-2">
-        {me.role === "owner" ? (
+        {me.role === "owner" && !setupComplete && nextStep ? (
+          <Link
+            to={nextStep.path}
+            className="flex h-10 items-center justify-center gap-2 rounded-full bg-primary text-sm font-medium text-primary-foreground shadow-xs hover:bg-primary/90"
+          >
+            <ScanLine className="size-4" />
+            {nextStep.cta}
+          </Link>
+        ) : me.role === "owner" ? (
           <Link
             to="/automation"
             className="flex h-10 items-center justify-center gap-2 rounded-full bg-primary text-sm font-medium text-primary-foreground shadow-xs hover:bg-primary/90"

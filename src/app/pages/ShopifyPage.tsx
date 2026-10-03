@@ -382,6 +382,7 @@ export function ShopifyPage({ me }: { me: Me }) {
         }
       />
       <ErrorBanner error={error} />
+      {connection?.shopDomain ? <PromiseSnippet shop={connection.shopDomain} /> : null}
 
       <div className="grid gap-(--density-gap) xl:grid-cols-2">
         <Card>
@@ -681,5 +682,20 @@ function CopyValue({ value, label }: { value: string; label: string }) {
         <Copy className="size-3.5" />
       </Button>
     </div>
+  );
+}
+
+function PromiseSnippet({ shop }: { shop: string }) {
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  const snippet = `<div id="rackline-promise" data-shop="${shop}" data-sku="{{ product.selected_or_first_available_variant.sku }}"></div>\n<script src="${origin}/promise.js" defer></script>`;
+  return (
+    <Card className="space-y-2 p-4">
+      <h2 className="text-sm font-semibold">Promise on the product page</h2>
+      <p className="text-sm text-muted-foreground">
+        Paste this on the product template. It reads the same leave-by as Analytics → Promise and does not reserve stock.
+        Orders placed before the carrier cutoff ship today when the shelf can cover them.
+      </p>
+      <pre className="overflow-x-auto rounded-md border bg-muted/40 p-3 text-xs">{snippet}</pre>
+    </Card>
   );
 }
