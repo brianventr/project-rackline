@@ -443,6 +443,25 @@ html {
   animation: rack-reticle-pulse 1.6s ease-out infinite;
 }
 
+/* The mystery block in the top bar: still until hovered, then it bumps like it has something inside. */
+@keyframes mystery-bump {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  30% {
+    transform: translateY(-2px) rotate(-6deg);
+  }
+  60% {
+    transform: translateY(0) rotate(4deg);
+  }
+}
+
+.mystery-block:hover .mystery-glyph,
+.mystery-block:focus-visible .mystery-glyph {
+  animation: mystery-bump 0.6s ease-in-out;
+}
+
 /* Garage keeps its name. The palette stays with the rest of the app, with a faint warm wash. */
 [data-garage="on"] {
   --stage: #e6e2dc;

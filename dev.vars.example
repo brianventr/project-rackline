@@ -19,3 +19,7 @@ BETTER_AUTH_URL=http://localhost:5173
 # ETSY_API_KEY=
 # Optional, with ETSY_API_KEY. The Etsy app's shared secret; when set, calls send keystring:shared_secret as x-api-key.
 # ETSY_SHARED_SECRET=
+
+# Optional. Comma-separated organization ids allowed into the hidden CAD lab (/lab). Unset opens it to every
+# organization except the shared demo, which never gets it.
+# LAB_ORG_IDS=

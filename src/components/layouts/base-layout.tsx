@@ -10,6 +10,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { useSession } from "@/app/session";
 import { FLOOR_TAB_BAR_HEIGHT, FloorTabBar } from "@/app/components/floor-tab-bar";
 import { isGarageMode } from "@/domain/operating-mode";
+import { CAD_LAB_PATH } from "@/domain/lab-path";
 import { TourDialog } from "@/app/components/tour/TourDialog";
 import { useTourAutoOpen } from "@/app/tour";
 
@@ -24,7 +25,7 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
   const location = useLocation();
   const me = useSession();
   const floor = location.pathname.startsWith("/floor");
-  const canvas = location.pathname.startsWith("/automation");
+  const canvas = location.pathname.startsWith("/automation") || location.pathname === CAD_LAB_PATH;
   const garage = isGarageMode(me.organization.operatingMode);
   const frame = (
     <>

@@ -43,6 +43,8 @@ const GARAGE_PATHS: { prefix: string; exact?: boolean }[] = [
   { prefix: "/floor/kit" },
   { prefix: "/floor/adjust" },
   { prefix: "/map" },
+  /* The hidden CAD lab opens in both modes. */
+  { prefix: "/lab", exact: true },
   { prefix: "/move", exact: true },
   { prefix: "/analytics/runway" },
   { prefix: "/analytics/restock" },

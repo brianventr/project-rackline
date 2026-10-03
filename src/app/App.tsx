@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, type Me } from "./api";
 import { AppShell } from "./pages/AppShell";
@@ -90,6 +90,10 @@ import { PrintProvider } from "./print/PrintProvider";
 import { ScaleProvider } from "./scale/ScaleProvider";
 import { homePath, OwnerOnly } from "./warehouse";
 import { isPublicPath, PublicRoutes } from "./pages/public/PublicRoutes";
+import { LabBoundary } from "./lab/LabBoundary";
+
+/* The hidden lab pulls in the path tracer and the STEP converter, so it loads on its own. */
+const LabPage = lazy(() => import("./lab/LabPage").then((mod) => ({ default: mod.LabPage })));
 
 function Guard({ me }: { me: Me | null }) {
   if (!me) return <Navigate to="/login" replace />;
@@ -153,6 +157,16 @@ export function App() {
           }
         />
         <Route path="/exceptions" element={<ExceptionsPage />} />
+        <Route
+          path="/lab"
+          element={
+            <LabBoundary fallback={() => <p className="p-4 text-sm text-destructive">The lab could not load. Reload the page to get the latest version.</p>}>
+              <Suspense fallback={<p className="p-4 text-sm text-muted-foreground">Opening the lab…</p>}>
+                <LabPage />
+              </Suspense>
+            </LabBoundary>
+          }
+        />
         <Route
           path="/welcome"
           element={
