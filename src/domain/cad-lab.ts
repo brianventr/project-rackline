@@ -25,17 +25,75 @@ export function modelNameFromFile(fileName: string): string {
   return name || "Model";
 }
 
-/** "AX-1000" → "ax-1000", "AX Cup Holder" → "ax-cup-holder". Never empty, at most 80 characters. */
+const MAX_SLUG = 80;
+
+function trimSlug(slug: string, max: number): string {
+  return slug.slice(0, max).replace(/-+$/g, "");
+}
+
+/** FNV-1a over code points, base 36: a short, stable fingerprint of a name. */
+function nameHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (const ch of text) {
+    h ^= ch.codePointAt(0)!;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36);
+}
+
+/**
+ * "AX-1000" → "ax-1000", "AX Cup Holder" → "ax-cup-holder". A name in another script ("底座", "装配体1")
+ * keeps what ASCII can say plus a short hash of the whole name, so different names never share a key.
+ * Never empty, at most 80 characters.
+ */
 export function slugifyModelName(name: string): string {
-  const slug = name
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+  const folded = name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  const ascii = folded
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80)
-    .replace(/-+$/g, "");
-  return slug || "model";
+    .replace(/^-+|-+$/g, "");
+  if (!/[^\x00-\x7f]/.test(folded)) return trimSlug(ascii, MAX_SLUG) || "model";
+  const hash = nameHash(name.normalize("NFC").trim());
+  return `${trimSlug(ascii || "model", MAX_SLUG - hash.length - 1) || "model"}-${hash}`;
+}
+
+/**
+ * Names and storage slugs for one batch of files. Two files called "Bracket" (from different folders)
+ * become "Bracket" and "Bracket 2"; every slug handed out is reserved, so a later "Bracket 2.step" gets
+ * "Bracket 2 2" instead of overwriting, and the suffix survives the 80-character limit.
+ */
+export function uniqueModelNames(fileNames: string[]): { name: string; slug: string }[] {
+  const used = new Set<string>();
+  return fileNames.map((fileName) => {
+    const base = modelNameFromFile(fileName);
+    const root = slugifyModelName(base);
+    let name = base;
+    let slug = root;
+    for (let n = 2; used.has(slug); n++) {
+      name = `${base} ${n}`;
+      slug = `${trimSlug(root, MAX_SLUG - String(n).length - 1)}-${n}`;
+    }
+    used.add(slug);
+    return { name, slug };
+  });
+}
+
+/**
+ * Zip tools that do not set the UTF-8 flag (Explorer on a Chinese-locale Windows, some Finder builds)
+ * leave entry names that fflate reads as Latin-1. Read the same bytes as UTF-8, then GBK, and keep the
+ * name as it came when neither fits.
+ */
+export function zipEntryName(raw: string): string {
+  if (!/[\x80-\xff]/.test(raw) || /[^\x00-\xff]/.test(raw)) return raw;
+  const bytes = Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  for (const label of ["utf-8", "gbk"]) {
+    try {
+      return new TextDecoder(label, { fatal: true }).decode(bytes);
+    } catch {
+      /* Not this encoding; try the next. */
+    }
+  }
+  return raw;
 }
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
@@ -71,7 +129,6 @@ const PART_GLOSSARY: [string, string][] = (
     ["压线扣", "cable clip"],
     ["可转动", "rotating"],
     ["摄像头", "camera"],
-    ["摄相头", "camera"],
     ["笔记本", "laptop"],
     ["无线充", "wireless charging"],
     ["沉头", "countersunk"],
@@ -254,7 +311,8 @@ const STEEL_TERMS_RE = /螺钉|螺栓|螺母|弹簧|垫圈|弹珠|手拧螺|锁�
  */
 export function defaultFinishFor(partName: string, cadColor: LinearRgb | null): string {
   const name = partName ?? "";
-  if (/螺丝贴/.test(name)) return cadColor ? finishForColor(cadColor) : "satin-black";
+  // A label or sticker over a screw is not steel, whatever else its name says.
+  if (/贴|标签|\b(sticker|label|decal)\b/i.test(name)) return cadColor ? finishForColor(cadColor) : "satin-black";
   if (FASTENER_STANDARD_RE.test(name) || STEEL_TERMS_RE.test(name) || /\b(screw|bolt|nut|washer|spring)\b/i.test(name)) {
     return "stainless-steel";
   }
@@ -687,7 +745,7 @@ export function frameDistance(radius: number, verticalFovDeg: number, aspect: nu
 /**
  * How far from the orbit target the camera must sit, along its view axis, so every point fits the frame
  * with `margin` room. Points are relative to the target in camera axes: x right, y up, z toward the camera.
- * Tighter than a bounding sphere for long, flat products like a monitor stand.
+ * Tighter than a bounding sphere for long, flat products.
  */
 export function fitDistance(points: [number, number, number][], verticalFovDeg: number, aspect: number, margin = 1.1): number {
   const tanV = Math.tan((verticalFovDeg * Math.PI) / 360);

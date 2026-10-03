@@ -100,19 +100,19 @@ export async function loadModel(glb: ArrayBuffer): Promise<LoadedModel> {
     if ((object as THREE.Mesh).isMesh) meshes.push(object as THREE.Mesh);
   });
 
-  for (const source of meshes) {
+  const addPart = (source: THREE.Mesh, matrix: THREE.Matrix4) => {
     const geometry = source.geometry.clone();
     toFloatAttributes(geometry);
     // Quantized positions carry their dequantization scale on the node; baking the world matrix keeps every part in metres.
-    geometry.applyMatrix4(source.matrixWorld);
+    geometry.applyMatrix4(matrix);
     // A mirrored node turns faces inside out once baked; swap the winding back.
-    if (source.matrixWorld.determinant() < 0) flipWinding(geometry);
+    if (matrix.determinant() < 0) flipWinding(geometry);
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     const material = Array.isArray(source.material) ? source.material[0]! : source.material;
     sourceMaterials.add(material);
     const cadColor = cadColorOf(material);
-    // Clicking a part raycasts through a BVH instead of every triangle of a 300k-triangle stand.
+    // Clicking a part raycasts through a BVH instead of every triangle of a dense assembly.
     // drei pins an older three-mesh-bvh whose typing of `boundsTree` clashes with this one's.
     (geometry as unknown as { boundsTree?: MeshBVH }).boundsTree = new MeshBVH(geometry);
     const mesh = new THREE.Mesh(geometry, material);
@@ -129,6 +129,20 @@ export async function loadModel(glb: ArrayBuffer): Promise<LoadedModel> {
     const count = Math.floor((geometry.index?.count ?? geometry.getAttribute("position").count) / 3);
     triangles += count;
     parts.push({ id, name, label: partLabel(name), cadColor, defaultFinish: defaultFinishFor(name, cadColor), triangles: count, mesh });
+  };
+
+  for (const source of meshes) {
+    if ((source as THREE.InstancedMesh).isInstancedMesh) {
+      // One mesh placed many times (EXT_mesh_gpu_instancing): each placement is its own part.
+      const instanced = source as THREE.InstancedMesh;
+      const local = new THREE.Matrix4();
+      for (let i = 0; i < instanced.count; i++) {
+        instanced.getMatrixAt(i, local);
+        addPart(source, new THREE.Matrix4().multiplyMatrices(source.matrixWorld, local));
+      }
+    } else {
+      addPart(source, source.matrixWorld);
+    }
     source.geometry.dispose();
   }
   return { root, parts, triangles, sourceMaterials: [...sourceMaterials] };

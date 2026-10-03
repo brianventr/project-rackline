@@ -5,12 +5,12 @@
 import occtimportjs from "occt-import-js";
 import occtWasmUrl from "occt-import-js/dist/occt-import-js.wasm?url";
 import { WebIO, type Document } from "@gltf-transform/core";
-import { EXTMeshoptCompression, KHRMeshQuantization } from "@gltf-transform/extensions";
-import { dedup, getBounds, meshopt, prune, weld } from "@gltf-transform/functions";
+import { EXTMeshGPUInstancing, EXTMeshoptCompression, KHRMeshQuantization } from "@gltf-transform/extensions";
+import { dedup, getBounds, meshopt, prune, uninstance, weld } from "@gltf-transform/functions";
 import { MeshoptDecoder, MeshoptEncoder } from "meshoptimizer";
 import { unzipSync } from "three/examples/jsm/libs/fflate.module.js";
 import { STEP_TESSELLATION, occtToDocument, type OcctResult } from "@/domain/cad-convert";
-import { cadFileKind, modelNameFromFile, slugifyModelName } from "@/domain/cad-lab";
+import { cadFileKind, uniqueModelNames, zipEntryName } from "@/domain/cad-lab";
 import type { ConvertMessage, ConvertRequest, ConvertStage } from "./convert-protocol";
 
 /** The worker scope, typed here because the app compiles against the DOM lib, not the webworker one. */
@@ -22,18 +22,27 @@ const scope = globalThis as unknown as {
 let occtReady: ReturnType<typeof occtimportjs> | null = null;
 let ioReady: Promise<WebIO> | null = null;
 
+// A failed start (the 7.6 MB .wasm did not download, or a deploy replaced it) is not kept: the next file retries.
 function occt() {
-  occtReady ??= occtimportjs({ locateFile: () => occtWasmUrl });
+  occtReady ??= occtimportjs({ locateFile: () => occtWasmUrl }).catch((err: unknown) => {
+    occtReady = null;
+    throw err;
+  });
   return occtReady;
 }
 
 function io() {
-  ioReady ??= Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready]).then(() =>
-    new WebIO().registerExtensions([EXTMeshoptCompression, KHRMeshQuantization]).registerDependencies({
-      "meshopt.encoder": MeshoptEncoder,
-      "meshopt.decoder": MeshoptDecoder,
-    }),
-  );
+  ioReady ??= Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready])
+    .then(() =>
+      new WebIO().registerExtensions([EXTMeshoptCompression, KHRMeshQuantization, EXTMeshGPUInstancing]).registerDependencies({
+        "meshopt.encoder": MeshoptEncoder,
+        "meshopt.decoder": MeshoptDecoder,
+      }),
+    )
+    .catch((err: unknown) => {
+      ioReady = null;
+      throw err;
+    });
   return ioReady;
 }
 
@@ -57,9 +66,9 @@ function expand(files: ConvertRequest["files"], id: number): Entry[] {
             return !entry.name.startsWith("__MACOSX/") && !base.startsWith(".") && (cadFileKind(base) === "step" || cadFileKind(base) === "glb");
           },
         });
-        const names = Object.keys(inside).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-        if (names.length === 0) post({ id, type: "skipped", file: file.name, reason: "No .stp, .step, or .glb files inside" });
-        for (const name of names) out.push({ name, bytes: inside[name]! });
+        const keys = Object.keys(inside).sort((a, b) => zipEntryName(a).localeCompare(zipEntryName(b), undefined, { numeric: true }));
+        if (keys.length === 0) post({ id, type: "skipped", file: file.name, reason: "No .stp, .step, or .glb files inside" });
+        for (const key of keys) out.push({ name: zipEntryName(key), bytes: inside[key]! });
       } catch {
         post({ id, type: "skipped", file: file.name, reason: "Could not open the zip" });
       }
@@ -92,21 +101,7 @@ function countDocument(document: Document) {
   return { parts, triangles, sizeMm };
 }
 
-/**
- * Two files with the same name in one batch ("A/Assembly.STEP", "B/Assembly.STEP") would save over each
- * other; the second becomes "Assembly 2".
- */
-function uniqueNames(entries: Entry[]): string[] {
-  const taken = new Map<string, number>();
-  return entries.map((entry) => {
-    const base = modelNameFromFile(entry.name);
-    const count = (taken.get(slugifyModelName(base)) ?? 0) + 1;
-    taken.set(slugifyModelName(base), count);
-    return count === 1 ? base : `${base} ${count}`;
-  });
-}
-
-async function convertOne(entry: Entry, name: string, index: number, total: number, id: number) {
+async function convertOne(entry: Entry, name: string, slug: string, index: number, total: number, id: number) {
   const started = performance.now();
   const stage = (s: ConvertStage) => post({ id, type: "progress", file: entry.name, index, total, stage: s });
   const writer = await io();
@@ -122,8 +117,14 @@ async function convertOne(entry: Entry, name: string, index: number, total: numb
       const message = err instanceof Error ? err.message : "";
       throw new Error(/draco/i.test(message) ? "Uses Draco compression; export it without Draco, or send the STEP" : "Not a readable GLB");
     }
+    // GPU instancing (one mesh placed by many transforms) would collapse to a single part: expand it.
+    if (document.getRoot().listNodes().some((node) => node.getExtension("EXT_mesh_gpu_instancing"))) {
+      await document.transform(uninstance());
+      glb = await writer.writeBinary(document);
+    } else {
+      glb = entry.bytes;
+    }
     stats = countDocument(document);
-    glb = entry.bytes;
   } else {
     stage("read");
     const reader = await occt();
@@ -150,7 +151,7 @@ async function convertOne(entry: Entry, name: string, index: number, total: numb
       ms: Math.round(performance.now() - started),
       model: {
         name,
-        slug: slugifyModelName(name),
+        slug,
         glb: buffer,
         stats: { name, ...stats, sourceName: entry.name.split("/").pop() ?? entry.name, sourceBytes: entry.bytes.byteLength },
       },
@@ -163,12 +164,12 @@ scope.onmessage = async (event) => {
   const { id, files } = event.data;
   try {
     const entries = expand(files, id);
-    const names = uniqueNames(entries);
+    const names = uniqueModelNames(entries.map((entry) => entry.name));
     post({ id, type: "queued", total: entries.length });
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i]!;
       try {
-        await convertOne(entry, names[i]!, i, entries.length, id);
+        await convertOne(entry, names[i]!.name, names[i]!.slug, i, entries.length, id);
       } catch (err) {
         post({ id, type: "skipped", file: entry.name, reason: err instanceof Error ? err.message : "Could not convert" });
       }

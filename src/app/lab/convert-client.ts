@@ -1,3 +1,4 @@
+import { cadFileKind } from "@/domain/cad-lab";
 import type { ConvertMessage } from "./convert-protocol";
 
 let worker: Worker | null = null;
@@ -25,7 +26,20 @@ function conversionWorker(): Worker {
  */
 export async function convertCadFiles(files: File[], onMessage: (message: ConvertMessage) => void): Promise<void> {
   const id = nextId++;
-  const payload = await Promise.all(files.map(async (file) => ({ name: file.name, bytes: await file.arrayBuffer() })));
+  // Read only what could be CAD, one file at a time: a dropped folder (which the browser hands over as an
+  // unreadable File) or a stray document is reported and skipped instead of failing the whole drop.
+  const payload: { name: string; bytes: ArrayBuffer }[] = [];
+  for (const file of files) {
+    if (!cadFileKind(file.name)) {
+      onMessage({ id, type: "skipped", file: file.name, reason: "Not a STEP, GLB, or zip file (zip a folder before dropping it)" });
+      continue;
+    }
+    try {
+      payload.push({ name: file.name, bytes: await file.arrayBuffer() });
+    } catch {
+      onMessage({ id, type: "skipped", file: file.name, reason: "Could not read it. Zip a folder before dropping it" });
+    }
+  }
   const target = conversionWorker();
   await new Promise<void>((resolve, reject) => {
     listeners.set(id, (message) => {

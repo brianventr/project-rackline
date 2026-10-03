@@ -42,6 +42,8 @@ import {
   studioPresetById,
   sweepHit,
   translatePartName,
+  uniqueModelNames,
+  zipEntryName,
   verticalFovForFocalLength,
 } from "./cad-lab";
 
@@ -58,7 +60,7 @@ describe("files and names", () => {
   it("names a model after its file, without folders or extension", () => {
     expect(modelNameFromFile("Assemblies/BX Cup Holder.stp")).toBe("BX Cup Holder");
     expect(modelNameFromFile("C:\\cad\\AX-1000.STEP")).toBe("AX-1000");
-    expect(modelNameFromFile("game_controller  stand.glb")).toBe("game controller stand");
+    expect(modelNameFromFile("bench_clamp  arm.glb")).toBe("bench clamp arm");
     expect(modelNameFromFile(".stp")).toBe("Model");
   });
 
@@ -66,9 +68,47 @@ describe("files and names", () => {
     expect(slugifyModelName("AX-1000")).toBe("ax-1000");
     expect(slugifyModelName("BX Lamp Arm With Clamp")).toBe("bx-lamp-arm-with-clamp");
     expect(slugifyModelName("  Café   Stand (v2) ")).toBe("cafe-stand-v2");
-    expect(slugifyModelName("桌板")).toBe("model");
+    // Other scripts keep a hash, so different names get different keys.
+    expect(slugifyModelName("底座")).toMatch(/^model-[a-z0-9]+$/);
+    expect(slugifyModelName("底座")).not.toBe(slugifyModelName("支架"));
+    expect(slugifyModelName("装配体1")).not.toBe(slugifyModelName("零件1"));
+    expect(slugifyModelName("装配体1")).toMatch(/^1-[a-z0-9]+$/);
+    expect(slugifyModelName("AX 底座")).toMatch(/^ax-[a-z0-9]+$/);
+    expect(slugifyModelName("底座")).toBe(slugifyModelName("底座"));
+    expect(isLabModelSlug(slugifyModelName("底座".repeat(60)))).toBe(true);
     expect(slugifyModelName("x".repeat(200))).toHaveLength(80);
     expect(isLabModelSlug(slugifyModelName("-".repeat(5) + "a".repeat(100)))).toBe(true);
+  });
+
+  it("gives every file in a batch its own name and slug", () => {
+    expect(uniqueModelNames(["A/Widget.STEP", "B/Widget.STEP", "Widget 2.STEP"])).toEqual([
+      { name: "Widget", slug: "widget" },
+      { name: "Widget 2", slug: "widget-2" },
+      { name: "Widget 2 2", slug: "widget-2-2" },
+    ]);
+    expect(uniqueModelNames(["Bracket 2.step", "v1/Bracket.step", "v2/Bracket.step"]).map((m) => m.slug)).toEqual([
+      "bracket-2",
+      "bracket",
+      "bracket-3",
+    ]);
+    // The suffix survives the 80-character cut.
+    const long = "x".repeat(94);
+    const [first, second] = uniqueModelNames([`a/${long}.stp`, `b/${long}.stp`]);
+    expect(first!.slug).not.toBe(second!.slug);
+    expect(second!.slug.endsWith("-2")).toBe(true);
+    expect(isLabModelSlug(second!.slug)).toBe(true);
+    // Different names in another script never collide.
+    const chinese = uniqueModelNames(["底座.STEP", "支架.STEP", "桌子.STEP"]);
+    expect(chinese.map((m) => m.name)).toEqual(["底座", "支架", "桌子"]);
+    expect(new Set(chinese.map((m) => m.slug)).size).toBe(3);
+  });
+
+  it("reads zip names that were stored without the UTF-8 flag", () => {
+    const asLatin1 = (text: string) => String.fromCharCode(...new TextEncoder().encode(text));
+    expect(zipEntryName(asLatin1("装配体/桌子.STEP"))).toBe("装配体/桌子.STEP");
+    expect(zipEntryName("plain/name.stp")).toBe("plain/name.stp");
+    expect(zipEntryName("装配体.stp")).toBe("装配体.stp");
+    expect(zipEntryName("caf\u00e9.stp")).toBe("caf\u00e9.stp");
   });
 
   it("only accepts plain slugs", () => {
@@ -108,20 +148,20 @@ describe("files and names", () => {
 
 describe("part names", () => {
   it("translates Chinese CAD names and keeps numbering", () => {
-    expect(translatePartName("桌腿沉头")).toBe("Leg countersunk");
-    expect(translatePartName("支架不沉头")).toBe("Bracket non-countersunk");
-    expect(translatePartName("侧面插槽-3")).toBe("Side slot - 3");
-    expect(translatePartName("侧面插槽- 3")).toBe("Side slot - 3");
-    expect(translatePartName("桌板主体组件-600")).toBe("Desk panel main body assembly - 600");
-    expect(translatePartName("铝板折弯线槽")).toBe("Aluminum panel bent cable tray");
-    expect(translatePartName("实体4_1")).toBe("Body 4_1");
-    expect(translatePartName("转盘插条_1")).toBe("Turntable insert strip_1");
-    expect(translatePartName("AB200-左斜2")).toBe("AB200 - left bevel 2");
-    expect(translatePartName("笔记本支架顶板")).toBe("Laptop bracket top plate");
-    expect(translatePartName("耳机挂架-可转动")).toBe("Headset hanger - rotating");
-    expect(translatePartName("手机无线充衬套")).toBe("Phone wireless charging sleeve");
-    expect(translatePartName("压缩弹簧")).toBe("Compression spring");
-    expect(translatePartName("PAD支架")).toBe("PAD bracket");
+    expect(translatePartName("螺钉沉头")).toBe("Screw countersunk");
+    expect(translatePartName("垫片不沉头")).toBe("Shim non-countersunk");
+    expect(translatePartName("侧面卡扣-3")).toBe("Side snap clip - 3");
+    expect(translatePartName("侧面卡扣- 3")).toBe("Side snap clip - 3");
+    expect(translatePartName("底座组件-2")).toBe("Base assembly - 2");
+    expect(translatePartName("铝板盖")).toBe("Aluminum panel cover");
+    expect(translatePartName("零件5")).toBe("Part 5");
+    expect(translatePartName("转盘盖_1")).toBe("Turntable cover_1");
+    expect(translatePartName("Q7-右斜")).toBe("Q7 - right bevel");
+    expect(translatePartName("平板支架底板")).toBe("Tablet bracket base plate");
+    expect(translatePartName("电源盖-可转动")).toBe("Power supply cover - rotating");
+    expect(translatePartName("手表充电内衬")).toBe("Watch charging liner");
+    expect(translatePartName("弹簧垫圈")).toBe("Spring washer");
+    expect(translatePartName("LED支架")).toBe("LED bracket");
   });
 
   it("leaves names without Chinese alone", () => {
@@ -165,9 +205,9 @@ describe("finishes", () => {
     expect(defaultFinishFor("JIS B 1111 - M3 x 6", [0.5, 0.49, 0.48])).toBe("stainless-steel");
     expect(defaultFinishFor("CSN 021702 - 4", null)).toBe("stainless-steel");
     expect(defaultFinishFor("BS 4168 - M2 x 4", null)).toBe("stainless-steel");
-    expect(defaultFinishFor("压缩弹簧-3", [0.74, 0.73, 0.7])).toBe("stainless-steel");
-    expect(defaultFinishFor("弹性螺母", [0.521, 0.521, 0.521])).toBe("stainless-steel");
-    expect(defaultFinishFor("M3手拧螺钉", null)).toBe("stainless-steel");
+    expect(defaultFinishFor("弹簧-7", [0.74, 0.73, 0.7])).toBe("stainless-steel");
+    expect(defaultFinishFor("螺母-4", [0.521, 0.521, 0.521])).toBe("stainless-steel");
+    expect(defaultFinishFor("M4螺栓", null)).toBe("stainless-steel");
   });
 
   it("does not mistake ordinary names for standards", () => {
@@ -175,19 +215,20 @@ describe("finishes", () => {
     expect(defaultFinishFor("Base 12", [0.07, 0.07, 0.07])).toBe("satin-black");
   });
 
-  it("reads felt, pads, and the screw cover by name", () => {
-    expect(defaultFinishFor("侧面毛毡", [0.521, 0.521, 0.521])).toBe("felt-charcoal");
-    expect(defaultFinishFor("桌脚防滑垫", null)).toBe("rubber-black");
-    expect(defaultFinishFor("螺丝贴", null)).toBe("satin-black");
-    expect(defaultFinishFor("螺丝贴", [0.98, 0.98, 0.98])).toBe("powder-white");
+  it("reads felt, pads, and stickers by name", () => {
+    expect(defaultFinishFor("毛毡垫", [0.521, 0.521, 0.521])).toBe("felt-charcoal");
+    expect(defaultFinishFor("底座防滑垫", null)).toBe("rubber-black");
+    // A label over a screw is not steel, whatever its name says.
+    expect(defaultFinishFor("螺钉标签", null)).toBe("satin-black");
+    expect(defaultFinishFor("screw cover sticker", [0.98, 0.98, 0.98])).toBe("powder-white");
   });
 
   it("maps CAD colors to finishes", () => {
-    expect(defaultFinishFor("支架-左斜1", [0.521, 0.521, 0.521])).toBe("anodized-silver");
-    expect(defaultFinishFor("桌板-600", [0.42, 0.42, 0.42])).toBe("anodized-space-gray");
-    expect(defaultFinishFor("侧面插槽-3", [0.07, 0.07, 0.07])).toBe("satin-black");
+    expect(defaultFinishFor("支架-右斜2", [0.521, 0.521, 0.521])).toBe("anodized-silver");
+    expect(defaultFinishFor("底板-3", [0.42, 0.42, 0.42])).toBe("anodized-space-gray");
+    expect(defaultFinishFor("侧面卡扣-3", [0.07, 0.07, 0.07])).toBe("satin-black");
     expect(defaultFinishFor("part", [0.2, 0.2, 0.2])).toBe("anodized-black");
-    expect(defaultFinishFor("桌腿沉头", [0.98, 0.98, 0.98])).toBe("powder-white");
+    expect(defaultFinishFor("桌腿-2", [0.98, 0.98, 0.98])).toBe("powder-white");
     expect(defaultFinishFor("轨道", [0.7, 0.2, 0.02])).toBe("cad-satin");
     expect(defaultFinishFor("", null)).toBe("anodized-silver");
   });
@@ -491,7 +532,7 @@ describe("library storage", () => {
   });
 
   it("round-trips metadata through R2 custom metadata", () => {
-    const meta = { ...normalizeLabStats(stats), uploadedBy: "brian@ventr.it", uploadedAt: 1_790_000_000_000 };
+    const meta = { ...normalizeLabStats(stats), uploadedBy: "avery@example.com", uploadedAt: 1_790_000_000_000 };
     const encoded = encodeLabMeta(meta);
     expect(Object.values(encoded).every((v) => typeof v === "string")).toBe(true);
     expect(JSON.stringify(encoded).length).toBeLessThan(2048);

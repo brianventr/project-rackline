@@ -76,7 +76,24 @@ type Props = {
   onReady: (handle: ViewerHandle | null) => void;
 };
 
+/** react-three-fiber creates its renderer in a promise no error boundary sees, so check WebGL 2 up front. */
+function hasWebGL2(): boolean {
+  try {
+    const context = document.createElement("canvas").getContext("webgl2");
+    context?.getExtension("WEBGL_lose_context")?.loseContext();
+    return !!context;
+  } catch {
+    return false;
+  }
+}
+
 export function CadViewer(props: Props) {
+  const webgl2 = useMemo(hasWebGL2, []);
+  if (!webgl2) throw new Error("WebGL 2 is not available in this browser");
+  return <CadCanvas {...props} />;
+}
+
+function CadCanvas(props: Props) {
   const camera = useMemo(() => {
     const cam = new PhysicalCamera(27, 1, 0.01, 100);
     cam.layers.enable(SWEEP_LAYER);

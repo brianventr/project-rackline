@@ -24,7 +24,7 @@ function sample(): OcctResult {
           children: [
             { name: "桌腿", meshes: [0], children: [] },
             { name: "ISO 4762 - M4 x 10", meshes: [1], children: [] },
-            { name: "侧面插槽-3", meshes: [2, 3], children: [] },
+            { name: "侧面卡扣-3", meshes: [2, 3], children: [] },
           ],
         },
       ],
@@ -54,11 +54,11 @@ describe("occtToDocument", () => {
     const [root] = scene.listChildren();
     expect(root!.getName()).toBe("AX-1000");
     const children = root!.listChildren()[0]!.listChildren();
-    expect(children.map((n) => n.getExtras().name)).toEqual(["桌腿", "ISO 4762 - M4 x 10", "侧面插槽-3"]);
+    expect(children.map((n) => n.getExtras().name)).toEqual(["桌腿", "ISO 4762 - M4 x 10", "侧面卡扣-3"]);
     // A one-solid part is a single node with the mesh on it; two solids become two child nodes.
     expect(children[0]!.getMesh()).not.toBeNull();
     expect(children[2]!.getMesh()).toBeNull();
-    expect(children[2]!.listChildren().map((n) => n.getExtras().name)).toEqual(["slot a", "侧面插槽-3 2"]);
+    expect(children[2]!.listChildren().map((n) => n.getExtras().name)).toEqual(["slot a", "侧面卡扣-3 2"]);
   });
 
   it("writes metres and reports the size in millimetres", () => {

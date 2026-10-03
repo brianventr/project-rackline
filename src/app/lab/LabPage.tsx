@@ -131,12 +131,13 @@ function LabStudio() {
   const entriesRef = useRef(entries);
   entriesRef.current = entries;
   const mounted = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Set again on setup: StrictMode runs this effect's cleanup once before the real mount.
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const [settings, updateSettings] = useModelSettings(loaded?.slug ?? null);
   const [look, setLook] = useStoredLook();
@@ -338,7 +339,8 @@ function LabStudio() {
         signal: controller.signal,
         onProgress: (done, elapsedMs) => setRender((job) => job && { ...job, status: "rendering", samples: done, elapsedMs }),
       });
-      // Stop pressed while the PNG was encoding still gets the finished picture.
+      // Stop pressed while the PNG was encoding still gets the finished picture; leaving the lab does not.
+      if (!mounted.current) return;
       const url = URL.createObjectURL(blob);
       renderUrl.current = url;
       setRender((job) => job && { ...job, status: "done", url, canvas: null, samples: job.target });

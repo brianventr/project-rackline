@@ -200,7 +200,7 @@ export function LibraryPanel({
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        className="absolute top-1.5 right-1 opacity-60 focus-visible:opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                        className="absolute top-1.5 right-1 opacity-60 focus-visible:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100"
                         aria-label={`Delete ${entry.name}`}
                         onClick={() => setConfirm(entry)}
                       >
