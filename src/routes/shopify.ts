@@ -42,6 +42,7 @@ import { demoShopifyLocationGid } from "../domain/shopify-sellable";
 import { openShopifyRow } from "../db/credentials";
 import { credentialSecret } from "../lib/credential-secret";
 import { sealSecret } from "../lib/secret-box";
+import { redactShopifyCustomer, redactShopifyShop, shopifyGdprCustomer, shopifyGdprTopic } from "../db/shopify-gdpr";
 import {
   assertOauthShop,
   shopifyAuthorizeUrl,
@@ -173,6 +174,19 @@ async function handleWebhookTopic(
   topic: string,
   payload: unknown,
 ) {
+  const gdpr = shopifyGdprTopic(topic);
+  if (gdpr === "data_request") {
+    return c.json({ ok: true, topic, note: "Order ship-to is the customer data Rackline keeps." });
+  }
+  if (gdpr === "customers_redact") {
+    const result = await redactShopifyCustomer(c.get("db"), connection.organizationId, shopifyGdprCustomer(payload));
+    return c.json({ ok: true, topic, ...result });
+  }
+  if (gdpr === "shop_redact") {
+    await redactShopifyShop(c.get("db"), connection.organizationId, connection.shopDomain);
+    return c.json({ ok: true, topic });
+  }
+
   if (topic === "orders/create" || topic === "orders/updated" || topic === "orders/paid") {
     const order = payload as ShopifyRestOrder;
     if (order.cancelled_at && order.id != null) {

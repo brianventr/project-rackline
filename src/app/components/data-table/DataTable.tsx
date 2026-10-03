@@ -115,6 +115,11 @@ export type DataTableProps<T extends object> = {
   rowClassName?: (row: T) => string | undefined;
   /** Prefix for URL params when a page shows more than one table. */
   paramPrefix?: string;
+  /**
+   * Phone layout. When set, screens below `md` show one card per row instead of the wide table.
+   * The table stays for wider screens.
+   */
+  mobileCard?: (row: T) => ReactNode;
 };
 
 const EMPTY: never[] = [];
@@ -185,6 +190,7 @@ export function DataTable<T extends object>({
   exportName,
   rowClassName,
   paramPrefix = "",
+  mobileCard,
 }: DataTableProps<T>) {
   const navigate = useNavigate();
   const confirm = useConfirm();
@@ -488,7 +494,29 @@ export function DataTable<T extends object>({
       {!loading && rows.length === 0 && !error ? (
         (empty ?? <EmptyState title="Nothing here yet." />)
       ) : (
-        <div className={TABLE_FRAME}>
+        <>
+        {mobileCard ? (
+          <div className="space-y-2 md:hidden">
+            {loading ? (
+              <div className="h-28 animate-pulse rounded-xl border bg-muted/40" />
+            ) : pageRows.length === 0 ? (
+              <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+                {filtersActive
+                  ? "No rows match these filters."
+                  : activeTab
+                    ? `Nothing in ${activeTab.label.toLowerCase()} right now.`
+                    : "No rows."}
+              </p>
+            ) : (
+              pageRows.map((row) => (
+                <div key={row.id} className={rowClassName?.(row.original)}>
+                  {mobileCard(row.original)}
+                </div>
+              ))
+            )}
+          </div>
+        ) : null}
+        <div className={cn(TABLE_FRAME, mobileCard && "hidden md:block")}>
           <UiTable>
             <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur supports-[backdrop-filter]:bg-muted/60">
               <TableRow className="hover:bg-transparent">
@@ -606,6 +634,7 @@ export function DataTable<T extends object>({
             </TableBody>
           </UiTable>
         </div>
+        </>
       )}
 
       {!loading && pageCount > 1 ? (

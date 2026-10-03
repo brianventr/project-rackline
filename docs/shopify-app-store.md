@@ -36,14 +36,34 @@ Public LP: `/use-cases/stocky-replacement` and `/use-cases/shopify-wms`.
 5. Run blind cycle counts on the Floor
 6. Connect Shopify OAuth and push sellable qty
 
+## Listing assets
+
+Capture these from the Northwind demo (desktop and a phone width) and attach them in the Partner Dashboard. The app does not generate the image files.
+
+1. Garage Ship queue with a ready order and the Ship button.
+2. Getting started, the short first-hour menu (Ship, Items, Receive).
+3. Floor Next job, with the scan box and the bay.
+4. A recipe or kit with the SKU photo.
+5. Promise, one order that leaves today.
+
+Icon: the Rackline mark on a square, at least 1200×1200. Name the listing **Rackline WMS**.
+
+## Reviewer notes
+
+- New organizations start in Garage Mode. The sidebar stays on Ship, Items, and Receive until Getting started is done. The rest of the bench is in the command palette (⌘K).
+- Reviewer login: **Load Northwind Makers demo** on `/login` — `demo@northwind.makers` / `rackline-demo`. Northwind is already a full warehouse, so the reviewer sees Manufacturer as well as the ship queue.
+- Demo mode never calls Shopify. Paste a shop domain or use **Install Shopify app** when `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET` are set.
+- GDPR webhooks (`customers/data_request`, `customers/redact`, `shop/redact`) use the same HMAC endpoint as order webhooks, `/api/shopify/webhooks`. A data request is acknowledged. A customer redact clears ship-to and the customer record. A shop redact removes the connection and the shopper fields on that shop's orders. Stock movements stay.
+- Promise on a product page is the snippet on Setup → Shopify. `GET /api/shopify/promise` answers with one sentence and `reservesStock: false`.
+
 ## Packaging checklist (engineering)
 
 - [x] OAuth install callback
 - [x] Webhooks orders create/update/paid/cancelled
 - [x] Sellable `inventorySetQuantities`
 - [x] `fulfillmentCreate` per carton
-- [ ] Public App Store listing assets (icon, screenshots of Garage Mode + Floor)
-- [ ] GDPR / customer data request webhooks (when listing goes public)
-- [ ] App review notes: Garage Mode default, Northwind demo credentials for reviewers
+- [x] GDPR webhooks on `/api/shopify/webhooks`
+- [x] Reviewer path: Northwind demo, Garage default for new orgs, Promise snippet
+- [ ] Partner Dashboard upload: icon and the five screenshots above (captured from the running demo)
 
 Partner later: Prediko (AI demand) as complementary — Rackline stays execution.

@@ -347,7 +347,7 @@ describe("inviteFormSchema", () => {
     expect(errorsOf(inviteFormSchema, { name: "", email: "sam", role: "admin", password: "short" })).toEqual({
       name: "Enter their name.",
       email: "Enter a full email, like sam@example.com.",
-      role: "Pick owner or operator.",
+      role: "Pick a role.",
       password: "Password must be at least 8 characters.",
     });
     // The server trims before counting, so seven letters padded with spaces are still too short.

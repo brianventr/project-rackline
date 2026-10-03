@@ -268,6 +268,7 @@ function PurchaseDetail({ id }: { id: string }) {
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [vendorEmail, setVendorEmail] = useState("");
+  const [freight, setFreight] = useState("");
   const [receiveUnsent, setReceiveUnsent] = useState(false);
   const [view, setView] = useState("lines");
   const { error, setError, run } = useWrite();
@@ -280,6 +281,7 @@ function PurchaseDetail({ id }: { id: string }) {
     setPurchase(next);
     setLocations(nextLocations);
     setVendorEmail((current) => current || next.vendor?.email || "");
+    setFreight(next.freightCents ? (next.freightCents / 100).toFixed(2) : "");
     const dock = nextLocations.find((row) => row.type === "receiving") ?? nextLocations[0];
     if (dock) setLocationId(next.locationId || dock.id);
     setQtys(Object.fromEntries((next.lines ?? []).map((line) => [line.itemId, String(line.remaining)])));
@@ -308,6 +310,19 @@ function PurchaseDetail({ id }: { id: string }) {
       setPurchase(next);
       setReceiveUnsent(false);
     }
+  }
+
+  async function saveFreight() {
+    if (!purchase) return;
+    const dollars = Number(freight);
+    if (!Number.isFinite(dollars) || dollars < 0) return;
+    const next = await run("Freight", () =>
+      api<Purchase>(`/api/purchases/${id}/freight`, {
+        method: "POST",
+        body: JSON.stringify({ freightCents: Math.round(dollars * 100) }),
+      }),
+    );
+    if (next) setPurchase(next);
   }
 
   async function receive() {
@@ -427,6 +442,19 @@ function PurchaseDetail({ id }: { id: string }) {
               ) : null}
               {purchase.vendor?.paymentTerms ? <DocumentFact label="Terms">{purchase.vendor.paymentTerms}</DocumentFact> : null}
               {orderTotal != null ? <DocumentFact label="Total">{formatMoney(orderTotal, purchase.vendor?.currency)}</DocumentFact> : null}
+              {receivable ? (
+                <Field label="Freight">
+                  <Input
+                    inputMode="decimal"
+                    value={freight}
+                    placeholder="0.00"
+                    onChange={(event) => setFreight(event.target.value)}
+                    onBlur={() => void saveFreight()}
+                  />
+                </Field>
+              ) : purchase.freightCents ? (
+                <DocumentFact label="Freight">{formatMoney(purchase.freightCents, purchase.vendor?.currency)}</DocumentFact>
+              ) : null}
               {!capturing && dock && !draft ? (
                 <DocumentFact label="Dock">
                   <span className="font-mono">{dock.code}</span>

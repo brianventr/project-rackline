@@ -64,6 +64,7 @@ export const ERROR_CODES = [
   "MAIL_UNAVAILABLE",
   "MAIL_FAILED",
   "MAIL_ADDRESS",
+  "QBO_UNAVAILABLE",
   "MISSING_MEDIA",
   "MISSING_APP",
   "SHOPIFY_API",
@@ -520,6 +521,10 @@ const COPY_BY_CODE: Record<ErrorCode, (ctx: Ctx) => Copy> = {
   MAIL_ADDRESS: () => ({
     message: "There is no vendor email address to send to.",
     hint: "Type the vendor's email address, then send again.",
+  }),
+  QBO_UNAVAILABLE: () => ({
+    message: "QuickBooks is not connected, or it rejected the bill.",
+    hint: "Download the CSV instead, or connect QuickBooks under Accounting.",
   }),
   MISSING_MEDIA: () => ({
     message: "Photo storage is not set up.",

@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { badRequest, conflict, notFound, requireInt, requireString } from "../lib/http";
@@ -25,6 +25,7 @@ import { loadRunway } from "../db/runway";
 import { majorityVendor } from "../domain/reorder";
 import { ensureVendor, vendorLastCosts, type VendorRef } from "../db/parties";
 import { defaultLineCost } from "../domain/parties";
+import { landedUnitCosts, weightedUnitCost } from "../domain/landed-cost";
 
 type DraftLine = { itemId: string; qty: number; unitCostCents?: number | null };
 
@@ -85,6 +86,13 @@ function purchaseJob(row: {
 }
 
 export const purchasesRoute = new Hono<AppEnv>();
+
+function freightCentsOf(body: { freightCents?: unknown }): number {
+  if (body.freightCents == null || body.freightCents === "") return 0;
+  const n = requireInt(body.freightCents, "freightCents");
+  if (n < 0) badRequest("Freight cannot be negative");
+  return n;
+}
 
 function asExpected(line: { itemId: string; sku: string; qtyOrdered: number; qtyReceived: number }) {
   return {
@@ -204,6 +212,7 @@ purchasesRoute.post("/purchases", async (c) => {
     vendorId?: string;
     vendorName?: string;
     notes?: string;
+    freightCents?: unknown;
     lines?: { itemId?: string; qty?: number; unitCostCents?: number | null }[];
   }>();
   const warehouseId = requireString(body.warehouseId, "warehouseId");
@@ -242,6 +251,7 @@ purchasesRoute.post("/purchases", async (c) => {
       vendorId: vendor.id,
       status: "draft",
       notes: body.notes?.trim() || null,
+      freightCents: freightCentsOf(body),
       createdAt: now,
     }),
     ...lines.map((line) => db.insert(schema.purchaseLines).values(line)),
@@ -492,6 +502,46 @@ async function postPurchaseReceive(
     };
   });
 
+  const landed = new Map(
+    landedUnitCosts({
+      freightCents: purchase.freightCents ?? 0,
+      lines: purchase.lines.map((line) => ({
+        itemId: line.itemId,
+        qty: line.qtyOrdered,
+        unitCostCents: line.unitCostCents ?? 0,
+      })),
+    }).map((row) => [row.itemId, row.unitCents]),
+  );
+  const postedIds = posted.map((line) => line.itemId);
+  const [onHandRows, costRows] = await Promise.all([
+    postedIds.length
+      ? db
+          .select({ itemId: schema.inventoryBalances.itemId, qty: sql<number>`coalesce(sum(${schema.inventoryBalances.qty}), 0)` })
+          .from(schema.inventoryBalances)
+          .where(and(eq(schema.inventoryBalances.organizationId, organizationId), inArray(schema.inventoryBalances.itemId, postedIds)))
+          .groupBy(schema.inventoryBalances.itemId)
+      : Promise.resolve([]),
+    postedIds.length
+      ? db
+          .select({ id: schema.items.id, unitCostCents: schema.items.unitCostCents })
+          .from(schema.items)
+          .where(and(eq(schema.items.organizationId, organizationId), inArray(schema.items.id, postedIds)))
+      : Promise.resolve([]),
+  ]);
+  const onHand = new Map(onHandRows.map((row) => [row.itemId, Number(row.qty)]));
+  const oldCost = new Map(costRows.map((row) => [row.id, row.unitCostCents]));
+  const costWrites = posted.flatMap((line) => {
+    const receivedUnit = landed.get(line.itemId);
+    if (receivedUnit == null) return [];
+    const next = weightedUnitCost({
+      onHand: onHand.get(line.itemId) ?? 0,
+      oldUnitCents: oldCost.get(line.itemId) ?? 0,
+      received: line.qty,
+      receivedUnitCents: receivedUnit,
+    });
+    return [db.update(schema.items).set({ unitCostCents: next }).where(eq(schema.items.id, line.itemId))];
+  });
+
   await postReceiveLines(db, {
     organizationId,
     createdBy: user.id,
@@ -502,6 +552,7 @@ async function postPurchaseReceive(
     lines: posted,
     plateOps: plate ? receiveOntoPlate(plate, locationId, posted) : undefined,
     extra: [
+      ...costWrites,
       ...purchase.lines.map((line) =>
         db
           .update(schema.purchaseLines)
@@ -524,6 +575,18 @@ async function postPurchaseReceive(
   await syncDocumentJob(db, purchaseJob(received));
   return c.json(received);
 }
+
+purchasesRoute.post("/purchases/:id/freight", async (c) => {
+  const body = await c.req.json<{ freightCents?: unknown }>().catch(() => ({}) as { freightCents?: unknown });
+  const freightCents = freightCentsOf(body);
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const id = c.req.param("id");
+  const purchase = await purchaseWithLines(db, organizationId, id);
+  if (!canReceivePurchase(purchase.status) && purchase.status !== "draft") conflict("Purchase is already received");
+  await db.update(schema.purchases).set({ freightCents }).where(eq(schema.purchases.id, purchase.id));
+  return c.json(await purchaseWithLines(db, organizationId, id));
+});
 
 purchasesRoute.post("/purchases/:id/receive", async (c) => {
   const body = await c.req.json<{

@@ -148,6 +148,7 @@ const SAMPLE: Record<ErrorCode, { status: number; body: Record<string, unknown> 
   MAIL_UNAVAILABLE: { status: 409, body: { error: "Set MAIL_API_KEY and MAIL_FROM to invite without a starter password" } },
   MAIL_FAILED: { status: 409, body: { error: "Resend rejected the request" } },
   MAIL_ADDRESS: { status: 409, body: { error: "Send needs a vendor email address" } },
+  QBO_UNAVAILABLE: { status: 409, body: { error: "QuickBooks is not connected. Download the CSV instead." } },
   MISSING_MEDIA: { status: 409, body: { error: "Media bucket is not configured" } },
   MISSING_APP: { status: 409, body: { error: "Shopify app credentials are not configured" } },
   SHOPIFY_API: { status: 409, body: { error: "Shopify returned 401 for locations" } },

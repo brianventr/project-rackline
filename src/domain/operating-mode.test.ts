@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  GARAGE_FIRST_HOUR_NAV,
   GARAGE_NAV,
   garageAllowsPath,
   garageNavForRole,
@@ -103,6 +104,12 @@ describe("operating mode", () => {
     for (const url of urls) expect(garageAllowsPath(url)).toBe(true);
     expect(garageNavForRole("operator").map((group) => group.label)).not.toContain("Shop");
     expect(garageNavForRole("owner").map((group) => group.label)).toContain("Shop");
+    const firstHour = GARAGE_FIRST_HOUR_NAV.flatMap((group) => group.items.map((item) => item.url));
+    expect(garageNavForRole("owner", { setupComplete: false }).flatMap((group) => group.items.map((item) => item.url))).toEqual(firstHour);
+    expect(garageNavForRole("operator", { setupComplete: false }).flatMap((group) => group.items.map((item) => item.url))).toEqual(
+      firstHour,
+    );
+    expect(garageNavForRole("owner", { setupComplete: true }).flatMap((group) => group.items.map((item) => item.url))).toEqual(urls);
     expect(urls).not.toContain("/stock/ledger");
     expect(urls).not.toContain("/inbound/putaway");
     expect(urls).not.toContain("/setup/audit");
@@ -138,5 +145,7 @@ describe("operating mode", () => {
     expect(homePath("owner", "warehouse")).toBe("/today");
     expect(homePath("operator", "warehouse")).toBe("/floor");
     expect(homePath("operator")).toBe("/floor");
+    expect(homePath("picker", "garage")).toBe("/floor");
+    expect(homePath("bookkeeper", "garage")).toBe("/setup/accounting");
   });
 });

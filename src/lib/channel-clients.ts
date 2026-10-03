@@ -1,3 +1,4 @@
+import { etsyInventoryWithQty, wooStockBody, type EtsyInventory } from "../domain/channel-sellable";
 import {
   ETSY_API,
   ETSY_TOKEN_URL,
@@ -72,6 +73,19 @@ export async function wooMarkShipped(
   });
 }
 
+/** Sets stock on the product whose SKU matches. Variations that Woo does not return by SKU are skipped. */
+export async function wooSetStock(creds: WooCreds, sku: string, qty: number): Promise<"updated" | "missing"> {
+  const products = await wooFetch<{ id: number; sku?: string | null }[]>(
+    creds,
+    `products?sku=${encodeURIComponent(sku)}&per_page=5`,
+  );
+  const want = sku.trim().toLowerCase();
+  const product = products.find((row) => (row.sku ?? "").trim().toLowerCase() === want) ?? null;
+  if (!product) return "missing";
+  await wooFetch(creds, `products/${product.id}`, { method: "PUT", body: JSON.stringify(wooStockBody(qty)) });
+  return "updated";
+}
+
 export async function wooCreateWebhook(creds: WooCreds, deliveryUrl: string, secret: string): Promise<string> {
   const row = await wooFetch<{ id: number }>(creds, "webhooks", {
     method: "POST",
@@ -143,6 +157,25 @@ export async function etsyOpenReceipts(
   if (minCreatedSec) params.set("min_created", String(minCreatedSec));
   const page = await etsyFetch<{ results: EtsyReceipt[] }>(app, accessToken, `shops/${shopId}/receipts?${params.toString()}`);
   return page.results ?? [];
+}
+
+/** Replaces the offering quantity for `sku` on a listing Rackline has already seen. */
+export async function etsySetListingQty(
+  app: EtsyApp,
+  accessToken: string,
+  listingId: string,
+  sku: string,
+  qty: number,
+): Promise<"updated" | "missing"> {
+  const inventory = await etsyFetch<EtsyInventory>(app, accessToken, `listings/${encodeURIComponent(listingId)}/inventory`);
+  const next = etsyInventoryWithQty(inventory, sku, qty);
+  if (!next) return "missing";
+  await etsyFetch(app, accessToken, `listings/${encodeURIComponent(listingId)}/inventory`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(next),
+  });
+  return "updated";
 }
 
 export async function etsyPostTracking(
