@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ChevronsUpDown,
@@ -47,7 +47,6 @@ import { openTour } from "@/app/tour";
 import { homePath, useWarehouse } from "@/app/warehouse";
 import {
   GARAGE_MODE_LABEL,
-  GARAGE_SWITCH_LABEL,
   MANUFACTURER_MODE_LABEL,
   MODE_SWITCH_RULES,
   isGarageMode,
@@ -299,6 +298,7 @@ const MODE_HINT = `Same parts, orders, and builds. ${MODE_SWITCH_RULES}`;
 
 function GarageModeSwitch() {
   const { garage, owner, busy, setMode } = useOperatingMode();
+  const switchId = useId();
 
   async function onChecked(checked: boolean) {
     if (!owner || busy) return;
@@ -310,23 +310,23 @@ function GarageModeSwitch() {
     }
   }
 
+  // One label and an on/off switch: on is Garage Mode, off is Manufacturer.
   return (
     <div
-      className="flex shrink-0 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1"
-      title={owner ? MODE_HINT : "The owner switches Garage and Manufacturer for the whole shop."}
+      className={cn(
+        "flex shrink-0 items-center gap-2 rounded-full border px-2.5 py-1",
+        garage ? "border-primary/30 bg-primary/5" : "border-border bg-transparent",
+      )}
+      title={
+        owner
+          ? `Turn it off to switch the shop to ${MANUFACTURER_MODE_LABEL}. ${MODE_HINT}`
+          : "The owner turns Garage Mode on or off for the whole shop."
+      }
     >
-      <span className={cn("text-xs font-medium", garage ? "text-primary" : "text-muted-foreground")}>
-        {GARAGE_SWITCH_LABEL}
-      </span>
-      <Switch
-        checked={garage}
-        disabled={!owner || busy}
-        onCheckedChange={(checked) => void onChecked(checked)}
-        aria-label="Garage Mode"
-      />
-      <span className={cn("text-xs font-medium", garage ? "text-muted-foreground" : "text-foreground")}>
-        {MANUFACTURER_MODE_LABEL}
-      </span>
+      <label htmlFor={switchId} className={cn("text-xs font-medium", garage ? "text-primary" : "text-muted-foreground")}>
+        {GARAGE_MODE_LABEL}
+      </label>
+      <Switch id={switchId} checked={garage} disabled={!owner || busy} onCheckedChange={(checked) => void onChecked(checked)} />
     </div>
   );
 }
