@@ -299,7 +299,7 @@ Settings → Integrations changes with the mode:
 
 ## 6. Switching modes
 
-Owners switch with the toggle in the top bar, or on Settings → Warehouse → Operating mode. The switch applies to the whole organization and takes effect at once.
+Owners switch with the **Garage Mode** switch in the top bar (on is Garage Mode, off is Manufacturer), or on Settings → Warehouse → Operating mode. The switch applies to the whole organization and takes effect at once.
 
 **What stays the same.** Every SKU, bay, lot, serial, order, box, label, wave, and ledger movement. Nothing is copied or converted, because there is one ledger.
 
