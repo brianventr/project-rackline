@@ -23,8 +23,34 @@ import { useWarehouse } from "../../warehouse";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StatusTone } from "@/domain/status";
 import { relativeTime } from "@/domain/relative-time";
+import { GORGIAS_WIDGET_TEMPLATE } from "@/domain/gorgias";
 import { channelHealthBadge } from "./channel-health";
 import { PublicApiPanel } from "./PublicApiPanel";
+
+function GorgiasCard({ origin }: { origin: string }) {
+  const url = `${origin}/api/v1/warranty?email={{ticket.customer.email}}`;
+  return (
+    <IntegrationCard
+      icon={Webhook}
+      name="Gorgias"
+      summary="Shows the order, serial, and warranty inside a ticket. Read-only."
+      to="/setup/integrations"
+      loading={false}
+      state={{
+        tone: "neutral",
+        label: "HTTP widget",
+        connected: true,
+        detail: (
+          <div className="grid gap-2 text-sm">
+            <p>GET this URL with an API key that can read orders. Header: Authorization Bearer.</p>
+            <code className="block break-all rounded bg-muted px-2 py-1 text-xs">{url}</code>
+            <pre className="max-h-40 overflow-auto rounded bg-muted p-2 text-xs">{JSON.stringify(GORGIAS_WIDGET_TEMPLATE, null, 2)}</pre>
+          </div>
+        ),
+      }}
+    />
+  );
+}
 
 function KlaviyoCard() {
   const [mode, setMode] = useState("demo");
@@ -237,6 +263,7 @@ export function IntegrationsPage() {
 
       <Group title="Events">
         <KlaviyoCard />
+        <GorgiasCard origin={origin} />
       </Group>
 
       <Group title="Imports & accounting">

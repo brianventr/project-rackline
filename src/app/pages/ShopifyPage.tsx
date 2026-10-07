@@ -587,7 +587,7 @@ export function ShopifyPage({ me }: { me: Me }) {
             <h2 className="text-sm font-semibold">Simulate a customer order</h2>
             <p className="text-sm text-muted-foreground">
               Builds a signed Shopify <span className="font-mono">orders/create</span> payload and runs the same ingest path as a
-              live webhook. Then pick and ship it on{" "}
+              live webhook. The SKU has to already be in the catalog. Then pick and ship it on{" "}
               <Link className="underline" to="/outbound/orders">
                 Orders
               </Link>
