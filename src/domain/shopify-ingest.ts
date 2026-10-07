@@ -49,8 +49,8 @@ async function resolveItem(
   db: AppDb,
   organizationId: string,
   sku: string,
-  title: string,
-  now: number,
+  _title: string,
+  _now: number,
   imageUrl: string | null,
 ) {
   const [existing] = await db
@@ -58,26 +58,13 @@ async function resolveItem(
     .from(schema.items)
     .where(and(eq(schema.items.organizationId, organizationId), sql`lower(${schema.items.sku}) = ${sku.toLowerCase()}`))
     .limit(1);
-  const nextImage = copyIfEmptyImageUrl(existing?.imageUrl, imageUrl);
-  if (existing) {
-    if (nextImage && nextImage !== existing.imageUrl) {
-      await db.update(schema.items).set({ imageUrl: nextImage }).where(eq(schema.items.id, existing.id));
-      return { ...existing, imageUrl: nextImage };
-    }
-    return existing;
+  if (!existing) return null;
+  const nextImage = copyIfEmptyImageUrl(existing.imageUrl, imageUrl);
+  if (nextImage && nextImage !== existing.imageUrl) {
+    await db.update(schema.items).set({ imageUrl: nextImage }).where(eq(schema.items.id, existing.id));
+    return { ...existing, imageUrl: nextImage };
   }
-  const item = {
-    id: newId(),
-    organizationId,
-    sku,
-    name: title,
-    type: "finished" as const,
-    barcode: sku,
-    createdAt: now,
-    imageUrl: nextImage,
-  };
-  await db.insert(schema.items).values(item);
-  return item;
+  return existing;
 }
 
 export async function persistInboundOrder(
@@ -85,7 +72,7 @@ export async function persistInboundOrder(
   connection: ShopifyConnectionRow,
   inbound: MappedInboundOrder,
   options?: { fulfillmentOrderId?: string | null },
-): Promise<{ orderId: string; created: boolean; number: string }> {
+): Promise<{ orderId: string; created: boolean; number: string } | { skipped: "missing_sku"; skus: string[] }> {
   const [existing] = await db
     .select()
     .from(schema.orders)
@@ -108,8 +95,13 @@ export async function persistInboundOrder(
     (connection.mode === "demo" ? demoFulfillmentOrderId(inbound.shopifyOrderId) : null);
   const lines = [];
   const reserveLines: { id: string; itemId: string; sku: string; qty: number }[] = [];
+  const missing: string[] = [];
   for (const line of inbound.lines) {
     const item = await resolveItem(db, connection.organizationId, line.sku, line.title, now, line.imageUrl);
+    if (!item) {
+      missing.push(line.sku);
+      continue;
+    }
     const lineId = newId();
     lines.push({
       id: lineId,
@@ -121,6 +113,7 @@ export async function persistInboundOrder(
     });
     reserveLines.push({ id: lineId, itemId: item.id, sku: item.sku, qty: line.qty });
   }
+  if (missing.length) return { skipped: "missing_sku", skus: [...new Set(missing)] };
   const customer = await ensureCustomer(db, connection.organizationId, {
     name: inbound.customerName,
     email: inbound.customerEmail,
@@ -183,7 +176,7 @@ export async function ingestRestOrder(
   db: AppDb,
   connection: ShopifyConnectionRow,
   payload: ShopifyRestOrder,
-): Promise<{ skipped?: string; orderId?: string; created?: boolean; number?: string }> {
+): Promise<{ skipped?: string; skus?: string[]; orderId?: string; created?: boolean; number?: string }> {
   const mapped = mapRestOrder(payload);
   if ("skip" in mapped) {
     return { skipped: mapped.reason };
@@ -219,7 +212,7 @@ export async function ingestFulfillmentOrderNode(
   db: AppDb,
   connection: ShopifyConnectionRow,
   node: ShopifyFulfillmentOrderNode,
-): Promise<{ skipped?: string; orderId?: string; created?: boolean; number?: string }> {
+): Promise<{ skipped?: string; skus?: string[]; orderId?: string; created?: boolean; number?: string }> {
   const mapped = mapFulfillmentOrder(node);
   if ("skip" in mapped) return { skipped: mapped.reason };
   return persistInboundOrder(db, connection, mapped, { fulfillmentOrderId: node.id });

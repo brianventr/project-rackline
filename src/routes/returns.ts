@@ -21,6 +21,7 @@ import {
   finishReturnSerials,
   prepareRefurbSerials,
 } from "../db/warranty";
+import { enqueueShopifyReturn } from "../db/shopify-return";
 import { mediaPublicPath } from "../domain/media";
 import { putMediaFile, readUploadedFile } from "../lib/media-store";
 import { coveringHold } from "../domain/holds";
@@ -470,6 +471,21 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
   });
 
   await finishReturnSerials(db, organizationId, prepared);
+  await enqueueShopifyReturn(db, {
+    organizationId,
+    rmaId: rma.id,
+    now,
+    lines: incoming
+      .filter((line) => line.qty > 0)
+      .map((line) => ({
+        sku: line.sku,
+        quantity: line.qty,
+        disposition: line.disposition,
+        grade: line.grade,
+        serial: line.serials[0] ?? null,
+        condition: line.condition,
+      })),
+  });
   await enqueueReturnReceived(db, {
     organizationId,
     rmaId: rma.id,

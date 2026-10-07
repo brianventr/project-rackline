@@ -589,6 +589,8 @@ export const REQUIRED_SCOPES = [
   "read_products",
   "read_customers",
   "write_customers",
+  "read_returns",
+  "write_returns",
 ];
 
 export const LOCATIONS_QUERY = `#graphql
