@@ -49,6 +49,38 @@ function parseBaselineShipRate(value: unknown): number | null | undefined {
   return rate === 0 ? null : rate;
 }
 
+function optionalWarrantyMonths(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const months = requireInt(value, "warrantyMonths");
+  if (months < 0) badRequest("Warranty months cannot be negative");
+  return months === 0 ? null : months;
+}
+
+async function withRefurbSku<T extends { refurbItemId?: string | null }>(
+  db: AppEnv["Variables"]["db"],
+  item: T,
+): Promise<T & { refurbSku: string | null }> {
+  if (!item.refurbItemId) return { ...item, refurbSku: null };
+  const [row] = await db.select({ sku: schema.items.sku }).from(schema.items).where(eq(schema.items.id, item.refurbItemId)).limit(1);
+  return { ...item, refurbSku: row?.sku ?? null };
+}
+
+async function refurbItemId(
+  db: AppEnv["Variables"]["db"],
+  organizationId: string,
+  sku: string | null | undefined,
+): Promise<string | null> {
+  const code = sku?.trim();
+  if (!code) return null;
+  const [row] = await db
+    .select({ id: schema.items.id })
+    .from(schema.items)
+    .where(and(eq(schema.items.organizationId, organizationId), eq(schema.items.sku, code.toUpperCase())))
+    .limit(1);
+  if (!row) badRequest(`Refurb SKU ${code} was not found`);
+  return row.id;
+}
+
 catalogRoute.get("/warehouses", async (c) => {
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -503,6 +535,7 @@ catalogRoute.get("/items/:id", async (c) => {
       builtFrom: genealogy.filter((link) => link.parentSerial === row.serialCode),
       usedIn: genealogy.filter((link) => link.componentSerial === row.serialCode),
     })),
+    ...(await withRefurbSku(db, item)),
   });
 });
 
@@ -554,6 +587,8 @@ catalogRoute.post("/items", async (c) => {
     catchWeight?: boolean;
     trackExpiry?: boolean;
     imageUrl?: string | null;
+    warrantyMonths?: number | null;
+    refurbSku?: string | null;
   }>();
   const sku = requireString(body.sku, "sku").toUpperCase();
   const name = requireString(body.name, "name");
@@ -588,6 +623,8 @@ catalogRoute.post("/items", async (c) => {
         catchWeight: Boolean(body.catchWeight),
         trackExpiry: Boolean(body.trackExpiry),
         imageUrl,
+        warrantyMonths: optionalWarrantyMonths(body.warrantyMonths),
+        refurbItemId: await refurbItemId(c.get("db"), c.get("organizationId")!, body.refurbSku),
       })
       .returning();
     return c.json(row, 201);
@@ -617,6 +654,8 @@ catalogRoute.patch("/items/:id", async (c) => {
     shipHeightIn?: number | null;
     qcSamplePercent?: number | null;
     makeDays?: number | null;
+    warrantyMonths?: number | null;
+    refurbSku?: string | null;
   }>();
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
@@ -641,6 +680,8 @@ catalogRoute.patch("/items/:id", async (c) => {
     shipHeightIn?: number | null;
     qcSamplePercent?: number | null;
     makeDays?: number | null;
+    warrantyMonths?: number | null;
+    refurbItemId?: string | null;
   } = {};
   for (const key of ["shipWeightOz", "shipLengthIn", "shipWidthIn", "shipHeightIn"] as const) {
     if (body[key] === undefined) continue;
@@ -685,6 +726,8 @@ catalogRoute.patch("/items/:id", async (c) => {
       patch.altPerStock = altPerStock;
     }
   }
+  if ("warrantyMonths" in body) patch.warrantyMonths = optionalWarrantyMonths(body.warrantyMonths);
+  if ("refurbSku" in body) patch.refurbItemId = await refurbItemId(db, organizationId, body.refurbSku);
   if ("imageUrl" in body) patch.imageUrl = normalizeImageUrl(body.imageUrl);
   if ("qcSamplePercent" in body) {
     try {
@@ -714,7 +757,7 @@ catalogRoute.patch("/items/:id", async (c) => {
       .where(and(eq(schema.items.id, c.req.param("id")), eq(schema.items.organizationId, organizationId)))
       .returning();
     if (!row) return c.json({ error: "Item not found" }, 404);
-    return c.json(row);
+    return c.json(await withRefurbSku(db, row));
   } catch {
     return c.json({ error: "Barcode already exists" }, 409);
   }

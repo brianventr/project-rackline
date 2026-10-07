@@ -7,6 +7,7 @@ export type CrowdfundingSource = "backerkit" | "gamefound" | "kickstarter" | "ge
 
 export type CrowdfundingImportRow = {
   line: number;
+  backerId: string;
   backerName: string;
   email?: string;
   rewardSku: string;
@@ -71,7 +72,9 @@ function detectSource(headers: string[]): CrowdfundingSource {
  * - backer / name / customer
  * - sku / reward / item / tier sku
  * - qty / quantity (default 1)
+ * Required: backer id (backer id, backer number, pledge id)
  * Optional: email, address / ship to, tier, addons (pipe or semicolon separated SKUs)
+ * A second row with the same backer id is rejected. Unknown SKUs stay errors.
  */
 export function parseCrowdfundingCsv(csv: string): CrowdfundingParseResult {
   const lines = csv
@@ -85,6 +88,7 @@ export function parseCrowdfundingCsv(csv: string): CrowdfundingParseResult {
   }
   const headers = splitCsvLine(lines[0]!);
   const source = detectSource(headers);
+  const backerIdx = headerIndex(headers, ["backer id", "backerid", "backer number", "backernumber", "pledge id", "pledgeid"]);
   const nameIdx = headerIndex(headers, ["backer", "name", "customer", "backername", "full name", "shipping name"]);
   const skuIdx = headerIndex(headers, ["sku", "reward", "item", "rewardsku", "tiersku", "product sku", "item sku"]);
   const qtyIdx = headerIndex(headers, ["qty", "quantity", "qtyordered", "units"]);
@@ -93,15 +97,28 @@ export function parseCrowdfundingCsv(csv: string): CrowdfundingParseResult {
   const tierIdx = headerIndex(headers, ["tier", "tiercode", "reward tier", "pledge level"]);
   const addOnIdx = headerIndex(headers, ["addons", "add-ons", "addon skus", "add on skus", "extras"]);
 
+  if (backerIdx < 0) errors.push("Missing backer id column");
   if (nameIdx < 0) errors.push("Missing backer/name column");
   if (skuIdx < 0) errors.push("Missing sku/reward column");
   if (errors.length) return { source, rows: [], errors };
 
   const rows: CrowdfundingImportRow[] = [];
+  const seenBackers = new Set<string>();
   for (let i = 1; i < lines.length; i++) {
     const cells = splitCsvLine(lines[i]!);
+    const backerId = (cells[backerIdx!] ?? "").trim();
     const backerName = cells[nameIdx!] ?? "";
     const rewardSku = cells[skuIdx!] ?? "";
+    if (!backerId) {
+      errors.push(`Line ${i + 1}: missing backer id`);
+      continue;
+    }
+    const backerKey = backerId.toLowerCase();
+    if (seenBackers.has(backerKey)) {
+      errors.push(`Line ${i + 1}: duplicate backer ${backerId}`);
+      continue;
+    }
+    seenBackers.add(backerKey);
     if (!backerName || !rewardSku) {
       errors.push(`Line ${i + 1}: missing name or sku`);
       continue;
@@ -124,6 +141,7 @@ export function parseCrowdfundingCsv(csv: string): CrowdfundingParseResult {
       : undefined;
     rows.push({
       line: i + 1,
+      backerId,
       backerName,
       rewardSku,
       qty,
@@ -139,6 +157,7 @@ export function parseCrowdfundingCsv(csv: string): CrowdfundingParseResult {
 export type ResolvedImportLine = { itemId: string; sku: string; qty: number };
 
 export type ResolvedImportOrder = {
+  backerId: string;
   customerName: string;
   email?: string;
   shipToAddress?: string;
@@ -173,6 +192,7 @@ export function resolveCrowdfundingRows(
     }
     if (lines.length === 0) continue;
     orders.push({
+      backerId: row.backerId,
       customerName: row.backerName,
       email: row.email,
       shipToAddress: row.address,

@@ -41,7 +41,7 @@ Ada Maker,ada@example.com,LAMP,1,"123 Bay St",Early Bird,SHADE|BASE`,
       <PageHeader
         eyebrow="Setup"
         title="Imports"
-        description="Paste a pledge CSV, or a Stocky purchase order or stocktake. Stocky suppliers become vendors. A stocktake opens a count on the first bay."
+        description="Paste a pledge CSV (with a backer id), capture serials for open orders, or import a Stocky purchase or stocktake."
       />
       {write.error ? <ErrorBanner error={write.error} /> : null}
       <Card className="space-y-4 p-4">
@@ -117,6 +117,7 @@ Ada Maker,ada@example.com,LAMP,1,"123 Bay St",Early Bird,SHADE|BASE`,
           {preview.parseErrors.length ? <p className="text-destructive">{preview.parseErrors.join("; ")}</p> : null}
         </Card>
       ) : null}
+      <SerialFallback />
       <StockyImport />
       {result ? (
         <Card className="space-y-2 p-4 text-sm">
@@ -132,6 +133,61 @@ Ada Maker,ada@example.com,LAMP,1,"123 Bay St",Early Bird,SHADE|BASE`,
         </Card>
       ) : null}
     </div>
+  );
+}
+
+function SerialFallback() {
+  const [csv, setCsv] = useState("");
+  const [message, setMessage] = useState<string | null>(null);
+  const write = useWrite();
+  return (
+    <Card className="space-y-3 p-4">
+      <div>
+        <h2 className="font-medium">Serial fallback</h2>
+        <p className="text-sm text-muted-foreground">
+          Export open serialized orders, scan serials into the sheet, and import them back. A serial already on file is refused.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            window.location.href = "/api/imports/serials.csv";
+          }}
+        >
+          Export open orders
+        </Button>
+      </div>
+      <textarea
+        className="min-h-28 w-full rounded-md border bg-background p-3 font-mono text-xs"
+        value={csv}
+        onChange={(event) => setCsv(event.target.value)}
+        placeholder={"order,sku,serial\nORD-1,PLANK,SN-1"}
+      />
+      <Button
+        type="button"
+        disabled={write.busy || !csv.trim()}
+        onClick={() =>
+          void write.run(
+            "Import serials",
+            async () => {
+              const data = await api<{ assigned: number }>("/api/imports/serials", {
+                method: "POST",
+                body: JSON.stringify({ csv }),
+              });
+              setMessage(`Assigned ${data.assigned} serials.`);
+              return data;
+            },
+            (data) => `Assigned ${data.assigned} serials.`,
+          )
+        }
+      >
+        Import serials
+      </Button>
+      {write.error ? <ErrorBanner error={write.error} /> : null}
+      {message ? <p className="text-sm">{message}</p> : null}
+    </Card>
   );
 }
 

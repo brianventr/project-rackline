@@ -29,7 +29,7 @@ type BillingPayload = {
   account: { plan: string; status: string; portalEnabled?: boolean; portalToken?: string | null } | null;
   invoices: Invoice[];
   clientCount: number;
-  rates: { storageCentsPerPiece: number; pickCentsPerUnit: number; cartonCents: number };
+  rates: { storageCentsPerPiece: number; pickCentsPerUnit: number; cartonCents: number; returnCents: number };
   periodDays: number;
 };
 
@@ -193,6 +193,9 @@ export function BillingPage() {
               <DocumentFact label="Cartons">
                 <span className="font-mono">{money(data.rates.cartonCents)}</span> / carton
               </DocumentFact>
+              <DocumentFact label="Returns">
+                <span className="font-mono">{data.rates.returnCents}¢</span> / receipt
+              </DocumentFact>
               <DocumentFact label="Activity window">
                 <span className="font-mono">{data.periodDays}</span> days
               </DocumentFact>
@@ -214,7 +217,8 @@ export function BillingPage() {
                   const storage = window.prompt("Storage ¢ per piece", String(data.rates.storageCentsPerPiece));
                   const pick = window.prompt("Pick ¢ per unit", String(data.rates.pickCentsPerUnit));
                   const carton = window.prompt("Carton ¢", String(data.rates.cartonCents));
-                  if (storage == null || pick == null || carton == null) return;
+                  const returns = window.prompt("Return ¢ per receipt. Zero is a real price.", String(data.rates.returnCents ?? 0));
+                  if (storage == null || pick == null || carton == null || returns == null) return;
                   void write.run(
                     "Save rates",
                     () =>
@@ -224,6 +228,7 @@ export function BillingPage() {
                           storageCentsPerPiece: Number(storage),
                           pickCentsPerUnit: Number(pick),
                           cartonCents: Number(carton),
+                          returnCents: Number(returns),
                         }),
                       }),
                     "Rate card saved",

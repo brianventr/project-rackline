@@ -52,6 +52,7 @@ function ClientRates({ client }: { client: Client }) {
   if (client.storageCentsPerPiece != null) bits.push(`storage ${client.storageCentsPerPiece}¢`);
   if (client.pickCentsPerUnit != null) bits.push(`pick ${client.pickCentsPerUnit}¢`);
   if (client.cartonCents != null) bits.push(`carton ${client.cartonCents}¢`);
+  if (client.returnCents != null) bits.push(`return ${client.returnCents}¢`);
   return <span className="text-muted-foreground">{bits.length ? bits.join(" · ") : "Organization rates"}</span>;
 }
 
@@ -103,12 +104,18 @@ export function ClientsPage() {
                     client.cartonCents == null ? "" : String(client.cartonCents),
                   );
                   if (carton == null) return;
+                  const returns = window.prompt(
+                    "Return ¢ per receipt. Leave blank to use the organization rate. Zero is a real price.",
+                    client.returnCents == null ? "" : String(client.returnCents),
+                  );
+                  if (returns == null) return;
                   await apiMutate(`/api/clients/${client.id}/rates`, {
                     method: "PUT",
                     body: JSON.stringify({
                       storageCentsPerPiece: centsOrBlank(storage),
                       pickCentsPerUnit: centsOrBlank(pick),
                       cartonCents: centsOrBlank(carton),
+                      returnCents: centsOrBlank(returns),
                     }),
                   });
                   toast.success(`Rate card for ${client.code} saved.`);

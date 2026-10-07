@@ -52,7 +52,7 @@ import {
 import type { Dashboard } from "./api";
 import type { ExceptionCounts } from "@/domain/exceptions/inbox";
 import { garageAllowsPath, garageNavForRole } from "@/domain/operating-mode";
-import { BOOKKEEPER_NAV, PICKER_NAV } from "@/domain/roles";
+import { BOOKKEEPER_NAV, PICKER_NAV, SUPPORT_NAV, VIEWER_NAV } from "@/domain/roles";
 
 export type NavCount = { value: number; tone?: "default" | "warning" };
 
@@ -238,6 +238,8 @@ function namedNav(groups: readonly { label: string; items: readonly { title: str
 export function navForSession(role: string, garage: boolean, options?: { setupComplete?: boolean }): NavGroup[] {
   if (role === "picker") return namedNav(PICKER_NAV);
   if (role === "bookkeeper") return namedNav(BOOKKEEPER_NAV);
+  if (role === "viewer") return namedNav(VIEWER_NAV);
+  if (role === "support") return namedNav(SUPPORT_NAV);
   const owner = role === "owner";
   if (garage) {
     const groups = garageNavForRole(role, options)

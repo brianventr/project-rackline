@@ -133,6 +133,8 @@ Iteration 60 makes Build floor an editor for what is already on the floor. Racks
 
 Iteration 61 puts a compass on every floor map. A warehouse stores where north points on its map (`map_north`, degrees clockwise from the top edge, migration 0040, default 0 so existing maps keep north at the top). The floor plan, the 3D racks, Build floor, and the Today locator plan label their four walls N / E / S / W from that one number (a building set 45° off the grid gets NW / NE / SE / SW), and a compass rose sits in the corner of each view; in Orbit it turns with the camera so N always points the way north lies on screen. Owners set north from Setup → Warehouse (four edge presets or any whole degree) or the North control on the Build floor toolbar; `PATCH /api/warehouses/:id` takes `mapNorth` and rejects anything outside 0–359 with HTTP 400. `/api/map` carries `mapNorth` on the building.
 
+Iteration 63 is the serial-to-warranty chain. A serialized pack scan writes one assignment (who and when); ship stamps the ship date and tracking and opens a warranty from the SKU’s months. Lookup by serial, order, email, tracking, or RMA returns eligibility. A replacement order keeps the original end date. Refurb receives land on the linked refurb SKU, or stay in quarantine when none is set. Shopify metafields and Klaviyo events (`order being prepared`, `shipped with serial`, `return received`) go through an outbox that records in demo and retries live. The exception inbox lists a shipped serialized unit with no serial, a duplicate serial, or a shipped serial with no order. Pledge import requires a backer id and rejects a second one. Setup → Imports can export open serialized orders and import scanned serials back. International labels (a ship-to country other than the warehouse) are refused so they stay on EasyShip. The rate card bills return receipts. Viewer is read-only; support can look up warranty and handle returns.
+
 Iteration 62 is the maker GTM slice: public industry/use-case/compare landing pages with Worker SEO meta injection, sitemap/robots, crowdfunding CSV import (BackerKit/Gamefound/Kickstarter-style → orders/waves), Etsy/Faire channel CSV ingest, QBO/Xero-ready valuation/COGS CSV exports (`unit_cost_cents` on items), Runway PO assist, lot/serial recall report, light production schedule board, billing rate cards + client portal token, and hardware/Shopify App Store packaging docs. Research lives under `docs/research/`.
 
 Iteration 54 adds one photo per SKU and numbered kitting steps on the recipe. Floor Kit and Assemble show the photo, steps, and components; Pick and Lookup use the same thumbnail. Paste a URL or upload to R2 (`MEDIA`). Shopify copies a line image onto a new or photo-less SKU only. Complete is still one-step explode. Qty stays integer pieces on location:item.
@@ -240,6 +242,8 @@ Customer checkout on Shopify becomes a Rackline pick ticket. After the floor pic
    - `write_inventory`
    - `read_locations`
    - `read_products`
+   - `read_customers`
+   - `write_customers`
 2. Install the app and copy the Admin API access token.
 3. Subscribe HTTPS webhooks for `orders/create`, `orders/updated`, `orders/paid`, and `orders/cancelled` to `/api/shopify/webhooks`.
 4. Optional fulfillment-service callback prefix: `/api/shopify` so Shopify posts `/api/shopify/fulfillment_order_notification`.

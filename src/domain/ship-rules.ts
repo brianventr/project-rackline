@@ -89,7 +89,8 @@ export type ShipRuleFacts = {
 
 export function shipRuleChannel(source: string | null | undefined): string {
   const value = (source || "manual").trim().toLowerCase();
-  return value.startsWith("crowdfunding:") ? "crowdfunding" : value;
+  if (value === "pledge" || value.startsWith("crowdfunding:")) return "crowdfunding";
+  return value;
 }
 
 function skuKey(sku: string): string {

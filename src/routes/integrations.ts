@@ -16,6 +16,7 @@ import { badRequest, notFound, requireString } from "../lib/http";
 import { newId } from "../lib/ids";
 import { requireOwner } from "../lib/org";
 import { channelSecret, openSecret, sealSecret, secretFingerprint } from "../lib/secret-box";
+import { credentialSecret } from "../lib/credential-secret";
 import type { AppEnv } from "../lib/types";
 
 export const integrationsRoute = new Hono<AppEnv>();
@@ -206,6 +207,40 @@ integrationsRoute.post("/integrations/webhooks", async (c) => {
     })
     .returning();
   return c.json({ ...presentEndpoint(row!), secret }, 201);
+});
+
+integrationsRoute.get("/integrations/klaviyo", async (c) => {
+  requireOwner(c.get("role"));
+  const [org] = await c
+    .get("db")
+    .select({ mode: schema.organizations.klaviyoMode, key: schema.organizations.klaviyoPrivateKey })
+    .from(schema.organizations)
+    .where(eq(schema.organizations.id, c.get("organizationId")!))
+    .limit(1);
+  return c.json({ mode: org?.mode ?? "demo", hasKey: Boolean(org?.key) });
+});
+
+integrationsRoute.put("/integrations/klaviyo", async (c) => {
+  requireOwner(c.get("role"));
+  const body = await c.req.json<{ mode?: string; privateKey?: string | null }>();
+  const mode = body.mode === "live" ? "live" : body.mode === "demo" ? "demo" : null;
+  if (body.mode !== undefined && !mode) badRequest("mode must be demo or live");
+  const patch: { klaviyoMode?: string; klaviyoPrivateKey?: string | null } = {};
+  if (mode) patch.klaviyoMode = mode;
+  if (body.privateKey !== undefined) {
+    patch.klaviyoPrivateKey = body.privateKey
+      ? await sealSecret(credentialSecret(c.get("origin")), body.privateKey.trim())
+      : null;
+  }
+  if (Object.keys(patch).length === 0) badRequest("Nothing to update");
+  await c.get("db").update(schema.organizations).set(patch).where(eq(schema.organizations.id, c.get("organizationId")!));
+  const [org] = await c
+    .get("db")
+    .select({ mode: schema.organizations.klaviyoMode, key: schema.organizations.klaviyoPrivateKey })
+    .from(schema.organizations)
+    .where(eq(schema.organizations.id, c.get("organizationId")!))
+    .limit(1);
+  return c.json({ mode: org?.mode ?? "demo", hasKey: Boolean(org?.key) });
 });
 
 integrationsRoute.delete("/integrations/webhooks/:id", async (c) => {

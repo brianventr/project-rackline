@@ -15,6 +15,7 @@ import { countCatchWeight } from "../lib/catch-weight";
 import { chainPlans, planCycleCount, planMove } from "../domain/inventory";
 import { loadBalanceMap, persistStockPlan, qtyMap } from "../db/stock";
 import { findByScannedNumber, itemScanValue, parseScan } from "../domain/barcodes";
+import { lookupWarranty } from "../db/warranty";
 import { canPostCount, canPostTransfer } from "../domain/status";
 import {
   applyPartialMove,
@@ -1440,6 +1441,7 @@ floorRoute.get("/scan", async (c) => {
         loadAsBuiltForParentSerial(db, organizationId, serial.serialCode),
         loadAsBuiltForComponent(db, organizationId, { serial: serial.serialCode }),
       ]);
+      const [warranty] = await lookupWarranty(db, organizationId, serial.serialCode);
       return c.json({
         kind: "serial" as const,
         serial: {
@@ -1452,6 +1454,7 @@ floorRoute.get("/scan", async (c) => {
           locationCode: serial.locationCode,
           locationName: serial.locationName,
         },
+        warranty: warranty ?? null,
         item: { id: serial.itemId, sku: serial.sku, name: serial.itemName, barcode: serial.barcode },
         builtFrom,
         usedIn,

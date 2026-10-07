@@ -130,7 +130,17 @@ export function FloorKitPage() {
         body: JSON.stringify({ qty: Number(thisQty), serials: serials || undefined }),
       });
       applyKit(completed);
-      setDone(`${completed.number} completed ${thisQty}.`);
+      const label = (completed as KitBuild & { kitLabel?: string | null }).kitLabel;
+      setDone(label ? `${completed.number} completed ${thisQty}. Kit label includes the serial.` : `${completed.number} completed ${thisQty}.`);
+      if (label) {
+        const blob = new Blob([label], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `${completed.number}.zpl`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+      }
       await load();
     } catch (err) {
       setError(errorText(err, "Could not complete the kit."));

@@ -10,6 +10,7 @@ const CROWDFUNDING_PLATFORMS: Record<string, string> = {
 export function orderChannelName(source: string | null | undefined): string {
   const channel = shipRuleChannel(source);
   if (channel === "crowdfunding") {
+    if ((source ?? "").trim().toLowerCase() === "pledge") return SHIP_RULE_CHANNEL_LABELS.crowdfunding;
     const platform = (source ?? "").trim().toLowerCase().slice("crowdfunding:".length);
     return CROWDFUNDING_PLATFORMS[platform] ?? SHIP_RULE_CHANNEL_LABELS.crowdfunding;
   }

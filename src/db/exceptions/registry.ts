@@ -14,6 +14,7 @@ import { automationSource } from "./automation";
 import { restockSource } from "./restock";
 import { trackerSource } from "./tracker";
 import { webhookSource } from "./webhooks";
+import { serialSource } from "./serials";
 
 /** Every source the inbox reads, in the order it lists them. A new source is a module plus a line here. */
 export const EXCEPTION_SOURCES: readonly ExceptionSource[] = [
@@ -32,6 +33,7 @@ export const EXCEPTION_SOURCES: readonly ExceptionSource[] = [
   webhookSource,
   restockSource,
   automationSource,
+  serialSource,
 ];
 
 export function exceptionSource(id: string): ExceptionSource | null {

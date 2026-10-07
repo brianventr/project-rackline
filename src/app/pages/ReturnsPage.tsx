@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowDownToLine, Play, Plus, ScanLine, Tag, Undo2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, errorText, type Item, type Location, type Order, type Rma, type RmaLine } from "../api";
+import { api, errorText, uploadFile, type Item, type Location, type Order, type Rma, type RmaLine } from "../api";
 import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, StatusBadge, Table, summarizeLines } from "../components/ui";
 import { BayCombobox } from "../components/BayCombobox";
 import {
@@ -33,6 +33,61 @@ import { DispositionSelect } from "../components/disposition-field";
 import { dispositionLabel, parseDisposition, type ReturnDisposition } from "@/domain/return-disposition";
 import { blankLine, returnFormSchema } from "@/domain/form-schemas";
 import { ReturnLabelCard, ReturnLabelStatusCell, useReturnLabels } from "./ReturnLabelCard";
+
+function WarrantyLookup() {
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<string | null>(null);
+  async function lookup() {
+    setError(null);
+    setSummary(null);
+    try {
+      const result = await api<{
+        matches: {
+          serial: string | null;
+          warranty: { eligible: boolean; status: string } | null;
+          order: { id: string; number: string; customerName: string } | null;
+          rma: { id: string; number: string } | null;
+        }[];
+      }>(`/api/warranty/lookup?q=${encodeURIComponent(query.trim())}`);
+      const match = result.matches[0];
+      if (!match) {
+        setSummary("Nothing matched.");
+        return;
+      }
+      const warranty = match.warranty?.eligible ? "eligible" : (match.warranty?.status ?? "no warranty");
+      setSummary(
+        [match.serial, match.order ? `${match.order.number} · ${match.order.customerName}` : null, match.rma?.number, warranty]
+          .filter(Boolean)
+          .join(" · "),
+      );
+    } catch (err) {
+      setError(errorText(err, "Lookup failed."));
+    }
+  }
+  return (
+    <Card className="mb-3">
+      <Field label="Find a return">
+        <div className="flex gap-2">
+          <Input
+            value={query}
+            placeholder="Serial, order, email, tracking, or RMA"
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void lookup();
+            }}
+          />
+          <Button type="button" variant="secondary" onClick={() => void lookup()}>
+            <ScanLine className="size-4" />
+            Look up
+          </Button>
+        </div>
+      </Field>
+      {error ? <ErrorBanner error={error} /> : null}
+      {summary ? <p className="mt-2 text-sm">{summary}</p> : null}
+    </Card>
+  );
+}
 
 export function ReturnsPage() {
   const { id } = useParams();
@@ -144,10 +199,11 @@ function ReturnList() {
         description={
           <>
             Customer <Term id="rma">RMAs</Term>. Receive back into a bay as{" "}
-            <Term id="disposition">restock, scrap, or hold</Term>.
+            <Term id="disposition">restock, scrap, hold, or refurb</Term>.
           </>
         }
       />
+      <WarrantyLookup />
       <DataTable
         id="returns"
         data={rows}
@@ -282,6 +338,7 @@ function receivedMessage(lines: { qty: number; disposition: ReturnDisposition }[
     count("restock") ? `${count("restock")} back in ${bay ?? "the bay"}` : null,
     count("hold") ? `${count("hold")} on QC hold` : null,
     count("scrap") ? `${count("scrap")} scrapped` : null,
+    count("refurb") ? `${count("refurb")} as refurb` : null,
   ].filter(Boolean);
   return `Received ${total} ${total === 1 ? "unit" : "units"}: ${parts.join(", ")}.`;
 }
@@ -296,6 +353,8 @@ function ReturnDetail({ id }: { id: string }) {
   const [weights, setWeights] = useState<Record<string, string>>({});
   const [expiries, setExpiries] = useState<Record<string, string>>({});
   const [dispositions, setDispositions] = useState<Record<string, ReturnDisposition>>({});
+  const [grades, setGrades] = useState<Record<string, string>>({});
+  const [conditions, setConditions] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [buyingLabel, setBuyingLabel] = useState(false);
   const returnLabels = useReturnLabels(id);
@@ -356,6 +415,8 @@ function ReturnDetail({ id }: { id: string }) {
         weightGrams: parseWeightGrams(weights[line.itemId]),
         expiresOn: parseExpiryInput(expiries[line.itemId]),
         disposition: dispositions[line.itemId] ?? "restock",
+        grade: grades[line.itemId] || undefined,
+        condition: conditions[line.itemId] || undefined,
       }))
       .filter((line) => line.qty > 0);
     const bay = bayCode(locationId);
@@ -479,6 +540,10 @@ function ReturnDetail({ id }: { id: string }) {
               onQty={(value) => setQtys((rows) => ({ ...rows, [line.itemId]: value }))}
               disposition={dispositions[line.itemId] ?? "restock"}
               onDisposition={(value) => setDispositions((rows) => ({ ...rows, [line.itemId]: value }))}
+              grade={grades[line.itemId] ?? ""}
+              onGrade={(value) => setGrades((rows) => ({ ...rows, [line.itemId]: value }))}
+              condition={conditions[line.itemId] ?? ""}
+              onCondition={(value) => setConditions((rows) => ({ ...rows, [line.itemId]: value }))}
               serial={serials[line.itemId] ?? ""}
               onSerial={(value) => setSerials((rows) => ({ ...rows, [line.itemId]: value }))}
               weight={weights[line.itemId] ?? ""}
@@ -488,6 +553,24 @@ function ReturnDetail({ id }: { id: string }) {
             />
           ))}
         </Table>
+        <Field label="Photos">
+          <Input
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file || !rma) return;
+              void run("Upload photo", () => uploadFile<Rma>(`/api/returns/${rma.id}/photos`, file)).then((next) => {
+                if (next) setRma(next);
+              });
+            }}
+          />
+          {(rma.photos ?? []).map((photo) => (
+            <a key={photo.id} href={photo.url} className="mt-1 block text-sm underline">
+              Photo
+            </a>
+          ))}
+        </Field>
         <DocumentActivity
           refId={current.id}
           refreshKey={`${current.status}:${lines.map((line) => line.qtyReceived).join(",")}`}
@@ -505,6 +588,10 @@ function ReturnLineRow({
   onQty,
   disposition,
   onDisposition,
+  grade,
+  onGrade,
+  condition,
+  onCondition,
   serial,
   onSerial,
   weight,
@@ -519,6 +606,10 @@ function ReturnLineRow({
   onQty: (value: string) => void;
   disposition: ReturnDisposition;
   onDisposition: (value: ReturnDisposition) => void;
+  grade: string;
+  onGrade: (value: string) => void;
+  condition: string;
+  onCondition: (value: string) => void;
   serial: string;
   onSerial: (value: string) => void;
   weight: string;
@@ -557,6 +648,8 @@ function ReturnLineRow({
         {open ? (
           <div className="w-32">
             <DispositionSelect value={disposition} onChange={onDisposition} />
+            <Input className="mt-1 w-32" placeholder="Grade a/b/c" aria-label={`Grade for ${line.sku}`} value={grade} onChange={(event) => onGrade(event.target.value)} />
+            <Input className="mt-1 w-32" placeholder="Condition" aria-label={`Condition for ${line.sku}`} value={condition} onChange={(event) => onCondition(event.target.value)} />
           </div>
         ) : (
           <span className={cn(line.disposition === "scrap" && "text-tone-danger", line.disposition === "hold" && "text-tone-warning")}>

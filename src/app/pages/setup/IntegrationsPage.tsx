@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   Boxes,
@@ -13,7 +13,8 @@ import {
   Webhook,
   type LucideIcon,
 } from "lucide-react";
-import type { CarrierHub, ChannelStatus, ChannelsPayload, ShipRulesPayload } from "../../api";
+import { api, type CarrierHub, type ChannelStatus, type ChannelsPayload, type ShipRulesPayload } from "../../api";
+import { useWrite } from "../../use-write";
 import { Button, Input, PageHeader, StatusBadge, ToneBadge } from "../../components/ui";
 import { Term } from "../../components/term";
 import { useApiQuery } from "../../query";
@@ -24,6 +25,67 @@ import type { StatusTone } from "@/domain/status";
 import { relativeTime } from "@/domain/relative-time";
 import { channelHealthBadge } from "./channel-health";
 import { PublicApiPanel } from "./PublicApiPanel";
+
+function KlaviyoCard() {
+  const [mode, setMode] = useState("demo");
+  const [privateKey, setPrivateKey] = useState("");
+  const [saved, setSaved] = useState<string | null>(null);
+  const write = useWrite();
+  return (
+    <IntegrationCard
+      icon={Webhook}
+      name="Klaviyo"
+      summary="Sends order being prepared, shipped with serial, and return received. ModGav owns the flows."
+      to="/setup/integrations"
+      loading={false}
+      state={{
+        tone: mode === "live" ? "success" : "neutral",
+        label: mode === "live" ? "Live" : "Demo",
+        connected: mode === "live",
+        detail: (
+          <div className="grid gap-2">
+            <label className="text-sm">
+              Mode
+              <select className="mt-1 block rounded-md border bg-background px-2 py-1" value={mode} onChange={(event) => setMode(event.target.value)}>
+                <option value="demo">Demo — record only</option>
+                <option value="live">Live</option>
+              </select>
+            </label>
+            <label className="text-sm">
+              Private key
+              <input
+                className="mt-1 block w-full rounded-md border bg-background px-2 py-1"
+                type="password"
+                value={privateKey}
+                placeholder="Leave blank to keep the saved key"
+                onChange={(event) => setPrivateKey(event.target.value)}
+              />
+            </label>
+            <Button
+              type="button"
+              size="sm"
+              disabled={write.busy}
+              onClick={() =>
+                void write.run("Save Klaviyo", async () => {
+                  const data = await api<{ mode: string; hasKey: boolean }>("/api/integrations/klaviyo", {
+                    method: "PUT",
+                    body: JSON.stringify({ mode, privateKey: privateKey.trim() ? privateKey : undefined }),
+                  });
+                  setSaved(data.hasKey ? `${data.mode}, key saved` : data.mode);
+                  return data;
+                })
+              }
+            >
+              Save
+            </Button>
+            {saved ? <p className="text-sm text-muted-foreground">{saved}</p> : null}
+            {write.error ? <p className="text-sm text-destructive">{write.error}</p> : null}
+          </div>
+        ),
+      }}
+    />
+  );
+}
 
 type Connection = {
   tone: StatusTone;
@@ -172,6 +234,10 @@ export function IntegrationsPage() {
           />
         </Group>
       ) : null}
+
+      <Group title="Events">
+        <KlaviyoCard />
+      </Group>
 
       <Group title="Imports & accounting">
         <IntegrationCard

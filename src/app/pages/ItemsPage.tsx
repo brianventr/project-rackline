@@ -458,6 +458,13 @@ const itemEditSchema = itemFormSchema
   })
   .extend({
     ...itemShipFields,
+    warrantyMonths: z.string().refine((value) => {
+      const trimmed = value.trim();
+      if (!trimmed) return true;
+      const n = Number(trimmed);
+      return Number.isInteger(n) && n >= 0;
+    }, "Warranty months must be a whole number, or blank."),
+    refurbSku: z.string(),
     qcSamplePercent: z.string().refine((value) => {
       const trimmed = value.trim();
       if (!trimmed) return true;
@@ -492,7 +499,9 @@ const EMPTY_ITEM_FORM: ItemForm = {
   shipWidthIn: "",
   shipHeightIn: "",
   imageUrl: "",
-  qcSamplePercent: "",
+    qcSamplePercent: "",
+    warrantyMonths: "",
+    refurbSku: "",
 };
 
 const shipText = (value: number | null | undefined) => (value ? String(value) : "");
@@ -514,6 +523,8 @@ function formFromItem(item: Item): ItemForm {
     shipHeightIn: shipText(item.shipHeightIn),
     imageUrl: item.imageUrl ?? "",
     qcSamplePercent: item.qcSamplePercent == null ? "" : String(item.qcSamplePercent),
+    warrantyMonths: item.warrantyMonths == null ? "" : String(item.warrantyMonths),
+    refurbSku: item.refurbSku ?? "",
   };
 }
 
@@ -568,6 +579,8 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
             shipHeightIn: next.shipHeightIn || null,
             imageUrl: next.imageUrl || null,
             qcSamplePercent: next.qcSamplePercent.trim() === "" ? null : Number(next.qcSamplePercent),
+            warrantyMonths: next.warrantyMonths.trim() === "" ? null : Number(next.warrantyMonths),
+            refurbSku: next.refurbSku.trim() === "" ? null : next.refurbSku,
           }),
         }),
       (row) => `Saved ${row.sku}.`,
@@ -901,6 +914,8 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
                     <FlagField form={form} name="trackSerial" label="Track serials" />
                     <FlagField form={form} name="catchWeight" label="Catch-weight" />
                     <FlagField form={form} name="trackExpiry" label="Track expiry" />
+                    <NumberField form={form} name="warrantyMonths" label="Warranty months" min={0} />
+                    <TextField form={form} name="refurbSku" label="Refurb SKU" />
                   </div>
                   <TrackHint />
                 </div>

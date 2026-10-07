@@ -5,7 +5,7 @@ import { rateActivity, type ActivityLine, type BillingRates, ACTIVITY_RATES } fr
 
 const PERIOD_MS = 30 * 86_400_000;
 
-type Bucket = { storagePieces: number; pickedUnits: number; shippedCartons: number };
+type Bucket = { storagePieces: number; pickedUnits: number; shippedCartons: number; receivedReturns: number };
 
 export type ActivityDraft = {
   clientId: string;
@@ -31,6 +31,7 @@ export async function loadActivityDrafts(
       storageCentsPerPiece: schema.clients.storageCentsPerPiece,
       pickCentsPerUnit: schema.clients.pickCentsPerUnit,
       cartonCents: schema.clients.cartonCents,
+      returnCents: schema.clients.returnCents,
     })
     .from(schema.clients)
     .where(eq(schema.clients.organizationId, organizationId));
@@ -38,7 +39,7 @@ export async function loadActivityDrafts(
   function bucket(clientId: string): Bucket {
     const existing = buckets.get(clientId);
     if (existing) return existing;
-    const created: Bucket = { storagePieces: 0, pickedUnits: 0, shippedCartons: 0 };
+    const created: Bucket = { storagePieces: 0, pickedUnits: 0, shippedCartons: 0, receivedReturns: 0 };
     buckets.set(clientId, created);
     return created;
   }
@@ -100,6 +101,28 @@ export async function loadActivityDrafts(
     bucket(row.clientId).shippedCartons = Math.abs(Number(row.qty) || 0);
   }
 
+  const returns = await db
+    .select({
+      clientId: schema.orders.clientId,
+      qty: sql<number>`coalesce(sum(${schema.rmaLines.qtyReceived}), 0)`,
+    })
+    .from(schema.rmaLines)
+    .innerJoin(schema.rmas, eq(schema.rmas.id, schema.rmaLines.rmaId))
+    .innerJoin(schema.orders, eq(schema.orders.id, schema.rmas.orderId))
+    .where(
+      and(
+        eq(schema.rmas.organizationId, organizationId),
+        gte(schema.rmas.receivedAt, periodStart),
+        lte(schema.rmas.receivedAt, periodEnd),
+        isNotNull(schema.orders.clientId),
+      ),
+    )
+    .groupBy(schema.orders.clientId);
+  for (const row of returns) {
+    if (!row.clientId) continue;
+    bucket(row.clientId).receivedReturns = Math.abs(Number(row.qty) || 0);
+  }
+
   const known = new Map(clientRows.map((row) => [row.id, row]));
   const drafts: ActivityDraft[] = [];
   for (const [clientId, activity] of buckets) {
@@ -109,6 +132,7 @@ export async function loadActivityDrafts(
       storageCentsPerPiece: client.storageCentsPerPiece,
       pickCentsPerUnit: client.pickCentsPerUnit,
       cartonCents: client.cartonCents,
+      returnCents: client.returnCents,
     });
     if (!rated) continue;
     drafts.push({
