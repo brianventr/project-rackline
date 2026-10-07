@@ -1,6 +1,6 @@
 import { planReceive, planScrap, type StockPlan } from "./inventory";
 
-export const RETURN_DISPOSITIONS = ["restock", "scrap", "hold"] as const;
+export const RETURN_DISPOSITIONS = ["restock", "scrap", "hold", "refurb"] as const;
 
 export type ReturnDisposition = (typeof RETURN_DISPOSITIONS)[number];
 
@@ -10,22 +10,24 @@ export function isReturnDisposition(value: string): value is ReturnDisposition {
 
 export function parseDisposition(raw: unknown): ReturnDisposition {
   if (raw === undefined || raw === null || raw === "") return "restock";
-  if (typeof raw !== "string") throw new Error("Disposition must be restock, scrap, or hold");
+  if (typeof raw !== "string") throw new Error("Disposition must be restock, scrap, hold, or refurb");
   const value = raw.trim().toLowerCase();
-  if (!isReturnDisposition(value)) throw new Error("Disposition must be restock, scrap, or hold");
+  if (!isReturnDisposition(value)) throw new Error("Disposition must be restock, scrap, hold, or refurb");
   return value;
 }
 
 export function dispositionLabel(value: string): string {
   if (value === "scrap") return "Scrap";
   if (value === "hold") return "Hold";
+  if (value === "refurb") return "Refurb";
   return "Restock";
 }
 
 export function showPutawayAfterReturn(dispositions: Iterable<string>): boolean {
   return [...dispositions].some((row) => {
     try {
-      return parseDisposition(row) === "restock";
+      const disposition = parseDisposition(row);
+      return disposition === "restock" || disposition === "refurb";
     } catch {
       return true;
     }
@@ -44,6 +46,7 @@ export function returnPostedMessage(number: string, dispositions: string[]): str
   );
   if (kinds.size === 1 && kinds.has("scrap")) return `${number} received and scrapped.`;
   if (kinds.size === 1 && kinds.has("hold")) return `${number} received and held at the dock.`;
+  if (kinds.size === 1 && kinds.has("refurb")) return `${number} received as refurb.`;
   if (kinds.size === 1 && kinds.has("restock")) return `${number} received back into the bay.`;
   return `${number} received.`;
 }

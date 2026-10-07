@@ -21,7 +21,7 @@ export const FORM_ITEM_TYPES = ["raw", "wip", "finished", "packaging"] as const;
 export const FORM_LOCATION_TYPES = ["receiving", "storage", "production", "shipping"] as const;
 /** Mirrors `SLOT_ROLES` in `src/lib/org.ts`. */
 export const FORM_SLOT_ROLES = ["pick", "bulk", "none"] as const;
-export const FORM_ROLES = ["owner", "operator", "picker", "bookkeeper"] as const;
+export const FORM_ROLES = ["owner", "operator", "picker", "bookkeeper", "viewer", "support"] as const;
 
 /** Server minimum for a starter password (`parseTeamInvite`). */
 export const MIN_PASSWORD_LENGTH = 8;

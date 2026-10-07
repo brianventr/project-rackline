@@ -17,19 +17,21 @@ describe("return disposition", () => {
   });
 
   it("rejects unknown dispositions", () => {
-    expect(() => parseDisposition("donate")).toThrow(/restock, scrap, or hold/);
+    expect(() => parseDisposition("donate")).toThrow(/restock, scrap, hold, or refurb/);
   });
 
   it("labels the three floor choices", () => {
     expect(dispositionLabel("restock")).toBe("Restock");
     expect(dispositionLabel("scrap")).toBe("Scrap");
     expect(dispositionLabel("hold")).toBe("Hold");
+    expect(dispositionLabel("refurb")).toBe("Refurb");
   });
 
   it("hides putaway unless something was restocked", () => {
     expect(showPutawayAfterReturn(["scrap"])).toBe(false);
     expect(showPutawayAfterReturn(["hold"])).toBe(false);
     expect(showPutawayAfterReturn(["scrap", "restock"])).toBe(true);
+    expect(showPutawayAfterReturn(["refurb"])).toBe(true);
   });
 
   it("names the floor confirmation from posted dispositions", () => {

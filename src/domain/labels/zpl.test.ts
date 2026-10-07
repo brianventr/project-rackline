@@ -9,9 +9,10 @@ describe("zpl labels", () => {
     expect(bay).toContain("A-01-01");
     expect(bay).toContain("^BCN");
 
-    const item = zplItemLabel({ sku: "LAMP", name: "Desk lamp", barcode: "LAMP" });
+    const item = zplItemLabel({ sku: "LAMP", name: "Desk lamp", barcode: "LAMP", serial: "PLANK-9" });
     expect(item).toContain("LAMP");
     expect(item).toContain("Desk lamp");
+    expect(item).toContain("SN PLANK-9");
   });
 
   it("builds a 4x6 shipping label with tracking", () => {

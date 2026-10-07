@@ -35,21 +35,29 @@ export function zplBayLabel(input: { code: string; name: string; barcode: string
   ].join("\n");
 }
 
-export function zplItemLabel(input: { sku: string; name: string; barcode: string }, media: LabelMedia = "2x1", dpi = 203): string {
+export function zplItemLabel(
+  input: { sku: string; name: string; barcode: string; serial?: string | null },
+  media: LabelMedia = "2x1",
+  dpi = 203,
+): string {
   const { width, height } = labelSizeDots(media === "letter" ? "2x1" : media, dpi);
   const sku = escapeZpl(input.sku);
   const name = escapeZpl(input.name);
   const barcode = escapeZpl(input.barcode || input.sku);
+  const serial = input.serial?.trim() ? escapeZpl(input.serial) : "";
   return [
     "^XA",
     `^PW${width}`,
     `^LL${height}`,
     "^LH0,0",
-    `^FO40,30^A0N,40,40^FD${sku}^FS`,
-    `^FO40,80^A0N,28,28^FD${name}^FS`,
-    `^FO40,130^BY2^BCN,80,Y,N,N^FD${barcode}^FS`,
+    `^FO40,20^A0N,36,36^FD${sku}^FS`,
+    `^FO40,60^A0N,24,24^FD${name}^FS`,
+    serial ? `^FO40,92^A0N,22,22^FDSN ${serial}^FS` : "",
+    `^FO40,${serial ? 120 : 100}^BY2^BCN,70,Y,N,N^FD${barcode}^FS`,
     "^XZ",
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function zplShippingLabel(
@@ -109,7 +117,7 @@ export function buildLabelPayload(
   }
   if (kind === "item") {
     const body = zplItemLabel(
-      { sku: data.sku || "", name: data.name || "", barcode: data.barcode || data.sku || "" },
+      { sku: data.sku || "", name: data.name || "", barcode: data.barcode || data.sku || "", serial: data.serial },
       media,
       dpi,
     );
@@ -130,11 +138,18 @@ export function buildLabelPayload(
     );
     return { format: "zpl", body, filename: `${data.orderNumber || "shipping"}.zpl` };
   }
-  const parts = (data.labelsJson ? (JSON.parse(data.labelsJson) as Array<{ kind: "bay" | "item"; code?: string; sku?: string; name: string; barcode: string }>) : []).map(
+  const parts = (data.labelsJson
+    ? (JSON.parse(data.labelsJson) as Array<{ kind: "bay" | "item"; code?: string; sku?: string; name: string; barcode: string; serial?: string }>)
+    : []
+  ).map(
     (row) =>
       row.kind === "bay"
         ? zplBayLabel({ code: row.code || row.barcode, name: row.name, barcode: row.barcode }, "2x1", dpi)
-        : zplItemLabel({ sku: row.sku || row.barcode, name: row.name, barcode: row.barcode }, "2x1", dpi),
+        : zplItemLabel(
+            { sku: row.sku || row.barcode, name: row.name, barcode: row.barcode, serial: row.serial },
+            "2x1",
+            dpi,
+          ),
   );
   return { format: "zpl", body: parts.join("\n"), filename: "labels.zpl" };
 }

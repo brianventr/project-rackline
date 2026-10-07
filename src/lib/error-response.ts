@@ -20,6 +20,7 @@ import { CustomsRequiredError } from "../domain/customs";
 import { AddressInvalidError } from "../domain/address-check";
 import { ShopifyIngestError } from "../domain/shopify-ingest";
 import { ImageUrlError } from "../domain/media";
+import { WarrantyError } from "../domain/warranty";
 import { BomStepError } from "../domain/bom-steps";
 import { WorkflowPolicyError } from "../domain/workflow-policy";
 import { CapacityInputError, LocationFullError } from "../domain/capacity";
@@ -306,6 +307,9 @@ export function mapDomainError(err: unknown): MappedError | null {
     err instanceof PlateInputError
   ) {
     return { status: 400, body: { error: err.message } };
+  }
+  if (err instanceof WarrantyError) {
+    return { status: 409, body: { error: err.message, code: err.code } };
   }
   if (err instanceof HttpError) {
     return {

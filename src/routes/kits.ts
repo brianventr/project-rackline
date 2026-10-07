@@ -16,6 +16,8 @@ import { guardFloorJob, syncDocumentJob } from "../db/jobs";
 import { loadBomRecipe } from "../db/bom-recipe";
 import { loadStepConfirmations, recordStepConfirmation } from "../db/step-confirm";
 import { StepConfirmError, nextUnconfirmedStep, stepsRequiredMessage } from "../domain/step-confirm";
+import { kitLabelSerial } from "../domain/warranty";
+import { zplItemLabel } from "../domain/labels/zpl";
 
 export const kitsRoute = new Hono<AppEnv>();
 
@@ -285,7 +287,14 @@ kitsRoute.post("/kits/:id/complete", async (c) => {
     qty: completed.qty - (completed.qtyCompleted ?? 0),
     createdAt: completed.createdAt,
   });
-  return c.json(completed);
+  const serial = kitLabelSerial([
+    ...serials,
+    ...completed.asBuilt.map((row) => row.componentSerial),
+  ]);
+  const kitLabel = serial
+    ? zplItemLabel({ sku: completed.sku, name: completed.itemName, barcode: completed.sku, serial })
+    : null;
+  return c.json({ ...completed, kitLabel });
 });
 
 kitsRoute.post("/kits/:id/dekit", async (c) => {

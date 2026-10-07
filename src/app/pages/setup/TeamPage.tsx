@@ -30,6 +30,8 @@ const ROLE_OPTIONS = [
   { value: "operator", label: "Operator — floor and office" },
   { value: "picker", label: "Picker — Next job only" },
   { value: "bookkeeper", label: "Bookkeeper — cost and purchases" },
+  { value: "viewer", label: "Viewer — read only" },
+  { value: "support", label: "Support — warranty lookup and returns" },
   { value: "owner", label: "Owner — sees setup" },
 ];
 
@@ -47,6 +49,8 @@ function roleLabel(role: string): string {
   if (role === "operator") return "Operator";
   if (role === "picker") return "Picker";
   if (role === "bookkeeper") return "Bookkeeper";
+  if (role === "viewer") return "Viewer";
+  if (role === "support") return "Support";
   return role;
 }
 
@@ -241,7 +245,7 @@ export function TeamPage() {
       <PageHeader
         eyebrow="Setup"
         title="Team"
-        description="Owners see setup. Operators run the floor and the office. A picker stays on Next job. A bookkeeper sees cost and purchases."
+        description="Owners see setup. Operators run the floor and the office. A picker stays on Next job. A bookkeeper sees cost and purchases. A viewer can look but not change anything. Support looks up warranty and handles returns."
       />
 
       <section className="space-y-2">

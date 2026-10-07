@@ -184,6 +184,9 @@ export type Item = {
   /** Null means incoming QC is off. */
   qcSamplePercent?: number | null;
   makeDays?: number | null;
+  warrantyMonths?: number | null;
+  refurbItemId?: string | null;
+  refurbSku?: string | null;
   onHand?: {
     locationId: string;
     locationCode: string;
@@ -485,6 +488,14 @@ export type ScanSerialHit = {
     locationCode: string | null;
     locationName: string | null;
   };
+  warranty?: {
+    serial: string | null;
+    sku: string | null;
+    serialStatus: string | null;
+    warranty: { eligible: boolean; status: string; start: number | null; end: number | null; termMonths: number | null } | null;
+    order: { id: string; number: string; customerName: string; email: string | null; status: string; trackingNumber: string | null; shippedAt: number | null } | null;
+    replacement: { claimReference: string; orderId: string; orderNumber: string | null; newSerial: string | null } | null;
+  } | null;
   item: Pick<Item, "id" | "sku" | "name" | "barcode">;
   builtFrom: AsBuiltLink[];
   usedIn: AsBuiltLink[];
@@ -1485,6 +1496,9 @@ export type RmaLine = {
   sku: string;
   itemName: string;
   disposition?: string;
+  condition?: string | null;
+  grade?: string | null;
+  serial?: string | null;
   trackLot?: boolean;
   trackSerial?: boolean;
   catchWeight?: boolean;
@@ -1504,6 +1518,7 @@ export type Rma = {
   locationId: string | null;
   warehouseId?: string;
   lines?: RmaLine[];
+  photos?: { id: string; url: string; createdAt: number }[];
 };
 
 export type VendorReturnLine = {
@@ -1572,6 +1587,7 @@ export type Client = {
   storageCentsPerPiece?: number | null;
   pickCentsPerUnit?: number | null;
   cartonCents?: number | null;
+  returnCents?: number | null;
   portalEnabled?: boolean;
 };
 

@@ -74,6 +74,10 @@ export const organizations = sqliteTable("organizations", {
   /** Sealed QuickBooks access token. */
   qboAccessToken: text("qbo_access_token"),
   qboExpenseAccountId: text("qbo_expense_account_id"),
+  /** `demo` records Klaviyo payloads. `live` posts them. */
+  klaviyoMode: text("klaviyo_mode").notNull().default("demo"),
+  /** Sealed Klaviyo private API key. */
+  klaviyoPrivateKey: text("klaviyo_private_key"),
   mailReplyTo: text("mail_reply_to"),
   mailSenderName: text("mail_sender_name"),
   createdAt: integer("created_at").notNull(),
@@ -208,6 +212,10 @@ export const items = sqliteTable(
     abcClassifiedAt: integer("abc_classified_at"),
     /** Days to make this SKU. Overrides the vendor's make days when set. */
     makeDays: integer("make_days"),
+    /** Warranty length in months. Null means this SKU has no warranty. */
+    warrantyMonths: integer("warranty_months"),
+    /** Returned units restock as this SKU. Null keeps a refurb receive in quarantine. */
+    refurbItemId: text("refurb_item_id"),
   },
   (t) => [
     uniqueIndex("items_org_sku").on(t.organizationId, t.sku),
@@ -477,6 +485,8 @@ export const orders = sqliteTable(
     trackerUpdatedAt: integer("tracker_updated_at"),
     parentOrderId: text("parent_order_id"),
     externalOrderId: text("external_order_id"),
+    /** Pledge-manager backer id. Pledge imports also store it as `externalOrderId`. */
+    backerId: text("backer_id"),
     channelSyncStatus: text("channel_sync_status").notNull().default("none"),
     channelSyncError: text("channel_sync_error"),
     channelFulfilledAt: integer("channel_fulfilled_at"),
@@ -1030,6 +1040,10 @@ export const rmaLines = sqliteTable(
     qtyExpected: integer("qty_expected").notNull(),
     qtyReceived: integer("qty_received").notNull().default(0),
     disposition: text("disposition").notNull().default("restock"),
+    condition: text("condition"),
+    /** `a`, `b`, or `c` when the unit was graded. */
+    grade: text("grade"),
+    serial: text("serial"),
   },
   (t) => [uniqueIndex("rma_lines_rma_item").on(t.rmaId, t.itemId)],
 );
@@ -1140,7 +1154,122 @@ export const serials = sqliteTable(
     status: text("status").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
-  (t) => [uniqueIndex("serials_org_item_code").on(t.organizationId, t.itemId, t.serialCode)],
+  (t) => [
+    uniqueIndex("serials_org_item_code").on(t.organizationId, t.itemId, t.serialCode),
+    uniqueIndex("serials_org_code").on(t.organizationId, t.serialCode),
+  ],
+);
+
+/** The order a serial was scanned onto. One serial has one assignment. */
+export const serialAssignments = sqliteTable(
+  "serial_assignments",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    serialId: text("serial_id")
+      .notNull()
+      .references(() => serials.id, { onDelete: "cascade" }),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    orderLineId: text("order_line_id")
+      .notNull()
+      .references(() => orderLines.id, { onDelete: "cascade" }),
+    packageId: text("package_id"),
+    scannedBy: text("scanned_by"),
+    scannedAt: integer("scanned_at").notNull(),
+    shippedAt: integer("shipped_at"),
+    trackingNumber: text("tracking_number"),
+  },
+  (t) => [
+    uniqueIndex("serial_assignments_serial").on(t.serialId),
+    index("serial_assignments_order").on(t.orderId),
+  ],
+);
+
+/** Warranty window for one serial. Dates are copied onto a replacement; the term is not restarted. */
+export const warranties = sqliteTable(
+  "warranties",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    serialId: text("serial_id")
+      .notNull()
+      .references(() => serials.id, { onDelete: "cascade" }),
+    startAt: integer("start_at"),
+    endAt: integer("end_at"),
+    status: text("status").notNull(),
+    termMonths: integer("term_months"),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("warranties_serial").on(t.serialId)],
+);
+
+/** A replacement order linked to the serial it replaces. The new serial is filled in when that order ships. */
+export const replacementLinks = sqliteTable(
+  "replacement_links",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    originalSerialId: text("original_serial_id")
+      .notNull()
+      .references(() => serials.id, { onDelete: "cascade" }),
+    newSerialId: text("new_serial_id").references(() => serials.id, { onDelete: "set null" }),
+    claimReference: text("claim_reference").notNull(),
+    replacementOrderId: text("replacement_order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("replacement_links_original").on(t.originalSerialId),
+    index("replacement_links_order").on(t.replacementOrderId),
+  ],
+);
+
+export const rmaPhotos = sqliteTable(
+  "rma_photos",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    rmaId: text("rma_id")
+      .notNull()
+      .references(() => rmas.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("rma_photos_rma").on(t.rmaId)],
+);
+
+/** Outbound Shopify metafield and Klaviyo calls. A repeat of the same key is a no-op. */
+export const eventOutbox = sqliteTable(
+  "event_outbox",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    destination: text("destination").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payloadJson: text("payload_json").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    status: text("status").notNull(),
+    lastError: text("last_error"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("event_outbox_idem").on(t.organizationId, t.idempotencyKey),
+    index("event_outbox_status").on(t.organizationId, t.status),
+  ],
 );
 
 /** A tote, pallet, or carton with an LP- code. Its lines are a share of its bay's balances, never more. */
@@ -1358,7 +1487,7 @@ export const softAllocations = sqliteTable(
 export type ItemType = "raw" | "wip" | "finished" | "packaging";
 export type LocationType = "receiving" | "storage" | "production" | "shipping";
 export type SlotRole = "pick" | "bulk" | "none";
-export type Role = "owner" | "operator" | "picker" | "bookkeeper";
+export type Role = "owner" | "operator" | "picker" | "bookkeeper" | "viewer" | "support";
 export type ReceiptStatus = "draft" | "receiving" | "received";
 export type OrderStatus = "open" | "picking" | "picked" | "packing" | "packed" | "shipped" | "cancelled";
 export type OrderSource = "manual" | "shopify";
@@ -1374,7 +1503,7 @@ export type ReplenishmentStatus = "draft" | "in_progress" | "posted";
 export type KitBuildStatus = "draft" | "in_progress" | "completed" | "dekitted";
 export type HoldStatus = "open" | "released";
 export type AllocationStatus = "open" | "released";
-export type SerialStatus = "on_hand" | "shipped" | "consumed";
+export type SerialStatus = "on_hand" | "shipped" | "consumed" | "returned" | "replaced" | "scrapped";
 export type MovementType =
   | "receive"
   | "move"
@@ -1389,7 +1518,7 @@ export type MovementType =
   | "rtv"
   | "unpick"
   | "unreceive";
-export type ReturnDisposition = "restock" | "scrap" | "hold";
+export type ReturnDisposition = "restock" | "scrap" | "hold" | "refurb";
 
 export const clients = sqliteTable(
   "clients",
@@ -1405,6 +1534,8 @@ export const clients = sqliteTable(
     storageCentsPerPiece: integer("storage_cents_per_piece"),
     pickCentsPerUnit: integer("pick_cents_per_unit"),
     cartonCents: integer("carton_cents"),
+    /** Null uses the organization return rate. Zero is a real price. */
+    returnCents: integer("return_cents"),
     /** Public `/portal/c/:token` link. Null until an owner enables it. Shown once, then only the fact that it exists. */
     portalToken: text("portal_token"),
   },

@@ -26,6 +26,21 @@ describe("roles", () => {
     expect(rolePageRedirect("owner", "/floor")).toBeNull();
   });
 
+  it("lets a viewer read and blocks their writes", () => {
+    expect(requestDenied("viewer", "GET", "/api/orders")).toBe(false);
+    expect(requestDenied("viewer", "POST", "/api/orders")).toBe(true);
+  });
+
+  it("keeps support on warranty lookup and returns", () => {
+    expect(requestDenied("support", "GET", "/api/warranty/lookup")).toBe(false);
+    expect(requestDenied("support", "POST", "/api/returns")).toBe(false);
+    expect(requestDenied("support", "POST", "/api/orders")).toBe(true);
+    expect(requestDenied("support", "GET", "/api/analytics")).toBe(true);
+    expect(rolePageRedirect("support", "/today")).toBe("/outbound/returns");
+    expect(rolePageRedirect("support", "/floor/lookup")).toBeNull();
+    expect(rolePageRedirect("viewer", "/stock")).toBeNull();
+  });
+
   it("does not add denies for owner or operator", () => {
     expect(requestDenied("owner", "GET", "/api/accounting")).toBe(false);
     expect(requestDenied("operator", "POST", "/api/floor/pick")).toBe(false);

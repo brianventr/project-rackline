@@ -7,6 +7,8 @@ import { docNumber, newId } from "../lib/ids";
 import { badRequest, conflict } from "../lib/http";
 import { destPatchFromAddress } from "../domain/geo";
 import { parseCrowdfundingCsv, resolveCrowdfundingRows } from "../domain/crowdfunding-import";
+import { parseSerialFallbackCsv, serialFallbackCsv } from "../domain/warranty";
+import { importSerialFallback, openSerializedOrderRows } from "../db/warranty";
 import { syncDocumentJob, orderJobInput } from "../db/jobs";
 import { reserveOrderStock } from "../db/allocations";
 import { scheduleOrderCreated } from "../db/outbound-webhooks";
@@ -33,6 +35,27 @@ async function defaultWarehouseId(db: AppEnv["Variables"]["db"], organizationId:
   if (!row) conflict("No warehouse in this organization", "NO_WAREHOUSE");
   return row.id;
 }
+
+importsRoute.get("/imports/serials.csv", async (c) => {
+  requireOwner(c.get("role"));
+  const rows = await openSerializedOrderRows(c.get("db"), c.get("organizationId")!);
+  return c.text(serialFallbackCsv(rows), 200, { "content-type": "text/csv; charset=utf-8" });
+});
+
+importsRoute.post("/imports/serials", async (c) => {
+  requireOwner(c.get("role"));
+  const body = await c.req.json<{ csv?: string }>();
+  const parsed = parseSerialFallbackCsv(typeof body.csv === "string" ? body.csv : "");
+  if (parsed.errors.length) badRequest(parsed.errors.join("; "));
+  if (parsed.rows.length === 0) badRequest("No serials to import");
+  const result = await importSerialFallback(c.get("db"), {
+    organizationId: c.get("organizationId")!,
+    userId: c.get("user")!.id,
+    rows: parsed.rows,
+    origin: c.get("origin"),
+  });
+  return c.json(result);
+});
 
 importsRoute.post("/imports/crowdfunding/preview", async (c) => {
   requireOwner(c.get("role"));
@@ -69,6 +92,9 @@ importsRoute.post("/imports/crowdfunding", async (c) => {
   }>();
   const csv = typeof body.csv === "string" ? body.csv : "";
   const parsed = parseCrowdfundingCsv(csv);
+  if (parsed.errors.some((error) => error.includes("duplicate backer"))) {
+    conflict(parsed.errors.filter((error) => error.includes("duplicate backer")).join("; "), "DUPLICATE_BACKER");
+  }
   if (parsed.errors.length && parsed.rows.length === 0) badRequest(parsed.errors.join("; "));
 
   const db = c.get("db");
@@ -106,9 +132,21 @@ importsRoute.post("/imports/crowdfunding", async (c) => {
   const created: { id: string; number: string }[] = [];
   const now = Date.now();
   for (const order of resolved.orders) {
+    const [taken] = await db
+      .select({ id: schema.orders.id })
+      .from(schema.orders)
+      .where(
+        and(
+          eq(schema.orders.organizationId, organizationId),
+          eq(schema.orders.source, "pledge"),
+          eq(schema.orders.externalOrderId, order.backerId),
+        ),
+      )
+      .limit(1);
+    if (taken) conflict(`Backer ${order.backerId} is already imported`, "DUPLICATE_BACKER");
     const id = newId();
     const number = docNumber("ORD");
-    const source = `crowdfunding:${parsed.source}`;
+    const source = "pledge";
     const lineRows = order.lines.map((line) => ({
       id: newId(),
       orderId: id,
@@ -133,6 +171,8 @@ importsRoute.post("/imports/crowdfunding", async (c) => {
         status: "open",
         createdAt: now,
         source,
+        externalOrderId: order.backerId,
+        backerId: order.backerId,
         waveId,
         ...destPatchFromAddress(order.shipToAddress),
       }),

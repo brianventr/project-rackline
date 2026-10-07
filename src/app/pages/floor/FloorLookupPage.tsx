@@ -1,4 +1,5 @@
 import { useCallback, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { Search } from "lucide-react";
 import { api, errorText, type ScanHit } from "../../api";
@@ -13,6 +14,51 @@ import { packText } from "@/domain/pack-sizes";
 import { PLATE_TYPE_LABELS } from "@/domain/license-plates";
 import { garageAllowsPath, isGarageMode } from "@/domain/operating-mode";
 import { useSession } from "../../session";
+
+function WarrantyRecord({
+  record,
+  serial,
+}: {
+  record: NonNullable<Extract<ScanHit, { kind: "serial" }>["warranty"]>;
+  serial: string;
+}) {
+  const warranty = record.warranty;
+  const label = !warranty || warranty.status === "none" ? "No warranty" : warranty.eligible ? "Eligible" : warranty.status;
+  return (
+    <div className="mt-3 space-y-1 text-sm">
+      <p>
+        Warranty <span className="font-medium">{label}</span>
+        {warranty?.end ? ` until ${new Date(warranty.end).toISOString().slice(0, 10)}` : ""}
+      </p>
+      {record.order ? (
+        <p>
+          Order {record.order.number}
+          {record.order.trackingNumber ? ` · ${record.order.trackingNumber}` : ""} · {record.order.customerName}
+        </p>
+      ) : null}
+      {record.replacement ? (
+        <p>
+          Replaced by {record.replacement.orderNumber ?? record.replacement.claimReference}
+          {record.replacement.newSerial ? ` · ${record.replacement.newSerial}` : ""}
+        </p>
+      ) : null}
+      {warranty?.eligible ? (
+        <Button
+          type="button"
+          variant="secondary"
+          className="mt-2"
+          onClick={() => {
+            api<{ number: string }>("/api/warranty/claims", { method: "POST", body: JSON.stringify({ serial }) })
+              .then((claimed) => toast.success(`Replacement ${claimed.number} is open.`))
+              .catch((err) => toast.error(errorText(err, "Could not open a replacement.")));
+          }}
+        >
+          Ship a replacement
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 export function FloorLookupPage() {
   const me = useSession();
@@ -306,6 +352,7 @@ function LookupResult({ hit, plates }: { hit: ScanHit; plates: boolean }) {
             <StatusBadge status={hit.serial.status} />{" "}
             <span className="font-mono">{hit.serial.locationCode || "—"}</span>
           </p>
+          {hit.warranty ? <WarrantyRecord record={hit.warranty} serial={hit.serial.serialCode} /> : null}
           <LookupActions>
             <Button variant="secondary" className={secondaryAction} asChild>
               <Link to={`/stock/items/${hit.item.id}`}>Open item</Link>

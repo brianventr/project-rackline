@@ -4,6 +4,7 @@ export type BillingRates = {
   storageCentsPerPiece: number;
   pickCentsPerUnit: number;
   cartonCents: number;
+  returnCents: number;
 };
 
 /** A client's own cents. Null on a field means that line uses the organization rate. */
@@ -11,6 +12,7 @@ export type ClientRateCard = {
   storageCentsPerPiece: number | null;
   pickCentsPerUnit: number | null;
   cartonCents: number | null;
+  returnCents: number | null;
 };
 
 export { ACTIVITY_RATES };
@@ -24,6 +26,7 @@ export function parseBillingRates(value: string | null | undefined): BillingRate
       storageCentsPerPiece: positiveInt(parsed.storageCentsPerPiece, ACTIVITY_RATES.storageCentsPerPiece),
       pickCentsPerUnit: positiveInt(parsed.pickCentsPerUnit, ACTIVITY_RATES.pickCentsPerUnit),
       cartonCents: positiveInt(parsed.cartonCents, ACTIVITY_RATES.cartonCents),
+      returnCents: positiveInt(parsed.returnCents, ACTIVITY_RATES.returnCents),
     };
   } catch {
     return { ...ACTIVITY_RATES };
@@ -35,6 +38,7 @@ export function serializeBillingRates(rates: BillingRates): string {
     storageCentsPerPiece: rates.storageCentsPerPiece,
     pickCentsPerUnit: rates.pickCentsPerUnit,
     cartonCents: rates.cartonCents,
+    returnCents: rates.returnCents,
   });
 }
 
@@ -54,6 +58,7 @@ export function ratesForClient(org: BillingRates, card?: Partial<ClientRateCard>
     storageCentsPerPiece: rateOrOrg(card?.storageCentsPerPiece, org.storageCentsPerPiece),
     pickCentsPerUnit: rateOrOrg(card?.pickCentsPerUnit, org.pickCentsPerUnit),
     cartonCents: rateOrOrg(card?.cartonCents, org.cartonCents),
+    returnCents: rateOrOrg(card?.returnCents, org.returnCents),
   };
 }
 
@@ -67,6 +72,7 @@ export function rateActivity(
     storagePieces: number;
     pickedUnits: number;
     shippedCartons: number;
+    receivedReturns?: number;
   },
   rates: BillingRates = ACTIVITY_RATES,
   card?: Partial<ClientRateCard> | null,
@@ -76,6 +82,7 @@ export function rateActivity(
   const storage = pieces(input.storagePieces);
   const picks = pieces(input.pickedUnits);
   const cartons = pieces(input.shippedCartons);
+  const returns = pieces(input.receivedReturns ?? 0);
   if (storage > 0) {
     lines.push({
       kind: "storage",
@@ -101,6 +108,15 @@ export function rateActivity(
       qty: cartons,
       unitCents: applied.cartonCents,
       amountCents: cartons * applied.cartonCents,
+    });
+  }
+  if (returns > 0) {
+    lines.push({
+      kind: "return",
+      label: "Return receipts",
+      qty: returns,
+      unitCents: applied.returnCents,
+      amountCents: returns * applied.returnCents,
     });
   }
   const amountCents = lines.reduce((sum, line) => sum + line.amountCents, 0);

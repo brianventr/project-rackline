@@ -14,6 +14,15 @@ import { parseSerialList, normalizeLotCode } from "../domain/lots";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { lineExpiry } from "../lib/expiry";
 import { parseDisposition, type ReturnDisposition } from "../domain/return-disposition";
+import { parseReturnGrade } from "../domain/warranty";
+import { WarrantyError } from "../domain/warranty";
+import {
+  enqueueReturnReceived,
+  finishReturnSerials,
+  prepareRefurbSerials,
+} from "../db/warranty";
+import { mediaPublicPath } from "../domain/media";
+import { putMediaFile, readUploadedFile } from "../lib/media-store";
 import { coveringHold } from "../domain/holds";
 import { loadOpenHolds } from "../db/holds";
 import { guardFloorJob, syncDocumentJob } from "../db/jobs";
@@ -28,6 +37,15 @@ function asExpected(line: { itemId: string; sku: string; qtyExpected: number; qt
     qtyExpected: line.qtyExpected,
     qtyReceived: line.qtyReceived,
   };
+}
+
+function parseGrade(raw: unknown) {
+  try {
+    return parseReturnGrade(raw);
+  } catch (err) {
+    if (err instanceof WarrantyError) throw err;
+    badRequest(err instanceof Error ? err.message : "Invalid grade");
+  }
 }
 
 function requireDisposition(raw: unknown): ReturnDisposition {
@@ -66,6 +84,9 @@ async function rmaWithLines(db: AppEnv["Variables"]["db"], organizationId: strin
       qtyExpected: schema.rmaLines.qtyExpected,
       qtyReceived: schema.rmaLines.qtyReceived,
       disposition: schema.rmaLines.disposition,
+      condition: schema.rmaLines.condition,
+      grade: schema.rmaLines.grade,
+      serial: schema.rmaLines.serial,
       sku: schema.items.sku,
       itemName: schema.items.name,
       trackLot: schema.items.trackLot,
@@ -76,8 +97,13 @@ async function rmaWithLines(db: AppEnv["Variables"]["db"], organizationId: strin
     .from(schema.rmaLines)
     .innerJoin(schema.items, eq(schema.items.id, schema.rmaLines.itemId))
     .where(eq(schema.rmaLines.rmaId, id));
+  const photos = await db
+    .select({ id: schema.rmaPhotos.id, url: schema.rmaPhotos.url, createdAt: schema.rmaPhotos.createdAt })
+    .from(schema.rmaPhotos)
+    .where(eq(schema.rmaPhotos.rmaId, id));
   return {
     ...rma,
+    photos,
     lines: lines.map((line) => ({ ...line, remaining: remainingOnLine(asExpected(line)) })),
   };
 }
@@ -113,6 +139,9 @@ returnsRoute.get("/returns", async (c) => {
       qtyExpected: schema.rmaLines.qtyExpected,
       qtyReceived: schema.rmaLines.qtyReceived,
       disposition: schema.rmaLines.disposition,
+      condition: schema.rmaLines.condition,
+      grade: schema.rmaLines.grade,
+      serial: schema.rmaLines.serial,
       sku: schema.items.sku,
       itemName: schema.items.name,
       trackLot: schema.items.trackLot,
@@ -274,6 +303,8 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
       weightGrams?: number;
       expiresOn?: unknown;
       disposition?: unknown;
+      condition?: string;
+      grade?: unknown;
     }[];
     overrideCapacity?: boolean;
   }>();
@@ -315,6 +346,8 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
             weightGrams: lineCatchWeight(docLine.catchWeight, docLine.sku, line.weightGrams),
             expiresOn: lineExpiry(docLine.trackExpiry, docLine.sku, line.expiresOn),
             disposition: requireDisposition(line.disposition),
+            condition: line.condition?.trim() || null,
+            grade: parseGrade(line.grade),
           };
         })
       : rma.lines
@@ -327,6 +360,8 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
             weightGrams: lineCatchWeight(line.catchWeight, line.sku, undefined),
             expiresOn: lineExpiry(line.trackExpiry, line.sku, undefined),
             disposition: "restock" as const,
+            condition: null as string | null,
+            grade: null as ReturnType<typeof parseGrade>,
           }))
           .filter((line) => line.qty > 0);
 
@@ -340,9 +375,16 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
   const now = Date.now();
   const nextStatus = isFullyReceived(applied.next) ? "received" : "receiving";
   const qtyByItem = new Map(applied.next.map((line) => [line.itemId, line.qtyReceived]));
-  const dispositionByItem = new Map(incoming.map((line) => [line.itemId, line.disposition]));
+  const prepared = await prepareRefurbSerials(
+    db,
+    organizationId,
+    incoming.map((line) => ({ itemId: line.itemId, serials: line.serials, disposition: line.disposition })),
+  );
+  const stockByItem = new Map(incoming.map((line, index) => [line.itemId, prepared[index]!]));
 
-  const holdLines = incoming.filter((line) => line.disposition === "hold" && applied.posted.some((row) => row.itemId === line.itemId));
+  const holdLines = incoming.filter(
+    (line) => stockByItem.get(line.itemId)?.disposition === "hold" && applied.posted.some((row) => row.itemId === line.itemId),
+  );
   const extraHolds: BatchItem<"sqlite">[] = [];
   if (holdLines.length > 0) {
     const open = await loadOpenHolds(db, organizationId, location.warehouseId);
@@ -389,14 +431,16 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
     refId: rma.id,
     lines: applied.posted.map((line) => {
       const extra = incoming.find((row) => row.itemId === line.itemId);
+      const stock = stockByItem.get(line.itemId);
       return {
         ...line,
+        itemId: stock?.itemId ?? line.itemId,
         sku: extra?.sku,
         lotCode: extra?.lotCode,
         serials: extra?.serials.length ? extra.serials : null,
         weightGrams: extra?.weightGrams,
         expiresOn: extra?.expiresOn,
-        disposition: extra?.disposition ?? "restock",
+        disposition: (stock?.disposition ?? extra?.disposition ?? "restock") as ReturnDisposition,
       };
     }),
     extra: [
@@ -406,7 +450,10 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
           .update(schema.rmaLines)
           .set({
             qtyReceived: qtyByItem.get(line.itemId) ?? line.qtyReceived,
-            disposition: dispositionByItem.get(line.itemId) ?? line.disposition,
+            disposition: stockByItem.get(line.itemId)?.recordedDisposition ?? line.disposition,
+            condition: incoming.find((row) => row.itemId === line.itemId)?.condition ?? line.condition,
+            grade: incoming.find((row) => row.itemId === line.itemId)?.grade ?? line.grade,
+            serial: incoming.find((row) => row.itemId === line.itemId)?.serials[0] ?? line.serial,
           })
           .where(eq(schema.rmaLines.id, line.id)),
       ),
@@ -422,6 +469,17 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
     capacityOverride: override,
   });
 
+  await finishReturnSerials(db, organizationId, prepared);
+  await enqueueReturnReceived(db, {
+    organizationId,
+    rmaId: rma.id,
+    rmaNumber: rma.number,
+    orderNumber: rma.orderNumber,
+    serials: incoming.flatMap((line) => line.serials),
+    now,
+    origin: c.get("origin"),
+  });
+
   const received = await rmaWithLines(db, organizationId, rma.id);
   await syncDocumentJob(db, {
     organizationId,
@@ -435,4 +493,21 @@ returnsRoute.post("/returns/:id/receive", async (c) => {
     createdAt: received.createdAt,
   });
   return c.json(received);
+});
+
+returnsRoute.post("/returns/:id/photos", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const rma = await rmaWithLines(db, organizationId, c.req.param("id"));
+  const file = await readUploadedFile(c.req.raw);
+  const key = `org/${organizationId}/returns/${rma.id}/${newId()}`;
+  const url = await putMediaFile(c.env.MEDIA, key, file);
+  await db.insert(schema.rmaPhotos).values({
+    id: newId(),
+    organizationId,
+    rmaId: rma.id,
+    url: url || mediaPublicPath(key),
+    createdAt: Date.now(),
+  });
+  return c.json(await rmaWithLines(db, organizationId, rma.id), 201);
 });

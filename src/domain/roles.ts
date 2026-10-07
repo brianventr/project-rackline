@@ -4,7 +4,7 @@
  * Bookkeeper sees cost and purchases, and does not run the floor.
  */
 
-export const ROLES = ["owner", "operator", "picker", "bookkeeper"] as const;
+export const ROLES = ["owner", "operator", "picker", "bookkeeper", "viewer", "support"] as const;
 export type AppRole = (typeof ROLES)[number];
 
 export function isAppRole(value: string): value is AppRole {
@@ -36,10 +36,32 @@ function under(path: string, prefix: string): boolean {
   return path === prefix || path.startsWith(`${prefix}/`);
 }
 
+const SUPPORT_READ = [
+  "/api/me",
+  "/api/warranty",
+  "/api/returns",
+  "/api/orders",
+  "/api/items",
+  "/api/locations",
+  "/api/customers",
+  "/api/warehouses",
+  "/api/floor",
+  "/api/search",
+  "/api/scan",
+];
+
+const SUPPORT_WRITE = ["/api/warranty", "/api/returns"];
+
 /** True when this role must not call this route. Owners and operators keep the routes they already have. */
 export function requestDenied(role: string | null | undefined, method: string, path: string): boolean {
   const bare = barePath(path);
   if (!bare.startsWith("/api/")) return false;
+  if (role === "viewer") return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+  if (role === "support") {
+    const read = method === "GET" || method === "HEAD" || method === "OPTIONS";
+    if (read) return !SUPPORT_READ.some((prefix) => under(bare, prefix));
+    return !SUPPORT_WRITE.some((prefix) => under(bare, prefix));
+  }
   if (role === "picker") return PICKER_DENIED.some((prefix) => under(bare, prefix));
   if (role === "bookkeeper") {
     if (under(bare, "/api/floor") || under(bare, "/api/jobs")) return true;
@@ -54,6 +76,15 @@ export function requestDenied(role: string | null | undefined, method: string, p
 export function rolePageRedirect(role: string | null | undefined, path: string): string | null {
   const bare = barePath(path);
   if (role === "picker") return bare === "/floor" || bare.startsWith("/floor/") ? null : "/floor";
+  if (role === "viewer") return null;
+  if (role === "support") {
+    const allowed =
+      bare === "/returns" ||
+      bare.startsWith("/outbound/returns") ||
+      bare === "/floor/lookup" ||
+      bare.startsWith("/floor/lookup");
+    return allowed ? null : "/outbound/returns";
+  }
   if (role === "bookkeeper") {
     const allowed =
       bare === "/stock" ||
@@ -67,6 +98,27 @@ export function rolePageRedirect(role: string | null | undefined, path: string):
 }
 
 export const PICKER_NAV = [{ label: "Floor", items: [{ title: "Next job", url: "/floor" }] }] as const;
+
+export const VIEWER_NAV = [
+  {
+    label: "Shop",
+    items: [
+      { title: "Today", url: "/today" },
+      { title: "On hand", url: "/stock" },
+      { title: "Orders", url: "/outbound/orders" },
+    ],
+  },
+] as const;
+
+export const SUPPORT_NAV = [
+  {
+    label: "Support",
+    items: [
+      { title: "Returns", url: "/outbound/returns" },
+      { title: "Lookup", url: "/floor/lookup" },
+    ],
+  },
+] as const;
 
 export const BOOKKEEPER_NAV = [
   {

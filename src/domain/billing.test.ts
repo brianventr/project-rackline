@@ -18,12 +18,12 @@ describe("rateActivity", () => {
   });
 
   it("uses a client override and falls back to the org rate when a field is null", () => {
-    const org = { storageCentsPerPiece: 2, pickCentsPerUnit: 25, cartonCents: 150 };
+    const org = { storageCentsPerPiece: 2, pickCentsPerUnit: 25, cartonCents: 150, returnCents: 0 };
     expect(
       rateActivity(
         { storagePieces: 1, pickedUnits: 2, shippedCartons: 1 },
         org,
-        { storageCentsPerPiece: null, pickCentsPerUnit: 40, cartonCents: null },
+        { storageCentsPerPiece: null, pickCentsPerUnit: 40, cartonCents: null, returnCents: null },
       ),
     ).toEqual({
       lines: [
@@ -38,12 +38,29 @@ describe("rateActivity", () => {
   it("keeps a zero pick rate instead of falling back to 25¢", () => {
     const rated = rateActivity(
       { storagePieces: 1, pickedUnits: 4, shippedCartons: 0 },
-      { storageCentsPerPiece: 2, pickCentsPerUnit: 25, cartonCents: 150 },
-      { storageCentsPerPiece: null, pickCentsPerUnit: 0, cartonCents: null },
+      { storageCentsPerPiece: 2, pickCentsPerUnit: 25, cartonCents: 150, returnCents: 0 },
+      { storageCentsPerPiece: null, pickCentsPerUnit: 0, cartonCents: null, returnCents: null },
     );
     expect(rated?.lines.map((line) => [line.kind, line.unitCents])).toEqual([
       ["storage", 2],
       ["pick", 0],
     ]);
+  });
+
+  it("bills return receipts and keeps a zero return rate", () => {
+    const rated = rateActivity(
+      { storagePieces: 0, pickedUnits: 0, shippedCartons: 0, receivedReturns: 3 },
+      { storageCentsPerPiece: 2, pickCentsPerUnit: 25, cartonCents: 150, returnCents: 200 },
+    );
+    expect(rated).toEqual({
+      lines: [{ kind: "return", label: "Return receipts", qty: 3, unitCents: 200, amountCents: 600 }],
+      amountCents: 600,
+    });
+    const free = rateActivity(
+      { storagePieces: 1, pickedUnits: 0, shippedCartons: 0, receivedReturns: 2 },
+      { storageCentsPerPiece: 2, pickCentsPerUnit: 25, cartonCents: 150, returnCents: 75 },
+      { returnCents: 0 },
+    );
+    expect(free?.lines.find((line) => line.kind === "return")?.unitCents).toBe(0);
   });
 });

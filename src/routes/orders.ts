@@ -34,6 +34,9 @@ import { loadCarrierConnections, recordCarrierEvent } from "./carriers";
 import { scheduleShopifySellableSync } from "../db/shopify-sellable";
 import { scheduleOrderCreated, scheduleOrderShipped } from "../db/outbound-webhooks";
 import { parseSerialList } from "../domain/lots";
+import { internationalLabelBlock, serialsFromScans } from "../domain/warranty";
+import { assignPackedSerials, enqueueOrderPrepared, linkAssignmentsToPackage, stampShipmentWarranties } from "../db/warranty";
+import type { RecordedScan } from "../domain/workflow-policy";
 import { lineCatchWeight } from "../lib/catch-weight";
 import { splitCatchWeight } from "../domain/catch-weight";
 import { canRelabelException } from "../domain/tracker";
@@ -602,6 +605,15 @@ ordersRoute.post("/orders/:id/start", async (c) => {
     })),
   });
   await db.update(schema.orders).set({ status: "picking" }).where(eq(schema.orders.id, order.id));
+  await enqueueOrderPrepared(db, {
+    organizationId,
+    orderId: order.id,
+    orderNumber: order.number,
+    customerName: order.customerName,
+    customerId: order.customerId,
+    now: Date.now(),
+    origin: c.get("origin"),
+  });
   const started = await orderWithLines(db, organizationId, order.id);
   await syncDocumentJob(db, orderJobInput(started));
   return c.json(started);
@@ -790,6 +802,15 @@ async function postOrderPick(
   const picked = await orderWithLines(db, organizationId, order.id);
   await syncDocumentJob(db, orderJobInput(picked));
   await consumeItemScans(db, scanSessionId);
+  await enqueueOrderPrepared(db, {
+    organizationId,
+    orderId: order.id,
+    orderNumber: order.number,
+    customerName: order.customerName,
+    customerId: order.customerId,
+    now,
+    origin: c.get("origin"),
+  });
   return c.json(picked);
 }
 
@@ -809,8 +830,15 @@ ordersRoute.post("/orders/:id/pick", async (c) => {
 
 ordersRoute.post("/orders/:id/pack", async (c) => {
   const body = await c.req
-    .json<{ lines?: { lineId?: string; itemId?: string; qty?: number }[]; scan?: ScanEvidence; sessionId?: string }>()
-    .catch(() => ({}) as { lines?: { lineId?: string; itemId?: string; qty?: number }[]; scan?: ScanEvidence; sessionId?: string });
+    .json<{ lines?: { lineId?: string; itemId?: string; qty?: number; serials?: string | string[] }[]; scan?: ScanEvidence; sessionId?: string }>()
+    .catch(
+      () =>
+        ({}) as {
+          lines?: { lineId?: string; itemId?: string; qty?: number; serials?: string | string[] }[];
+          scan?: ScanEvidence;
+          sessionId?: string;
+        },
+    );
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const order = await orderWithLines(db, organizationId, c.req.param("id"), { suggest: false });
@@ -833,12 +861,14 @@ ordersRoute.post("/orders/:id/pack", async (c) => {
   const incoming = resolveIncomingPack(order.lines, body.lines).filter((line) => line.qty > 0);
   const packPolicy = await loadWorkflowPolicy(db, organizationId);
   let scanSessionId: string | null = null;
+  let recorded: RecordedScan[] = [];
   if (requiresScan(packPolicy, "pack")) {
+    recorded = await loadRecordedScans(db, organizationId, c.get("user")!.id, body.sessionId);
     assertRecordedScans(
       packPolicy,
       "pack",
       await scanCheckLines(db, organizationId, order.lines, incoming),
-      await loadRecordedScans(db, organizationId, c.get("user")!.id, body.sessionId),
+      recorded,
     );
     scanSessionId = body.sessionId ?? null;
   } else {
@@ -891,6 +921,27 @@ ordersRoute.post("/orders/:id/pack", async (c) => {
     ),
   ]);
 
+  const serializedCount = incoming.filter((line) => order.lines.find((row) => row.id === line.lineId)?.trackSerial).length;
+  await assignPackedSerials(db, {
+    organizationId,
+    userId: user.id,
+    orderId: order.id,
+    now,
+    lines: incoming.map((line) => {
+      const orderLine = order.lines.find((row) => row.id === line.lineId)!;
+      const typed = body.lines?.find((row) => row.lineId === line.lineId || row.itemId === orderLine.itemId)?.serials;
+      const serials = typed ? parseSerialList(typed) : serialsFromScans(orderLine.sku, recorded, serializedCount === 1);
+      return {
+        lineId: line.lineId,
+        itemId: orderLine.itemId,
+        sku: orderLine.sku,
+        qty: line.qty,
+        trackSerial: Boolean(orderLine.trackSerial),
+        serials,
+      };
+    }),
+  });
+
   const packed = await orderWithLines(db, organizationId, order.id);
   await syncDocumentJob(db, orderJobInput(packed));
   await consumeItemScans(db, scanSessionId);
@@ -942,7 +993,7 @@ function resolveIncomingCarton(
 ordersRoute.post("/orders/:id/packages", async (c) => {
   const body = await c.req
     .json<{
-      lines?: { lineId?: string; itemId?: string; qty?: number }[];
+      lines?: { lineId?: string; itemId?: string; qty?: number; serials?: string | string[] }[];
       pack?: boolean;
       scan?: ScanEvidence;
       sessionId?: string;
@@ -954,7 +1005,7 @@ ordersRoute.post("/orders/:id/packages", async (c) => {
     .catch(
       () =>
         ({}) as {
-          lines?: { lineId?: string; itemId?: string; qty?: number }[];
+          lines?: { lineId?: string; itemId?: string; qty?: number; serials?: string | string[] }[];
           pack?: boolean;
           scan?: ScanEvidence;
           sessionId?: string;
@@ -1048,6 +1099,29 @@ ordersRoute.post("/orders/:id/packages", async (c) => {
           }),
         ),
       ]);
+      const cartonScans = cartonSessionId
+        ? await loadRecordedScans(db, organizationId, user.id, cartonSessionId)
+        : [];
+      const serializedCount = incomingPack.filter((line) => order.lines.find((row) => row.id === line.lineId)?.trackSerial).length;
+      await assignPackedSerials(db, {
+        organizationId,
+        userId: user.id,
+        orderId: order.id,
+        now: nowPack,
+        lines: incomingPack.map((line) => {
+          const orderLine = order.lines.find((row) => row.id === line.lineId)!;
+          const typed = body.lines?.find((row) => row.lineId === line.lineId || row.itemId === orderLine.itemId)?.serials;
+          const serials = typed ? parseSerialList(typed) : serialsFromScans(orderLine.sku, cartonScans, serializedCount === 1);
+          return {
+            lineId: line.lineId,
+            itemId: orderLine.itemId,
+            sku: orderLine.sku,
+            qty: line.qty,
+            trackSerial: Boolean(orderLine.trackSerial),
+            serials,
+          };
+        }),
+      });
       await consumeItemScans(db, cartonSessionId);
       order = await orderWithLines(db, organizationId, order.id, { suggest: false });
     }
@@ -1096,6 +1170,7 @@ ordersRoute.post("/orders/:id/packages", async (c) => {
       });
     }),
   ]);
+  await linkAssignmentsToPackage(db, organizationId, order.id, applied.posted, packageId);
   const next = await orderWithLines(db, organizationId, order.id);
   await syncDocumentJob(db, orderJobInput(next));
   return c.json(next, 201);
@@ -1530,6 +1605,8 @@ async function purchaseOrderLabel(
   });
   if (!purchase.ok) badRequest(purchase.error);
   const warehouse = await loadWarehouse(db, organizationId, order.warehouseId);
+  const abroad = internationalLabelBlock(order.shipToCountry, warehouse?.country);
+  if (abroad) conflict(abroad.error, abroad.code);
   const shipFromAddress = warehouse?.shipFromAddress ?? null;
   const shipToAddress = body.shipToAddress?.trim() || order.shipToAddress;
   const parcel = parcelFrom(body, pkg ?? order);
@@ -2166,6 +2243,14 @@ async function shipOrderCartons(
     shipped = await orderWithLines(db, organizationId, order.id);
   }
   await syncDocumentJob(db, orderJobInput(shipped));
+  await stampShipmentWarranties(db, {
+    organizationId,
+    orderId: order.id,
+    now,
+    trackingNumber: toShip[0]?.trackingNumber ?? shipped.trackingNumber ?? null,
+    packageIds: toShip.map((pkg) => pkg.id),
+    orderComplete: shipped.status === "shipped",
+  });
   return { ...shipped, shopify, channel };
 }
 
@@ -2269,6 +2354,15 @@ ordersRoute.post("/orders/:id/ship", async (c) => {
     : undefined;
   const shipped = await orderWithLines(db, organizationId, order.id);
   await syncDocumentJob(db, orderJobInput(shipped));
+  await stampShipmentWarranties(db, {
+    organizationId,
+    orderId: order.id,
+    now,
+    trackingNumber: shipped.trackingNumber,
+    packageIds: [],
+    orderComplete: true,
+    origin: c.get("origin"),
+  });
   scheduleShippedEmail(c, shipped);
   return c.json({ ...shipped, shopify, channel });
 });

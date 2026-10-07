@@ -21,6 +21,7 @@ function presentClient(row: ClientRow) {
     storageCentsPerPiece: row.storageCentsPerPiece,
     pickCentsPerUnit: row.pickCentsPerUnit,
     cartonCents: row.cartonCents,
+    returnCents: row.returnCents,
     portalEnabled: Boolean(row.portalToken),
   };
 }
@@ -81,17 +82,20 @@ clientsRoute.put("/clients/:id/rates", async (c) => {
     storageCentsPerPiece?: unknown;
     pickCentsPerUnit?: unknown;
     cartonCents?: unknown;
+    returnCents?: unknown;
   }>();
   const storageCentsPerPiece = optionalCents(body.storageCentsPerPiece, "storageCentsPerPiece");
   const pickCentsPerUnit = optionalCents(body.pickCentsPerUnit, "pickCentsPerUnit");
   const cartonCents = optionalCents(body.cartonCents, "cartonCents");
+  const returnCents = optionalCents(body.returnCents, "returnCents");
   const db = c.get("db");
   const organizationId = c.get("organizationId")!;
   const client = await loadClient(db, organizationId, c.req.param("id"));
-  const patch: Partial<Pick<ClientRow, "storageCentsPerPiece" | "pickCentsPerUnit" | "cartonCents">> = {};
+  const patch: Partial<Pick<ClientRow, "storageCentsPerPiece" | "pickCentsPerUnit" | "cartonCents" | "returnCents">> = {};
   if (storageCentsPerPiece !== undefined) patch.storageCentsPerPiece = storageCentsPerPiece;
   if (pickCentsPerUnit !== undefined) patch.pickCentsPerUnit = pickCentsPerUnit;
   if (cartonCents !== undefined) patch.cartonCents = cartonCents;
+  if (returnCents !== undefined) patch.returnCents = returnCents;
   if (Object.keys(patch).length === 0) badRequest("No rate fields to update");
   const [row] = await db.update(schema.clients).set(patch).where(eq(schema.clients.id, client.id)).returning();
   return c.json(presentClient(row!));

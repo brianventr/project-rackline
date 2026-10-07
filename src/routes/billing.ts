@@ -103,8 +103,9 @@ billingRoute.put("/billing/rates", async (c) => {
     pickCentsPerUnit:
       typeof body.pickCentsPerUnit === "number" ? Math.floor(body.pickCentsPerUnit) : ACTIVITY_RATES.pickCentsPerUnit,
     cartonCents: typeof body.cartonCents === "number" ? Math.floor(body.cartonCents) : ACTIVITY_RATES.cartonCents,
+    returnCents: typeof body.returnCents === "number" ? Math.floor(body.returnCents) : ACTIVITY_RATES.returnCents,
   };
-  if (rates.storageCentsPerPiece < 0 || rates.pickCentsPerUnit < 0 || rates.cartonCents < 0) {
+  if (rates.storageCentsPerPiece < 0 || rates.pickCentsPerUnit < 0 || rates.cartonCents < 0 || rates.returnCents < 0) {
     badRequest("Rates must be non-negative");
   }
   const db = c.get("db");
