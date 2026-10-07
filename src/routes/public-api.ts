@@ -10,6 +10,8 @@ import {
   type ApiScope,
 } from "../domain/public-api";
 import { badRequest, forbidden, unauthorized } from "../lib/http";
+import { lookupWarranty } from "../db/warranty";
+import { gorgiasWarrantyPayload } from "../domain/gorgias";
 import { secretFingerprint } from "../lib/secret-box";
 import type { AppEnv } from "../lib/types";
 
@@ -180,4 +182,13 @@ publicApiRoute.get("/v1/shipments", async (c) => {
     })),
     nextCursor: more && last?.shippedAt != null ? encodePageCursor([String(last.shippedAt), last.number]) : null,
   });
+});
+
+/** Gorgias HTTP widget. The ticket URL passes the customer email; the key is orders:read. */
+publicApiRoute.get("/v1/warranty", async (c) => {
+  const organizationId = await requireKey(c, "orders:read");
+  const email = c.req.query("email")?.trim() ?? "";
+  if (!email) badRequest("email is required");
+  const matches = await lookupWarranty(c.get("db"), organizationId, email);
+  return c.json(gorgiasWarrantyPayload(matches));
 });

@@ -21,6 +21,7 @@ import { openSecret } from "../lib/secret-box";
 import { credentialSecret } from "../lib/credential-secret";
 import { openShopifyRow } from "./credentials";
 import { createShopifyGraphqlClient } from "../lib/shopify-client";
+import { sendShopifyReturn } from "./shopify-return";
 import { syncDocumentJob, orderJobInput } from "./jobs";
 
 type PackLine = {
@@ -963,6 +964,21 @@ export async function flushOutbox(db: AppDb, organizationId: string, origin?: st
         }>(SHOPIFY_METAFIELDS_SET, { metafields });
         const userError = result.metafieldsSet?.userErrors?.find((item) => item.message)?.message;
         if (userError) throw new Error(userError);
+        await markOutbox(db, row.id, "sent", row.attempts + 1, null, now);
+        continue;
+      }
+      if (row.destination === "shopify_return") {
+        const lines = Array.isArray(payload.lines) ? (payload.lines as Parameters<typeof sendShopifyReturn>[1]["lines"]) : [];
+        if (!shopify || shopify.mode !== "live" || !shopify.accessToken) {
+          await markOutbox(db, row.id, "recorded", row.attempts, null, now);
+          continue;
+        }
+        const client = createShopifyGraphqlClient({
+          shopDomain: shopify.shopDomain,
+          accessToken: shopify.accessToken,
+          apiVersion: shopify.apiVersion,
+        });
+        await sendShopifyReturn(client, { orderGid: typeof payload.orderGid === "string" ? payload.orderGid : undefined, lines });
         await markOutbox(db, row.id, "sent", row.attempts + 1, null, now);
       }
     } catch (err) {

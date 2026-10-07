@@ -28,6 +28,7 @@ import {
   recordWebhookReceipt,
   type ShopifyConnectionRow,
 } from "../domain/shopify-ingest";
+import { loadPaidSignalPayload, noteShopifySignal } from "../db/order-integrity";
 import {
   acceptFulfillmentRequest,
   createShopifyGraphqlClient,
@@ -189,19 +190,51 @@ async function handleWebhookTopic(
 
   if (topic === "orders/create" || topic === "orders/updated" || topic === "orders/paid") {
     const order = payload as ShopifyRestOrder;
-    if (order.cancelled_at && order.id != null) {
-      await cancelShopifyDraft(c.get("db"), connection.organizationId, String(order.id));
+    const shopifyOrderId = order.id == null ? "" : String(order.id);
+    const paid = topic === "orders/paid" || order.financial_status === "paid" || order.financial_status === "partially_paid";
+    if (paid && shopifyOrderId) {
+      await noteShopifySignal(c.get("db"), {
+        organizationId: connection.organizationId,
+        shopifyOrderId,
+        shopifyOrderName: order.name,
+        kind: "paid",
+        payload: order,
+      });
+    }
+    if (order.cancelled_at && shopifyOrderId) {
+      await noteShopifySignal(c.get("db"), {
+        organizationId: connection.organizationId,
+        shopifyOrderId,
+        shopifyOrderName: order.name,
+        kind: "cancel",
+      });
+      await cancelShopifyDraft(c.get("db"), connection.organizationId, shopifyOrderId);
     }
     const result = await ingestRestOrder(c.get("db"), connection, order);
+    if (result.skipped === "missing_sku" && shopifyOrderId) {
+      for (const sku of result.skus ?? []) {
+        await noteShopifySignal(c.get("db"), {
+          organizationId: connection.organizationId,
+          shopifyOrderId,
+          shopifyOrderName: order.name,
+          kind: "missing_sku",
+          sku,
+        });
+      }
+    }
     return c.json({ ok: true, topic, ...result });
   }
 
   if (topic === "orders/cancelled" && payload && typeof payload === "object" && "id" in payload) {
-    const cancelled = await cancelShopifyDraft(
-      c.get("db"),
-      connection.organizationId,
-      String((payload as { id: string | number }).id),
-    );
+    const shopifyOrderId = String((payload as { id: string | number }).id);
+    const name = "name" in payload ? String((payload as { name?: string }).name ?? "") : "";
+    await noteShopifySignal(c.get("db"), {
+      organizationId: connection.organizationId,
+      shopifyOrderId,
+      shopifyOrderName: name || null,
+      kind: "cancel",
+    });
+    const cancelled = await cancelShopifyDraft(c.get("db"), connection.organizationId, shopifyOrderId);
     return c.json({ ok: true, topic, cancelled });
   }
 
@@ -313,6 +346,33 @@ shopifyPublicRoute.get("/shopify/oauth/callback", async (c) => {
     });
   }
   return c.redirect(installRedirect(origin, "installed=1"));
+});
+
+shopifyRoute.post("/shopify/signals/:shopifyOrderId/ingest", async (c) => {
+  const db = c.get("db");
+  const organizationId = c.get("organizationId")!;
+  const shopifyOrderId = decodeURIComponent(c.req.param("shopifyOrderId"));
+  const payload = await loadPaidSignalPayload(db, organizationId, shopifyOrderId);
+  if (!payload || typeof payload !== "object") conflict("That paid order was not saved, so it cannot be tried again");
+  const [connection] = await db
+    .select()
+    .from(schema.shopifyConnections)
+    .where(eq(schema.shopifyConnections.organizationId, organizationId))
+    .limit(1);
+  if (!connection) conflict("Shopify is not connected");
+  const result = await ingestRestOrder(db, connection, payload as ShopifyRestOrder);
+  if (result.skipped === "missing_sku") {
+    for (const sku of result.skus ?? []) {
+      await noteShopifySignal(db, {
+        organizationId,
+        shopifyOrderId,
+        shopifyOrderName: (payload as ShopifyRestOrder).name,
+        kind: "missing_sku",
+        sku,
+      });
+    }
+  }
+  return c.json(result);
 });
 
 shopifyRoute.get("/shopify/oauth/start", async (c) => {
@@ -475,6 +535,18 @@ shopifyRoute.post("/shopify/simulate-order", async (c) => {
   }
   try {
     const result = await ingestRestOrder(db, connection, payload);
+    if (result.skipped === "missing_sku") {
+      for (const sku of result.skus ?? []) {
+        await noteShopifySignal(db, {
+          organizationId,
+          shopifyOrderId: String(payload.id),
+          shopifyOrderName: payload.name,
+          kind: "missing_sku",
+          sku,
+        });
+      }
+      conflict(`Unknown SKUs: ${(result.skus ?? []).join(", ")}`, "MISSING_SKUS");
+    }
     return c.json({ ok: true, hmacVerified: true, payload, ...result }, 201);
   } catch (err) {
     if (err instanceof ShopifyIngestError) {

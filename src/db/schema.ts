@@ -599,6 +599,27 @@ export const shopifyConnections = sqliteTable(
   ],
 );
 
+/** A paid, cancel, or unknown-SKU notice from Shopify. The inbox reads these live. */
+export const shopifyOrderSignals = sqliteTable(
+  "shopify_order_signals",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    shopifyOrderId: text("shopify_order_id").notNull(),
+    shopifyOrderName: text("shopify_order_name"),
+    kind: text("kind").notNull(),
+    sku: text("sku").notNull().default(""),
+    payloadJson: text("payload_json"),
+    receivedAt: integer("received_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("shopify_order_signals_key").on(t.organizationId, t.shopifyOrderId, t.kind, t.sku),
+    index("shopify_order_signals_org_kind").on(t.organizationId, t.kind, t.receivedAt),
+  ],
+);
+
 export const shopifyWebhookReceipts = sqliteTable("shopify_webhook_receipts", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id")
