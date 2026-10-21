@@ -20,7 +20,7 @@ export function LandingPricing() {
           Start on the bench. Stay when you grow.
         </h2>
         <p className="mx-auto max-w-xl text-center text-muted-foreground">
-          Garage is $150 a month after a 30-day trial. Shop is the floor. Manufacturer is the
+          Garage is $150 a month. Shop is the floor. Manufacturer is the
           warehouse. Same ledger the whole way.
         </p>
       </motion.div>
