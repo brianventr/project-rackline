@@ -1,7 +1,7 @@
 /**
  * What the homepage says a plan costs. Signup does not charge a card.
  *
- * Garage stays free through a small monthly cap so a bench can start. Shop and Manufacturer
+ * Garage is $150 a month after a 30-day free trial. Shop and Manufacturer
  * are priced as a floor WMS: above inventory apps (Craftybase, SOS, Zoho) and under the
  * mid-market names a growing shop actually compares — Unleashed Core is about $399 and Pro
  * about $729, Katana Core plus its WMS add-on is about $448, Cin7 starts near $349, Packiyo
@@ -15,7 +15,7 @@ export type Plan = {
   id: PlanId;
   name: string;
   desc: string;
-  /** Whole dollars per month. Zero is free. */
+  /** Whole dollars per month, after any trial. */
   price: number;
   /** Shown under the price. Null when the plan is not capped. */
   cap: string | null;
@@ -25,18 +25,18 @@ export type Plan = {
   features: string[];
 };
 
-/** Garage stays free through this many shipped orders in a month. */
-export const GARAGE_FREE_ORDERS = 50;
+/** Days a new Garage signup runs before the monthly price. */
+export const GARAGE_TRIAL_DAYS = 30;
 
 export const PLANS: readonly Plan[] = [
   {
     id: "garage",
     name: "Garage",
     desc: "One bench, one building, and the ship queue",
-    price: 0,
-    cap: `Free up to ${GARAGE_FREE_ORDERS} orders a month`,
+    price: 150,
+    cap: `${GARAGE_TRIAL_DAYS}-day free trial`,
     mostPopular: false,
-    cta: "Start free",
+    cta: "Start free trial",
     href: "/signup",
     features: [
       "Ship queue — pick, pack, label, and post tracking",
@@ -84,4 +84,4 @@ export const PLANS: readonly Plan[] = [
 ];
 
 export const PLAN_NOTE =
-  "Signup opens Garage and does not charge a card. Shop and Manufacturer are the prices when billing is on.";
+  "Signup starts a 30-day Garage trial and does not charge a card. Garage is $150 a month after the trial. Shop and Manufacturer are the prices when you move up.";

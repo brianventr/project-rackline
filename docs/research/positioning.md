@@ -61,7 +61,7 @@ Always say **Rackline WMS** in titles and meta. Physical shelving brand rackline
 
 ## Pricing posture (near-term)
 
-Garage is free through 50 shipped orders a month. Shop is $349 and Manufacturer is $799: a floor WMS under Unleashed Pro and ShipHero, not a $79 app. Signup still does not charge a card until billing exists.
+Garage is $150 a month after a 30-day free trial. Shop is $349 and Manufacturer is $799, under Unleashed Pro and ShipHero. Signup still does not charge a card until billing exists.
 
 ## Success signals
 
