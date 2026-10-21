@@ -61,7 +61,7 @@ Always say **Rackline WMS** in titles and meta. Physical shelving brand rackline
 
 ## Pricing posture (near-term)
 
-Landing currently shows $0 self-serve tiers (Demo / Shop / Manufacturer). Monetization phase: Garage free with caps → paid Shop / Manufacturer. Do not fake enterprise pricing on the homepage until billing exists.
+Garage is $150 a month, with no free trial. Shop is $349 and Manufacturer is $799, under Unleashed Pro and ShipHero. Signup still does not charge a card until billing exists.
 
 ## Success signals
 

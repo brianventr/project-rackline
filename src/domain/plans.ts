@@ -1,6 +1,12 @@
 /**
- * What the homepage says a plan costs. Signup does not charge a card; these are the prices
- * the product is packaged at, between a free Shopify app and a $179 phone WMS.
+ * What the homepage says a plan costs. Signup does not charge a card.
+ *
+ * Garage is $150 a month. Shop and Manufacturer
+ * are priced as a floor WMS: above inventory apps (Craftybase, SOS, Zoho) and under the
+ * mid-market names a growing shop actually compares — Unleashed Core is about $399 and Pro
+ * about $729, Katana Core plus its WMS add-on is about $448, Cin7 starts near $349, Packiyo
+ * is about $949, and ShipHero brands have been about $1,995. Shop sits with that entry
+ * cluster. Manufacturer sits with Unleashed Pro, under Packiyo and well under ShipHero.
  */
 
 export type PlanId = "garage" | "shop" | "manufacturer";
@@ -9,7 +15,7 @@ export type Plan = {
   id: PlanId;
   name: string;
   desc: string;
-  /** Whole dollars per month. Zero is free. */
+  /** Whole dollars per month. */
   price: number;
   /** Shown under the price. Null when the plan is not capped. */
   cap: string | null;
@@ -19,18 +25,15 @@ export type Plan = {
   features: string[];
 };
 
-/** Garage stays free through this many shipped orders in a month. */
-export const GARAGE_FREE_ORDERS = 50;
-
 export const PLANS: readonly Plan[] = [
   {
     id: "garage",
     name: "Garage",
     desc: "One bench, one building, and the ship queue",
-    price: 0,
-    cap: `Free up to ${GARAGE_FREE_ORDERS} orders a month`,
+    price: 150,
+    cap: null,
     mostPopular: false,
-    cta: "Start free",
+    cta: "Open Garage",
     href: "/signup",
     features: [
       "Ship queue — pick, pack, label, and post tracking",
@@ -44,7 +47,7 @@ export const PLANS: readonly Plan[] = [
     id: "shop",
     name: "Shop",
     desc: "The floor, once the bench is the business",
-    price: 79,
+    price: 349,
     cap: "One building",
     mostPopular: true,
     cta: "Open a shop",
@@ -62,7 +65,7 @@ export const PLANS: readonly Plan[] = [
     id: "manufacturer",
     name: "Manufacturer",
     desc: "Waves, a second building, or stock for someone else",
-    price: 179,
+    price: 799,
     cap: null,
     mostPopular: false,
     cta: "Open the warehouse",
@@ -78,4 +81,4 @@ export const PLANS: readonly Plan[] = [
 ];
 
 export const PLAN_NOTE =
-  "Signup opens Garage and does not charge a card. Shop and Manufacturer are the prices when billing is on.";
+  "Signup opens Garage and does not charge a card. Garage is $150 a month. Shop and Manufacturer are the prices when you move up.";
