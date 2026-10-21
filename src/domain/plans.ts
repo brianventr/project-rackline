@@ -1,6 +1,12 @@
 /**
- * What the homepage says a plan costs. Signup does not charge a card; these are the prices
- * the product is packaged at, between a free Shopify app and a $179 phone WMS.
+ * What the homepage says a plan costs. Signup does not charge a card.
+ *
+ * Garage stays free through a small monthly cap so a bench can start. Shop and Manufacturer
+ * are priced as a floor WMS: above inventory apps (Craftybase, SOS, Zoho) and under the
+ * mid-market names a growing shop actually compares — Unleashed Core is about $399 and Pro
+ * about $729, Katana Core plus its WMS add-on is about $448, Cin7 starts near $349, Packiyo
+ * is about $949, and ShipHero brands have been about $1,995. Shop sits with that entry
+ * cluster. Manufacturer sits with Unleashed Pro, under Packiyo and well under ShipHero.
  */
 
 export type PlanId = "garage" | "shop" | "manufacturer";
@@ -44,7 +50,7 @@ export const PLANS: readonly Plan[] = [
     id: "shop",
     name: "Shop",
     desc: "The floor, once the bench is the business",
-    price: 79,
+    price: 349,
     cap: "One building",
     mostPopular: true,
     cta: "Open a shop",
@@ -62,7 +68,7 @@ export const PLANS: readonly Plan[] = [
     id: "manufacturer",
     name: "Manufacturer",
     desc: "Waves, a second building, or stock for someone else",
-    price: 179,
+    price: 799,
     cap: null,
     mostPopular: false,
     cta: "Open the warehouse",
