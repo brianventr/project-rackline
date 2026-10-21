@@ -80,8 +80,8 @@ describe("tour steps", () => {
 });
 
 describe("flow stages", () => {
-  it("walks inbound, stock, make, outbound with pages Garage Mode can open", () => {
-    expect(FLOW_STAGES.map((stage) => stage.id)).toEqual(["inbound", "stock", "make", "outbound"]);
+  it("walks inbound, inventory, make, outbound, returns with pages Garage Mode can open", () => {
+    expect(FLOW_STAGES.map((stage) => stage.id)).toEqual(["inbound", "inventory", "make", "outbound", "returns"]);
     for (const stage of FLOW_STAGES) {
       expect(garageAllowsPath(stage.path), stage.id).toBe(true);
       expect(stage.stops.length).toBeGreaterThan(0);
@@ -92,14 +92,16 @@ describe("flow stages", () => {
   it("drops Manufacturer-only stops and uses bench words in Garage Mode", () => {
     const full = flowStagesFor({ garage: false });
     const garage = flowStagesFor({ garage: true });
-    expect(garage.map((stage) => stage.title)).toEqual(["Parts", "Shelf", "Build", "Ship"]);
-    expect(garage.find((stage) => stage.id === "stock")!.stops.map((stop) => stop.verb)).toEqual(["Adjust"]);
+    const titles = ["Inbound", "Inventory", "Make", "Outbound", "Returns"];
+    expect(garage.map((stage) => stage.title)).toEqual(titles);
+    expect(garage.find((stage) => stage.id === "inventory")!.stops.map((stop) => stop.verb)).toEqual(["Adjust"]);
+    expect(garage.find((stage) => stage.id === "returns")!.stops.map((stop) => stop.verb)).toEqual(["Return"]);
     // ASNs are packed away on the bench, so the inbound lane must not mention them.
     const inbound = garage.find((stage) => stage.id === "inbound")!;
     for (const stop of inbound.stops) expect(`${stop.doc ?? ""} ${stop.note}`, stop.verb).not.toMatch(/ASN/);
-    expect(full.find((stage) => stage.id === "inbound")!.stops[0]!.note).toMatch(/ASN/);
-    expect(full.map((stage) => stage.title)).toEqual(["Inbound", "Stock", "Make", "Outbound"]);
-    expect(full.find((stage) => stage.id === "stock")!.stops.map((stop) => stop.verb)).toEqual([
+    expect(full.find((stage) => stage.id === "inbound")!.stops.find((stop) => stop.verb === "Buy")!.note).toMatch(/ASN/);
+    expect(full.map((stage) => stage.title)).toEqual(titles);
+    expect(full.find((stage) => stage.id === "inventory")!.stops.map((stop) => stop.verb)).toEqual([
       "Count",
       "Hold",
       "Replenish",

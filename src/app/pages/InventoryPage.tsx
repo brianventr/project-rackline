@@ -127,7 +127,7 @@ export function InventoryPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
-        eyebrow="Stock"
+        eyebrow="Inventory"
         title="On hand"
         description={
           <>

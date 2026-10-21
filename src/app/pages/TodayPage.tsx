@@ -62,7 +62,7 @@ const LANE_LABEL: Record<LaneId, string> = {
   inbound: "Inbound",
   outbound: "Outbound",
   make: "Make",
-  stock: "Stock",
+  stock: "Inventory",
   exceptions: "Equipment & certifications",
 };
 

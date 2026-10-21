@@ -33,7 +33,7 @@ Most of this is the same in both modes. New organizations start in Garage.
    - Add your usual box (the **Boxes** sheet on the Ship queue)
 
    The card disappears once all four are done. Its store and carrier steps are the same checks as the optional steps in Getting started, so they tick off together in both places. A store is Shopify or any active Etsy, WooCommerce, or Faire channel, live or by CSV. An empty queue offers **New order**, so you can ship one by hand before a store is connected.
-5. **Ship weights.** On each SKU (Stock → Items), enter a ship weight in ounces, and optionally length, width and height. The Ship queue uses these to weigh every parcel.
+5. **Ship weights.** On each SKU (Inventory → Items), enter a ship weight in ounces, and optionally length, width and height. The Ship queue uses these to weigh every parcel.
 6. **Carrier.** On Settings → Carriers, connect UPS, FedEx, USPS, DHL, EasyPost, or ShipEngine. Enable services and **Set as default**. Rackline Ground is always there for testing. Then pick the building's **Default service** on Settings → Warehouse, or with **Save as default** next to the Ship queue's service picker.
 7. **Manufacturer only:** add zones (Settings → Zones), set carrier cutoffs (the **Cutoffs** button on Outbound → Waves), and add 3PL clients if you hold stock for other brands.
 
@@ -290,7 +290,7 @@ Settings → Integrations changes with the mode:
 | Vendor and customer records | Parts → Vendors, Ship → Customers | Inbound → Vendors, Outbound → Customers |
 | Pack sizes (inner, case, pallet) | Yes: a case scan counts its eaches | Yes, and one case scan proves every unit in it |
 | Bin capacity (max units, weight, volume) | Hidden, but a limit set in Manufacturer still holds | Set per bay; fill % on Locations and the map; putaway skips full bays |
-| License plates (tote, pallet, carton) | Hidden; a plate made in Manufacturer stays in step when Garage ships from its bay | `LP-` codes on Stock → Plates and Floor → Plates: build in a bay, move in one scan, receive onto, pick off |
+| License plates (tote, pallet, carton) | Hidden; a plate made in Manufacturer stays in step when Garage ships from its bay | `LP-` codes on Inventory → Plates and Floor → Plates: build in a bay, move in one scan, receive onto, pick off |
 | Customer tracking page (`/t/…`) | **Tracking link** on the Shipped tab, or the order's menu | **Copy tracking link** on the order's menu |
 | Return labels (`/r/…`) | Yes, on the return | Yes, on the return |
 | International labels with customs | Yes; the queue links to **Add customs** | Yes; the label is refused until the items have customs details |
@@ -431,7 +431,7 @@ A scan of an each keeps working as before. On Pick, Putaway, and Wave it still f
 
 ## 10. Bin capacity
 
-A bay can have a limit on how many units it holds, how much they weigh, and how much room they take. Owners set the limits on the bay's **Capacity** card under **Stock → Locations**, in units, pounds, and cubic feet. A blank limit means no limit, and a bay with no limits works exactly as before.
+A bay can have a limit on how many units it holds, how much they weigh, and how much room they take. Owners set the limits on the bay's **Capacity** card under **Inventory → Locations**, in units, pounds, and cubic feet. A blank limit means no limit, and a bay with no limits works exactly as before.
 
 - **What counts.** A bay's weight and volume are its stock times each item's weight and size. Rackline takes those from the item's ship weight and dimensions, or else from its smallest pack size. An item with neither counts only toward the unit limit, and the Capacity card names it.
 - **What is refused.** A receive or move that would take a bay past any limit is refused with 409 `LOCATION_FULL`, which names the bay, what it would hold, and the limit. That covers receives, putaway, transfers, replenishment, ASN and yard receives, returns, and plate moves.
@@ -443,7 +443,7 @@ Manufacturer shows a **Fill** column on Locations, the Capacity card on each bay
 
 ## 11. License plates
 
-Manufacturer can group stock in a bay on a **license plate**: a tote, pallet, or carton with its own code, such as `LP-000123`. The list is under **Stock → Plates**, and plates are built on **Floor → Plates**. Garage hides them.
+Manufacturer can group stock in a bay on a **license plate**: a tote, pallet, or carton with its own code, such as `LP-000123`. The list is under **Inventory → Plates**, and plates are built on **Floor → Plates**. Garage hides them.
 
 **A plate is a share of its bay.** The bay's balance stays the ledger. A plate's lines say which of those units are on it, and for each item and each lot they never add up to more than the bay holds. Building or breaking a plate changes neither on hand nor available, so ATP, pick plans, quick-ship, and waves work as before. Stock in a bay that is on no plate is **loose**.
 
@@ -470,7 +470,7 @@ Plates show on the bay's page under Locations, with an **On plates** column, on 
 
 ## 12. Exception inbox
 
-**Exceptions** gathers problems that used to wait on separate screens into one list: a label the carrier would not sell, a parcel stuck in transit, tracking a store never got, held stock, a count that changed stock. It is in the sidebar in both modes, after Today. Its badge counts open problems and turns amber while one of them is blocking.
+**Exceptions** gathers problems that used to wait on separate screens into one list: a label the carrier would not sell, a parcel stuck in transit, tracking a store never got, held stock, a count that changed stock. It is in the sidebar in both modes, under Now, after Today. Its badge counts open problems and turns amber while one of them is blocking.
 
 **Problems are read live.** Rackline does not copy a problem into the inbox. Each time the list loads, every source reports what is wrong right now, so fixing a problem where it lives, such as releasing the hold, buying the label, or posting a recount, takes it off the list without anyone closing it. The inbox stores only the claim: who has the problem, when its snooze ends, and who resolved it, with their note.
 
@@ -629,7 +629,7 @@ The sample is chosen from the receipt line id and the percent, the same way ever
 On Floor → Receive, the sampled units show with three actions. An owner or anyone who can receive can take them:
 
 - **Restock** makes those units available in the bay. They are not received again.
-- **Hold** opens an inventory hold for that SKU in the bay, the same kind of hold as Stock → Holds, with reason QC. No return is created.
+- **Hold** opens an inventory hold for that SKU in the bay, the same kind of hold as Inventory → Holds, with reason QC. No return is created.
 - **Scrap** posts one adjustment out, so the units leave on hand once.
 
 One photo link can be saved with the decision. The receipt can be finished while QC is still open. Those units stay unavailable until the decision. A hold locks the SKU at that bay the way any hold does, including units of the same SKU that were not in the sample.
@@ -650,7 +650,7 @@ After a putaway or a receive, the next ranked job is a pick in that aisle when o
 
 Manufacturer classifies each SKU from picks and shipments over the last 30 days. The fastest SKUs, the ones that make up the first 80% of that movement, are A and are counted every 7 days. The next through 95% are B, every 30 days. The rest, including SKUs that did not move, are C, every 90 days.
 
-**Plan cycle counts** on Stock → Cycle counts (owners) opens a normal bay count for each due SKU, at its pick face when it has one. Garage does not show the planner. The 15-minute schedule runs the same planner for Manufacturer buildings.
+**Plan cycle counts** on Inventory → Counts (owners) opens a normal bay count for each due SKU, at its pick face when it has one. Garage does not show the planner. The 15-minute schedule runs the same planner for Manufacturer buildings.
 
 Running it again does not open a second count for a SKU that already has an open count, and it does not recreate a count that was posted inside that SKU's cadence. Posting still uses the existing count screen.
 
@@ -670,7 +670,7 @@ The installed app caches the floor shell, so Receive and Pick still open after a
 
 Manufacturer ranks each SKU by picks and shipments over the last 30 days, the same movement ABC uses. The fastest SKUs belong on bays whose slot role is pick.
 
-**Plan slotting** on Stock → Locations (owners) opens a normal transfer from the bulk bay that holds the SKU. The destination is an empty pick face, or a pick face whose current SKU is slower. It does not post the transfer and does not move stock. A SKU that is already on a pick face is skipped. A slower SKU never displaces a faster one. Qty is what is available in bulk, capped by the pick face's max qty when that bay has one.
+**Plan slotting** on Inventory → Locations (owners) opens a normal transfer from the bulk bay that holds the SKU. The destination is an empty pick face, or a pick face whose current SKU is slower. It does not post the transfer and does not move stock. A SKU that is already on a pick face is skipped. A slower SKU never displaces a faster one. Qty is what is available in bulk, capped by the pick face's max qty when that bay has one.
 
 The page lists those proposals before you create them, and links each transfer after. Running it again does not open a second transfer for the same SKU and destination. Garage does not offer it.
 

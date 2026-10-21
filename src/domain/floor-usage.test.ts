@@ -23,10 +23,12 @@ describe("floor groups", () => {
     expect(floorGroupFor("/floor/receive")).toBe("inbound");
     expect(floorGroupFor("/floor/putaway")).toBe("inbound");
     expect(floorGroupFor("/floor/pick?id=abc")).toBe("outbound");
-    expect(floorGroupFor("/floor/rtv")).toBe("outbound");
-    expect(floorGroupFor("/floor/count")).toBe("stock");
-    expect(floorGroupFor("/floor/adjust")).toBe("stock");
-    expect(floorGroupFor("/floor/plates?code=LP-000001")).toBe("stock");
+    expect(floorGroupFor("/floor/rtv")).toBe("returns");
+    expect(floorGroupFor("/floor/return")).toBe("returns");
+    expect(floorGroupFor("/floor/count")).toBe("inventory");
+    expect(floorGroupFor("/floor/adjust")).toBe("inventory");
+    expect(floorGroupFor("/floor/plates?code=LP-000001")).toBe("inventory");
+    expect(floorGroupFor("/floor/exceptions")).toBe("tools");
     expect(floorGroupFor("/floor/kit")).toBe("make");
     expect(floorGroupFor("/floor/lookup")).toBe("tools");
     expect(floorGroupFor("/floor/something-new")).toBe("tools");
@@ -41,10 +43,10 @@ describe("floor groups", () => {
       { to: "/floor/kit" },
     ];
     const groups = groupFloorTiles(tiles);
-    expect(groups.map((group) => group.id)).toEqual(["inbound", "outbound", "make", "tools"]);
-    expect(groups[1]!.tiles.map((tile) => tile.to)).toEqual(["/floor/pack", "/floor/pick"]);
-    expect(groups.find((group) => group.id === "stock")).toBeUndefined();
-    expect(FLOOR_GROUPS.map((group) => group.label)).toEqual(["Inbound", "Outbound", "Stock", "Make", "Tools"]);
+    expect(groups.map((group) => group.id)).toEqual(["inbound", "make", "outbound", "tools"]);
+    expect(groups.find((group) => group.id === "outbound")!.tiles.map((tile) => tile.to)).toEqual(["/floor/pack", "/floor/pick"]);
+    expect(groups.find((group) => group.id === "inventory")).toBeUndefined();
+    expect(FLOOR_GROUPS.map((group) => group.label)).toEqual(["Inbound", "Inventory", "Make", "Outbound", "Returns", "Tools"]);
   });
 });
 

@@ -194,7 +194,7 @@ function ReturnList() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
-        eyebrow="Outbound"
+        eyebrow="Returns"
         title="Returns"
         description={
           <>
@@ -460,7 +460,7 @@ function ReturnDetail({ id }: { id: string }) {
   return (
     <div className="space-y-(--density-gap)">
       <DocumentHeader
-        eyebrow="Outbound"
+        eyebrow="Returns"
         list={{ label: "Returns", to: "/outbound/returns" }}
         title={current.number}
         description={`${current.customerName}${current.notes ? ` · ${current.notes}` : ""}`}

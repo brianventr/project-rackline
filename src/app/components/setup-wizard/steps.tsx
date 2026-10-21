@@ -208,7 +208,7 @@ export function BuildingStep({
       </div>
       <p className="text-xs text-muted-foreground">
         {garage
-          ? `${GARAGE_MODE_LABEL} has one building. ${MANUFACTURER_MODE_LABEL} can add more (switch under Shop → Bench setup).`
+          ? `${GARAGE_MODE_LABEL} has one building. ${MANUFACTURER_MODE_LABEL} can add more (switch under Settings → Warehouse).`
           : "Need another building? Add it under Settings → Warehouse."}
       </p>
     </div>

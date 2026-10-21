@@ -360,13 +360,13 @@ describe("codes across the organization", () => {
   });
 
   it("names the settings page in this shop's words", () => {
-    expect(warehouseSettingsLabel(true)).toBe("Shop → Bench setup");
+    expect(warehouseSettingsLabel(true)).toBe("Settings → Warehouse");
     expect(warehouseSettingsLabel(false)).toBe("Settings → Warehouse");
     const input = fresh(false);
     input.racks = { include: true, aisle: "A", racks: 8, bays: 12, levels: 3, pickFaces: true };
     const small = { ...WAREHOUSE, mapWidth: 20, mapDepth: 20 };
     expect(issuesForStep(planSetup(input, { existing: [], warehouse: small, garage: true }), "racks")[0]!.message).toContain(
-      "Shop → Bench setup",
+      "Settings → Warehouse",
     );
     expect(issuesForStep(planSetup(input, { existing: [], warehouse: small }), "racks")[0]!.message).toContain("Settings → Warehouse");
   });

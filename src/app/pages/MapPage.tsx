@@ -107,7 +107,7 @@ export function MapPage({ me }: { me: Me }) {
   return (
     <div>
       <PageHeader
-        eyebrow="Floor geometry"
+        eyebrow="Building"
         title="Rack & area map"
         description="Every bin is a physical bay. Click a rack to see on-hand, or scan a location barcode to jump there."
         actions={

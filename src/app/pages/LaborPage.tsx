@@ -313,7 +313,7 @@ function LaborBoardPage() {
   return (
     <div className="space-y-(--density-gap)">
       <PageHeader
-        eyebrow="Office"
+        eyebrow="Now"
         title="Performance"
         description="Staff pace against SKU difficulty and bay travel — 5 is on expected time, 10 is twice as fast, 0 is twice as slow. Slow SKUs are a process issue; slow operators on easy SKUs are coaching."
         actions={<LaborFilters preset={preset} onPreset={setPreset} />}

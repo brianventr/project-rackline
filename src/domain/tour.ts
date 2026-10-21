@@ -24,7 +24,7 @@ export type TourStep = {
 };
 
 /** Bump when the tour changes enough that people who saw it should see it again. */
-export const TOUR_VERSION = 2;
+export const TOUR_VERSION = 3;
 
 export const TOUR_STEPS: readonly TourStep[] = [
   {
@@ -50,13 +50,13 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "flow",
     eyebrow: "The day",
-    title: "Inbound, stock, make, outbound",
+    title: "Inbound, inventory, make, outbound, returns",
     body: [
-      "Stock comes in on a receipt or a purchase order, lands on the dock, and is put away to a bay. From there it is counted, held, or replenished onto a pick face. Recipes turn parts into finished goods through work orders and kits. Orders are picked from bays, packed into cartons, and shipped with a label.",
+      "Stock comes in on a receipt or a purchase order, lands on the dock, and is put away to a bay. From there it is counted, held, or replenished onto a pick face. Recipes turn parts into finished goods through kits and work orders. Orders are picked from bays, packed into cartons, and shipped with a label. A customer return comes back into a bay, and a vendor return ships stock out.",
       "Each document tracks done against expected, so a partial post is normal and posting more than is left is refused. Today lists what is open in each lane, and the floor ranks it into a next job.",
     ],
     garageBody: [
-      "Buy parts on a purchase order, receive the box onto the dock, and put it on a shelf. Recipes turn those parts into finished goods through builds and kits. Orders are picked from the shelf, packed, and shipped with a label. Rackline picks each order's box and service from your shipping rules and saved boxes, so at the pack bench you scan the slip, check the weight, and press Enter.",
+      "Buy parts on a purchase order, receive the box onto the dock, and put it on a shelf. Recipes turn those parts into finished goods through kits and builds. Orders are picked from the shelf, packed, and shipped with a label. A customer return comes back onto the shelf. Rackline picks each order's box and service from your shipping rules and saved boxes, so at the pack bench you scan the slip, check the weight, and press Enter.",
       "Each document tracks done against expected, so a partial post is normal and posting more than is left is refused. Today lists what is open in each lane, and the floor ranks it into a next job.",
     ],
     audience: "owner",
@@ -66,11 +66,11 @@ export const TOUR_STEPS: readonly TourStep[] = [
     eyebrow: "Two screens",
     title: "Office and floor",
     body: [
-      "The office is the sidebar: Today, Inbound, Stock, Make, Outbound, Analytics, and Settings. It is where documents are created, the map is drawn, and numbers are read.",
+      "The office is the sidebar: Now, Inbound, Inventory, Make, Outbound, Returns, Building, and Settings. It is where documents are created, the map is drawn, and numbers are read.",
       "The floor is the handheld view at /floor: one verb per screen, big buttons, and a scan box that is always listening. A barcode gun, the camera, or typing all count as a scan. Search everything with the command palette (⌘K, or Ctrl K on Windows), or type a word with a question mark to look it up in the glossary.",
     ],
     garageBody: [
-      "The office is the sidebar: Bench, Parts, Build, Ship, Shelf, Runway, and Shop. It is where documents are created, the map is drawn, and numbers are read.",
+      "The office is the sidebar: Now, Inbound, Inventory, Make, Outbound, Returns, and Settings. It is where documents are created, the map is drawn, and numbers are read.",
       "The floor is the handheld view at /floor: one verb per screen, big buttons, and a scan box that is always listening. A barcode gun, the camera, or typing all count as a scan. Search everything with the command palette (⌘K, or Ctrl K on Windows), or type a word with a question mark to look it up in the glossary.",
     ],
     audience: "owner",
@@ -81,11 +81,11 @@ export const TOUR_STEPS: readonly TourStep[] = [
     title: "The floor runs on scans",
     body: [
       "Next job is the top card: the best open piece of work for you, ranked from the ledger. Start it and the verb screen opens with the bay and the qty already filled in.",
-      "Or pick a verb yourself. Receive, put away, pick, pack, ship, count, and the rest each have one screen. Scan a bay, a SKU, or a document number anywhere and Rackline works out what you meant. Your first scan or post claims the job so nobody doubles up.",
+      "Or pick a verb yourself. Receive, put away, pick, pack, ship, count, return, and the rest each have one screen. Scan a bay, a SKU, or a document number anywhere and Rackline works out what you meant. Your first scan or post claims the job so nobody doubles up.",
     ],
     garageBody: [
       "Next job is the top card: the best open piece of work for you, ranked from the ledger. Start it and the verb screen opens with the bay and the qty already filled in.",
-      "Or pick a verb yourself. Receive, put away, pick, pack, ship, assemble, and kit each have one screen. Scan a bay, a SKU, or a document number anywhere and Rackline works out what you meant. Your first scan or post claims the job so nobody doubles up.",
+      "Or pick a verb yourself. Receive, put away, pick, pack, ship, assemble, kit, and return each have one screen. Scan a bay, a SKU, or a document number anywhere and Rackline works out what you meant. Your first scan or post claims the job so nobody doubles up.",
     ],
     audience: "operator",
   },
@@ -139,7 +139,7 @@ export function tourStepBody(step: TourStep, viewer: { garage: boolean }): strin
 
 /* ------------------------------------------------------------------ the day, as a picture */
 
-export type FlowStageId = "inbound" | "stock" | "make" | "outbound";
+export type FlowStageId = "inbound" | "inventory" | "make" | "outbound" | "returns";
 
 export type FlowStop = {
   verb: string;
@@ -165,9 +165,12 @@ export const FLOW_STAGES: readonly FlowStage[] = [
   {
     id: "inbound",
     title: "Inbound",
-    garageTitle: "Parts",
-    path: "/inbound/receipts",
+    path: "/analytics/restock",
     stops: [
+      {
+        verb: "Restock",
+        note: "See what runs out, and draft a purchase for it.",
+      },
       {
         verb: "Buy",
         doc: "PO-",
@@ -184,9 +187,8 @@ export const FLOW_STAGES: readonly FlowStage[] = [
     ],
   },
   {
-    id: "stock",
-    title: "Stock",
-    garageTitle: "Shelf",
+    id: "inventory",
+    title: "Inventory",
     path: "/stock",
     stops: [
       { verb: "Count", note: "Blind-count a bay; posting adjusts on hand to what you counted.", manufacturerOnly: true },
@@ -198,18 +200,16 @@ export const FLOW_STAGES: readonly FlowStage[] = [
   {
     id: "make",
     title: "Make",
-    garageTitle: "Build",
     path: "/make/recipes",
     stops: [
       { verb: "Recipe", doc: "BOM", note: "What one finished unit consumes, plus numbered bench steps." },
-      { verb: "Build", doc: "WO-", note: "A work order consumes parts from one bay and produces into another." },
       { verb: "Kit", doc: "KIT-", note: "Assemble a finished SKU from its recipe in one step. A finished kit can be dekitted." },
+      { verb: "Build", doc: "WO-", note: "A work order consumes parts from one bay and produces into another." },
     ],
   },
   {
     id: "outbound",
     title: "Outbound",
-    garageTitle: "Ship",
     path: "/outbound/orders",
     stops: [
       { verb: "Order", doc: "ORD-", note: "Typed in, or landed from Shopify as a pick ticket." },
@@ -219,6 +219,20 @@ export const FLOW_STAGES: readonly FlowStage[] = [
         verb: "Ship",
         note: "Buy a label, close the order, and Shopify hears back.",
         garageNote: "Scan the slip: Rackline picks the box and service, prints the label, and Shopify hears back.",
+      },
+    ],
+  },
+  {
+    id: "returns",
+    title: "Returns",
+    path: "/outbound/returns",
+    stops: [
+      { verb: "Return", doc: "RMA-", note: "Receive it back into a bay: restock, scrap, or hold." },
+      {
+        verb: "Vendor return",
+        doc: "RTV-",
+        note: "Ship stock back to the vendor from a bay.",
+        manufacturerOnly: true,
       },
     ],
   },

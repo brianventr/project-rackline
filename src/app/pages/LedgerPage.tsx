@@ -165,7 +165,7 @@ export function LedgerPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
-        eyebrow="Stock"
+        eyebrow="Inventory"
         title="Ledger"
         description="Every receive, move, pick, ship, kit, replenishment, scrap, and work-order movement."
       />

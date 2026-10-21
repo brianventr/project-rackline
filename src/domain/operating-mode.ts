@@ -1,3 +1,5 @@
+import { MODULES, type ModuleId } from "./modules";
+
 export const OPERATING_MODES = ["garage", "warehouse"] as const;
 
 export type OperatingMode = (typeof OPERATING_MODES)[number];
@@ -125,7 +127,7 @@ export function manufacturerRedirect(path: string): string | null {
 
 export type GarageNavItem = { title: string; url: string };
 
-export type GarageNavGroup = { label: string; ownerOnly?: boolean; items: GarageNavItem[] };
+export type GarageNavGroup = { label: string; ownerOnly?: boolean; bare?: boolean; items: GarageNavItem[] };
 
 /**
  * Until Getting started is done, the wall is the four steps: ship, the catalog, receive, and settings.
@@ -134,6 +136,7 @@ export type GarageNavGroup = { label: string; ownerOnly?: boolean; items: Garage
 export const GARAGE_FIRST_HOUR_NAV: GarageNavGroup[] = [
   {
     label: "Bench",
+    bare: true,
     items: [
       { title: "Ship", url: "/ship" },
       { title: "Items", url: "/stock/items" },
@@ -142,75 +145,44 @@ export const GARAGE_FIRST_HOUR_NAV: GarageNavGroup[] = [
   },
 ];
 
-/** Short maker menu. Ledger, office putaway, and audit stay open by direct link. */
-export const GARAGE_NAV: GarageNavGroup[] = [
-  {
-    label: "Bench",
-    items: [
-      { title: "Ship", url: "/ship" },
-      { title: "Today", url: "/today" },
-      { title: "Exceptions", url: "/exceptions" },
-      { title: "Floor", url: "/floor" },
-      { title: "Shelf map", url: "/map" },
-    ],
-  },
-  {
-    label: "Parts",
-    items: [
-      { title: "Buy parts", url: "/inbound/purchases" },
-      { title: "Vendors", url: "/inbound/vendors" },
-      { title: "Receive", url: "/inbound/receipts" },
-    ],
-  },
-  {
-    label: "Build",
-    items: [
-      { title: "Recipes", url: "/make/recipes" },
-      { title: "Schedule", url: "/make/schedule" },
-      { title: "Builds", url: "/make/work-orders" },
-      { title: "Kits", url: "/make/kits" },
-    ],
-  },
-  {
-    label: "Ship",
-    items: [
-      { title: "Orders", url: "/outbound/orders" },
-      { title: "Customers", url: "/outbound/customers" },
-      { title: "Returns", url: "/outbound/returns" },
-    ],
-  },
-  {
-    label: "Shelf",
-    items: [
-      { title: "On hand", url: "/stock" },
-      { title: "Items", url: "/stock/items" },
-    ],
-  },
-  {
-    label: "Runway",
-    items: [
-      { title: "Runway", url: "/analytics/runway" },
-      { title: "Restock", url: "/analytics/restock" },
-      { title: "Promise", url: "/analytics/promise" },
-    ],
-  },
-  {
-    label: "Shop",
-    ownerOnly: true,
-    items: [
-      { title: "Automation", url: "/automation" },
-      { title: "Shopify", url: "/setup/shopify" },
-      { title: "Channels", url: "/setup/channels" },
-      { title: "Imports", url: "/setup/imports" },
-      { title: "Accounting", url: "/setup/accounting" },
-      { title: "Carriers", url: "/setup/carriers" },
-      { title: "Shipping rules", url: "/setup/shipping-rules" },
-      { title: "Team", url: "/setup/team" },
-      { title: "Printers", url: "/setup/labels" },
-      { title: "Bench setup", url: "/setup/warehouse" },
-    ],
-  },
-];
+/** Short maker menu, in the same module order as Manufacturer. Ledger, office putaway, and audit stay open by direct link. Settings is appended by the sidebar. */
+const GARAGE_BY_MODULE: Partial<Record<ModuleId, GarageNavItem[]>> = {
+  now: [
+    { title: "Ship", url: "/ship" },
+    { title: "Today", url: "/today" },
+    { title: "Exceptions", url: "/exceptions" },
+    { title: "Floor", url: "/floor" },
+    { title: "Shelf map", url: "/map" },
+  ],
+  inbound: [
+    { title: "Restock", url: "/analytics/restock" },
+    { title: "Buy parts", url: "/inbound/purchases" },
+    { title: "Vendors", url: "/inbound/vendors" },
+    { title: "Receive", url: "/inbound/receipts" },
+  ],
+  inventory: [
+    { title: "On hand", url: "/stock" },
+    { title: "Items", url: "/stock/items" },
+    { title: "Runway", url: "/analytics/runway" },
+  ],
+  make: [
+    { title: "Recipes", url: "/make/recipes" },
+    { title: "Schedule", url: "/make/schedule" },
+    { title: "Kits", url: "/make/kits" },
+    { title: "Builds", url: "/make/work-orders" },
+  ],
+  outbound: [
+    { title: "Orders", url: "/outbound/orders" },
+    { title: "Customers", url: "/outbound/customers" },
+    { title: "Promise", url: "/analytics/promise" },
+  ],
+  returns: [{ title: "Returns", url: "/outbound/returns" }],
+};
+
+export const GARAGE_NAV: GarageNavGroup[] = MODULES.flatMap((module) => {
+  const items = GARAGE_BY_MODULE[module.id];
+  return items?.length ? [{ label: module.label, items }] : [];
+});
 
 /**
  * The sidebar for Garage. `setupComplete: false` is the first hour (Getting started still open).

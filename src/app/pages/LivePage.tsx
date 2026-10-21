@@ -18,7 +18,7 @@ const FLOW_LABEL: Record<LiveDay["flows"][number]["id"], string> = {
   inbound: "Inbound",
   outbound: "Outbound",
   make: "Make",
-  stock: "Stock",
+  stock: "Inventory",
   yard: "Yard",
 };
 
@@ -172,7 +172,7 @@ export function LivePage() {
   return (
     <div ref={boardRef} className="min-h-full bg-background">
       <PageHeader
-        eyebrow="Today"
+        eyebrow="Now"
         title="Live"
         description={
           day

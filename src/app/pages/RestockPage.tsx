@@ -229,7 +229,7 @@ export function RestockPage() {
   return (
     <div className="space-y-(--density-gap)">
       <PageHeader
-        eyebrow="Analytics"
+        eyebrow="Inbound"
         title="Restock"
         description={
           <>
