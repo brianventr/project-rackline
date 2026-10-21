@@ -7,6 +7,7 @@ import type { AppEnv } from "../lib/types";
 import { requireOwner, isItemType, isLocationType, isSlotRole, getOrgLocation, getOrgItem } from "../lib/org";
 import { badRequest, requireInt, requireString, optionalInt, optionalString, optionalFloat } from "../lib/http";
 import { newId } from "../lib/ids";
+import { buyBuildingLicense, ensureBuildingLicenses } from "../db/building-licenses";
 import { suggestPlacement } from "../domain/map-layout";
 import { parseTimeZone } from "../domain/time-zone";
 import { suggestReplenishments } from "../domain/replenishment";
@@ -91,21 +92,17 @@ catalogRoute.get("/warehouses", async (c) => {
   return c.json(rows);
 });
 
+catalogRoute.get("/building-licenses", async (c) => {
+  const summary = await ensureBuildingLicenses(c.get("db"), c.get("organizationId")!);
+  return c.json(summary);
+});
+
 catalogRoute.post("/warehouses", async (c) => {
   requireOwner(c.get("role"));
   const body = await c.req.json<{ name?: string }>();
   const name = requireString(body.name, "name");
-  const [row] = await c
-    .get("db")
-    .insert(schema.warehouses)
-    .values({
-      id: newId(),
-      organizationId: c.get("organizationId")!,
-      name,
-      createdAt: Date.now(),
-    })
-    .returning();
-  return c.json(row, 201);
+  const bought = await buyBuildingLicense(c.get("db"), c.get("organizationId")!, name);
+  return c.json({ ...bought.warehouse, licensePrice: bought.price, licensePlan: bought.plan }, 201);
 });
 
 catalogRoute.patch("/warehouses/:id", async (c) => {

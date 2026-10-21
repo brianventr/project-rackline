@@ -4,6 +4,7 @@ import type { AppDb } from "../db/stock";
 import { newId } from "./ids";
 import { forbidden, notFound } from "./http";
 import type { Role } from "../db/schema";
+import { buildingPrice, planForOperatingMode } from "../domain/building-license";
 import type { OperatingMode } from "../domain/operating-mode";
 
 export async function provisionOrganization(
@@ -17,6 +18,7 @@ export async function provisionOrganization(
   const warehouseId = newId();
   const operatingMode = options?.operatingMode ?? "garage";
   const warehouseName = options?.warehouseName ?? (operatingMode === "garage" ? "Garage" : "Main warehouse");
+  const plan = planForOperatingMode(operatingMode);
   await db.batch([
     db.insert(schema.organizations).values({ id: organizationId, name, operatingMode, createdAt: now }),
     db.insert(schema.memberships).values({
@@ -29,6 +31,14 @@ export async function provisionOrganization(
       id: warehouseId,
       organizationId,
       name: warehouseName,
+      createdAt: now,
+    }),
+    db.insert(schema.buildingLicenses).values({
+      id: newId(),
+      organizationId,
+      warehouseId,
+      plan,
+      priceDollars: buildingPrice(plan),
       createdAt: now,
     }),
   ]);

@@ -12,7 +12,8 @@ describe("plans", () => {
     expect(PLANS[0]?.cap).toBeNull();
     expect(PLANS[0]?.cta).toBe("Open Garage");
     expect(PLAN_NOTE).not.toMatch(/trial/);
-    expect(PLAN_NOTE).toMatch(/\$150/);
+    expect(PLAN_NOTE).toMatch(/per building/);
+    expect(PLAN_NOTE).toMatch(/license/);
     expect(PLAN_NOTE).toMatch(/does not charge/);
   });
 });

@@ -355,6 +355,16 @@ export type WarehouseMapInfo = {
   /** `RateStrategy` from `domain/ship-rules.ts`. */
   rateStrategy?: string;
   deliveryDays?: number | null;
+  /** Set when this building was created by buying a license. */
+  licensePrice?: number;
+  licensePlan?: string;
+};
+
+export type BuildingLicenseSummary = {
+  plan: "garage" | "manufacturer";
+  price: number;
+  licenses: { id: string; warehouseId: string; warehouseName: string; plan: string; price: number }[];
+  monthlyTotal: number;
 };
 
 export type LiveFlowId = "inbound" | "outbound" | "make" | "stock" | "yard";

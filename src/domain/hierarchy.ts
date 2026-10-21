@@ -74,7 +74,7 @@ export const HIERARCHY_LEVELS: readonly HierarchyLevel[] = [
     group: "where",
     title: "Warehouse",
     short: "A building with its own map, timezone, and ship-from address. Every bin belongs to one.",
-    long: "Garage Mode has one building. Manufacturer can add more and move stock between them. The switcher in the top bar picks the one you are looking at.",
+    long: "Each building is a license at the plan's monthly price. Buy another under Settings → Warehouse, then move stock between them. The switcher in the top bar picks the one you are looking at.",
     example: "Main warehouse",
     path: "/setup/warehouse",
   },

@@ -130,6 +130,27 @@ export const warehouses = sqliteTable("warehouses", {
   returnAddress: text("return_address"),
 });
 
+/** The monthly right to one building. The first building is licensed at signup; later ones are bought in Settings. */
+export const buildingLicenses = sqliteTable(
+  "building_licenses",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    warehouseId: text("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id, { onDelete: "cascade" }),
+    plan: text("plan").notNull(),
+    priceDollars: integer("price_dollars").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("building_licenses_warehouse").on(t.warehouseId),
+    index("building_licenses_org").on(t.organizationId),
+  ],
+);
+
 export const locations = sqliteTable(
   "locations",
   {

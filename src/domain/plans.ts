@@ -1,7 +1,7 @@
 /**
  * What the homepage says a plan costs. Signup does not charge a card.
  *
- * Garage is $150 a month. Shop and Manufacturer
+ * Each price is per building per month. Garage is $150. Shop and Manufacturer
  * are priced as a floor WMS: above inventory apps (Craftybase, SOS, Zoho) and under the
  * mid-market names a growing shop actually compares — Unleashed Core is about $399 and Pro
  * about $729, Katana Core plus its WMS add-on is about $448, Cin7 starts near $349, Packiyo
@@ -48,7 +48,7 @@ export const PLANS: readonly Plan[] = [
     name: "Shop",
     desc: "The floor, once the bench is the business",
     price: 349,
-    cap: "One building",
+    cap: null,
     mostPopular: true,
     cta: "Open a shop",
     href: "/signup",
@@ -64,7 +64,7 @@ export const PLANS: readonly Plan[] = [
   {
     id: "manufacturer",
     name: "Manufacturer",
-    desc: "Waves, a second building, or stock for someone else",
+    desc: "Waves, yard, or stock for someone else",
     price: 799,
     cap: null,
     mostPopular: false,
@@ -73,7 +73,6 @@ export const PLANS: readonly Plan[] = [
     features: [
       "Everything in Shop",
       "Waves, yard, and ASN",
-      "More than one building",
       "3PL clients and billing",
       "Counts, holds, and replenishment",
     ],
@@ -81,4 +80,4 @@ export const PLANS: readonly Plan[] = [
 ];
 
 export const PLAN_NOTE =
-  "Signup opens Garage and does not charge a card. Garage is $150 a month. Shop and Manufacturer are the prices when you move up.";
+  "Each price is per building per month. Signup opens Garage with one building and does not charge a card. Add a building in Settings by buying another license.";
