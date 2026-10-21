@@ -18,7 +18,7 @@ export function RecallPage() {
   return (
     <div className="space-y-(--density-gap)">
       <PageHeader
-        eyebrow="Analytics"
+        eyebrow="Inventory"
         title="Recall"
         description="Look up a lot or serial across on-hand balances and as-built genealogy — beauty, food, and hardware trust."
       />

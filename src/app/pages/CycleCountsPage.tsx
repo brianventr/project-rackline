@@ -113,7 +113,7 @@ function CountList() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
-        eyebrow="Stock"
+        eyebrow="Inventory"
         title="Cycle counts"
         description={
           <>
@@ -370,7 +370,7 @@ function CountDetail({ id }: { id: string }) {
   return (
     <div className="space-y-(--density-gap)">
       <DocumentHeader
-        eyebrow="Stock"
+        eyebrow="Inventory"
         list={{ label: "Cycle counts", to: "/stock/counts" }}
         title={active.number}
         description={

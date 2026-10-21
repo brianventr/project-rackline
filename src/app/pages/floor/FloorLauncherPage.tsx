@@ -62,26 +62,26 @@ type VerbTile = { to: string; title: string; body: string; verb?: FloorVerb; ico
 const EXCEPTIONS_TILE = "/floor/exceptions";
 
 const verbs: VerbTile[] = [
-  { to: "/floor/lookup", title: "Lookup", body: "Scan a SKU, bay, document, serial, or lot.", icon: Search },
-  { to: "/floor/print", title: "Print", body: "Print a bay, SKU, pick list, pack slip, or shipping label.", icon: Printer },
   { to: "/floor/receive", title: "Receive", body: "Post a receipt or purchase onto the dock, including partials.", verb: "receive", icon: Truck },
   { to: "/floor/asn", title: "ASN", body: "Scan an ASN- notice and receive onto the dock.", icon: Package },
   { to: "/floor/yard", title: "Yard", body: "Scan a YRD- visit to check in, dock, or check out.", icon: Warehouse },
-  { to: "/floor/checkout", title: "Check out", body: "Scan a truck, inspect it, bind a shift or ticket.", icon: Forklift },
   { to: "/floor/putaway", title: "Put away", body: "Put away a vendor BOX-/SSCC, post remaining on a ticket, or scan the dock to a bulk bay.", verb: "putaway", icon: Repeat },
   { to: "/floor/replenish", title: "Replenish", body: "Move remaining qty from bulk onto a pick face below min.", verb: "replenish", icon: ArrowDownToLine },
+  { to: "/floor/count", title: "Count", body: "Blind-count a bay. System qty stays hidden until you post.", verb: "count", icon: Calculator },
+  { to: "/floor/hold", title: "Hold", body: "Lock a bay, SKU, or lot so pick and replenish skip it.", verb: "hold", icon: ShieldAlert },
+  { to: "/floor/plates", title: "Plates", body: "Build a tote, pallet, or carton in a bay, then move it in one scan.", icon: Package2 },
+  { to: "/floor/kit", title: "Kit", body: "Build a finished SKU from its recipe in one step.", verb: "kit", icon: Factory },
+  { to: "/floor/assemble", title: "Assemble", body: "Complete a work order on the bench.", verb: "assemble", icon: Hammer },
   { to: "/floor/pick", title: "Pick", body: "Go to the suggested bay, open a pick map, pick remaining qty, or unpick / cancel.", verb: "pick", icon: ClipboardList },
   { to: "/floor/wave", title: "Wave", body: "Scan a WAV- wave; batch-pick aggregated SKUs when mode is batch.", icon: Layers },
   { to: "/floor/pack", title: "Pack", body: "Pack remaining qty, print a pack slip, close the box.", verb: "pack", icon: Box },
   { to: "/floor/ship", title: "Ship", body: "Buy a label, close the order, fulfill Shopify.", verb: "ship", icon: Send },
   { to: "/floor/return", title: "Return", body: "Receive an RMA: restock, scrap, or hold at the dock.", verb: "return", icon: Undo2 },
   { to: "/floor/rtv", title: "Vendor return", body: "Ship remaining qty back to the vendor from a bay.", verb: "rtv", icon: ArrowUpFromLine },
-  { to: "/floor/count", title: "Count", body: "Blind-count a bay. System qty stays hidden until you post.", verb: "count", icon: Calculator },
-  { to: "/floor/hold", title: "Hold", body: "Lock a bay, SKU, or lot so pick and replenish skip it.", verb: "hold", icon: ShieldAlert },
+  { to: "/floor/lookup", title: "Lookup", body: "Scan a SKU, bay, document, serial, or lot.", icon: Search },
+  { to: "/floor/print", title: "Print", body: "Print a bay, SKU, pick list, pack slip, or shipping label.", icon: Printer },
+  { to: "/floor/checkout", title: "Check out", body: "Scan a truck, inspect it, bind a shift or ticket.", icon: Forklift },
   { to: EXCEPTIONS_TILE, title: "Exceptions", body: "Claim a held bay, a count variance, or an over-full bay and fix it.", icon: AlertTriangle },
-  { to: "/floor/plates", title: "Plates", body: "Build a tote, pallet, or carton in a bay, then move it in one scan.", icon: Package2 },
-  { to: "/floor/assemble", title: "Assemble", body: "Complete a work order on the bench.", verb: "assemble", icon: Hammer },
-  { to: "/floor/kit", title: "Kit", body: "Build a finished SKU from its recipe in one step.", verb: "kit", icon: Factory },
 ];
 
 const adjustTile: VerbTile = {

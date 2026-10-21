@@ -154,7 +154,7 @@ function VendorReturnList() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
-        eyebrow="Inbound"
+        eyebrow="Returns"
         title="Vendor returns"
         description={
           <>
@@ -367,7 +367,7 @@ function VendorReturnDetail({ id }: { id: string }) {
   return (
     <div className="space-y-(--density-gap)">
       <DocumentHeader
-        eyebrow="Inbound"
+        eyebrow="Returns"
         list={{ label: "Vendor returns", to: "/inbound/vendor-returns" }}
         title={rtv.number}
         description={`${rtv.vendorName}${rtv.notes ? ` · ${rtv.notes}` : ""}`}

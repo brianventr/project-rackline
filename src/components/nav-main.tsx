@@ -16,7 +16,7 @@ import {
 import { isNavActive, type NavCounts, type NavItem } from "@/app/navigation"
 import { cn } from "@/lib/utils"
 
-const STORAGE_KEY = "rackline-nav-groups"
+const STORAGE_KEY = "rackline-nav-modules"
 
 function readOpenGroups(): Record<string, boolean> {
   try {
@@ -35,18 +35,21 @@ export function NavMain({
   items,
   dashboard,
   pinnedOpen,
+  bare,
 }: {
   label: string
   items: NavItem[]
   dashboard?: NavCounts | null
   pinnedOpen?: boolean
+  /** A single link with no module header, such as Settings. */
+  bare?: boolean
 }) {
   const location = useLocation()
   const { state, isMobile } = useSidebar()
   const iconOnly = state === "collapsed" && !isMobile
   const containsActive = items.some((item) => isNavActive(location.pathname, location.search, item.url))
   const [choice, setChoice] = useState<boolean | undefined>(() => readOpenGroups()[label])
-  const open = iconOnly || containsActive || (choice ?? !!pinnedOpen)
+  const open = bare || iconOnly || containsActive || (choice ?? !!pinnedOpen)
   const groupCount = items.reduce((sum, item) => sum + ((dashboard && item.count?.(dashboard)?.value) || 0), 0)
 
   function toggle() {
@@ -59,11 +62,9 @@ export function NavMain({
     }
   }
 
-  const single = items.length === 1
-
   return (
     <SidebarGroup className="py-0.5">
-      {single ? null : (
+      {bare ? null : (
         <SidebarGroupLabel asChild>
           <button
             type="button"
@@ -83,7 +84,7 @@ export function NavMain({
           </button>
         </SidebarGroupLabel>
       )}
-      {open || single ? (
+      {open ? (
         <SidebarMenu>
           {items.map((item) => {
             const active = isNavActive(location.pathname, location.search, item.url)

@@ -212,13 +212,14 @@ export type SetupContext = {
   warehouse: WarehouseMapSize & { name: string; timeZone?: string | null };
   /** Codes of bins in the organization's other buildings. Barcodes are unique per organization, not per building. */
   takenCodes?: Iterable<string>;
-  /** Garage Mode names its menus differently (Shop → Bench setup rather than Settings → Warehouse). */
+  /** Kept so a plan can still say which menu it was built under. Both modes open the building at Settings → Warehouse. */
   garage?: boolean;
 };
 
-/** Where the map size lives, in the words of this shop's menu. */
+/** Where the map size lives. Garage and Manufacturer share this menu path. */
 export function warehouseSettingsLabel(garage: boolean | undefined): string {
-  return garage ? "Shop → Bench setup" : "Settings → Warehouse";
+  void garage;
+  return "Settings → Warehouse";
 }
 
 const CODE_PATTERN = /^[A-Z0-9][A-Z0-9_-]*$/;

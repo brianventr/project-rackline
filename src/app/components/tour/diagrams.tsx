@@ -97,7 +97,7 @@ export function WelcomeDiagram({ className }: { className?: string }) {
 
 /* ------------------------------------------------------------------ flow */
 
-/** Inbound → stock → make → outbound, one lane each, every stop a verb. */
+/** Inbound → inventory → make → outbound → returns, one lane each, every stop a verb. */
 export function FlowDiagram({
   viewer,
   onNavigate,
@@ -291,8 +291,8 @@ export function FloorDiagram({ verbs, garage = false, className }: { verbs?: rea
 
 /* ------------------------------------------------------------------ workspaces */
 
-const OFFICE_GROUPS = ["Today", "Analytics", "Inbound", "Stock", "Make", "Outbound", "Setup"];
-const GARAGE_OFFICE_GROUPS = ["Bench", "Parts", "Build", "Ship", "Shelf", "Runway", "Shop"];
+const OFFICE_GROUPS = ["Now", "Inbound", "Inventory", "Make", "Outbound", "Returns", "Building", "Settings"];
+const GARAGE_OFFICE_GROUPS = ["Now", "Inbound", "Inventory", "Make", "Outbound", "Returns", "Settings"];
 const WORKSPACE_VERBS: FloorVerb[] = ["receive", "putaway", "pick", "ship"];
 
 function MiniOffice({ groups }: { groups: string[] }) {

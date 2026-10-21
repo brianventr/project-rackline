@@ -42,7 +42,7 @@ export function pageLabel(path: string, garage: boolean): string {
     case "/setup/team":
       return "Team";
     case "/setup/warehouse":
-      return garage ? "Bench setup" : "Warehouse settings";
+      return "Warehouse";
     case "/map":
       return garage ? "Shelf map" : "Map";
     case "/stock/locations":
@@ -57,6 +57,10 @@ export function pageLabel(path: string, garage: boolean): string {
       return "Orders";
     case "/inbound/receipts":
       return "Receipts";
+    case "/analytics/restock":
+      return "Restock";
+    case "/outbound/returns":
+      return "Returns";
     case "/make/recipes":
       return "Recipes";
     case "/floor":

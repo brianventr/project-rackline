@@ -249,7 +249,7 @@ function ItemList() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
-        eyebrow="Stock"
+        eyebrow="Inventory"
         title="Items"
         description={
           <>
@@ -665,7 +665,7 @@ function ItemDetail({ me, id }: { me: Me; id: string }) {
   return (
     <div className="space-y-(--density-gap)">
       <DocumentHeader
-        eyebrow="Stock"
+        eyebrow="Inventory"
         list={{ label: "Items", to: "/stock/items" }}
         title={item.sku}
         description={item.name}

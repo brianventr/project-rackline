@@ -96,7 +96,7 @@ function PlateList() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
-        eyebrow="Stock"
+        eyebrow="Inventory"
         title="Plates"
         description={
           <>
@@ -150,7 +150,7 @@ function PlateDetailView({ plateRef }: { plateRef: string }) {
   return (
     <div className="space-y-(--density-gap)">
       <DocumentHeader
-        eyebrow="Stock"
+        eyebrow="Inventory"
         list={{ label: "Plates", to: "/stock/plates" }}
         title={plate.code}
         description={`${PLATE_TYPE_LABELS[plate.type]}${plate.locationCode ? ` in ${plate.locationCode}` : ""} · ${plate.units} ${plate.units === 1 ? "unit" : "units"}`}

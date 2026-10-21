@@ -94,6 +94,7 @@ export function AppSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
             items={group.items}
             dashboard={counts}
             pinnedOpen={index === 0}
+            bare={group.bare}
           />
         ))}
       </SidebarContent>

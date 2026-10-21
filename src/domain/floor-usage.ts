@@ -4,18 +4,16 @@
  * result is answered (tone, buzz). Pure so the launcher and the scanner stay thin.
  */
 import { DEFAULT_JOB_REASON } from "./job-rank";
+import { FLOOR_MODULE_IDS, moduleLabel } from "./modules";
 
 // ---------------------------------------------------------------------------
 // Groups
 // ---------------------------------------------------------------------------
 
-export type FloorGroupId = "inbound" | "outbound" | "stock" | "make" | "tools";
+export type FloorGroupId = (typeof FLOOR_MODULE_IDS)[number] | "tools";
 
 export const FLOOR_GROUPS: readonly { id: FloorGroupId; label: string }[] = [
-  { id: "inbound", label: "Inbound" },
-  { id: "outbound", label: "Outbound" },
-  { id: "stock", label: "Stock" },
-  { id: "make", label: "Make" },
+  ...FLOOR_MODULE_IDS.map((id) => ({ id, label: moduleLabel(id) })),
   { id: "tools", label: "Tools" },
 ];
 
@@ -25,23 +23,23 @@ export const FLOOR_PATH_GROUP: Readonly<Record<string, FloorGroupId>> = {
   "/floor/asn": "inbound",
   "/floor/yard": "inbound",
   "/floor/putaway": "inbound",
-  "/floor/return": "inbound",
+  "/floor/replenish": "inventory",
+  "/floor/count": "inventory",
+  "/floor/hold": "inventory",
+  "/floor/plates": "inventory",
+  "/floor/adjust": "inventory",
+  "/floor/assemble": "make",
+  "/floor/kit": "make",
   "/floor/pick": "outbound",
   "/floor/wave": "outbound",
   "/floor/pack": "outbound",
   "/floor/ship": "outbound",
-  "/floor/rtv": "outbound",
-  "/floor/replenish": "stock",
-  "/floor/count": "stock",
-  "/floor/hold": "stock",
-  "/floor/exceptions": "stock",
-  "/floor/plates": "stock",
-  "/floor/adjust": "stock",
-  "/floor/assemble": "make",
-  "/floor/kit": "make",
+  "/floor/return": "returns",
+  "/floor/rtv": "returns",
   "/floor/lookup": "tools",
   "/floor/print": "tools",
   "/floor/checkout": "tools",
+  "/floor/exceptions": "tools",
 };
 
 function barePath(path: string): string {
