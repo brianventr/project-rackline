@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Factory, Plus, Wrench, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
-import { api, errorText, type CarrierHub, type CarrierServiceOption, type WarehouseMapInfo, type WorkCenter } from "../../api";
+import { api, errorText, type BuildingLicenseSummary, type CarrierHub, type CarrierServiceOption, type WarehouseMapInfo, type WorkCenter } from "../../api";
 import { Button, Card, ErrorBanner, Field, Input, PageHeader, ToneBadge, onSubmit } from "../../components/ui";
 import {
   NumberField,
@@ -32,6 +32,7 @@ import { isValidTimeZone } from "@/domain/time-zone";
 import { RATE_STRATEGIES, RATE_STRATEGY_LABELS } from "@/domain/ship-rules";
 import { MAX_DELIVERY_DAYS } from "@/domain/rate-choice";
 import { describeNorth, NORTH_PRESETS, normalizeHeading } from "@/domain/compass";
+import { buildingPrice, planForOperatingMode } from "@/domain/building-license";
 import { CompassRose } from "../../components/CompassRose";
 import { TrackingPageCard } from "./TrackingPageCard";
 import { CustomerNotificationsCard } from "./CustomerNotificationsCard";
@@ -168,6 +169,9 @@ export function WarehouseSetupPage() {
     deliveryDays: "",
   });
   const [newName, setNewName] = useState("");
+  const licenses = useApiQuery<BuildingLicenseSummary>("/api/building-licenses");
+  const licensePlan = planForOperatingMode(garage ? "garage" : "warehouse");
+  const licensePrice = licenses.data?.price ?? buildingPrice(licensePlan);
   const [services, setServices] = useState<CarrierServiceOption[]>([]);
   const [savedService, setSavedService] = useState("");
   const currentId = warehouse.warehouseId;
@@ -261,7 +265,8 @@ export function WarehouseSetupPage() {
       }),
     );
     if (!created) return;
-    toast.success("Warehouse added. Reloading…");
+    const price = created.licensePrice ?? licensePrice;
+    toast.success(`Bought a license for ${created.name}. $${price} a month. Reloading…`);
     window.location.reload();
   }
 
@@ -338,7 +343,7 @@ export function WarehouseSetupPage() {
               title="Address"
               description={
                 garage
-                  ? "Ship-from for labels. A second building and Traffic open with Manufacturer."
+                  ? "Ship-from for labels. Traffic opens with Manufacturer."
                   : "Ship-from for labels, and the origin for Outbound → Traffic. Lane estimates fly from this city, not live GPS."
               }
             />
@@ -465,27 +470,41 @@ export function WarehouseSetupPage() {
         </form>
       </Card>
 
-      {garage ? null : (
-        <Card>
-          <div className="space-y-3">
-            <SectionHeading
-              title="Add warehouse"
-              description="Creates another building on this org, then reloads so it appears in the switcher."
-            />
-            <form className="flex flex-wrap items-end gap-3" onSubmit={onSubmit(addWarehouse)}>
-              <div className="min-w-[12rem] flex-1">
-                <Field label="Name">
-                  <Input value={newName} onChange={(e) => setNewName(e.target.value)} required placeholder="West building" />
-                </Field>
-              </div>
-              <Button type="submit" variant="outline" disabled={write.busy}>
-                <Plus className="size-4" />
-                Add warehouse
-              </Button>
-            </form>
-          </div>
-        </Card>
-      )}
+      <Card>
+        <div className="space-y-3">
+          <SectionHeading
+            title="Building licenses"
+            description={`Each building is one license at $${licensePrice} a month on this plan. Buying another adds the building. A card is not charged.`}
+          />
+          {licenses.data ? (
+            <div className="space-y-1 text-sm">
+              {licenses.data.licenses.map((license) => (
+                <p key={license.id} className="flex justify-between gap-3">
+                  <span>{license.warehouseName}</span>
+                  <span className="tabular-nums text-muted-foreground">${license.price}/month</span>
+                </p>
+              ))}
+              <p className="flex justify-between gap-3 border-t pt-2 font-medium">
+                <span>
+                  {licenses.data.licenses.length} {licenses.data.licenses.length === 1 ? "building" : "buildings"}
+                </span>
+                <span className="tabular-nums">${licenses.data.monthlyTotal}/month</span>
+              </p>
+            </div>
+          ) : null}
+          <form className="flex flex-wrap items-end gap-3" onSubmit={onSubmit(addWarehouse)}>
+            <div className="min-w-[12rem] flex-1">
+              <Field label="New building">
+                <Input value={newName} onChange={(e) => setNewName(e.target.value)} required placeholder="West building" />
+              </Field>
+            </div>
+            <Button type="submit" variant="outline" disabled={write.busy || !operating.owner}>
+              <Plus className="size-4" />
+              Buy license · ${licensePrice}/month
+            </Button>
+          </form>
+        </div>
+      </Card>
     </div>
   );
 }

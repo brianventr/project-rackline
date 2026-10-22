@@ -17,6 +17,7 @@ import { syncShopifySellable } from "./shopify-sellable";
 import { backfillParties } from "./parties";
 import { createPlate, savePlateOps } from "./license-plates";
 import { rateActivity } from "../domain/billing";
+import { buildingPrice } from "../domain/building-license";
 
 export const DEMO_EMAIL = "demo@northwind.makers";
 export const DEMO_PASSWORD = "rackline-demo";
@@ -726,6 +727,14 @@ export async function seedNorthwind(db: AppDb, userId: string): Promise<{ organi
       mapHeight: 8,
       timeZone: "America/Los_Angeles",
       ...originColumns(resolveOrigin({ city: "Vancouver", region: "WA", country: "US" })),
+    }),
+    db.insert(schema.buildingLicenses).values({
+      id: newId(),
+      organizationId,
+      warehouseId: westWh,
+      plan: "manufacturer",
+      priceDollars: buildingPrice("manufacturer"),
+      createdAt: now,
     }),
     db.insert(schema.locations).values({
       id: westRecv,

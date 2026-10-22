@@ -208,8 +208,9 @@ export function BuildingStep({
       </div>
       <p className="text-xs text-muted-foreground">
         {garage
-          ? `${GARAGE_MODE_LABEL} has one building. ${MANUFACTURER_MODE_LABEL} can add more (switch under Settings → Warehouse).`
-          : "Need another building? Add it under Settings → Warehouse."}
+          ? `This ${GARAGE_MODE_LABEL} building is the first license. `
+          : `This ${MANUFACTURER_MODE_LABEL} building is the first license. `}
+        Another building is another license. Buy it under Settings → Warehouse.
       </p>
     </div>
   );

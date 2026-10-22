@@ -20,7 +20,7 @@ export function LandingPricing() {
           Start on the bench. Stay when you grow.
         </h2>
         <p className="mx-auto max-w-xl text-center text-muted-foreground">
-          Garage is $150 a month. Shop is the floor. Manufacturer is the
+          Each price is per building per month. Garage is the bench. Shop is the floor. Manufacturer is the
           warehouse. Same ledger the whole way.
         </p>
       </motion.div>
@@ -56,7 +56,8 @@ export function LandingPricing() {
                     <span className="text-3xl font-bold sm:text-4xl">${plan.price}</span>
                     <span className="ml-1 text-sm text-muted-foreground sm:text-base">/month</span>
                   </div>
-                  {plan.cap ? <p className="mt-2 text-xs text-muted-foreground">{plan.cap}</p> : null}
+                  <p className="mt-2 text-xs text-muted-foreground">per building</p>
+                  {plan.cap ? <p className="mt-1 text-xs text-muted-foreground">{plan.cap}</p> : null}
                 </div>
 
                 <Separator className="my-4 sm:my-6" />
