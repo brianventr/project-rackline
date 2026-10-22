@@ -32,7 +32,7 @@ Public LP: `/use-cases/stocky-replacement` and `/use-cases/shopify-wms`.
 1. Export Stocky POs / stocktakes while read-only window lasts
 2. Rebuild suppliers as Rackline vendors on Items / Purchases
 3. Set reorder points (or baseline ship rates for Runway)
-4. Use Today → Draft PO and Analytics → Runway → Draft PO
+4. Use Today → Draft PO and Inventory → Runway → Draft PO
 5. Run blind cycle counts on the Floor
 6. Connect Shopify OAuth and push sellable qty
 

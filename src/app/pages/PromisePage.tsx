@@ -226,7 +226,7 @@ export function PromisePage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
-        eyebrow="Analytics"
+        eyebrow="Outbound"
         title="Promise"
         description={
           <>

@@ -309,7 +309,7 @@ function LocationList({ me }: { me: Me }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
-        eyebrow="Stock"
+        eyebrow="Inventory"
         title="Locations"
         description="Each code is a physical bay on the map. Print barcodes, then scan to move slots."
         actions={
@@ -573,7 +573,7 @@ function LocationDetail({ me, id }: { me: Me; id: string }) {
   return (
     <div className="space-y-(--density-gap)">
       <DocumentHeader
-        eyebrow="Stock"
+        eyebrow="Inventory"
         list={{ label: "Locations", to: "/stock/locations" }}
         title={location.code}
         description={location.name}

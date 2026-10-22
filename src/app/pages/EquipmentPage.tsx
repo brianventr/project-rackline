@@ -190,7 +190,7 @@ function EquipmentList() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
-        eyebrow="Today"
+        eyebrow="Building"
         title="Equipment"
         description="Who has the forklift on this shift or task. Scan EQ: on the floor to check out."
       />
@@ -516,7 +516,7 @@ function EquipmentDetail({ id }: { id: string }) {
   return (
     <div className="space-y-(--density-gap)">
       <DocumentHeader
-        eyebrow="Today"
+        eyebrow="Building"
         list={{ label: "Equipment", to: "/equipment" }}
         title={equipment.code}
         description={`${equipment.name} · ${equipmentClassLabel(equipment.class)}`}

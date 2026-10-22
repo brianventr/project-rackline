@@ -51,6 +51,7 @@ import {
 } from "lucide-react";
 import type { Dashboard } from "./api";
 import type { ExceptionCounts } from "@/domain/exceptions/inbox";
+import { MODULES, type ModuleId } from "@/domain/modules";
 import { garageAllowsPath, garageNavForRole } from "@/domain/operating-mode";
 import { BOOKKEEPER_NAV, PICKER_NAV, SUPPORT_NAV, VIEWER_NAV } from "@/domain/roles";
 
@@ -70,7 +71,7 @@ export type NavItem = {
   count?: (counts: NavCounts) => NavCount | null;
 };
 
-export type NavGroup = { label: string; items: NavItem[] };
+export type NavGroup = { label: string; items: NavItem[]; /** One link, no module header. Settings and Next job. */ bare?: boolean };
 
 function n(value: number | undefined | null, tone: NavCount["tone"] = "default"): NavCount | null {
   return value ? { value, tone } : null;
@@ -88,6 +89,12 @@ export const SETTINGS_ITEMS: NavItem[] = [
     url: "/setup/shipping-rules",
     icon: Split,
     keywords: "ship rules box service cheapest fastest hold review automation",
+  },
+  {
+    title: "Automation",
+    url: "/automation",
+    icon: Workflow,
+    keywords: "replenish alert reminder flow workflow auto queue",
   },
   { title: "Warehouse", url: "/setup/warehouse", icon: Warehouse, keywords: "building garage mode timezone bench default carrier service" },
   { title: "Team", url: "/setup/team", icon: Users, keywords: "people invite operators roles certs" },
@@ -107,111 +114,93 @@ const SETTINGS_ENTRY: NavItem = {
   keywords: "setup configuration",
 };
 
-export const OFFICE_NAV: NavGroup[] = [
-  {
-    label: "Today",
-    items: [
-      { title: "Today", url: "/today", icon: LayoutDashboard, keywords: "home dashboard dispatch" },
-      {
-        title: "Automation",
-        url: "/automation",
-        icon: Workflow,
-        ownerOnly: true,
-        keywords: "replenish alert reminder flow workflow auto queue",
-      },
-      {
-        title: "Exceptions",
-        url: "/exceptions",
-        icon: AlertTriangle,
-        keywords: "problems needs attention failed stuck held variance claim snooze resolve inbox",
-        count: (d) => n(d.exceptions?.open, d.exceptions?.blocking ? "warning" : "default"),
-      },
-      { title: "Live", url: "/live", icon: Activity, ownerOnly: true, keywords: "wall pace" },
-      { title: "Performance", url: "/labor", icon: Gauge, ownerOnly: true, keywords: "labor kpi staff" },
-      { title: "Floor", url: "/floor", icon: ScanLine, keywords: "scan handheld jobs" },
-      { title: "Map", url: "/map", icon: Map, keywords: "racks bays 3d" },
-      {
-        title: "Equipment",
-        url: "/equipment",
-        icon: Forklift,
-        keywords: "forklift pallet jack",
-        count: (d) => n(d.outOfService, "warning"),
-      },
-      { title: "Build floor", url: "/map?edit=1", icon: BoxSelect, ownerOnly: true, keywords: "layout racks editor" },
-    ],
-  },
-  {
-    label: "Analytics",
-    items: [
-      { title: "Traffic", url: "/analytics/traffic", icon: Radar, keywords: "shipments map tracker" },
-      { title: "Runway", url: "/analytics/runway", icon: Hourglass, keywords: "stockout days of cover" },
-      { title: "Restock", url: "/analytics/restock", icon: PackagePlus, keywords: "reorder forecast make transit ocean order by" },
-      { title: "Promise", url: "/analytics/promise", icon: Clock, keywords: "leave by pickup cutoff quote ship date" },
-      { title: "Recall", url: "/analytics/recall", icon: Shield, keywords: "lot serial genealogy food beauty" },
-    ],
-  },
-  {
-    label: "Inbound",
-    items: [
-      { title: "Receipts", url: "/inbound/receipts", icon: Inbox, count: (d) => n(d.openReceipts) },
-      { title: "ASNs", url: "/inbound/asns", icon: FileInput, keywords: "advance ship notice", count: (d) => n(d.openAsns) },
-      { title: "Yard", url: "/inbound/yard", icon: Container, keywords: "trailer dock", count: (d) => n(d.openYard) },
-      {
-        title: "Putaway",
-        url: "/inbound/putaway",
-        icon: ArrowRightLeft,
-        keywords: "transfer move",
-        count: (d) => n(d.openTransfers + (d.putawayDue ?? 0)),
-      },
-      { title: "Purchases", url: "/inbound/purchases", icon: ShoppingCart, keywords: "po vendor buy", count: (d) => n(d.openPurchases) },
-      { title: "Vendors", url: "/inbound/vendors", icon: Factory, keywords: "supplier lead time terms cost" },
-      {
-        title: "Vendor returns",
-        url: "/inbound/vendor-returns",
-        icon: ArrowUpFromLine,
-        keywords: "rtv",
-        count: (d) => n(d.openVendorReturns),
-      },
-    ],
-  },
-  {
-    label: "Stock",
-    items: [
-      { title: "On hand", url: "/stock", icon: Boxes, keywords: "inventory atp" },
-      { title: "Items", url: "/stock/items", icon: Package, keywords: "sku catalog products" },
-      { title: "Locations", url: "/stock/locations", icon: MapPin, keywords: "bays bins" },
-      { title: "Plates", url: "/stock/plates", icon: Package2, keywords: "license plate lpn tote pallet carton" },
-      { title: "Counts", url: "/stock/counts", icon: Calculator, keywords: "cycle count", count: (d) => n(d.openCycleCounts) },
-      { title: "Holds", url: "/stock/holds", icon: Lock, keywords: "qc quarantine lock", count: (d) => n(d.openHolds, "warning") },
-      {
-        title: "Replenish",
-        url: "/stock/replenish",
-        icon: ArrowDownToLine,
-        keywords: "pick face",
-        count: (d) => n((d.openReplenishments ?? 0) + (d.replenishDue ?? 0)),
-      },
-      { title: "Ledger", url: "/stock/ledger", icon: ScrollText, keywords: "movements history" },
-    ],
-  },
-  {
-    label: "Make",
-    items: [
-      { title: "Recipes", url: "/make/recipes", icon: ListTree, keywords: "bom bill of materials" },
-      { title: "Schedule", url: "/make/schedule", icon: ClipboardList, keywords: "production board kits work orders" },
-      { title: "Work orders", url: "/make/work-orders", icon: Hammer, keywords: "assemble build", count: (d) => n(d.openWorkOrders) },
-      { title: "Kits", url: "/make/kits", icon: Puzzle, keywords: "kitting", count: (d) => n(d.openKits) },
-    ],
-  },
-  {
-    label: "Outbound",
-    items: [
-      { title: "Orders", url: "/outbound/orders", icon: ClipboardList, keywords: "pick pack ship", count: (d) => n(d.openOrders) },
-      { title: "Customers", url: "/outbound/customers", icon: Contact, keywords: "buyer ship to address email" },
-      { title: "Waves", url: "/outbound/waves", icon: Waves, keywords: "batch", count: (d) => n(d.openWaves) },
-      { title: "Returns", url: "/outbound/returns", icon: Undo2, keywords: "rma customer", count: (d) => n(d.openReturns) },
-    ],
-  },
-];
+const OFFICE_ITEMS: Record<ModuleId, NavItem[]> = {
+  now: [
+    { title: "Today", url: "/today", icon: LayoutDashboard, keywords: "home dashboard dispatch" },
+    {
+      title: "Exceptions",
+      url: "/exceptions",
+      icon: AlertTriangle,
+      keywords: "problems needs attention failed stuck held variance claim snooze resolve inbox",
+      count: (d) => n(d.exceptions?.open, d.exceptions?.blocking ? "warning" : "default"),
+    },
+    { title: "Live", url: "/live", icon: Activity, ownerOnly: true, keywords: "wall pace" },
+    { title: "Performance", url: "/labor", icon: Gauge, ownerOnly: true, keywords: "labor kpi staff" },
+    { title: "Floor", url: "/floor", icon: ScanLine, keywords: "scan handheld jobs" },
+  ],
+  inbound: [
+    { title: "Restock", url: "/analytics/restock", icon: PackagePlus, keywords: "analytics reorder forecast make transit ocean order by" },
+    { title: "Purchases", url: "/inbound/purchases", icon: ShoppingCart, keywords: "po vendor buy", count: (d) => n(d.openPurchases) },
+    { title: "Vendors", url: "/inbound/vendors", icon: Factory, keywords: "supplier lead time terms cost" },
+    { title: "ASNs", url: "/inbound/asns", icon: FileInput, keywords: "advance ship notice", count: (d) => n(d.openAsns) },
+    { title: "Yard", url: "/inbound/yard", icon: Container, keywords: "trailer dock", count: (d) => n(d.openYard) },
+    { title: "Receipts", url: "/inbound/receipts", icon: Inbox, count: (d) => n(d.openReceipts) },
+    {
+      title: "Putaway",
+      url: "/inbound/putaway",
+      icon: ArrowRightLeft,
+      keywords: "transfer move",
+      count: (d) => n(d.openTransfers + (d.putawayDue ?? 0)),
+    },
+  ],
+  inventory: [
+    { title: "On hand", url: "/stock", icon: Boxes, keywords: "stock inventory atp" },
+    { title: "Items", url: "/stock/items", icon: Package, keywords: "stock sku catalog products" },
+    { title: "Locations", url: "/stock/locations", icon: MapPin, keywords: "stock bays bins" },
+    { title: "Plates", url: "/stock/plates", icon: Package2, keywords: "stock license plate lpn tote pallet carton" },
+    { title: "Counts", url: "/stock/counts", icon: Calculator, keywords: "stock cycle count", count: (d) => n(d.openCycleCounts) },
+    { title: "Holds", url: "/stock/holds", icon: Lock, keywords: "stock qc quarantine lock", count: (d) => n(d.openHolds, "warning") },
+    {
+      title: "Replenish",
+      url: "/stock/replenish",
+      icon: ArrowDownToLine,
+      keywords: "stock pick face",
+      count: (d) => n((d.openReplenishments ?? 0) + (d.replenishDue ?? 0)),
+    },
+    { title: "Ledger", url: "/stock/ledger", icon: ScrollText, keywords: "stock movements history" },
+    { title: "Runway", url: "/analytics/runway", icon: Hourglass, keywords: "analytics stockout days of cover" },
+    { title: "Recall", url: "/analytics/recall", icon: Shield, keywords: "analytics lot serial genealogy food beauty" },
+  ],
+  make: [
+    { title: "Recipes", url: "/make/recipes", icon: ListTree, keywords: "bom bill of materials" },
+    { title: "Schedule", url: "/make/schedule", icon: ClipboardList, keywords: "production board kits work orders" },
+    { title: "Kits", url: "/make/kits", icon: Puzzle, keywords: "kitting", count: (d) => n(d.openKits) },
+    { title: "Work orders", url: "/make/work-orders", icon: Hammer, keywords: "assemble build", count: (d) => n(d.openWorkOrders) },
+  ],
+  outbound: [
+    { title: "Orders", url: "/outbound/orders", icon: ClipboardList, keywords: "pick pack ship", count: (d) => n(d.openOrders) },
+    { title: "Waves", url: "/outbound/waves", icon: Waves, keywords: "batch", count: (d) => n(d.openWaves) },
+    { title: "Customers", url: "/outbound/customers", icon: Contact, keywords: "buyer ship to address email" },
+    { title: "Promise", url: "/analytics/promise", icon: Clock, keywords: "analytics leave by pickup cutoff quote ship date" },
+    { title: "Traffic", url: "/analytics/traffic", icon: Radar, keywords: "analytics shipments map tracker" },
+  ],
+  returns: [
+    { title: "Returns", url: "/outbound/returns", icon: Undo2, keywords: "rma customer", count: (d) => n(d.openReturns) },
+    {
+      title: "Vendor returns",
+      url: "/inbound/vendor-returns",
+      icon: ArrowUpFromLine,
+      keywords: "rtv return",
+      count: (d) => n(d.openVendorReturns),
+    },
+  ],
+  building: [
+    { title: "Map", url: "/map", icon: Map, keywords: "racks bays 3d" },
+    { title: "Build floor", url: "/map?edit=1", icon: BoxSelect, ownerOnly: true, keywords: "layout racks editor" },
+    {
+      title: "Equipment",
+      url: "/equipment",
+      icon: Forklift,
+      keywords: "forklift pallet jack",
+      count: (d) => n(d.outOfService, "warning"),
+    },
+  ],
+};
+
+export const OFFICE_NAV: NavGroup[] = MODULES.map((module) => ({
+  label: module.label,
+  items: OFFICE_ITEMS[module.id],
+}));
 
 const ICON_BY_URL: Record<string, LucideIcon> = Object.fromEntries(
   [...OFFICE_NAV.flatMap((group) => group.items), ...SETTINGS_ITEMS].map((item) => [item.url, item.icon]),
@@ -223,9 +212,10 @@ const COUNT_BY_URL: Record<string, NavItem["count"]> = Object.fromEntries(
 );
 
 /** Sidebar groups for this person. Garage Mode keeps its shorter bench menu; Setup folds into one Settings entry. */
-function namedNav(groups: readonly { label: string; items: readonly { title: string; url: string }[] }[]): NavGroup[] {
+function namedNav(groups: readonly { label: string; bare?: boolean; items: readonly { title: string; url: string }[] }[]): NavGroup[] {
   return groups.map((group) => ({
     label: group.label,
+    bare: group.bare,
     items: group.items.map((item) => ({
       title: item.title,
       url: item.url,
@@ -246,6 +236,7 @@ export function navForSession(role: string, garage: boolean, options?: { setupCo
       .filter((group) => !group.ownerOnly)
       .map((group) => ({
         label: group.label,
+        bare: group.bare,
         items: group.items.map((item) => ({
           title: item.title,
           url: item.url,
@@ -253,13 +244,13 @@ export function navForSession(role: string, garage: boolean, options?: { setupCo
           count: COUNT_BY_URL[item.url],
         })),
       }));
-    return owner ? [...groups, { label: "Shop", items: [SETTINGS_ENTRY] }] : groups;
+    return owner ? [...groups, { label: "Shop", items: [SETTINGS_ENTRY], bare: true }] : groups;
   }
   const groups = OFFICE_NAV.map((group) => ({
     label: group.label,
     items: group.items.filter((item) => owner || !item.ownerOnly),
   })).filter((group) => group.items.length);
-  return owner ? [...groups, { label: "Setup", items: [SETTINGS_ENTRY] }] : groups;
+  return owner ? [...groups, { label: "Setup", items: [SETTINGS_ENTRY], bare: true }] : groups;
 }
 
 /** Settings pages this person can open, in sub-nav order. */
@@ -286,5 +277,6 @@ export function isNavActive(pathname: string, search: string, url: string): bool
   if (query) return pathname === path && search.includes(query);
   if (path === "/stock") return pathname === "/stock";
   if (path === "/map") return pathname === "/map" && !search.includes("edit=1");
+  if (path === "/setup") return pathname === "/setup" || pathname.startsWith("/setup/") || pathname === "/automation" || pathname.startsWith("/automation/");
   return pathname === path || pathname.startsWith(`${path}/`);
 }

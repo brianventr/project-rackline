@@ -131,7 +131,7 @@ function ReplenishmentList() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-(--density-gap)">
       <PageHeader
-        eyebrow="Stock"
+        eyebrow="Inventory"
         title="Replenish"
         description={
           <>
@@ -429,7 +429,7 @@ function ReplenishmentDetail({ id }: { id: string }) {
   return (
     <div className="space-y-(--density-gap)">
       <DocumentHeader
-        eyebrow="Stock"
+        eyebrow="Inventory"
         list={{ label: "Replenish", to: "/stock/replenish" }}
         title={doc.number}
         description={`${doc.sku} · moved ${doc.qtyMoved ?? 0}/${doc.qty} from ${doc.fromCode} to ${doc.toCode}`}

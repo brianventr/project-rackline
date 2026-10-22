@@ -275,7 +275,7 @@ export function WarehouseSetupPage() {
       <PageHeader
         eyebrow="Setup"
         title="Warehouse"
-        description="Name, ship-from address, origin city, and map size for this building. Bays live under Stock → Locations."
+        description="Name, ship-from address, origin city, and map size for this building. Bays live under Inventory → Locations."
       />
       <ErrorBanner error={write.error} />
 
@@ -344,7 +344,7 @@ export function WarehouseSetupPage() {
               description={
                 garage
                   ? "Ship-from for labels. Traffic opens with Manufacturer."
-                  : "Ship-from for labels, and the origin for Analytics → Traffic. Lane estimates fly from this city, not live GPS."
+                  : "Ship-from for labels, and the origin for Outbound → Traffic. Lane estimates fly from this city, not live GPS."
               }
             />
             <TextareaField

@@ -570,7 +570,7 @@ export function ShopifyPage({ me }: { me: Me }) {
             <EmptyState
               icon={Store}
               title="No catalog SKUs yet."
-              body="Add items under Stock → Items and they show up here."
+              body="Add items under Inventory → Items and they show up here."
               action={
                 <Button size="sm" variant="outline" asChild>
                   <Link to="/stock/items">Open items</Link>
@@ -692,7 +692,7 @@ function PromiseSnippet({ shop }: { shop: string }) {
     <Card className="space-y-2 p-4">
       <h2 className="text-sm font-semibold">Promise on the product page</h2>
       <p className="text-sm text-muted-foreground">
-        Paste this on the product template. It reads the same leave-by as Analytics → Promise and does not reserve stock.
+        Paste this on the product template. It reads the same leave-by as Outbound → Promise and does not reserve stock.
         Orders placed before the carrier cutoff ship today when the shelf can cover them.
       </p>
       <pre className="overflow-x-auto rounded-md border bg-muted/40 p-3 text-xs">{snippet}</pre>

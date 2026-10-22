@@ -3,6 +3,7 @@
  * Picker lands on Next job and does not open cost, vendors, or runway.
  * Bookkeeper sees cost and purchases, and does not run the floor.
  */
+import { moduleLabel } from "./modules";
 
 export const ROLES = ["owner", "operator", "picker", "bookkeeper", "viewer", "support"] as const;
 export type AppRole = (typeof ROLES)[number];
@@ -97,22 +98,17 @@ export function rolePageRedirect(role: string | null | undefined, path: string):
   return null;
 }
 
-export const PICKER_NAV = [{ label: "Floor", items: [{ title: "Next job", url: "/floor" }] }] as const;
+export const PICKER_NAV = [{ label: moduleLabel("now"), bare: true, items: [{ title: "Next job", url: "/floor" }] }] as const;
 
 export const VIEWER_NAV = [
-  {
-    label: "Shop",
-    items: [
-      { title: "Today", url: "/today" },
-      { title: "On hand", url: "/stock" },
-      { title: "Orders", url: "/outbound/orders" },
-    ],
-  },
+  { label: moduleLabel("now"), items: [{ title: "Today", url: "/today" }] },
+  { label: moduleLabel("inventory"), items: [{ title: "On hand", url: "/stock" }] },
+  { label: moduleLabel("outbound"), items: [{ title: "Orders", url: "/outbound/orders" }] },
 ] as const;
 
 export const SUPPORT_NAV = [
   {
-    label: "Support",
+    label: moduleLabel("returns"),
     items: [
       { title: "Returns", url: "/outbound/returns" },
       { title: "Lookup", url: "/floor/lookup" },
@@ -122,13 +118,18 @@ export const SUPPORT_NAV = [
 
 export const BOOKKEEPER_NAV = [
   {
-    label: "Books",
+    label: moduleLabel("inbound"),
     items: [
       { title: "Purchases", url: "/inbound/purchases" },
       { title: "Vendors", url: "/inbound/vendors" },
-      { title: "Items", url: "/stock/items" },
-      { title: "On hand", url: "/stock" },
-      { title: "Accounting", url: "/setup/accounting" },
     ],
   },
+  {
+    label: moduleLabel("inventory"),
+    items: [
+      { title: "Items", url: "/stock/items" },
+      { title: "On hand", url: "/stock" },
+    ],
+  },
+  { label: "Accounting", bare: true, items: [{ title: "Accounting", url: "/setup/accounting" }] },
 ] as const;

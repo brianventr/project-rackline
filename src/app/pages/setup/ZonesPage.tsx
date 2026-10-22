@@ -193,7 +193,7 @@ export function ZonesPage() {
             <EmptyState
               icon={Grid3x3}
               title="No bays in this warehouse."
-              body="Add bays under Stock → Locations, then give each one a zone here."
+              body="Add bays under Inventory → Locations, then give each one a zone here."
               action={
                 <Button size="sm" variant="outline" asChild>
                   <Link to="/stock/locations">Open locations</Link>

@@ -75,35 +75,25 @@ describe("operating mode", () => {
       "/exceptions",
       "/floor",
       "/map",
+      "/analytics/restock",
       "/inbound/purchases",
       "/inbound/vendors",
       "/inbound/receipts",
-      "/make/recipes",
-      "/make/schedule",
-      "/make/work-orders",
-      "/make/kits",
-      "/outbound/orders",
-      "/outbound/customers",
-      "/outbound/returns",
       "/stock",
       "/stock/items",
       "/analytics/runway",
-      "/analytics/restock",
+      "/make/recipes",
+      "/make/schedule",
+      "/make/kits",
+      "/make/work-orders",
+      "/outbound/orders",
+      "/outbound/customers",
       "/analytics/promise",
-      "/automation",
-      "/setup/shopify",
-      "/setup/channels",
-      "/setup/imports",
-      "/setup/accounting",
-      "/setup/carriers",
-      "/setup/shipping-rules",
-      "/setup/team",
-      "/setup/labels",
-      "/setup/warehouse",
+      "/outbound/returns",
     ]);
     for (const url of urls) expect(garageAllowsPath(url)).toBe(true);
-    expect(garageNavForRole("operator").map((group) => group.label)).not.toContain("Shop");
-    expect(garageNavForRole("owner").map((group) => group.label)).toContain("Shop");
+    expect(garageNavForRole("operator").map((group) => group.label)).toEqual(garageNavForRole("owner").map((group) => group.label));
+    expect(garageNavForRole("owner").map((group) => group.label)).not.toContain("Shop");
     const firstHour = GARAGE_FIRST_HOUR_NAV.flatMap((group) => group.items.map((item) => item.url));
     expect(garageNavForRole("owner", { setupComplete: false }).flatMap((group) => group.items.map((item) => item.url))).toEqual(firstHour);
     expect(garageNavForRole("operator", { setupComplete: false }).flatMap((group) => group.items.map((item) => item.url))).toEqual(

@@ -281,7 +281,7 @@ export function RunwayPage() {
   return (
     <div className="space-y-(--density-gap)">
       <PageHeader
-        eyebrow="Analytics"
+        eyebrow="Inventory"
         title="Runway"
         description={
           // Short enough that every Term sits in the two lines the header shows on a phone.

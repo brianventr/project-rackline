@@ -101,7 +101,7 @@ export function TrafficPage() {
         <div>
           <p className="mb-1 flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.22em] text-cyan-300/80">
             <Radar className="size-3.5" />
-            Analytics
+            Outbound
           </p>
           <h1 className="text-xl font-semibold tracking-tight text-cyan-50">Traffic</h1>
           <p className="mt-0.5 max-w-xl text-xs text-cyan-200/70">
