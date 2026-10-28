@@ -1,6 +1,6 @@
 import { useId, type ComponentProps, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { Wrench } from "lucide-react";
+import { Building2, Laptop, Package, ScanLine, Users, Wrench } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button, Field, Input } from "@/app/components/ui";
 import { Term } from "@/app/components/term";
@@ -13,11 +13,69 @@ import {
   type SetupAreaInput,
   type SetupInput,
   type SetupIssue,
+  type SetupNamingMode,
   type SetupRacksInput,
   type SetupSource,
 } from "@/domain/setup-wizard";
 import { cn } from "@/lib/utils";
 import { BinCodeBreakdown } from "@/app/components/tour/diagrams";
+
+export function NamingChoice({ value, onChange }: { value: SetupNamingMode; onChange: (value: SetupNamingMode) => void }) {
+  const name = useId();
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-sm font-semibold">How should bays be named?</legend>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {([
+          { value: "automatic", title: "Let Rackline name them", body: "Recommended. Unique bay codes and barcodes are generated as you add racks." },
+          { value: "custom", title: "Match our floor labels", body: "Choose your aisle letters and dock, bench, and shipping codes. Rackline numbers the bays." },
+        ] as const).map((option) => (
+          <label key={option.value} className={cn("flex min-h-20 cursor-pointer items-start gap-3 rounded-xl border p-3", value === option.value ? "border-primary/50 bg-primary/5" : "bg-card hover:bg-muted/40")}>
+            <input type="radio" name={name} value={option.value} checked={value === option.value} onChange={() => onChange(option.value)} className="mt-1 size-4 shrink-0 accent-primary" />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">{option.title}</span>
+              <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">{option.body}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <p className="text-xs leading-relaxed text-muted-foreground">Storage labels follow aisle–rack–bay–level, for example A-01-02-2. Keep codes short, put one physical label at each bin, and use the same address on screen and on the floor.</p>
+    </fieldset>
+  );
+}
+
+export function OverviewStep({ naming, onNamingChange }: { naming: SetupNamingMode; onNamingChange: (value: SetupNamingMode) => void }) {
+  return (
+    <div className="space-y-5">
+      <div className="flex items-start gap-3 rounded-xl border bg-primary/5 p-4">
+        <Laptop className="mt-0.5 size-6 shrink-0 text-primary" aria-hidden />
+        <div>
+          <h3 className="text-base font-semibold">Set up on a laptop or desktop</h3>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">A larger screen and mouse or trackpad make building layout, team setup, and catalog work easier. Save tablets and phones for scanning on the floor once setup is complete. You can still continue on this device.</p>
+        </div>
+      </div>
+      <section className="space-y-3" aria-label="Your first setup">
+        <p className="text-sm leading-relaxed">Start with one building and a small set of labeled locations. This wizard prepares where the work happens; your launch guide then takes you through products, opening stock, and a complete order.</p>
+        <ol className="grid gap-3 sm:grid-cols-2">
+          {[
+            { icon: Building2, title: "1. Give stock an address", body: "Name the building, add receiving and shipping areas, and create your first racks." },
+            { icon: Users, title: "2. Give people their own accounts", body: "Add the teammates who receive, pick, pack, and ship. Solo owners can continue alone." },
+            { icon: ScanLine, title: "3. Label the physical floor", body: "Rackline generates bin codes and barcodes. Review the map, position the racks, then print labels." },
+            { icon: Package, title: "4. Prove the full workflow", body: "Add a SKU, receive stock, and practice an order before starting customer work." },
+          ].map(({ icon: Icon, title, body }) => (
+            <li key={title} className="rounded-xl border bg-card p-3">
+              <Icon className="mb-2 size-5 text-primary" aria-hidden />
+              <p className="text-sm font-medium">{title}</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{body}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
+      <NamingChoice value={naming} onChange={onNamingChange} />
+      <p className="text-sm text-muted-foreground">Not sure what is essential? <Link to="/setup/start" className="font-medium text-primary underline underline-offset-4">Open the launch guide and setup matrix</Link>. Advanced options can wait until your basic workflow works.</p>
+    </div>
+  );
+}
 
 /* ------------------------------------------------------------------ shared bits */
 
@@ -110,7 +168,7 @@ function CodeInput({
       onChange={(event) => onChange(event.target.value)}
       onBlur={() => onChange(normalizeCode(value))}
       placeholder={placeholder}
-      className="font-mono uppercase"
+      className="h-11 font-mono text-base uppercase md:text-base"
       autoCapitalize="characters"
       autoCorrect="off"
       spellCheck={false}
@@ -176,6 +234,7 @@ export function BuildingStep({
         <div>
           <Field label="Building name">
             <Input
+              className="h-11 text-base md:text-base"
               value={value.name}
               onChange={(event) => onChange({ ...value, name: event.target.value })}
               placeholder="Main warehouse"
@@ -189,6 +248,7 @@ export function BuildingStep({
         <div>
           <Field label="Timezone">
             <Input
+              className="h-11 text-base md:text-base"
               value={value.timeZone}
               onChange={(event) => onChange({ ...value, timeZone: event.target.value })}
               onBlur={() => onChange({ ...value, timeZone: value.timeZone.trim() })}
@@ -207,10 +267,9 @@ export function BuildingStep({
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        {garage
-          ? `This ${GARAGE_MODE_LABEL} building is the first license. `
-          : `This ${MANUFACTURER_MODE_LABEL} building is the first license. `}
-        Another building is another license. Buy it under Settings → Warehouse.
+        {garage ? GARAGE_MODE_LABEL : MANUFACTURER_MODE_LABEL} starts with this building. Add another building later under{" "}
+        <Link to="/setup/warehouse" className="font-medium text-primary underline underline-offset-4">Settings → Warehouse</Link>.
+        Each building uses its own license; this wizard does not purchase one.
       </p>
     </div>
   );
@@ -272,12 +331,14 @@ export function AreaStep({
   onChange,
   issues,
   existing,
+  naming = "custom",
 }: {
   source: AreaSource;
   value: SetupAreaInput;
   onChange: (next: SetupAreaInput) => void;
   issues: SetupIssue[];
   existing: ExistingBin[];
+  naming?: SetupNamingMode;
 }) {
   const copy = AREA_COPY[source];
   const already = existing.filter((row) => row.type === copy.type);
@@ -290,7 +351,7 @@ export function AreaStep({
       <ExistingChips rows={already} title={copy.existingTitle} />
       <SwitchRow
         label={copy.switchLabel}
-        hint={already.length ? "Off, because one exists. Turn it on for a second one." : "Turn it off to leave this for later."}
+        hint={already.length ? "Off, because one exists. Turn it on for a second one." : source === "bench" ? "Optional: turn this off if you do not assemble or kit products." : "Turn it off to leave this for later."}
         checked={value.include}
         onCheckedChange={(include) => onChange({ ...value, include })}
       />
@@ -302,18 +363,20 @@ export function AreaStep({
                 value={value.code}
                 onChange={(code) => onChange({ ...value, code })}
                 invalid={codeIssues.length > 0}
+                readOnly={naming === "automatic"}
                 placeholder={copy.codePlaceholder}
                 aria-describedby={[codeIssues.length ? codeIssueId : null, codeHintId].filter(Boolean).join(" ")}
               />
             </Field>
             <IssueText id={codeIssueId} issues={issues} field="code" />
             <p id={codeHintId} className="mt-1 text-xs text-muted-foreground">
-              Becomes the barcode on the bay.
+              {naming === "automatic" ? "Suggested by Rackline. This code becomes the bay's scannable barcode." : "Becomes the barcode on the bay. Keep it consistent with the physical label."}
             </p>
           </div>
           <div>
             <Field label="Name">
               <Input
+                className="h-11 text-base md:text-base"
                 value={value.name}
                 onChange={(event) => onChange({ ...value, name: event.target.value })}
                 placeholder={copy.namePlaceholder}
@@ -364,7 +427,7 @@ function NumberInput({
       step={1}
       value={String(value)}
       onChange={(event) => onChange(event.target.value)}
-      className="tabular-nums"
+      className="h-11 text-base tabular-nums md:text-base"
       aria-invalid={invalid || undefined}
     />
   );
@@ -376,6 +439,7 @@ export function RacksStep({
   issues,
   existing,
   codes,
+  naming = "custom",
 }: {
   value: SetupRacksInput;
   onChange: (next: SetupRacksInput) => void;
@@ -383,6 +447,7 @@ export function RacksStep({
   existing: ExistingBin[];
   /** From `previewRackCodes`: every bin the step would mint, in order. */
   codes: string[];
+  naming?: SetupNamingMode;
 }) {
   const levels = Number(String(value.levels).trim());
   const singleLevel = !Number.isInteger(levels) || levels <= 1;
@@ -424,11 +489,12 @@ export function RacksStep({
               <Field label="Aisle">
                 <Input
                   value={value.aisle}
+                  readOnly={naming === "automatic"}
                   onChange={(event) => onChange({ ...value, aisle: event.target.value })}
                   onBlur={() => onChange({ ...value, aisle: normalizeCode(value.aisle) })}
                   placeholder="A"
                   maxLength={3}
-                  className="font-mono uppercase"
+                  className="h-11 font-mono text-base uppercase md:text-base"
                   autoCapitalize="characters"
                   autoCorrect="off"
                   spellCheck={false}
@@ -436,7 +502,7 @@ export function RacksStep({
                   aria-describedby={describedBy("aisle")}
                 />
               </Field>
-              <p className="mt-1 text-xs text-muted-foreground">1 to 3 letters</p>
+              <p className="mt-1 text-xs text-muted-foreground">{naming === "automatic" ? "Rackline's next available aisle" : "1 to 3 letters"}</p>
               <IssueText id={issueIds.aisle} issues={issues} field="aisle" />
             </div>
             <div>
@@ -502,7 +568,7 @@ export function RacksStep({
           {codes.length ? (
             <div className="space-y-3 rounded-lg border p-3">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <p className="text-sm font-medium">Bin codes this makes</p>
+                <p className="text-sm font-medium">Automatic bay labels and barcodes</p>
                 <p className="text-xs tabular-nums text-muted-foreground">
                   {codes.length} {codes.length === 1 ? "bin" : "bins"}
                 </p>
@@ -523,6 +589,7 @@ export function RacksStep({
                   <BinCodeBreakdown code={lastCode} />
                 </div>
               ) : null}
+              <p className="text-xs leading-relaxed text-muted-foreground">Every bay is labeled as the rack is added. New racks continue at the next free rack number; existing labels stay unchanged. After creating, use Print bay labels to make physical barcode labels.</p>
             </div>
           ) : null}
         </>

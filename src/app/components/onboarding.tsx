@@ -311,11 +311,11 @@ export function OnboardingChecklist({ className }: { className?: string }) {
         </ProgressRing>
         <div className="min-w-0 flex-1">
           <h2 id={titleId} className="text-sm font-semibold">
-            {progress.complete ? "You are set up" : "Getting started"}
+            {progress.complete ? "Basic workflow recorded" : "Getting started"}
           </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {progress.complete
-              ? "Every required step is done. The extras below are there when you want them."
+              ? "Your basic stock-to-shipment loop has activity. Use the launch guide to test integrations and plan operating responsibilities."
               : garage
                 ? "Four steps from an empty shelf to a shipped order. Each one ticks itself off when the work lands."
                 : "Four steps from an empty warehouse to a shipped order. Each one ticks itself off when the work lands."}
@@ -331,6 +331,14 @@ export function OnboardingChecklist({ className }: { className?: string }) {
             <EyeOff />
             Hide
           </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-primary/5 px-4 py-3">
+        <p className="max-w-2xl text-sm text-muted-foreground">Start setup on a laptop or desktop. The guided wizard covers people, your building, and automatically labeled bays.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" className="min-h-11"><Link to="/welcome">Quick setup <ArrowRight className="size-4" /></Link></Button>
+          <Button asChild variant="ghost" className="min-h-11"><Link to="/setup/start">Launch guide and walkthroughs</Link></Button>
         </div>
       </div>
 

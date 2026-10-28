@@ -48,6 +48,7 @@ import { FloorRtvPage } from "./pages/floor/FloorRtvPage";
 import { FloorReplenishPage } from "./pages/floor/FloorReplenishPage";
 import { FloorKitPage } from "./pages/floor/FloorKitPage";
 import { WarehouseSetupPage } from "./pages/setup/WarehouseSetupPage";
+import { LaunchGuidePage } from "./pages/setup/LaunchGuidePage";
 import { TeamPage } from "./pages/setup/TeamPage";
 import { AuditPage } from "./pages/setup/AuditPage";
 import { LabelsSetupPage } from "./pages/setup/LabelsSetupPage";
@@ -147,6 +148,7 @@ export function App() {
       <Route path="/use-cases/:slug" element={<UseCasePage />} />
       <Route path="/compare/:slug" element={<ComparePage />} />
       <Route element={<Guard me={me} />}>
+        <Route path="/setup/start" element={<OwnerOnly><LaunchGuidePage /></OwnerOnly>} />
         <Route path="/today" element={<TodayPage />} />
         <Route
           path="/automation"

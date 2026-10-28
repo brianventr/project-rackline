@@ -29,6 +29,8 @@ describe("operating mode", () => {
     expect(garageAllowsPath("/exceptions?tab=mine")).toBe(true);
     expect(garageAllowsPath("/welcome")).toBe(true);
     expect(garageAllowsPath("/welcome?step=racks")).toBe(true);
+    expect(garageAllowsPath("/setup/start?tab=walkthroughs")).toBe(true);
+    expect(garageAllowsPath("/setup/start-extra")).toBe(false);
     expect(garageAllowsPath("/live")).toBe(true);
     expect(garageAllowsPath("/lab")).toBe(true);
     expect(garageAllowsPath("/lab?model=ax-1000")).toBe(true);

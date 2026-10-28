@@ -3,10 +3,12 @@ import {
   SETUP_LIMITS,
   mergeSetupInput,
   pendingSlotRoles,
+  parseSetupDraft,
   suggestAisle,
   summarizeCompleted,
   warehouseSettingsLabel,
   withCarriedRequests,
+  useAutomaticSetupCodes,
   SETUP_STEPS,
   SETUP_STEP_IDS,
   defaultRackShape,
@@ -21,6 +23,7 @@ import {
   previewRackCodes,
   previousSetupStep,
   setupStep,
+  setupDraftKey,
   stepIncluded,
   suggestAreaCode,
   type ExistingBin,
@@ -68,10 +71,13 @@ function fresh(garage = true): SetupInput {
 
 describe("steps", () => {
   it("runs in floor order and ends on review", () => {
-    expect(SETUP_STEP_IDS).toEqual(["building", "dock", "racks", "bench", "ship", "review"]);
-    expect(nextSetupStep("building")).toBe("dock");
+    expect(SETUP_STEP_IDS).toEqual(["overview", "building", "team", "dock", "racks", "bench", "ship", "review"]);
+    expect(nextSetupStep("overview")).toBe("building");
+    expect(nextSetupStep("building")).toBe("team");
+    expect(nextSetupStep("team")).toBe("dock");
     expect(nextSetupStep("review")).toBeNull();
-    expect(previousSetupStep("building")).toBeNull();
+    expect(previousSetupStep("overview")).toBeNull();
+    expect(previousSetupStep("building")).toBe("overview");
     expect(previousSetupStep("review")).toBe("ship");
     expect(setupStep("racks").teaches).toBe("Aisle · rack · bay · level");
     for (const step of SETUP_STEPS) {
@@ -82,8 +88,45 @@ describe("steps", () => {
 
   it("knows which steps add something", () => {
     const input = fresh();
-    expect(SETUP_STEP_IDS.map((id) => stepIncluded(input, id))).toEqual([true, true, true, true, true, true]);
+    expect(SETUP_STEP_IDS.map((id) => stepIncluded(input, id))).toEqual([true, true, true, true, true, true, true, true]);
     expect(stepIncluded({ ...input, bench: { ...input.bench, include: false } }, "bench")).toBe(false);
+  });
+});
+
+describe("automatic naming and resumable drafts", () => {
+  it("restores unique suggestions without changing a person's rack shape or chosen areas", () => {
+    const input = fresh();
+    input.racks = { ...input.racks, aisle: "ZZ", racks: 3, bays: 2 };
+    input.dock = { ...input.dock, code: "OUR-DOCK", name: "East dock", include: false };
+    const suggestions = defaultSetupInput({ warehouse: WAREHOUSE, existing: [], garage: true, takenCodes: ["DOCK", "A-01-01"] });
+    const next = useAutomaticSetupCodes(input, suggestions);
+    expect(next.dock).toEqual({ include: false, code: "RECV", name: "East dock" });
+    expect(next.racks).toEqual({ ...input.racks, aisle: "B" });
+    expect(input.racks.aisle).toBe("ZZ");
+  });
+
+  it("restores a layout draft only for the unchanged saved layout", () => {
+    const draft = { version: 1, step: "racks", naming: "custom", input: fresh(), layoutCodes: ["DOCK", "A-01-01"] };
+    expect(parseSetupDraft(JSON.stringify(draft), ["A-01-01", "DOCK"])).toEqual(draft);
+    expect(parseSetupDraft(JSON.stringify(draft), ["DOCK", "A-01-01", "A-01-02"])).toBeNull();
+    expect(parseSetupDraft(JSON.stringify(draft), [])).toBeNull();
+    expect(setupDraftKey("org-1", "building-1")).not.toBe(setupDraftKey("org-2", "building-1"));
+  });
+
+  it("rejects malformed draft structures and drops unexpected account details", () => {
+    const draft = { version: 1, step: "team", naming: "automatic", input: fresh(), layoutCodes: [] };
+    expect(parseSetupDraft("{broken", [])).toBeNull();
+    expect(parseSetupDraft(JSON.stringify({ ...draft, input: null }), [])).toBeNull();
+    expect(parseSetupDraft(JSON.stringify({ ...draft, step: "unknown" }), [])).toBeNull();
+    expect(parseSetupDraft(JSON.stringify({ ...draft, naming: "native-sdk" }), [])).toBeNull();
+    expect(parseSetupDraft(JSON.stringify({ ...draft, input: { ...draft.input, racks: { ...draft.input.racks, bays: null } } }), [])).toBeNull();
+    const withExtra = JSON.parse(JSON.stringify(draft));
+    withExtra.password = "must-not-restore";
+    withExtra.input.password = "must-not-restore";
+    withExtra.input.building.password = "must-not-restore";
+    const restored = parseSetupDraft(JSON.stringify(withExtra), []);
+    expect(JSON.stringify(restored)).not.toContain("password");
+    expect(restored?.input).toEqual(draft.input);
   });
 });
 

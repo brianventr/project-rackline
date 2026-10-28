@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ChevronLeft, ScanLine, type LucideIcon } from "lucide-react";
-import { useScanner } from "../../scanner/ScannerProvider";
+import { useScanner, type ScanEvent } from "../../scanner/ScannerProvider";
 import { Button, Card, EmptyState, ErrorBanner, Input } from "../../components/ui";
 import type { FloorJob } from "../../api";
 import { claimedByMessage, jobClaimedByOther, splitByClaim } from "../../jobs";
@@ -9,6 +9,8 @@ import { jobReasonText } from "@/domain/floor-usage";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OfflineQueueNotice } from "../../offline-queue-banner";
+import { useScannerInput } from "../../scanner/useScannerInput";
+import { ScannerFieldControls, ScannerFieldStatus } from "../../scanner/ScannerFieldControls";
 
 export type ScanReport = (accepted: boolean) => void;
 
@@ -46,6 +48,8 @@ export function FloorScanBox({
   placeholder,
   onScan,
   ready = true,
+  showModeControl = true,
+  replayLastScan = true,
 }: {
   label: string;
   placeholder: string;
@@ -56,41 +60,61 @@ export function FloorScanBox({
    * `ready` turns true, so claim checks see who holds each job.
    */
   ready?: boolean;
+  /** The launcher supplies the full input mode control beside this field. */
+  showModeControl?: boolean;
+  /** Disable on the launcher: returning home must not replay a scan from the previous task. */
+  replayLastScan?: boolean;
 }) {
   const scanner = useScanner();
   const { flash, report } = useScanFlash();
   const [value, setValue] = useState("");
-  const handledAt = useRef(0);
+  const handledAt = useRef(replayLastScan ? 0 : scanner.lastScan?.at ?? 0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const scanInput = useScannerInput(inputRef);
+  const pending = useRef<ScanEvent[]>([]);
+  const onScanRef = useRef(onScan);
+  const readyRef = useRef(ready);
+  onScanRef.current = onScan;
+  readyRef.current = ready;
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    if (!ready) return;
-    const scan = scanner.lastScan;
-    if (!scan || scan.at === handledAt.current) return;
-    handledAt.current = scan.at;
-    setValue(scan.raw);
-    // Select what was scanned, so the next scan into this field replaces it instead of appending.
-    // (No cleanup: handling the scan often re-renders with a new onScan, which must not cancel this.)
+  const flushScans = useCallback(() => {
+    if (!readyRef.current) return;
+    for (const scan of pending.current.splice(0)) {
+      setValue(scan.raw);
+      onScanRef.current(scan.raw, report);
+    }
     window.requestAnimationFrame(() => {
       if (inputRef.current && document.activeElement === inputRef.current) inputRef.current.select();
     });
-    onScan(scan.raw, report);
-  }, [scanner.lastScan, onScan, report, ready]);
+  }, [report]);
+
+  const acceptScan = useCallback((scan: ScanEvent) => {
+    if (scan.at <= handledAt.current) return;
+    handledAt.current = scan.at;
+    pending.current.push(scan);
+    flushScans();
+  }, [flushScans]);
+
+  // Subscribe directly so successive accessory scans cannot be collapsed into one React render.
+  useEffect(() => scanner.subscribe(acceptScan), [scanner.subscribe, acceptScan]);
+  useEffect(() => {
+    if (scanner.lastScan) acceptScan(scanner.lastScan);
+    if (ready) flushScans();
+  }, [scanner.lastScan, acceptScan, ready, flushScans]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const raw = value.trim();
+    const raw = (inputRef.current?.value ?? value).trim();
     if (!raw) return;
-    scanner.emitScan(raw, "typed");
+    scanner.emitScan(raw, scanInput.accessory && !scanInput.manualEntry ? "hid" : "typed");
   }
 
   return (
     <form className="space-y-2" onSubmit={submit}>
-      <p className="text-sm font-medium">{label}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-medium">{label}</p>
+        {scanInput.accessory ? <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">Accessory mode</span> : null}
+      </div>
       <Input
         ref={inputRef}
         data-scan-capture
@@ -100,6 +124,10 @@ export function FloorScanBox({
         autoCorrect="off"
         spellCheck={false}
         enterKeyHint="go"
+        inputMode={scanInput.inputMode}
+        onFocus={scanInput.onFocus}
+        onBlur={scanInput.onBlur}
+        onKeyDown={scanInput.onKeyDown}
         className={cn(
           "h-14 text-xl transition-shadow",
           flash === "ok" && "ring-2 ring-ok",
@@ -119,7 +147,9 @@ export function FloorScanBox({
             Camera
           </Button>
         ) : null}
+        <ScannerFieldControls input={scanInput} showModeControl={showModeControl} />
       </div>
+      <ScannerFieldStatus input={scanInput} ready={ready} />
     </form>
   );
 }

@@ -24,14 +24,18 @@ export function accumulateHidKey(
     ctrlKey?: boolean;
     metaKey?: boolean;
     altKey?: boolean;
+    isComposing?: boolean;
+    repeat?: boolean;
   },
 ): HidKeyResult {
+  // Marked scan fields own their Enter and accept scanners at any typing speed. Other
+  // editable fields belong to the person typing: never turn their input into a scan.
+  if (input.inCapture || input.inField || input.isComposing || input.repeat || input.ctrlKey || input.metaKey || input.altKey) {
+    return { action: "clear", state: { buffer: "", lastKeyAt: 0 } };
+  }
   const rapid = state.lastKeyAt > 0 && input.now - state.lastKeyAt <= HID_GAP_MS;
 
   if (input.key === "Enter") {
-    if (input.inCapture) {
-      return { action: "clear", state: { buffer: "", lastKeyAt: input.now } };
-    }
     if (state.buffer.length >= HID_MIN_LEN && rapid) {
       return {
         action: "emit",
@@ -42,12 +46,8 @@ export function accumulateHidKey(
     return { action: "clear", state: { buffer: "", lastKeyAt: input.now } };
   }
 
-  if (input.key.length !== 1 || input.ctrlKey || input.metaKey || input.altKey) {
+  if (input.key.length !== 1) {
     return { action: "ignore", state };
-  }
-
-  if (!rapid && input.inField && !input.inCapture) {
-    return { action: "clear", state: { buffer: "", lastKeyAt: input.now } };
   }
 
   const nextBuffer = rapid ? state.buffer + input.key : input.key;

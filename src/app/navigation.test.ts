@@ -29,6 +29,14 @@ describe("office modules", () => {
 });
 
 describe("navForSession", () => {
+  it("keeps the launch guide accessible in both owner workspaces without granting setup to other roles", () => {
+    for (const garage of [true, false]) {
+      expect(settingsForSession("owner", garage).some((item) => item.url === "/setup/start")).toBe(true);
+      expect(settingsForSession("operator", garage).some((item) => item.url === "/setup/start")).toBe(false);
+      expect(settingsForSession("bookkeeper", garage).some((item) => item.url === "/setup/start")).toBe(false);
+    }
+  });
+
   it("gives Manufacturer the pipe plus Settings, and hides owner-only items from operators", () => {
     const owner = navForSession("owner", false);
     expect(owner.map((group) => group.label)).toEqual([...MODULES.map((module) => module.label), "Setup"]);

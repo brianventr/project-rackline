@@ -33,7 +33,7 @@ import { FLOOR_ANCHORS, scrollToFloorAnchor } from "../../components/floor-tab-b
 import { useSession } from "../../session";
 import { MyDayCard } from "../LaborPage";
 import { useWarehouse } from "../../warehouse";
-import { useScanner } from "../../scanner/ScannerProvider";
+import { ScannerInputControls } from "../../scanner/ScannerInputControls";
 import { useApiQuery } from "../../query";
 import { useExceptionInbox } from "../../exceptions";
 import { api, type FloorJob, type Item } from "../../api";
@@ -91,6 +91,18 @@ const adjustTile: VerbTile = {
   icon: SlidersHorizontal,
 };
 
+const TASK_HINTS: Record<string, string> = {
+  "/floor/receive": "Bring stock onto the dock",
+  "/floor/putaway": "Move stock into its bay",
+  "/floor/pick": "Collect items for an order",
+  "/floor/pack": "Check items into a box",
+  "/floor/ship": "Label and send an order",
+  "/floor/count": "Check what is in a bay",
+  "/floor/kit": "Build from a recipe",
+  "/floor/assemble": "Complete a work order",
+  "/floor/lookup": "Find a label or item",
+};
+
 const VERB_ICON: Partial<Record<string, Icon>> = Object.fromEntries(
   verbs.filter((tile) => tile.verb).map((tile) => [tile.verb as string, tile.icon]),
 );
@@ -138,10 +150,8 @@ export function FloorLauncherPage() {
   const { warehouseId } = useWarehouse();
   const navigate = useNavigate();
   const location = useLocation();
-  const scanner = useScanner();
   const [claimError, setClaimError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
-  const [mountedAt] = useState(() => Date.now());
   const [usage, recordTap] = useFloorUsage(me.user.id);
   const garage = isGarageMode(me.organization.operatingMode);
   const allowed = new Set(me.floorVerbs ?? []);
@@ -177,6 +187,15 @@ export function FloorLauncherPage() {
     .map((path) => items.find((item) => item.to === path))
     .filter((item): item is VerbTile => Boolean(item));
   const groups = groupFloorTiles(items);
+  const quickPaths = [...new Set([
+    ...usual.map((item) => item.to),
+    "/floor/receive", "/floor/putaway", "/floor/pick", "/floor/pack", "/floor/ship", "/floor/count",
+    "/floor/kit", "/floor/assemble", "/floor/lookup",
+  ])];
+  const quickTasks = quickPaths
+    .map((path) => items.find((item) => item.to === path))
+    .filter((item): item is VerbTile => Boolean(item))
+    .slice(0, 6);
 
   const onLauncherScan = useCallback(
     (raw: string, report?: ScanReport) => {
@@ -198,7 +217,6 @@ export function FloorLauncherPage() {
 
   const loaded = !nextQ.isLoading && !openQ.isLoading;
   const error = claimError ?? nextQ.error?.message ?? openQ.error?.message ?? null;
-  const recentScan = scanner.lastScan && scanner.lastScan.at >= mountedAt ? scanner.lastScan : null;
 
   // The tab bar links to /floor#next and /floor#mine; the router does not scroll to hashes.
   useEffect(() => {
@@ -223,14 +241,24 @@ export function FloorLauncherPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5" data-slot="floor-workspace">
       <PageHeader
         eyebrow={garage ? "Garage Mode" : "Floor"}
-        title={garage ? "What are you making?" : "What are you doing?"}
+        title={garage ? "Your maker workspace" : "Your floor workspace"}
         description={
           garage
-            ? "Founder bench. Receive, make, and put away here; customer orders ship from the Ship queue in one step."
-            : "Next job is ranked from the same ledger. Unassigned work stays pickable — scan first, or pick a verb."
+            ? "Receive, make, and put away. Open Ship orders to send your next order."
+            : "Scan a label, start your next job, or choose a task."
+        }
+        actions={
+          <Link
+            to={`/floor#${FLOOR_ANCHORS.mine}`}
+            onClick={() => scrollToFloorAnchor(FLOOR_ANCHORS.mine)}
+            className="inline-flex min-h-11 items-center gap-2 rounded-full border bg-card px-4 text-sm font-medium outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          >
+            <ClipboardList aria-hidden className="size-4 text-primary" />
+            {openQ.isLoading ? "Loading your jobs…" : `${mine.length} assigned to you`}
+          </Link>
         }
       />
       {garage ? (
@@ -246,90 +274,103 @@ export function FloorLauncherPage() {
           <ChevronRight aria-hidden className="size-4 text-muted-foreground" />
         </Link>
       ) : null}
-      <FloorScanBox label="Scan" placeholder="Bay, SKU, or order" onScan={onLauncherScan} ready={loaded} />
-      <MyDayCard />
       <OfflineQueueNotice />
       <ErrorBanner error={error} />
-      {recentScan ? (
-        <div role="status" className="flex items-center gap-2 rounded-lg border bg-card py-1 pl-3 pr-1 text-sm">
-          <ScanLine aria-hidden className="size-4 shrink-0 text-primary" />
-          <span className="min-w-0 flex-1">
-            Scanned <span className="break-all font-mono font-semibold">{recentScan.raw}</span>. Pick a verb to use it.
+
+      <section aria-labelledby="floor-scan-heading" className="overflow-hidden rounded-2xl border bg-card shadow-xs">
+        <div className="flex items-center gap-3 border-b bg-primary/5 px-4 py-3 sm:px-5">
+          <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <ScanLine className="size-5" />
           </span>
-          <Link
-            to="/floor/lookup"
-            className="inline-flex h-11 shrink-0 items-center gap-1 rounded-md px-2 text-sm font-medium text-primary outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50"
-          >
-            Look it up
-            <ChevronRight aria-hidden className="size-4" />
-          </Link>
+          <div>
+            <h2 id="floor-scan-heading" className="text-base font-semibold">Scan station</h2>
+            <p className="text-sm text-muted-foreground">One scan opens the work in front of you.</p>
+          </div>
         </div>
-      ) : null}
-
-      <section id={FLOOR_ANCHORS.next} aria-labelledby="floor-next-heading" className="scroll-mt-16">
-        <h2 id="floor-next-heading" className="sr-only">
-          Next job
-        </h2>
-        {next ? (
-          <NextJobCard job={next} item={nextItem} starting={starting} onStart={() => void startNext()} />
-        ) : nextQ.isLoading ? (
-          <Skeleton className="h-44 w-full rounded-xl" />
-        ) : (
-          <EmptyState
-            icon={ClipboardList}
-            title="Nothing ranked for you right now."
-            body="Unassigned work is on the verb screens below."
-            action={
-              <Button variant="secondary" className="h-11" asChild>
-                <Link to="/floor/lookup">
-                  <Search className="size-4" />
-                  Lookup
-                </Link>
-              </Button>
-            }
-          />
-        )}
+        <div className="grid gap-5 p-4 sm:p-5 md:grid-cols-[minmax(0,1fr)_minmax(18rem,0.8fr)]">
+          <FloorScanBox label="Scan a label" placeholder="Bay, SKU, or order" onScan={onLauncherScan} ready={loaded} showModeControl={false} replayLastScan={false} />
+          <div className="min-w-0 border-t pt-4 md:border-t-0 md:border-l md:pt-0 md:pl-5">
+            <ScannerInputControls />
+          </div>
+        </div>
       </section>
 
-      <section id={FLOOR_ANCHORS.mine} aria-labelledby="floor-mine-heading" className="scroll-mt-16 space-y-1.5">
-        <SectionLabel id="floor-mine-heading">
-          My jobs
-          {mine.length ? <span className="ml-1.5 font-mono normal-case tracking-normal">{mine.length}</span> : null}
-        </SectionLabel>
-        {mine.length ? (
-          <ul className="divide-y overflow-hidden rounded-lg border bg-card text-sm">
-            {mine.map((job) => {
-              const JobIcon = VERB_ICON[job.verb] ?? ClipboardList;
-              const detail = jobReasonText(job) || job.title || "Assigned to you";
-              return (
-                <li key={job.id}>
-                  <Link
-                    className="flex min-h-14 items-center gap-3 px-3 py-2 outline-none hover:bg-muted/60 focus-visible:bg-muted focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
-                    to={job.floorPath}
-                    onClick={() => recordTap(job.floorPath)}
-                  >
-                    <JobIcon aria-hidden className="size-5 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate">
-                        <span className="font-medium">{verbLabel(job.verb)}</span>{" "}
-                        {job.number ? <span className="font-mono">{job.number}</span> : null}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">{detail}</span>
-                    </span>
-                    <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="rounded-lg border border-dashed px-3 py-3 text-sm text-muted-foreground">
-            {openQ.isLoading ? "Loading your jobs…" : "Nothing assigned to you. Start the next job or pick a verb."}
-          </p>
-        )}
-      </section>
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-5">
+          <section id={FLOOR_ANCHORS.next} aria-labelledby="floor-next-heading" className="scroll-mt-20 space-y-2">
+            <SectionLabel id="floor-next-heading">Up next</SectionLabel>
+            {next ? (
+              <NextJobCard job={next} item={nextItem} starting={starting} onStart={() => void startNext()} />
+            ) : nextQ.isLoading ? (
+              <Skeleton className="h-44 w-full rounded-xl" />
+            ) : (
+              <EmptyState
+                icon={ClipboardList}
+                title="Your queue is clear."
+                body="Choose a task or scan a label to keep working."
+                action={
+                  <Button variant="secondary" className="h-11" asChild>
+                    <Link to="/floor/lookup">
+                      <Search className="size-4" />
+                      Lookup
+                    </Link>
+                  </Button>
+                }
+              />
+            )}
+          </section>
 
-      <VerbManual usual={usual} groups={groups} tileCount={tileCount} onTap={recordTap} />
+          <section id={FLOOR_ANCHORS.mine} aria-labelledby="floor-mine-heading" className="scroll-mt-20 space-y-2">
+            <SectionLabel id="floor-mine-heading">
+              My jobs
+              {mine.length ? <span className="ml-1.5 font-mono normal-case tracking-normal">{mine.length}</span> : null}
+            </SectionLabel>
+            {mine.length ? (
+              <ul className="divide-y overflow-hidden rounded-lg border bg-card text-sm">
+                {mine.map((job) => {
+                  const JobIcon = VERB_ICON[job.verb] ?? ClipboardList;
+                  const detail = jobReasonText(job) || job.title || "Assigned to you";
+                  return (
+                    <li key={job.id}>
+                      <Link
+                        className="flex min-h-18 items-center gap-3 px-4 py-3 outline-none hover:bg-muted/60 focus-visible:bg-muted focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
+                        to={job.floorPath}
+                        onClick={() => recordTap(job.floorPath)}
+                      >
+                        <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground"><JobIcon className="size-5" /></span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">
+                            <span className="font-medium">{verbLabel(job.verb)}</span>{" "}
+                            {job.number ? <span className="font-mono">{job.number}</span> : null}
+                          </span>
+                          <span className="mt-1 block truncate text-sm text-muted-foreground">{detail}</span>
+                        </span>
+                        <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="rounded-lg border border-dashed px-3 py-3 text-sm text-muted-foreground">
+                {openQ.isLoading ? "Loading your jobs…" : "Nothing assigned to you. Start the next job or choose a task."}
+              </p>
+            )}
+          </section>
+          <MyDayCard />
+        </div>
+        <div className="min-w-0 space-y-5">
+          <section aria-labelledby="floor-quick-heading" className="space-y-2">
+            <SectionLabel id="floor-quick-heading">Quick tasks</SectionLabel>
+            <div className="grid grid-cols-2 gap-3">
+              {quickTasks.map((item) => (
+                <VerbTileLink key={item.to} item={item} count={tileCount(item)} quick onTap={recordTap} />
+              ))}
+            </div>
+          </section>
+          <VerbManual usual={usual} groups={groups} tileCount={tileCount} onTap={recordTap} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -385,23 +426,21 @@ function VerbManual({
   onTap: (path: string) => void;
 }) {
   return (
-    <>
-      <div className="hidden space-y-4 md:block">
-        <VerbSections idPrefix="floor" usual={usual} groups={groups} tileCount={tileCount} onTap={onTap} />
+    <details className="group rounded-xl border bg-card px-4">
+      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 py-3 text-base font-medium outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+        <span>All tasks <span className="ml-1 text-sm font-normal text-muted-foreground">{groups.reduce((total, group) => total + group.tiles.length, 0)}</span></span>
+        <ChevronRight aria-hidden className="size-5 text-muted-foreground transition-transform group-open:rotate-90" />
+      </summary>
+      <div className="space-y-4 border-t py-4">
+        <VerbSections idPrefix="floor-more" usual={usual} groups={groups} tileCount={tileCount} onTap={onTap} />
       </div>
-      <details className="rounded-lg border bg-card px-3 py-3 md:hidden">
-        <summary className="cursor-pointer text-sm font-medium">All verbs</summary>
-        <div className="mt-3 space-y-4">
-          <VerbSections idPrefix="floor-more" usual={usual} groups={groups} tileCount={tileCount} onTap={onTap} />
-        </div>
-      </details>
-    </>
+    </details>
   );
 }
 
 function SectionLabel({ id, children }: { id: string; children: ReactNode }) {
   return (
-    <h2 id={id} className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <h2 id={id} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
       {children}
     </h2>
   );
@@ -426,12 +465,12 @@ function NextJobCard({
   const imageUrl = (job as FloorJob & { imageUrl?: string | null }).imageUrl ?? item?.imageUrl ?? null;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-primary/30 bg-card shadow-xs">
-      <div className="flex items-center justify-between gap-3 border-b border-primary/15 bg-primary/5 px-4 py-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Next job</p>
-        {reason ? <p className="min-w-0 truncate text-xs font-medium text-tone-warning">{reason}</p> : null}
+    <div className="overflow-hidden rounded-2xl border border-primary/30 bg-card shadow-xs">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-primary/15 bg-primary/5 px-4 py-3">
+        <p className="text-xs font-semibold text-primary">Recommended for you</p>
+        {reason ? <p className="text-xs font-medium text-tone-warning">{reason}</p> : null}
       </div>
-      <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
+      <div className="space-y-5 p-4 sm:p-5">
         <div className="flex min-w-0 flex-1 items-start gap-4">
           {job.itemId ? (
             <SkuThumb
@@ -439,24 +478,24 @@ function NextJobCard({
               name={item?.name}
               imageUrl={imageUrl}
               size="lg"
-              className="size-20 text-sm sm:size-24"
+              className="size-20 text-sm"
             />
           ) : (
             <div
               aria-hidden
-              className="flex size-20 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary sm:size-24"
+              className="flex size-20 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
             >
               <JobIcon className="size-8" />
             </div>
           )}
           <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-xl font-semibold leading-tight tracking-tight">
+            <p className="text-xl font-semibold leading-tight tracking-tight break-words">
               {verbLabel(job.verb)}
               {job.number ? <span className="ml-1.5 font-mono">{job.number}</span> : null}
             </p>
             {subtitle ? <p className="truncate text-sm text-muted-foreground">{subtitle}</p> : null}
             {route ? (
-              <p className="flex items-center gap-1.5 font-mono text-base font-semibold">
+              <p className="flex items-center gap-1.5 break-words font-mono text-base font-semibold">
                 <span className="sr-only">Bay </span>
                 {route}
               </p>
@@ -468,9 +507,9 @@ function NextJobCard({
             ) : null}
           </div>
         </div>
-        <Button className="h-14 w-full text-base sm:w-44" disabled={starting} onClick={onStart}>
+        <Button className="h-14 w-full justify-between px-5 text-base" disabled={starting} onClick={onStart}>
           {starting ? <Loader2 className="size-5 animate-spin" /> : null}
-          Start
+          {starting ? "Opening job…" : `Start ${verbLabel(job.verb).toLowerCase()}`}
           {starting ? null : <ArrowRight className="size-5" />}
         </Button>
       </div>
@@ -482,11 +521,13 @@ function VerbTileLink({
   item,
   count,
   compact,
+  quick,
   onTap,
 }: {
   item: VerbTile;
   count: number | undefined;
   compact?: boolean;
+  quick?: boolean;
   onTap: (path: string) => void;
 }) {
   return (
@@ -495,23 +536,25 @@ function VerbTileLink({
       title={item.body}
       onClick={() => onTap(item.to)}
       className={cn(
-        "flex min-h-14 items-center gap-2.5 rounded-lg border bg-card px-3 py-2.5 text-sm font-medium outline-none transition-colors",
+        "flex min-h-14 gap-2.5 rounded-xl border bg-card px-3 py-3 text-sm font-medium outline-none transition-colors",
         "hover:border-primary/40 hover:bg-muted/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-        compact ? null : "sm:items-start",
+        quick ? "relative min-h-28 flex-col items-start p-4" : "items-center sm:items-start",
       )}
     >
-      <item.icon className={cn("size-5 shrink-0 text-muted-foreground", compact ? null : "sm:mt-0.5")} />
+      <item.icon aria-hidden className={cn("size-5 shrink-0", quick ? "text-primary" : "text-muted-foreground", compact ? null : "sm:mt-0.5")} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate">{item.title}</span>
+        <span className={cn("block", quick ? "text-base font-semibold" : "truncate")}>{item.title}</span>
         {compact ? null : (
-          <span className="mt-0.5 hidden text-xs font-normal text-muted-foreground sm:line-clamp-2">{item.body}</span>
+          <span className={cn("mt-1 text-xs font-normal text-muted-foreground", quick ? "block leading-relaxed" : "hidden sm:line-clamp-2")}>
+            {quick ? TASK_HINTS[item.to] ?? item.body : item.body}
+          </span>
         )}
       </span>
       {count ? (
         <>
           <span
             aria-hidden
-            className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 font-mono text-[11px] font-semibold tabular-nums text-primary-foreground"
+            className={cn("inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 px-1.5 font-mono text-xs font-semibold tabular-nums text-primary", quick && "absolute top-3 right-3")}
           >
             {count > 99 ? "99+" : count}
           </span>

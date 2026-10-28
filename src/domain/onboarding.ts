@@ -33,7 +33,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStepMeta[] = [
   {
     id: "bays",
     title: "Set up your building",
-    body: "Add a dock to receive on, the shelves or bays where stock lives, and a spot to ship from. The wizard walks you through it.",
+    body: "Use a laptop or desktop to add your team, name the building, and create receiving, storage, and shipping bays with automatic labels.",
     cta: "Set up",
     path: "/welcome",
     optional: false,
@@ -69,7 +69,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStepMeta[] = [
   {
     id: "carrier",
     title: "Connect a carrier",
-    body: "Buy real postage from UPS, FedEx, USPS, or DHL. Rackline Ground works until then.",
+    body: "Connect your own account to buy real postage. Demo carrier labels are for practice and do not purchase shipping.",
     cta: "Connect",
     path: "/setup/carriers",
     optional: true,
@@ -78,7 +78,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStepMeta[] = [
   {
     id: "teammate",
     title: "Invite a teammate",
-    body: "Give someone on the floor their own sign-in and scanner.",
+    body: "Give each worker a named sign-in, choose their role and floor tasks, and assign work. Solo owners can start without another account.",
     cta: "Invite",
     path: "/setup/team",
     optional: true,

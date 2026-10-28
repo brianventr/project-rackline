@@ -30,12 +30,22 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "welcome",
     eyebrow: "Welcome",
+    title: "Set up your workspace",
+    body: [
+      "Quick setup covers your team, building, and storage bays. Use Rackline’s suggested bay names and barcodes, or customize the supported naming pattern before creating them.",
+      "Then follow the launch guide from adding products through your first order. It marks essentials, advanced tools, and checks for your operation.",
+    ],
+    audience: "owner",
+  },
+  {
+    id: "welcome",
+    eyebrow: "Welcome",
     title: "Rackline keeps one ledger",
     body: [
       "Every piece of stock sits in a bin, and every change to it is a line on one append-only ledger. Receive, move, pick, ship, build, count, adjust: they all write there, so on hand is never a number someone typed.",
       "The office is where you plan and look. The floor is where you scan and do. Both read the same ledger, so what the floor posts is on the office screen a moment later.",
     ],
-    audience: "all",
+    audience: "operator",
   },
   {
     id: "hierarchy",

@@ -14,6 +14,8 @@ import { Button, Card, Input, ToneBadge } from "../components/ui";
 import { LineChips, RelativeTime } from "../components/cells";
 import { refreshApi } from "../query";
 import { useScanner } from "../scanner/ScannerProvider";
+import { useScannerInput } from "../scanner/useScannerInput";
+import { ScannerFieldControls, ScannerFieldStatus } from "../scanner/ScannerFieldControls";
 import { useScale } from "../scale/ScaleProvider";
 import { ScaleReadout } from "../scale/ScaleWeight";
 import { useScanFlash } from "./floor/floor-ui";
@@ -96,6 +98,7 @@ export function ShipStation({
   const [autoShip, setAutoShipState] = useState(loadAutoShip);
   const [recheck, setRecheck] = useState(0);
   const scanRef = useRef<HTMLInputElement>(null);
+  const scanInput = useScannerInput(scanRef);
   const weightRef = useRef<HTMLInputElement>(null);
   // A scan made before the station opened belongs to the page it was made on.
   const handledAt = useRef(scanner.lastScan?.at ?? 0);
@@ -117,12 +120,8 @@ export function ShipStation({
   const autoOn = autoShip && scale.supported;
 
   const focusScan = useCallback(() => {
-    window.requestAnimationFrame(() => scanRef.current?.focus());
-  }, []);
-
-  useEffect(() => {
-    scanRef.current?.focus();
-  }, []);
+    window.requestAnimationFrame(scanInput.safeFocus);
+  }, [scanInput.safeFocus]);
 
   const handleScan = useCallback(
     (raw: string, rows: ShipQueueOrder[]) => {
@@ -278,8 +277,8 @@ export function ShipStation({
 
   function submitScan(event: FormEvent) {
     event.preventDefault();
-    const raw = scan.trim();
-    if (raw) scanner.emitScan(raw, "typed");
+    const raw = (scanRef.current?.value ?? scan).trim();
+    if (raw) scanner.emitScan(raw, scanInput.accessory && !scanInput.manualEntry ? "hid" : "typed");
     else void ship();
   }
 
@@ -362,6 +361,10 @@ export function ShipStation({
           autoCorrect="off"
           spellCheck={false}
           enterKeyHint="go"
+          inputMode={scanInput.inputMode}
+          onFocus={scanInput.onFocus}
+          onBlur={scanInput.onBlur}
+          onKeyDown={scanInput.onKeyDown}
           className={cn(
             "h-14 text-xl transition-shadow",
             flash === "ok" && "ring-2 ring-ok",
@@ -375,6 +378,8 @@ export function ShipStation({
           {scan.trim() || !open ? "Open" : shipping ? "Shipping…" : "Ship"}
         </Button>
       </form>
+      <div className="flex flex-wrap gap-2"><ScannerFieldControls input={scanInput} /></div>
+      <ScannerFieldStatus input={scanInput} ready={Boolean(orders)} />
 
       {!orders ? <p className="text-sm text-muted-foreground">Loading the ship queue…</p> : null}
 

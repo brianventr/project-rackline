@@ -35,6 +35,17 @@ describe("tour steps", () => {
     }
   });
 
+  it("offers setup immediately to owners while retaining the ledger welcome for floor staff", () => {
+    const ownerWelcome = tourStepsFor({ role: "owner" })[0]!;
+    const operatorWelcome = tourStepsFor({ role: "operator" })[0]!;
+    expect(ownerWelcome.audience).toBe("owner");
+    expect(ownerWelcome.title).toBe("Set up your workspace");
+    expect(ownerWelcome.body.join(" ")).toMatch(/team, building, and storage bays/);
+    expect(operatorWelcome.audience).toBe("operator");
+    expect(operatorWelcome.title).toBe("Rackline keeps one ledger");
+    expect(operatorWelcome.body.join(" ")).not.toMatch(/quick setup/);
+  });
+
   it("writes plain paragraphs with no exclamation marks", () => {
     for (const step of TOUR_STEPS) {
       for (const text of [step.eyebrow, step.title, ...step.body, ...(step.garageBody ?? [])]) {

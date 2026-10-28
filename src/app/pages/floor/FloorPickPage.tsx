@@ -1148,8 +1148,8 @@ function GuidedStop({
         </Field>
       ) : null}
 
-      {/* Stays in reach above the phone tab bar while the fields above scroll. */}
-      <div className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-10 -mx-(--density-gap) bg-card px-(--density-gap) py-2 shadow-[0_-10px_12px_-12px_rgb(0_0_0/0.35)] md:bottom-0">
+      {/* Stays in reach above the floor dock while the fields above scroll. */}
+      <div className="sticky bottom-[calc(var(--floor-nav-height,4rem)+env(safe-area-inset-bottom))] z-10 -mx-(--density-gap) bg-card px-(--density-gap) py-2 shadow-[0_-10px_12px_-12px_rgb(0_0_0/0.35)]">
         <Button className="h-14 w-full text-lg" disabled={!canPick} onClick={onPick}>
           {busy ? <Loader2 className="size-5 animate-spin" /> : <Check className="size-5" />}
           {!bayId ? "Choose a bay first" : scanProblem ? scanProblem : `Picked ${count}`}

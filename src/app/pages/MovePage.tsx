@@ -19,6 +19,8 @@ import { Button, Card, DoneBanner, ErrorBanner, StatusBadge } from "../component
 import { Term } from "../components/term";
 import { Button as UiButton } from "@/components/ui/button";
 import { useScanner } from "../scanner/ScannerProvider";
+import { useScannerInput } from "../scanner/useScannerInput";
+import { ScannerFieldControls, ScannerFieldStatus } from "../scanner/ScannerFieldControls";
 import { cn } from "@/lib/utils";
 import { canPostTransfer } from "@/domain/status";
 import { hasUnmoved } from "@/domain/partial-transfer";
@@ -54,6 +56,7 @@ export function MovePage() {
   const toRef = useRef(to);
   toRef.current = to;
   const inputRef = useRef<HTMLInputElement>(null);
+  const scanInput = useScannerInput(inputRef);
   const handledAt = useMemo(() => ({ current: 0 }), []);
 
   useEffect(() => {
@@ -70,8 +73,8 @@ export function MovePage() {
   }, [params]);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, [step, result]);
+    if (scanInput.accessory) scanInput.safeFocus();
+  }, [step, result, scanInput.accessory, scanInput.safeFocus]);
 
   useEffect(() => {
     const scan = scanner.lastScan;
@@ -363,6 +366,8 @@ export function MovePage() {
                   else setTo((prev) => ({ ...prev, barcode: value }));
                 }}
                 onKeyDown={(event) => {
+                  scanInput.onKeyDown(event);
+                  if (event.defaultPrevented) return;
                   if (event.key === "Enter") {
                     event.preventDefault();
                     const value = event.currentTarget.value.trim();
@@ -375,6 +380,9 @@ export function MovePage() {
                 autoCorrect="off"
                 spellCheck={false}
                 enterKeyHint="go"
+                inputMode={scanInput.inputMode}
+                onFocus={scanInput.onFocus}
+                onBlur={scanInput.onBlur}
                 className={cn(
                   "h-14 w-full min-w-0 rounded-lg border border-line bg-paper px-3 font-mono text-xl outline-none ring-amber/40 transition-shadow focus:ring-2",
                   flash === "ok" && "ring-2 ring-ok",
@@ -385,6 +393,10 @@ export function MovePage() {
                 {busy ? "Moving…" : "Use"}
               </Button>
             </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <ScannerFieldControls input={scanInput} />
+            </div>
+            <div className="mt-2"><ScannerFieldStatus input={scanInput} /></div>
             <p className="mt-2 text-xs text-muted-foreground">
               Gun scanners type the barcode and Enter. Scan BOX-1 / SSCC to put away a{" "}
               <Term id="sscc">vendor carton</Term> onto suggested bays.

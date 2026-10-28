@@ -78,6 +78,7 @@ function n(value: number | undefined | null, tone: NavCount["tone"] = "default")
 }
 
 export const SETTINGS_ITEMS: NavItem[] = [
+  { title: "Launch guide", url: "/setup/start", icon: ClipboardList, keywords: "getting started onboarding wizard walkthrough essentials advanced readiness" },
   { title: "Integrations", url: "/setup/integrations", icon: Plug, keywords: "connect apps" },
   { title: "Shopify", url: "/setup/shopify", icon: Store, keywords: "store checkout channel stocky" },
   { title: "Channels", url: "/setup/channels", icon: Store, keywords: "etsy faire marketplace csv" },

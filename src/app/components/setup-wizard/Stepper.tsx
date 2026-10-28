@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
 export type StepStatus = { issues: number; included: boolean };
 
 /**
- * The six steps, each a button so any of them can be opened. A horizontal, scrollable row on
- * phones; a vertical rail from lg up. Steps with a problem carry a danger dot; switched-off
+ * Each step is a button so any of them can be opened. A horizontal, scrollable row on
+ * phones; a vertical rail on larger desktops. Steps with a problem carry a danger dot; switched-off
  * steps read "Skipped".
  */
 export function SetupStepper({
@@ -42,7 +42,7 @@ export function SetupStepper({
   return (
     <ol
       aria-label="Setup steps"
-      className={cn("-mx-1 flex min-w-0 gap-1 overflow-x-auto px-1 pb-1 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0", className)}
+      className={cn("-mx-1 flex min-w-0 gap-1 overflow-x-auto px-1 pb-1 xl:mx-0 xl:flex-col xl:overflow-visible xl:px-0 xl:pb-0", className)}
     >
       {SETUP_STEPS.map((step, index) => {
         const active = step.id === current;
@@ -56,7 +56,7 @@ export function SetupStepper({
             ? "Skipped"
             : step.teaches;
         return (
-          <li key={step.id} className="shrink-0 lg:shrink">
+          <li key={step.id} className="shrink-0 xl:shrink">
             <button
               ref={active ? activeRef : undefined}
               type="button"

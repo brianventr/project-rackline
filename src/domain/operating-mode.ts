@@ -29,6 +29,7 @@ const GARAGE_PATHS: { prefix: string; exact?: boolean }[] = [
   { prefix: "/automation", exact: true },
   { prefix: "/exceptions", exact: true },
   { prefix: "/welcome", exact: true },
+  { prefix: "/setup/start", exact: true },
   { prefix: "/live", exact: true },
   { prefix: "/dashboard", exact: true },
   { prefix: "/ship" },

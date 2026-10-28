@@ -50,10 +50,43 @@ export function LivePanel({
   className?: string;
 }) {
   const lines = step === "review" ? planLines(plan) : [];
+  if (step === "overview" || step === "team") {
+    return (
+      <section className={cn("space-y-4", className)} aria-label="Setup guidance">
+        <div>
+          <h3 className="text-sm font-semibold">{step === "team" ? "People make work assignable" : "A small start, a complete workflow"}</h3>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+            {step === "team"
+              ? "Give each person their own account. Assigned jobs, scan evidence, and the audit trail can then tell who did the work."
+              : "One building, a receiving spot, a few labeled bays, and a shipping spot are enough to begin. Add detail after you have practiced the whole process."}
+          </p>
+        </div>
+        <ol className="space-y-3 text-sm">
+          {(step === "team" ? [
+            ["Owner", "Manages setup, catalog, integrations, and access."],
+            ["Operator", "Works in receiving, picking, packing, and shipping; limit floor tasks in Team settings."],
+            ["Picker", "Follows assigned work from Next job with a focused screen."],
+            ["Solo today?", "Your owner account can do the work. Add named teammates when the team grows."],
+          ] : [
+            ["Name the places", "Keep short, stable codes that match physical labels."],
+            ["Keep receiving distinct", "Check arrivals before moving stock into storage."],
+            ["Walk the real floor", "Position racks and verify routes after the draft is created."],
+            ["Practice before launch", "Receive and ship a trial order; confirm scans and labels."],
+          ]).map(([title, body]) => (
+            <li key={title} className="rounded-lg border p-3">
+              <p className="font-medium">{title}</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{body}</p>
+            </li>
+          ))}
+        </ol>
+        <p className="text-xs text-muted-foreground">Layout changes wait for Create building layout. Invitations are a separate, explicit action on the People step.</p>
+      </section>
+    );
+  }
   return (
     <div className={cn("space-y-4", className)}>
       <div>
-        <p className="text-sm font-medium">{step === "review" ? "What Create will do" : "Your building"}</p>
+        <p className="text-sm font-medium">{step === "review" ? "What Create will do" : "Your draft building"}</p>
         <p className="text-xs text-muted-foreground">
           {plan.description ? `Adding ${plan.description}.` : "Nothing planned yet. Switch a step on to add to the tree."}
         </p>

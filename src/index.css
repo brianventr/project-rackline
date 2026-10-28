@@ -313,6 +313,65 @@ html {
   scroll-behavior: smooth;
 }
 
+@media screen {
+  /* Floor work keeps comfortable targets even when office tables use compact rows. */
+  [data-shell="floor"] {
+    --density-gap: 1rem;
+    --density-title: 1.75rem;
+    --density-meta: 0.875rem;
+  }
+
+  [data-shell="floor"] [data-slot="floor-content"] {
+    padding-left: max(var(--page-pad-x), env(safe-area-inset-left));
+    padding-right: max(var(--page-pad-x), env(safe-area-inset-right));
+  }
+
+  [data-shell="floor"] .floor-header-content {
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+  }
+
+  [data-shell="floor"] [data-slot="button"],
+  [data-shell="floor"] [role="combobox"] {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+    touch-action: manipulation;
+  }
+
+  [data-shell="floor"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+    min-height: 2.75rem;
+  }
+
+  /* Floor sizes must also win over shared inputs' responsive md:text-sm utility. */
+  [data-shell="floor"] :is(input, select, textarea) {
+    font-size: 1rem;
+  }
+
+  [data-shell="floor"] :is(input, select, textarea).text-lg {
+    font-size: 1.125rem;
+  }
+
+  [data-shell="floor"] :is(input, select, textarea).text-xl {
+    font-size: 1.25rem;
+  }
+
+  [data-shell="floor"] :is(input, select, textarea).text-2xl {
+    font-size: 1.5rem;
+  }
+
+  [data-shell="floor"] :is(input, select, textarea).text-3xl {
+    font-size: 1.875rem;
+  }
+
+  [data-shell="floor"] :is(input, select, textarea).text-4xl {
+    font-size: 2.25rem;
+  }
+
+  [data-floor-menu] :is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]) {
+    min-height: 2.75rem;
+  }
+}
+
 @media print {
   @page {
     size: letter;

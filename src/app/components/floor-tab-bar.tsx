@@ -12,7 +12,7 @@ export const FLOOR_ANCHORS = { next: "next", mine: "mine" } as const;
 export type FloorAnchor = (typeof FLOOR_ANCHORS)[keyof typeof FLOOR_ANCHORS];
 
 /** Height of the bar without the safe area, for spacers and toasts. */
-export const FLOOR_TAB_BAR_HEIGHT = "3.5rem";
+export const FLOOR_TAB_BAR_HEIGHT = "4rem";
 
 export function isFloorPath(pathname: string): boolean {
   return pathname === "/floor" || pathname.startsWith("/floor/");
@@ -55,8 +55,7 @@ function activeTab(pathname: string, hash: string, cameraOpen: boolean): TabId |
 }
 
 /**
- * Phone bottom bar on floor screens: Next job · Scan · My jobs · Lookup. Hidden from `md` up,
- * where the header already carries Scan and the launcher fits on screen.
+ * Persistent floor dock: reachable on a phone, an iPad in either orientation, or a workbench.
  */
 export function FloorTabBar() {
   const location = useLocation();
@@ -66,7 +65,7 @@ export function FloorTabBar() {
   if (!isFloorPath(location.pathname)) return null;
   const active = activeTab(location.pathname, location.hash, scanner.cameraOpen);
   // Only a camera that can open: none on the device, or access denied, goes to the scan field.
-  const camera = scanner.cameraSupported && !scanner.cameraBlocked;
+  const camera = scanner.inputMode !== "accessory" && scanner.cameraSupported && !scanner.cameraBlocked;
 
   function onScan() {
     if (camera) {
@@ -89,7 +88,7 @@ export function FloorTabBar() {
 
   const itemClass = (on: boolean) =>
     cn(
-      "relative flex h-14 w-full flex-col items-center justify-center gap-0.5 text-[11px] font-medium outline-none transition-colors",
+      "relative flex h-16 w-full touch-manipulation flex-col items-center justify-center gap-0.5 text-xs font-medium outline-none transition-colors sm:flex-row sm:gap-2 sm:text-sm",
       "focus-visible:bg-muted focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50",
       on ? "text-primary" : "text-muted-foreground hover:text-foreground",
     );
@@ -98,9 +97,9 @@ export function FloorTabBar() {
     <nav
       aria-label="Floor"
       data-slot="floor-tab-bar"
-      className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur supports-[backdrop-filter]:bg-background/85 md:hidden print:hidden"
+      className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur supports-[backdrop-filter]:bg-background/85 print:hidden"
     >
-      <ul className="mx-auto grid max-w-lg grid-cols-4">
+      <ul className="mx-auto grid max-w-3xl grid-cols-4">
         {TABS.map((tab) => {
           const on = active === tab.id;
           const indicator = on ? (

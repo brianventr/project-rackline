@@ -33,10 +33,11 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
       <div className={`flex min-h-0 flex-1 flex-col ${canvas ? "overflow-hidden" : "overflow-auto"}`}>
         <div className="@container/main flex min-h-0 flex-1 flex-col">
           <div
+            data-slot={floor ? "floor-content" : undefined}
             className={
               canvas
                 ? "flex min-h-0 flex-1 flex-col"
-                : `flex min-h-0 flex-1 flex-col gap-(--density-gap) px-(--page-pad-x) py-(--page-pad-y) print:p-0 ${floor ? "max-w-3xl mx-auto w-full print:max-w-none" : "mx-auto w-full max-w-[1600px]"}`
+                : `flex min-h-0 flex-1 flex-col gap-(--density-gap) px-(--page-pad-x) py-(--page-pad-y) print:p-0 ${floor ? "max-w-6xl mx-auto w-full print:max-w-none" : "mx-auto w-full max-w-[1600px]"}`
             }
           >
             {title ? (
@@ -48,10 +49,10 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
             ) : null}
             {children}
             {floor ? (
-              // Room for the phone tab bar so the last card is not hidden behind it.
+              // Keep the last card reachable above the floor dock at every screen width.
               <div
                 aria-hidden
-                className="shrink-0 md:hidden print:hidden"
+                className="shrink-0 print:hidden"
                 style={{ height: `calc(${FLOOR_TAB_BAR_HEIGHT} + env(safe-area-inset-bottom))` }}
               />
             ) : null}
@@ -68,7 +69,8 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
         {
           "--sidebar-width": floor ? "0px" : "16.25rem",
           "--sidebar-width-icon": "3rem",
-          "--header-height": "3.25rem",
+          "--header-height": floor ? "calc(4rem + env(safe-area-inset-top))" : "3.25rem",
+          "--floor-nav-height": FLOOR_TAB_BAR_HEIGHT,
         } as React.CSSProperties
       }
       className={`h-svh ${config.collapsible === "none" ? "sidebar-none-mode" : ""} ${floor ? "bg-background" : "bg-stage md:p-3"}`}
@@ -86,6 +88,9 @@ export function BaseLayout({ children, title, description }: BaseLayoutProps) {
       {floor ? <FloorTabBar /> : null}
       <TourMount />
       <Toaster
+        offset={
+          floor ? { bottom: `calc(${FLOOR_TAB_BAR_HEIGHT} + 1rem + env(safe-area-inset-bottom))` } : undefined
+        }
         mobileOffset={
           floor ? { bottom: `calc(${FLOOR_TAB_BAR_HEIGHT} + 1rem + env(safe-area-inset-bottom))` } : undefined
         }

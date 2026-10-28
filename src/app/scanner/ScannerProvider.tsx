@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { accumulateHidKey, type HidBufferState } from "@/domain/hid-buffer";
+import { nextScanTimestamp, parseScannerInputMode, type ScannerInputMode } from "@/domain/scanner-input";
 import {
   defaultScanPrefs,
   parseScanPrefs,
@@ -52,10 +53,14 @@ type ScannerContextValue = {
   cameraBlocked: boolean;
   prefs: ScanPrefs;
   setPrefs: (next: Partial<ScanPrefs>) => void;
+  /** A preference only: browsers cannot confirm a keyboard scanner is connected. */
+  inputMode: ScannerInputMode;
+  setInputMode: (next: ScannerInputMode) => void;
 };
 
 const ScannerContext = createContext<ScannerContextValue | null>(null);
 const PREFS_KEY = "rackline.scanPrefs";
+const INPUT_MODE_KEY = "rackline.scannerInputMode";
 const CAMERA_DEBOUNCE_MS = 800;
 
 function defaultPrefs(): ScanPrefs {
@@ -100,7 +105,8 @@ function playTone(ok: boolean, enabled: boolean) {
     gain.connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + 0.09);
-    void ctx.resume();
+    osc.onended = () => { void ctx.close().catch(() => undefined); };
+    void ctx.resume().catch(() => undefined);
   } catch {
     // Audio is optional feedback for gun scanners.
   }
@@ -115,6 +121,14 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
   const [prefs, setPrefsState] = useState<ScanPrefs>(() =>
     typeof window === "undefined" ? defaultPrefs() : loadPrefs(),
   );
+  const [inputMode, setInputModeState] = useState<ScannerInputMode>(() => {
+    try {
+      return parseScannerInputMode(typeof localStorage === "undefined" ? null : localStorage.getItem(INPUT_MODE_KEY));
+    } catch {
+      return "touch";
+    }
+  });
+  const lastScanAt = useRef(0);
   const hid = useRef<HidBufferState>({ buffer: "", lastKeyAt: 0 });
   const listeners = useRef(new Set<ScanHandler>());
   const feedbackListeners = useRef(new Set<FeedbackHandler>());
@@ -141,7 +155,8 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       }
       playTone(true, prefsRef.current.beep);
       lastHeardAt.current = Date.now();
-      publish({ raw: value, source, at: Date.now() });
+      lastScanAt.current = nextScanTimestamp(lastScanAt.current, Date.now());
+      publish({ raw: value, source, at: lastScanAt.current });
     },
     [publish],
   );
@@ -187,12 +202,21 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setInputMode = useCallback((next: ScannerInputMode) => {
+    setInputModeState(next);
+    try {
+      localStorage.setItem(INPUT_MODE_KEY, next);
+    } catch {
+      // The current session still works when storage is blocked.
+    }
+  }, []);
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       const inCapture = Boolean(target?.closest("[data-scan-capture]"));
       const inField =
-        target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || Boolean(target?.isContentEditable);
+        Boolean(target?.isContentEditable || target?.closest("input, textarea, select, [role='dialog']"));
       const result = accumulateHidKey(hid.current, {
         key: event.key,
         now: Date.now(),
@@ -201,6 +225,8 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
         ctrlKey: event.ctrlKey,
         metaKey: event.metaKey,
         altKey: event.altKey,
+        isComposing: event.isComposing,
+        repeat: event.repeat,
       });
       hid.current = result.state;
       if (result.action === "emit") {
@@ -285,6 +311,8 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       cameraBlocked,
       prefs,
       setPrefs,
+      inputMode,
+      setInputMode,
     }),
     [
       lastScan,
@@ -298,6 +326,8 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       cameraBlocked,
       prefs,
       setPrefs,
+      inputMode,
+      setInputMode,
     ],
   );
 

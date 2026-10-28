@@ -21,6 +21,7 @@ import {
   type TourViewer,
 } from "./diagrams";
 import { Key } from "./shared";
+import { OwnerSetupOffer } from "./OwnerSetupOffer";
 
 /**
  * "How Rackline works": one dialog, mounted once in the app shell, that opens when anything calls
@@ -36,7 +37,7 @@ export function TourDialog() {
 const ARROW_OWNERS =
   "input, textarea, select, [contenteditable=''], [contenteditable='true'], [role='radiogroup'], [role='tablist'], [role='listbox'], [role='menu'], [role='slider'], [role='combobox'], [data-arrow-keys]";
 
-const FOOT_BUTTON = "h-11 sm:h-9";
+const FOOT_BUTTON = "h-11";
 
 function OpenTour({ requested, nonce }: { requested: TourStepId | null; nonce: number }) {
   const me = useSession();
@@ -58,6 +59,7 @@ function OpenTour({ requested, nonce }: { requested: TourStepId | null; nonce: n
   const current = Math.max(0, Math.min(index, steps.length - 1));
   const step = steps[current];
   const last = current === steps.length - 1;
+  const setupOffer = viewer.owner && step?.id === "welcome";
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -118,11 +120,12 @@ function OpenTour({ requested, nonce }: { requested: TourStepId | null; nonce: n
       }}
     >
       <DialogContent
-        className="gap-0 overflow-hidden p-0 sm:max-w-3xl"
+        className="gap-0 overflow-hidden p-0 sm:max-w-5xl"
         onKeyDown={onKeyDown}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
-          primaryRef.current?.focus();
+          const start = wrapperRef.current?.querySelector<HTMLButtonElement>("[data-quick-setup]");
+          (start ?? primaryRef.current)?.focus({ preventScroll: true });
         }}
       >
         <div ref={wrapperRef} className="flex max-h-[80vh] flex-col md:flex-row">
@@ -161,7 +164,7 @@ function OpenTour({ requested, nonce }: { requested: TourStepId | null; nonce: n
               <div className="min-w-0">
                 {last ? null : (
                   <Button type="button" variant="ghost" className={cn(FOOT_BUTTON, "text-muted-foreground")} onClick={finish}>
-                    Skip tour
+                    {setupOffer ? "Maybe later" : "Skip tour"}
                   </Button>
                 )}
               </div>
@@ -185,7 +188,7 @@ function OpenTour({ requested, nonce }: { requested: TourStepId | null; nonce: n
                     "Done"
                   ) : (
                     <>
-                      Next
+                      {setupOffer ? "Take the tour" : "Next"}
                       <ArrowRight />
                     </>
                   )}
@@ -218,7 +221,7 @@ function StepRail({ steps, current, onSelect }: { steps: TourStep[]; current: nu
                 aria-current={active ? "step" : undefined}
                 onClick={() => onSelect(index)}
                 className={cn(
-                  "flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left outline-none motion-safe:transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                  "flex min-h-11 w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left outline-none motion-safe:transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50",
                   active ? "bg-primary/5 ring-1 ring-primary/20" : "hover:bg-muted",
                 )}
               >
@@ -302,7 +305,7 @@ function StepPicture({
 }) {
   switch (step.id) {
     case "welcome":
-      return <WelcomeDiagram />;
+      return viewer.owner ? <OwnerSetupOffer onNavigate={go} /> : <WelcomeDiagram />;
     case "hierarchy":
       return <HierarchyDiagram viewer={viewer} onNavigate={go} />;
     case "flow":
@@ -372,6 +375,10 @@ function FinishActions({
         </Button>
       ) : null}
       <SampleDataButton size="default" className={FOOT_BUTTON} onLoaded={finish} />
+      <Button type="button" variant="outline" className={FOOT_BUTTON} onClick={() => go("/setup/start")}>
+        <ListChecks />
+        Open launch guide
+      </Button>
       {allowed("/today") ? (
         <Button
           type="button"

@@ -12,12 +12,14 @@ import type { TargetTone } from "@/app/components/rack-locator/reticle";
 import { HierarchyTree } from "@/app/components/setup-wizard/HierarchyTree";
 import { LivePanel, type RackPreviewShape } from "@/app/components/setup-wizard/LivePanel";
 import { SetupStepper, type StepStatus } from "@/app/components/setup-wizard/Stepper";
-import { AreaStep, BuildingStep, LevelLesson, RacksStep, ReviewIssues } from "@/app/components/setup-wizard/steps";
+import { AreaStep, BuildingStep, LevelLesson, NamingChoice, OverviewStep, RacksStep, ReviewIssues } from "@/app/components/setup-wizard/steps";
+import { TeamStep } from "@/app/components/setup-wizard/TeamStep";
 import { runSetupRequests, type CreateProgress } from "@/app/components/setup-wizard/create";
 import { useMinWidth } from "@/app/components/setup-wizard/use-min-width";
 import { apiKey, queryClient, refreshApi, useApiQuery } from "@/app/query";
 import { openTour } from "@/app/tour";
 import { useOperatingMode } from "@/app/use-operating-mode";
+import { useRefreshSession, useSession } from "@/app/session";
 import { OwnerOnly, useWarehouse } from "@/app/warehouse";
 import { buildHierarchyTree, describeHierarchy, parseBinCode, summarizeHierarchy } from "@/domain/hierarchy";
 import { normalizeRack, padBay } from "@/domain/rack-builder";
@@ -31,17 +33,21 @@ import {
   mergeSetupInput,
   nextSetupStep,
   pendingSlotRoles,
+  parseSetupDraft,
   plannedHierarchy,
   planSetup,
   previewRackCodes,
   previousSetupStep,
   setupStep,
+  setupDraftKey,
   stepIncluded,
   summarizeCompleted,
   withCarriedRequests,
+  useAutomaticSetupCodes,
   type ExistingBin,
   type PlannedBin,
   type SetupInput,
+  type SetupNamingMode,
   type SetupRequest,
   type SetupStepId,
 } from "@/domain/setup-wizard";
@@ -94,10 +100,12 @@ export function WelcomePage() {
 type Phase = "edit" | "creating" | "done";
 
 function WelcomeWizard() {
+  const refreshSession = useRefreshSession();
+  const me = useSession();
   const { warehouseId } = useWarehouse();
   const { garage } = useOperatingMode();
   const [params] = useSearchParams();
-  const wide = useMinWidth(768);
+  const wide = useMinWidth(1280);
   const mapPath = warehouseId ? `/api/map?warehouseId=${encodeURIComponent(warehouseId)}` : null;
   const map = useApiQuery<WarehouseMapData>(mapPath);
   const data = map.data;
@@ -109,7 +117,9 @@ function WelcomeWizard() {
     [orgLocations.data, warehouseId],
   );
 
-  const [step, setStep] = useState<SetupStepId>(() => (isStepId(params.get("step")) ? (params.get("step") as SetupStepId) : "building"));
+  const [step, setStep] = useState<SetupStepId>(() => (isStepId(params.get("step")) ? (params.get("step") as SetupStepId) : "overview"));
+  const [naming, setNaming] = useState<SetupNamingMode>("automatic");
+  const [restored, setRestored] = useState(false);
   const [input, setInput] = useState<SetupInput | null>(null);
   const [inputFor, setInputFor] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("edit");
@@ -120,17 +130,43 @@ function WelcomeWizard() {
   const [carried, setCarried] = useState<SetupRequest[]>([]);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const zone = useMemo(browserTimeZone, []);
+  const draftKey = warehouseId ? setupDraftKey(me.organization.id, warehouseId) : null;
+  const draftLayoutCodes = useRef<string[]>([]);
 
   // One SetupInput per warehouse: built when its map (and the org's codes) first load, kept through refetches.
   useEffect(() => {
     if (!data || !orgReady || !warehouseId || inputFor === warehouseId) return;
-    setInput(defaultSetupInput({ warehouse: data.warehouse, existing: data.locations, garage, browserTimeZone: zone, takenCodes }));
+    const suggestions = defaultSetupInput({ warehouse: data.warehouse, existing: data.locations, garage, browserTimeZone: zone, takenCodes });
+    let draft = null;
+    try {
+      draft = draftKey ? parseSetupDraft(localStorage.getItem(draftKey), data.locations.map((location) => location.code)) : null;
+    } catch {
+      // Browser storage is optional; the wizard works for this visit without it.
+    }
+    setInput(draft?.input ?? suggestions);
+    setNaming(draft?.naming ?? "automatic");
+    setRestored(Boolean(draft));
+    setStep(isStepId(params.get("step")) ? params.get("step") as SetupStepId : draft?.step ?? "overview");
+    draftLayoutCodes.current = data.locations.map((location) => location.code);
     setInputFor(warehouseId);
     setPhase("edit");
     setCreateError(null);
     setCreatedSoFar([]);
     setCarried([]);
-  }, [data, orgReady, warehouseId, inputFor, garage, zone, takenCodes]);
+  }, [data, orgReady, warehouseId, inputFor, garage, zone, takenCodes, draftKey, params]);
+
+  useEffect(() => {
+    if (!draftKey || !input || inputFor !== warehouseId) return;
+    try {
+      if (phase !== "edit") {
+        localStorage.removeItem(draftKey);
+        return;
+      }
+      localStorage.setItem(draftKey, JSON.stringify({ version: 1, step, naming, input, layoutCodes: draftLayoutCodes.current }));
+    } catch {
+      // Never block setup because local draft storage is unavailable.
+    }
+  }, [draftKey, input, inputFor, warehouseId, phase, step, naming]);
 
   const existing: ExistingBin[] = data?.locations ?? NO_BINS;
   const plan = useMemo(
@@ -194,6 +230,14 @@ function WelcomeWizard() {
     window.requestAnimationFrame(() => headingRef.current?.focus({ preventScroll: false }));
   }
 
+  function chooseNaming(next: SetupNamingMode) {
+    setNaming(next);
+    if (next === "automatic" && input && data) {
+      const suggestions = defaultSetupInput({ warehouse: data.warehouse, existing: data.locations, garage, browserTimeZone: zone, takenCodes });
+      setInput(useAutomaticSetupCodes(input, suggestions));
+    }
+  }
+
   async function create() {
     if (!plan || !data || !input || !warehouseId || !mapPath || !requests.length) return;
     setPhase("creating");
@@ -205,6 +249,8 @@ function WelcomeWizard() {
     try {
       await runSetupRequests({ warehouseId, requests, existing: data.locations, created, completed, onProgress: setProgress });
       await refreshApi();
+      // The layout is already saved; a header refresh failure must not retry its writes.
+      await refreshSession().catch(() => undefined);
       toast.success(description ? `Created ${description}.` : "Building saved.");
       setCreatedSoFar([]);
       setCarried([]);
@@ -244,10 +290,13 @@ function WelcomeWizard() {
   const header = (
     <PageHeader
       eyebrow="Getting started"
-      title="Set up your building"
-      description="Name the building, then add the places stock passes through. The map draws itself as you go."
+      title="Quick setup"
+      description="Start with your people and building. Rackline gives every bay an address and barcode as you add it."
       actions={
         <>
+          <UiButton asChild variant="outline" size="sm">
+            <Link to="/setup/start">Launch guide</Link>
+          </UiButton>
           <UiButton asChild variant="outline" size="sm">
             <Link to="/map?edit=1">
               <Hammer />
@@ -296,9 +345,9 @@ function WelcomeWizard() {
     return (
       <div className="space-y-(--density-gap)">
         {header}
-        <div className="grid gap-(--density-gap) lg:grid-cols-[13rem_minmax(0,1fr)]">
-          <Skeleton className="h-12 w-full rounded-lg lg:h-80" />
-          <div className="grid gap-(--density-gap) md:grid-cols-[minmax(0,1fr)_minmax(0,19rem)]">
+        <div className="grid gap-(--density-gap) xl:grid-cols-[13rem_minmax(0,1fr)]">
+          <Skeleton className="h-12 w-full rounded-lg xl:h-80" />
+          <div className="grid gap-(--density-gap) xl:grid-cols-[minmax(0,1fr)_minmax(0,19rem)]">
             <Skeleton className="h-96 w-full rounded-lg" />
             <Skeleton className="h-64 w-full rounded-lg" />
           </div>
@@ -320,11 +369,11 @@ function WelcomeWizard() {
             </span>
             <div className="min-w-0">
               <h2 ref={headingRef} tabIndex={-1} className="text-lg font-semibold outline-none">
-                {data.warehouse.name} is set up
+                {data.warehouse.name}: layout created
               </h2>
               <p className="text-sm text-muted-foreground">
                 {summary ? `${summary}.` : "No bins yet. Build floor on the map can add them any time."} Every bin is a
-                barcode, so the next step is to print labels and stick them on.
+                barcode. Position the racks to match the real building, then print labels and stick them on before receiving stock.
               </p>
             </div>
           </div>
@@ -336,9 +385,9 @@ function WelcomeWizard() {
               </Link>
             </UiButton>
             <UiButton asChild variant="outline">
-              <Link to="/map">
+              <Link to="/map?edit=1">
                 <MapIcon />
-                Open the map
+                Position racks and bays
               </Link>
             </UiButton>
             <UiButton asChild variant="outline">
@@ -348,9 +397,12 @@ function WelcomeWizard() {
               </Link>
             </UiButton>
             <UiButton asChild variant="ghost">
-              <Link to="/today#getting-started">Back to Today</Link>
+              <Link to="/setup/start">Continue launch guide</Link>
             </UiButton>
           </div>
+          <p className="text-sm text-muted-foreground">
+            Invite people and set their allowed floor tasks under <Link to="/setup/team" className="font-medium text-primary underline underline-offset-4">Team</Link>. Add more buildings under <Link to="/setup/warehouse" className="font-medium text-primary underline underline-offset-4">Warehouse settings</Link> when needed.
+          </p>
           <p className="text-sm text-muted-foreground">
             New to the words?{" "}
             <button
@@ -388,9 +440,16 @@ function WelcomeWizard() {
   return (
     <div className="space-y-(--density-gap)">
       {header}
-      <div className="grid gap-(--density-gap) lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-start">
+      {!wide ? (
+        <div className="rounded-xl border bg-primary/5 p-3 text-sm">
+          <span className="font-semibold">A laptop or desktop is recommended for setup.</span>{" "}
+          Use the larger screen for your team, layout, and catalog; tablets and phones are ideal for floor scanning afterward.
+        </div>
+      ) : null}
+      {restored ? <p className="text-xs text-muted-foreground" role="status">Your layout draft was restored from this browser. Teammate passwords and invitations are never saved in the draft.</p> : null}
+      <div className="grid gap-(--density-gap) xl:grid-cols-[13rem_minmax(0,1fr)] xl:items-start">
         <SetupStepper current={step} status={status} onSelect={goTo} disabled={busy} />
-        <div className="grid gap-(--density-gap) md:grid-cols-[minmax(0,1fr)_minmax(0,19rem)] md:items-start xl:grid-cols-[minmax(0,1fr)_minmax(0,23rem)]">
+        <div className="grid gap-(--density-gap) xl:grid-cols-[minmax(0,1fr)_minmax(0,19rem)] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_minmax(0,23rem)]">
           <Card className="space-y-4">
             <div>
               <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -402,7 +461,18 @@ function WelcomeWizard() {
               <p className="text-sm text-muted-foreground">{current.title}</p>
             </div>
 
-            {step === "building" ? (
+            {(step === "dock" || step === "racks" || step === "bench" || step === "ship") ? (
+              <details className="rounded-lg border p-3">
+                <summary className="min-h-6 cursor-pointer text-sm font-medium">Bay naming: {naming === "automatic" ? "Rackline automatic" : "Your floor labels"}</summary>
+                <div className="mt-3"><NamingChoice value={naming} onChange={chooseNaming} /></div>
+              </details>
+            ) : null}
+
+            {step === "overview" ? (
+              <OverviewStep naming={naming} onNamingChange={chooseNaming} />
+            ) : step === "team" ? (
+              <TeamStep />
+            ) : step === "building" ? (
               <BuildingStep
                 value={input.building}
                 onChange={(building) => setInput({ ...input, building })}
@@ -417,6 +487,7 @@ function WelcomeWizard() {
                 onChange={(dock) => setInput({ ...input, dock })}
                 issues={stepIssues}
                 existing={existing}
+                naming={naming}
               />
             ) : step === "racks" ? (
               <RacksStep
@@ -425,6 +496,7 @@ function WelcomeWizard() {
                 issues={stepIssues}
                 existing={existing}
                 codes={rackCodes}
+                naming={naming}
               />
             ) : step === "bench" ? (
               <AreaStep
@@ -433,6 +505,7 @@ function WelcomeWizard() {
                 onChange={(bench) => setInput({ ...input, bench })}
                 issues={stepIssues}
                 existing={existing}
+                naming={naming}
               />
             ) : step === "ship" ? (
               <AreaStep
@@ -441,12 +514,13 @@ function WelcomeWizard() {
                 onChange={(ship) => setInput({ ...input, ship })}
                 issues={stepIssues}
                 existing={existing}
+                naming={naming}
               />
             ) : (
               <div className="space-y-4">
                 <LevelLesson
                   ids={[]}
-                  intro="Read the tree top to bottom: that is the address of every bin. Nothing is created until you press Create."
+                  intro="Read the tree top to bottom: that is the address of every bin. Create saves only the building layout below. Teammates are added only when you explicitly submit their form."
                 />
                 <div className="rounded-lg border bg-primary/5 p-3">
                   {plan.description || carried.length ? (
@@ -519,18 +593,20 @@ function WelcomeWizard() {
             )}
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-              <Button variant="outline" onClick={() => goTo(previous)} disabled={!previous || busy}>
+              <Button variant="outline" className="min-h-11" onClick={() => goTo(previous)} disabled={!previous || busy}>
                 <ArrowLeft className="size-4" />
                 Back
               </Button>
               {step === "review" ? (
-                <Button onClick={() => void create()} disabled={busy || plan.issues.length > 0 || nothingToCreate}>
+                nothingToCreate ? (
+                  <UiButton asChild className="min-h-11"><Link to="/setup/start">Continue with existing layout<ArrowRight className="size-4" /></Link></UiButton>
+                ) : <Button className="min-h-11" onClick={() => void create()} disabled={busy || plan.issues.length > 0}>
                   {busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
-                  {busy ? "Creating…" : createError ? "Try again" : "Create"}
+                  {busy ? "Creating…" : createError ? "Try again" : "Create building layout"}
                 </Button>
               ) : (
-                <Button onClick={() => goTo(next)} disabled={!next}>
-                  Next
+                <Button className="min-h-11" onClick={() => goTo(next)} disabled={!next || busy}>
+                  {step === "overview" ? "Start quick setup" : step === "team" ? "Continue setup" : "Next"}
                   <ArrowRight className="size-4" />
                 </Button>
               )}
@@ -538,7 +614,7 @@ function WelcomeWizard() {
           </Card>
 
           {wide ? (
-            <aside aria-label="Live picture" className={cn("rounded-lg border bg-card p-(--density-gap) md:sticky md:top-2")}>
+            <aside aria-label="Live picture" className={cn("rounded-lg border bg-card p-(--density-gap) xl:sticky xl:top-2")}>
               {panel}
             </aside>
           ) : (

@@ -92,13 +92,16 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
   return (
     <header
       data-slot="site-header"
-      className="sticky top-0 z-20 flex h-(--header-height) shrink-0 items-center gap-2 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75 print:hidden"
+      className={cn(
+        "sticky top-0 z-20 flex h-(--header-height) shrink-0 items-center gap-2 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75 print:hidden",
+        onFloor && "pt-[env(safe-area-inset-top)]",
+      )}
     >
-      <div className="flex w-full min-w-0 items-center gap-1.5 px-3">
+      <div className={cn("flex w-full min-w-0 items-center gap-1.5 px-3", onFloor && "floor-header-content gap-2")}>
         {onFloor ? (
-          <Link to="/floor" className="flex items-center gap-2 text-sm font-semibold">
-            <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <ScanLine className="size-4" />
+          <Link to="/floor" className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg pr-1 text-sm font-semibold outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50" aria-label="Floor home">
+            <span className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+              <ScanLine className="size-5" />
             </span>
             <span className="hidden sm:inline">Floor</span>
           </Link>
@@ -106,37 +109,43 @@ export function SiteHeader({ floor }: { floor?: boolean }) {
           <SidebarTrigger className="-ml-1 size-8" />
         )}
         <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-5" />
-        <WarehouseSwitcher />
-        <div className="hidden md:block">
-          <GarageModeSwitch />
-        </div>
-        <div className="ml-auto flex items-center gap-1.5">
-          <div className="hidden sm:block">
-            <WorkspaceToggle onFloor={onFloor} />
+        <WarehouseSwitcher floor={onFloor} />
+        {onFloor ? null : (
+          <div className="hidden md:block">
+            <GarageModeSwitch />
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="hidden min-w-44 justify-start gap-2 font-normal text-muted-foreground md:inline-flex"
-            onClick={() => setSearchOpen(true)}
-          >
-            <Search className="size-4" />
-            <span>Search or jump to…</span>
-            <kbd className="ml-auto rounded border bg-muted px-1 font-mono text-[10px] text-muted-foreground">
-              {mac ? "⌘K" : "Ctrl K"}
-            </kbd>
-          </Button>
-          <Button variant="outline" size="icon" className="size-8 md:hidden" onClick={() => setSearchOpen(true)} aria-label="Search">
-            <Search className="size-4" />
-          </Button>
-          {scanner.cameraSupported ? (
-            <Button variant="outline" size="sm" className="h-8" onClick={() => scanner.openCamera()} aria-label="Scan with camera">
-              <ScanLine className="size-4" />
-              <span className="hidden lg:inline">Scan</span>
-            </Button>
-          ) : null}
-          <DisplayMenu onFloor={onFloor} onShowShortcuts={() => setShortcutsOpen(true)} />
-          <MysteryButton />
+        )}
+        <div className="ml-auto flex items-center gap-1.5">
+          {onFloor ? null : (
+            <>
+              <div className="hidden sm:block">
+                <WorkspaceToggle onFloor={onFloor} />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="hidden min-w-44 justify-start gap-2 font-normal text-muted-foreground md:inline-flex"
+                onClick={() => setSearchOpen(true)}
+              >
+                <Search className="size-4" />
+                <span>Search or jump to…</span>
+                <kbd className="ml-auto rounded border bg-muted px-1 font-mono text-[10px] text-muted-foreground">
+                  {mac ? "⌘K" : "Ctrl K"}
+                </kbd>
+              </Button>
+              <Button variant="outline" size="icon" className="size-8 md:hidden" onClick={() => setSearchOpen(true)} aria-label="Search">
+                <Search className="size-4" />
+              </Button>
+              {scanner.cameraSupported ? (
+                <Button variant="outline" size="sm" className="h-8" onClick={() => scanner.openCamera()} aria-label="Scan with camera">
+                  <ScanLine className="size-4" />
+                  <span className="hidden lg:inline">Scan</span>
+                </Button>
+              ) : null}
+            </>
+          )}
+          <DisplayMenu onFloor={onFloor} onSearch={() => setSearchOpen(true)} onShowShortcuts={() => setShortcutsOpen(true)} />
+          {onFloor ? null : <MysteryButton />}
         </div>
       </div>
       <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} onShowShortcuts={() => setShortcutsOpen(true)} />
@@ -174,7 +183,7 @@ function WorkspaceToggle({ onFloor }: { onFloor: boolean }) {
   );
 }
 
-function WarehouseSwitcher() {
+function WarehouseSwitcher({ floor = false }: { floor?: boolean }) {
   const warehouse = useWarehouse();
   if (warehouse.warehouses.length <= 1) {
     return (
@@ -187,13 +196,13 @@ function WarehouseSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-8 min-w-0 max-w-48 gap-1.5 px-2 font-medium" aria-label="Switch warehouse">
+        <Button variant="ghost" size="sm" className={cn("h-8 min-w-0 max-w-48 gap-1.5 px-2 font-medium", floor && "h-11 max-w-[min(55vw,22rem)] text-base")} aria-label="Switch warehouse">
           <Warehouse className="size-4 shrink-0 text-muted-foreground" />
           <span className="truncate">{warehouse.warehouse?.name ?? "Warehouse"}</span>
           <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-52">
+      <DropdownMenuContent align="start" className="min-w-52" data-floor-menu={floor ? "" : undefined}>
         <DropdownMenuLabel>Warehouse</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={warehouse.warehouseId} onValueChange={(id) => warehouse.setWarehouseId(id)}>
           {warehouse.warehouses.map((row) => (
@@ -208,7 +217,7 @@ function WarehouseSwitcher() {
 }
 
 /** Theme, density, and on small screens the controls that do not fit in the bar. */
-function DisplayMenu({ onFloor, onShowShortcuts }: { onFloor: boolean; onShowShortcuts: () => void }) {
+function DisplayMenu({ onFloor, onSearch, onShowShortcuts }: { onFloor: boolean; onSearch: () => void; onShowShortcuts: () => void }) {
   const { theme, setTheme } = useTheme();
   const [density, setDensity] = useDensity();
   const me = useSession();
@@ -227,12 +236,21 @@ function DisplayMenu({ onFloor, onShowShortcuts }: { onFloor: boolean; onShowSho
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="icon" className="size-8" aria-label="Display and more">
+        <Button variant="outline" size="icon" className={cn("size-8", onFloor && "size-11")} aria-label="Display and more">
           <SlidersHorizontal className="size-4" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-60">
-        <div className="sm:hidden">
+      <DropdownMenuContent align="end" className="w-60" data-floor-menu={onFloor ? "" : undefined}>
+        {onFloor ? (
+          <>
+            <DropdownMenuItem onSelect={() => window.setTimeout(onSearch, 0)}>
+              <Search />
+              Search or jump to…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
+        <div className={onFloor ? undefined : "sm:hidden"}>
           <DropdownMenuLabel>Workspace</DropdownMenuLabel>
           <DropdownMenuItem onSelect={() => navigate(onFloor ? (homePath(me.role, me.organization.operatingMode) === "/floor" ? "/today" : homePath(me.role, me.organization.operatingMode)) : "/floor")}>
             {onFloor ? <LayoutDashboard /> : <ScanLine />}
@@ -241,7 +259,7 @@ function DisplayMenu({ onFloor, onShowShortcuts }: { onFloor: boolean; onShowSho
           <DropdownMenuSeparator />
         </div>
         {owner ? (
-          <div className="md:hidden">
+          <div className={onFloor ? undefined : "md:hidden"}>
             <DropdownMenuItem disabled={busy} onSelect={() => void switchMode()}>
               <Factory />
               {garage ? `Switch to ${MANUFACTURER_MODE_LABEL}` : `Switch to ${GARAGE_MODE_LABEL}`}

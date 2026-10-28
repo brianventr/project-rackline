@@ -27,7 +27,7 @@ import {
 import { describeHierarchy, summarizeHierarchy, type HierarchyLocation } from "./hierarchy";
 import { isValidTimeZone } from "./time-zone";
 
-export type SetupStepId = "building" | "dock" | "racks" | "ship" | "bench" | "review";
+export type SetupStepId = "overview" | "building" | "team" | "dock" | "racks" | "ship" | "bench" | "review";
 
 export type SetupStep = {
   id: SetupStepId;
@@ -39,7 +39,9 @@ export type SetupStep = {
 };
 
 export const SETUP_STEPS: readonly SetupStep[] = [
+  { id: "overview", title: "Start here", teaches: "The essentials", question: "What does your first setup need?" },
   { id: "building", title: "Your building", teaches: "Warehouse", question: "What is this place called?" },
+  { id: "team", title: "Your people", teaches: "Accounts · assignments", question: "Who will do the work?" },
   { id: "dock", title: "Where stock arrives", teaches: "Dock", question: "Where do boxes land?" },
   { id: "racks", title: "Where stock lives", teaches: "Aisle · rack · bay · level", question: "What do the shelves look like?" },
   { id: "bench", title: "Where things get built", teaches: "Bench", question: "Do you assemble anything?" },
@@ -85,6 +87,58 @@ export type SetupInput = {
   bench: SetupAreaInput;
   ship: SetupAreaInput;
 };
+
+export type SetupNamingMode = "automatic" | "custom";
+
+/** Return to collision-aware suggestions without changing rack shape, names, or chosen steps. */
+export function useAutomaticSetupCodes(input: SetupInput, suggestions: SetupInput): SetupInput {
+  return {
+    ...input,
+    dock: { ...input.dock, code: suggestions.dock.code },
+    racks: { ...input.racks, aisle: suggestions.racks.aisle },
+    bench: { ...input.bench, code: suggestions.bench.code },
+    ship: { ...input.ship, code: suggestions.ship.code },
+  };
+}
+
+/** Only layout settings are saved. Team invitations and passwords never belong in this draft. */
+export type SetupDraft = { version: 1; step: SetupStepId; naming: SetupNamingMode; input: SetupInput; layoutCodes: string[] };
+
+export function setupDraftKey(organizationId: string, warehouseId: string): string {
+  return `rackline.setup-layout:${organizationId}:${warehouseId}:v1`;
+}
+
+/** Ignore an old plan once the saved layout changes, including a partially completed Create. */
+export function parseSetupDraft(raw: string | null, currentCodes: readonly string[]): SetupDraft | null {
+  if (!raw) return null;
+  try {
+    const draft = JSON.parse(raw) as SetupDraft;
+    if (draft.version !== 1 || !SETUP_STEP_IDS.includes(draft.step) || !["automatic", "custom"].includes(draft.naming)) return null;
+    if (!Array.isArray(draft.layoutCodes) || !draft.layoutCodes.every((code) => typeof code === "string")) return null;
+    if ([...draft.layoutCodes].sort().join("\n") !== [...currentCodes].sort().join("\n")) return null;
+    const input = draft.input;
+    if (!input || typeof input.building?.name !== "string" || typeof input.building?.timeZone !== "string") return null;
+    for (const area of [input.dock, input.bench, input.ship]) {
+      if (!area || typeof area.include !== "boolean" || typeof area.code !== "string" || typeof area.name !== "string") return null;
+    }
+    const racks = input.racks;
+    if (!racks || typeof racks.include !== "boolean" || typeof racks.aisle !== "string" || typeof racks.pickFaces !== "boolean") return null;
+    if (![racks.racks, racks.bays, racks.levels].every((value) => typeof value === "string" || typeof value === "number")) return null;
+    // Rebuild the supported shape instead of retaining unexpected properties from local storage.
+    return {
+      version: 1, step: draft.step, naming: draft.naming, layoutCodes: [...draft.layoutCodes],
+      input: {
+        building: { name: input.building.name, timeZone: input.building.timeZone },
+        dock: { include: input.dock.include, code: input.dock.code, name: input.dock.name },
+        racks: { include: racks.include, aisle: racks.aisle, racks: racks.racks, bays: racks.bays, levels: racks.levels, pickFaces: racks.pickFaces },
+        bench: { include: input.bench.include, code: input.bench.code, name: input.bench.name },
+        ship: { include: input.ship.include, code: input.ship.code, name: input.ship.name },
+      },
+    };
+  } catch {
+    return null;
+  }
+}
 
 /** A bin that already exists in the warehouse, as `GET /api/map` or `GET /api/locations` returns it. */
 export type ExistingBin = LocationLike & { id: string; code: string; slotRole?: string | null; name?: string };
@@ -456,6 +510,8 @@ export function existingHierarchy(existing: ExistingBin[]): HierarchyLocation[] 
 /** Whether a step adds anything, for the stepper's ticks. */
 export function stepIncluded(input: SetupInput, step: SetupStepId): boolean {
   switch (step) {
+    case "overview":
+    case "team":
     case "building":
     case "review":
       return true;
